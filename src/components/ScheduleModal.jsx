@@ -1,18 +1,17 @@
 // ============================================
-// JUC-E V4 - ScheduleModal Component
+// Overwatch V3 - ScheduleModal Component
 // ============================================
 // Schedule or tentatively assign jobs to techs
-// - Pick lead tech + optional helper
-// - See existing scheduled/tentative blocks
-// - Pick date (week view with availability)
-// - Pick time
-// - Tentative = assign without changing status
+// - Checks REAL Google Calendar availability
+// - Shows actual conflicts from GCal events
+// - Shana removed (no longer on team)
+// - "Day is open" only shows when GCal confirms it
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { assignmentsApi, jobsApi, techsApi, notesApi, JOB_STATUS, queries } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { INSTALL_TYPES } from '../utils/statusMachine.js';
-import { TECH_COLORS } from '../config/calendars.js';
+import { TECH_COLORS, CALENDARS } from '../config/calendars.js';
 import { scheduleToTechCalendar } from '../services/calendarSync.js';
 
 const TIME_SLOTS = [
@@ -20,6 +19,16 @@ const TIME_SLOTS = [
   '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM',
   '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM', '5:00 PM'
 ];
+
+// Active techs only — Shana no longer on team
+const ACTIVE_TECHS = ['Austin', 'JR', 'Trevor'];
+
+// Map tech name → Google Calendar ID for freebusy queries
+const TECH_GCAL_ID = {
+  'Austin':  CALENDARS.DRH_TECH_1,
+  'JR':      CALENDARS.JR_APPOINTMENT,
+  'Trevor':  null, // Trevor doesn't have a dedicated GCal yet — fall back to Supabase only
+};
 
 const getWeekDates = (offset = 0) => {
   const today = new Date();
@@ -46,6 +55,79 @@ const formatTimeShort = (dateStr) => {
   return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 };
 
+// Format a Google Calendar event time range
+const formatGCalTime = (start, end) => {
+  const s = new Date(start.dateTime || start.date);
+  const e = new Date(end.dateTime || end.date);
+  if (start.date) return 'All day';
+  return `${s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${e.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+};
+
+// Fetch Google Calendar events for a tech on a specific day
+async function fetchGCalEvents(accessToken, calendarId, date) {
+  if (!accessToken || !calendarId) return null;
+  try {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+
+    const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`);
+    url.searchParams.set('timeMin', start.toISOString());
+    url.searchParams.set('timeMax', end.toISOString());
+    url.searchParams.set('singleEvents', 'true');
+    url.searchParams.set('orderBy', 'startTime');
+    url.searchParams.set('maxResults', '20');
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.items || [];
+  } catch (e) {
+    console.warn('GCal fetch failed:', e);
+    return null;
+  }
+}
+
+// Count busy hours from GCal events (to show load indicator on day buttons)
+async function fetchGCalBusyCount(accessToken, calendarId, weekDates) {
+  if (!accessToken || !calendarId) return {};
+  try {
+    const timeMin = new Date(weekDates[0]);
+    timeMin.setHours(0, 0, 0, 0);
+    const timeMax = new Date(weekDates[weekDates.length - 1]);
+    timeMax.setHours(23, 59, 59, 999);
+
+    const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        items: [{ id: calendarId }]
+      })
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const busy = data.calendars?.[calendarId]?.busy || [];
+
+    // Count busy blocks per day
+    const counts = {};
+    busy.forEach(block => {
+      const day = new Date(block.start).toISOString().split('T')[0];
+      counts[day] = (counts[day] || 0) + 1;
+    });
+    return counts;
+  } catch (e) {
+    return {};
+  }
+}
+
 export default function ScheduleModal({ job, onClose, onScheduled, userEmail, userRole, accessToken }) {
   const [techs, setTechs] = useState([]);
   const [selectedTech, setSelectedTech] = useState(null);
@@ -56,14 +138,20 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
   const [isTentative, setIsTentative] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  
-  // Availability data
+
+  // Supabase job data
   const [allJobs, setAllJobs] = useState([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
 
+  // Google Calendar data
+  const [gcalEvents, setGcalEvents] = useState(null);       // events for selected tech+day
+  const [gcalLoading, setGcalLoading] = useState(false);
+  const [gcalBusyCounts, setGcalBusyCounts] = useState({}); // { 'YYYY-MM-DD': count }
+  const [gcalBusyLoading, setGcalBusyLoading] = useState(false);
+
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
 
-  // Load techs and all scheduled jobs
+  // Load techs and all scheduled jobs from Supabase
   useEffect(() => {
     const loadData = async () => {
       setIsLoadingJobs(true);
@@ -72,9 +160,9 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
           techsApi.getAll(),
           queries.getAllOpenJobsWithTech()
         ]);
-        setTechs(techList.filter(t => t.name !== 'Sara'));
+        // Filter to active techs only (no Shana, no Sara)
+        setTechs(techList.filter(t => ACTIVE_TECHS.includes(t.name)));
         setAllJobs(jobs);
-        console.log('ScheduleModal loaded jobs:', jobs.filter(j => j._scheduled_for).length, 'with schedules');
       } catch (e) {
         console.error('Load error:', e);
       } finally {
@@ -82,7 +170,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
       }
     };
     loadData();
-    
+
     // Default to today if weekday
     const today = new Date();
     if (today.getDay() >= 1 && today.getDay() <= 6) {
@@ -94,7 +182,40 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
     }
   }, []);
 
-  // Get jobs for a specific tech on a specific day
+  // When tech or week changes, fetch GCal busy counts for the week
+  useEffect(() => {
+    if (!selectedTech || !accessToken) return;
+    const calId = TECH_GCAL_ID[selectedTech.name];
+    if (!calId) return;
+
+    setGcalBusyLoading(true);
+    fetchGCalBusyCount(accessToken, calId, weekDates).then(counts => {
+      setGcalBusyCounts(counts);
+      setGcalBusyLoading(false);
+    });
+  }, [selectedTech, weekDates, accessToken]);
+
+  // When tech or date changes, fetch GCal events for that day
+  useEffect(() => {
+    if (!selectedTech || !selectedDate || !accessToken) {
+      setGcalEvents(null);
+      return;
+    }
+    const calId = TECH_GCAL_ID[selectedTech.name];
+    if (!calId) {
+      setGcalEvents(null);
+      return;
+    }
+
+    setGcalLoading(true);
+    setGcalEvents(null);
+    fetchGCalEvents(accessToken, calId, selectedDate).then(events => {
+      setGcalEvents(events);
+      setGcalLoading(false);
+    });
+  }, [selectedTech, selectedDate, accessToken]);
+
+  // Get Supabase jobs for a specific tech on a specific day
   const getJobsForTechDay = useCallback((techName, date) => {
     if (!date) return [];
     const dateStr = date.toISOString().split('T')[0];
@@ -106,10 +227,14 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
     }).sort((a, b) => new Date(a._scheduled_for) - new Date(b._scheduled_for));
   }, [allJobs]);
 
-  // Get count of jobs for a tech on a day (for the day picker)
-  const getJobCountForTechDay = useCallback((techName, date) => {
-    return getJobsForTechDay(techName, date).length;
-  }, [getJobsForTechDay]);
+  // Get busy count for day button indicator
+  // Combines Supabase job count + GCal busy count
+  const getBusyCountForDay = useCallback((techName, date) => {
+    const supabaseCount = getJobsForTechDay(techName, date).length;
+    const dateStr = date.toISOString().split('T')[0];
+    const gcalCount = gcalBusyCounts[dateStr] || 0;
+    return Math.max(supabaseCount, gcalCount);
+  }, [getJobsForTechDay, gcalBusyCounts]);
 
   const isToday = (d) => d.toDateString() === new Date().toDateString();
   const isPast = (d) => {
@@ -124,7 +249,6 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
   const handleSubmit = async () => {
     if (!selectedTech || !selectedDate) return;
 
-    // Monday install warning — operators can override, techs cannot
     if (selectedDate.getDay() === 1 && INSTALL_TYPES.includes(job.job_type) && !showMondayWarning) {
       if (userRole === 'operator') {
         setShowMondayWarning(true);
@@ -142,30 +266,24 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
       const scheduledFor = new Date(selectedDate);
       scheduledFor.setHours(hours, minutes, 0, 0);
 
-      // Create assignment for lead tech
       const assignment = await assignmentsApi.create({
         job_id: job.id,
         tech_id: selectedTech.id,
         scheduled_for: scheduledFor.toISOString()
       }, userEmail);
 
-      // Push to Google Calendar
       if (accessToken) {
         try {
           const calEvent = await scheduleToTechCalendar(accessToken, job, selectedTech, scheduledFor);
-          // Store calendar event ID on the assignment for future sync
           if (calEvent?.id && assignment?.id) {
             await assignmentsApi.update(assignment.id, { calendar_event_id: calEvent.id });
           }
         } catch (calErr) {
           console.error('Calendar sync failed:', calErr);
-          alert('⚠️ Job scheduled in JUC-E but Google Calendar sync failed: ' + calErr.message);
+          alert('⚠️ Job scheduled in Overwatch but Google Calendar sync failed: ' + calErr.message);
         }
-      } else {
-        console.warn('No Google access token — skipping calendar push');
       }
 
-      // Create assignment for helper if selected (non-fatal if it fails)
       if (helperTech) {
         try {
           const helperAssignment = await assignmentsApi.create({
@@ -173,8 +291,6 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
             tech_id: helperTech.id,
             scheduled_for: scheduledFor.toISOString()
           }, userEmail);
-
-          // Push helper to Google Calendar too
           if (accessToken) {
             try {
               const helperCalEvent = await scheduleToTechCalendar(accessToken, job, helperTech, scheduledFor);
@@ -190,9 +306,8 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
         }
       }
 
-      // Change status unless tentative
       if (!isTentative) {
-        const noteText = helperTech 
+        const noteText = helperTech
           ? `Scheduled for ${selectedTech.name} + ${helperTech.name} on ${selectedDate.toLocaleDateString()} at ${selectedTime}`
           : `Scheduled for ${selectedTech.name} on ${selectedDate.toLocaleDateString()} at ${selectedTime}`;
         await jobsApi.changeStatus(job.id, JOB_STATUS.SCHEDULED, userEmail, noteText);
@@ -203,10 +318,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
         await notesApi.addNote(job.id, noteText, userEmail);
       }
 
-      // Notify
       notifyJobAssigned(selectedTech.name, job.customer_name, scheduledFor.toISOString());
-
-      // Close modal FIRST, then refresh data
       onClose();
       try { onScheduled?.(); } catch (_) {}
     } catch (e) {
@@ -216,10 +328,17 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
     }
   };
 
-  // Jobs for selected tech on selected day
-  const selectedDayJobs = selectedTech && selectedDate 
+  // Supabase jobs for selected tech/day
+  const selectedDayJobs = selectedTech && selectedDate
     ? getJobsForTechDay(selectedTech.name, selectedDate)
     : [];
+
+  // Determine if day looks truly open (both Supabase and GCal)
+  const calId = selectedTech ? TECH_GCAL_ID[selectedTech.name] : null;
+  const hasGcalForTech = !!calId;
+  const gcalConfirmedOpen = hasGcalForTech && gcalEvents !== null && gcalEvents.length === 0;
+  const gcalHasEvents = hasGcalForTech && gcalEvents !== null && gcalEvents.length > 0;
+  const dayIsOpen = selectedDayJobs.length === 0 && gcalConfirmedOpen;
 
   return (
     <div style={{
@@ -246,7 +365,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
 
       {/* Content */}
       <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-        
+
         {/* Lead Tech picker */}
         <div style={{ marginBottom: '16px' }}>
           <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
@@ -258,10 +377,12 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
                 key={tech.id}
                 onClick={() => {
                   setSelectedTech(tech);
+                  setGcalEvents(null);
+                  setGcalBusyCounts({});
                   if (helperTech?.id === tech.id) setHelperTech(null);
                 }}
                 style={{
-                  padding: '10px 16px', borderRadius: '10px', fontSize: '14px', fontWeight: '600',
+                  padding: '10px 18px', borderRadius: '10px', fontSize: '14px', fontWeight: '600',
                   cursor: 'pointer', border: 'none',
                   background: selectedTech?.id === tech.id ? TECH_COLORS[tech.name] || '#3b82f6' : '#1e293b',
                   color: selectedTech?.id === tech.id ? '#fff' : '#94a3b8',
@@ -327,10 +448,10 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
               }}>→</button>
             </div>
           </div>
-          
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '4px' }}>
             {weekDates.map((d, i) => {
-              const jobCount = selectedTech ? getJobCountForTechDay(selectedTech.name, d) : 0;
+              const busyCount = selectedTech ? getBusyCountForDay(selectedTech.name, d) : 0;
               return (
                 <button
                   key={i}
@@ -346,19 +467,19 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
                   <span style={{ color: '#94a3b8', fontSize: '9px', fontWeight: '600' }}>
                     {d.toLocaleDateString('en-US', { weekday: 'short' })}
                   </span>
-                  <span style={{ 
-                    color: isSelected(d) ? '#fff' : isToday(d) ? '#00c8e8' : '#e2e8f0', 
-                    fontSize: '16px', fontWeight: '700' 
+                  <span style={{
+                    color: isSelected(d) ? '#fff' : isToday(d) ? '#00c8e8' : '#e2e8f0',
+                    fontSize: '16px', fontWeight: '700'
                   }}>
                     {d.getDate()}
                   </span>
-                  {selectedTech && jobCount > 0 && (
-                    <span style={{ 
-                      background: jobCount >= 4 ? '#ef4444' : jobCount >= 2 ? '#f59e0b' : '#22c55e',
+                  {selectedTech && busyCount > 0 && (
+                    <span style={{
+                      background: busyCount >= 5 ? '#ef4444' : busyCount >= 3 ? '#f59e0b' : '#22c55e',
                       color: '#fff', fontSize: '9px', fontWeight: '700',
                       padding: '1px 5px', borderRadius: '6px'
                     }}>
-                      {jobCount}
+                      {busyCount}
                     </span>
                   )}
                 </button>
@@ -367,45 +488,93 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
           </div>
         </div>
 
-        {/* Existing jobs for selected tech/day */}
+        {/* Schedule for selected tech/day — shows REAL GCal events */}
         {selectedTech && selectedDate && (
           <div style={{ marginBottom: '16px' }}>
-            <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
-              {selectedTech.name.toUpperCase()}'S SCHEDULE — {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            <div style={{ 
+              color: '#94a3b8', fontSize: '12px', fontWeight: '600', marginBottom: '8px',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <span>
+                {selectedTech.name.toUpperCase()}'S SCHEDULE — {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </span>
+              {hasGcalForTech && (
+                <span style={{ 
+                  fontSize: '9px', color: gcalLoading ? '#64748b' : '#00c8e8',
+                  background: '#00c8e810', padding: '2px 6px', borderRadius: '4px'
+                }}>
+                  {gcalLoading ? '⏳ Loading GCal...' : '📅 Live from Google'}
+                </span>
+              )}
             </div>
-            {isLoadingJobs ? (
-              <div style={{ color: '#64748b', fontSize: '12px', padding: '12px' }}>Loading...</div>
-            ) : selectedDayJobs.length === 0 ? (
-              <div style={{ 
+
+            {gcalLoading ? (
+              <div style={{ color: '#64748b', fontSize: '12px', padding: '12px', textAlign: 'center' }}>
+                Checking Google Calendar...
+              </div>
+            ) : dayIsOpen ? (
+              <div style={{
                 background: '#0f172a', borderRadius: '8px', padding: '12px',
                 color: '#22c55e', fontSize: '13px', textAlign: 'center'
               }}>
-                ✓ Day is open
+                ✓ Day is open — confirmed in Google Calendar
               </div>
             ) : (
               <div style={{ background: '#0f172a', borderRadius: '8px', overflow: 'hidden' }}>
-                {selectedDayJobs.map((j, idx) => {
-                  const isTentativeJob = j.status !== JOB_STATUS.SCHEDULED;
+
+                {/* GCal events (real calendar blocks) */}
+                {gcalHasEvents && gcalEvents.map((event, idx) => {
+                  const isAllDay = !!event.start?.date;
+                  const isUnavailable = event.summary?.toLowerCase().includes('unavailable') ||
+                    event.summary?.toLowerCase().includes('blocked') ||
+                    event.summary?.toLowerCase().includes('busy');
                   return (
-                    <div key={j.id} style={{ 
-                      padding: '10px 12px', 
-                      borderBottom: idx < selectedDayJobs.length - 1 ? '1px solid #1e293b' : 'none',
-                      borderLeft: `3px solid ${isTentativeJob ? '#f59e0b' : TECH_COLORS[selectedTech.name] || '#3b82f6'}`,
-                      background: isTentativeJob ? '#f59e0b10' : 'transparent'
+                    <div key={event.id || idx} style={{
+                      padding: '10px 12px',
+                      borderBottom: '1px solid #1e293b',
+                      borderLeft: `3px solid ${isUnavailable ? '#ef4444' : TECH_COLORS[selectedTech.name] || '#f59e0b'}`,
+                      background: isUnavailable ? '#ef444410' : '#f59e0b08'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                           <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
-                            {j.customer_name}
+                            {isUnavailable ? '🚫 ' : '📅 '}{event.summary || '(No title)'}
+                          </div>
+                          {event.location && (
+                            <div style={{ color: '#64748b', fontSize: '11px' }}>{event.location.slice(0, 50)}</div>
+                          )}
+                        </div>
+                        <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '600', textAlign: 'right', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                          {formatGCalTime(event.start, event.end)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Supabase jobs (already scheduled in Overwatch) */}
+                {selectedDayJobs.map((j, idx) => {
+                  const isTentativeJob = j.status !== JOB_STATUS.SCHEDULED;
+                  return (
+                    <div key={j.id} style={{
+                      padding: '10px 12px',
+                      borderBottom: idx < selectedDayJobs.length - 1 ? '1px solid #1e293b' : 'none',
+                      borderLeft: `3px solid ${isTentativeJob ? '#f59e0b' : TECH_COLORS[selectedTech.name] || '#3b82f6'}`,
+                      background: isTentativeJob ? '#f59e0b10' : '#3b82f610'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
+                            🔧 {j.customer_name}
                           </div>
                           <div style={{ color: '#64748b', fontSize: '11px' }}>
-                            {j.issue?.slice(0, 40) || j.customer_address || 'No details'}
+                            {j.issue?.slice(0, 40) || j.customer_address || 'Overwatch job'}
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ 
-                            color: isTentativeJob ? '#f59e0b' : '#94a3b8', 
-                            fontSize: '12px', fontWeight: '600' 
+                          <div style={{
+                            color: isTentativeJob ? '#f59e0b' : '#94a3b8',
+                            fontSize: '12px', fontWeight: '600'
                           }}>
                             {formatTimeShort(j._scheduled_for)}
                           </div>
@@ -417,6 +586,16 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
                     </div>
                   );
                 })}
+
+                {/* If no GCal for this tech but Supabase is empty */}
+                {!hasGcalForTech && selectedDayJobs.length === 0 && (
+                  <div style={{
+                    background: '#0f172a', borderRadius: '8px', padding: '12px',
+                    color: '#22c55e', fontSize: '13px', textAlign: 'center'
+                  }}>
+                    ✓ No jobs scheduled in Overwatch
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -436,9 +615,9 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
             <span>🕐 {selectedTime}</span>
             <span style={{ color: '#64748b' }}>{showTimePicker ? '▲' : '▼'}</span>
           </button>
-          
+
           {showTimePicker && (
-            <div style={{ 
+            <div style={{
               marginTop: '6px', background: '#1e293b', borderRadius: '10px', padding: '6px',
               maxHeight: '160px', overflow: 'auto', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3px'
             }}>
@@ -464,14 +643,14 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
           <button
             onClick={() => setIsTentative(!isTentative)}
             style={{
-              width: '100%', padding: '12px 14px', 
+              width: '100%', padding: '12px 14px',
               background: isTentative ? '#f59e0b15' : '#1e293b',
               border: isTentative ? '2px solid #f59e0b' : '1px solid #334155',
               borderRadius: '10px', cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '10px'
             }}
           >
-            <span style={{ 
+            <span style={{
               width: '22px', height: '22px', borderRadius: '6px',
               background: isTentative ? '#f59e0b' : '#334155',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -493,13 +672,13 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
       </div>
 
       {/* Footer */}
-      <div style={{ 
+      <div style={{
         padding: '12px 16px', borderTop: '1px solid #334155', background: '#0f172a',
         paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))'
       }}>
         {selectedTech && selectedDate && (
           <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '10px', textAlign: 'center' }}>
-            {isTentative ? '📌' : '📅'} {job.customer_name} → {' '}
+            {isTentative ? '📌' : '📅'} {job.customer_name} →{' '}
             <span style={{ color: TECH_COLORS[selectedTech.name] || '#3b82f6', fontWeight: '600' }}>
               {selectedTech.name}
             </span>
@@ -512,6 +691,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
             {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} @ {selectedTime}
           </div>
         )}
+
         {/* Monday install warning */}
         {showMondayWarning && (
           <div style={{
@@ -536,13 +716,14 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
             </div>
           </div>
         )}
+
         <button
           onClick={handleSubmit}
           disabled={!selectedTech || !selectedDate || isSubmitting}
           style={{
             width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
-            background: selectedTech && selectedDate 
-              ? (isTentative ? '#f59e0b' : '#22c55e') 
+            background: selectedTech && selectedDate
+              ? (isTentative ? '#f59e0b' : '#22c55e')
               : '#334155',
             color: selectedTech && selectedDate ? (isTentative ? '#000' : '#fff') : '#64748b',
             fontSize: '15px', fontWeight: '700', cursor: selectedTech && selectedDate ? 'pointer' : 'default',

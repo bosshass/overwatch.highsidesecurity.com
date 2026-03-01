@@ -1,72 +1,27 @@
-# OVERWATCH V3 — Phase 0: Data Migration
+# Overwatch V3 — DRH Security Field Dashboard
 
-Field operations management for Highside Security.
-Google Calendar is the single source of truth for scheduling.
+Calendar-only read dashboard. No database. No Supabase.
 
-## Phase 0 Deliverable
+## What it does
+- Reads DRH Google Calendars (Service Queue, Austin, JR, Installations, etc.)
+- Tech view: field techs see their assigned jobs for today/this week
+- Owner view: JR sees all calendars, pipeline counts, everything at a glance
+- Operator (Sara): can switch between both views
 
-Migration tool that scans all DRH calendars, classifies events, and batch-rewrites them into V3 format.
+## Stack
+- React + Vite
+- Google Calendar API (read-only)
+- Google OAuth for auth
+- Deployed to Vercel → overwatch.highsidesecurity.com
 
-### V3 Event Format
-
-**Title:** `[TAG #1247] Customer Name`
-**Tags:** `[SERVICE]` `[COMPLETE]` `[BILLED]` `[RETURN]` `[ESTIMATE]` `[NC]` `[DEAD]` `[PERSONAL]` `[IGNORE]`
-
-**Description:**
+## Env vars
 ```
-CUSTOMER: Customer Name
-PHONE: 303-555-1234
-ADDRESS: 123 Main St, Denver CO
-ISSUE: Panel not responding to commands
-GATE: 1234
-PANEL: 5678
-
---- NOTES ---
-2026-03-01 Austin: Replaced main board, tested all zones
-
-🔗 OPEN IN OVERWATCH: https://overwatch.highsidesecurity.com/job/EVENT_ID
-⚡ Managed by OVERWATCH
+VITE_GOOGLE_CLIENT_ID=your-google-client-id
 ```
 
-## Setup
-
+## Deploy
 ```bash
 npm install
-npm run dev
+npm run build
+npx vercel --prod
 ```
-
-## Deploy to Vercel
-
-1. Push to GitHub: `github.com/bosshass/overwatch-v3`
-2. Connect to Vercel
-3. Set env var: `VITE_GOOGLE_CLIENT_ID`
-4. Deploy
-
-**IMPORTANT:** Remove `dist/` folder before pushing. Vercel must rebuild fresh.
-
-```bash
-rm -rf dist && git add -A && git commit -m "deploy" && git push
-```
-
-## Project Structure
-
-```
-src/
-├── App.jsx                  ← Auth shell (Google OAuth + PIN gate)
-├── config/
-│   ├── calendars.js         ← HARDCODED calendar IDs (from V2, proven)
-│   └── roles.js             ← Email → role mapping
-├── services/
-│   ├── calendarApi.js       ← Google Calendar read/write (NO Supabase)
-│   └── eventParser.js       ← THE contract: parse any event → structured object
-└── views/
-    └── MigrationTool.jsx    ← Phase 0 migration interface
-```
-
-## Hard Rules
-
-1. Calendar = scheduling source of truth
-2. Calendar IDs hardcoded in config. NEVER in a database.
-3. Event title tags = status. Calendar placement = assignment.
-4. eventParser.js is the contract. Everything else uses parsed objects.
-5. Useful first, strict never.

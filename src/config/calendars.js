@@ -35,6 +35,7 @@ export const TECH_CALENDAR_MAP = {
   'info@drhsecurityservices.com': CALENDARS.SARA_TASKS,
   'sara@jnbllc.com': CALENDARS.SARA_TASKS,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
+  'trevor@drhsecurityservices.com': CALENDARS.INSTALLATIONS,
 };
 
 // Get calendar ID for a tech (by email or by Supabase tech record)

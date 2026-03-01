@@ -1,39 +1,29 @@
-// ============================================
-// JUC-E V4 - Roles Config (Simplified)
-// ============================================
-// V4 doesn't gate views by role. Everyone gets all 3 views.
-// This file exists for display names and future permissions.
+// Overwatch V3 - Role Config
+// operator = Sara (sees everything)
+// owner = JR (owner dashboard + calendar)
+// tech = Austin, Trevor (field calendar only)
 
-export const ROLES = {
-  OWNER: 'owner',
-  ADMIN: 'admin',
-  TECH: 'tech',
-  WORKER: 'worker'
+export const USER_CONFIG = {
+  'drhservicetech1@gmail.com':         { name: 'Austin',  role: 'tech',     defaultCalendar: 'Austin' },
+  'austin@drhsecurityservices.com':     { name: 'Austin',  role: 'tech',     defaultCalendar: 'Austin' },
+  'jr@drhsecurityservices.com':         { name: 'JR',      role: 'owner',    defaultCalendar: null },
+  'info@drhsecurityservices.com':       { name: 'Sara',    role: 'operator', defaultCalendar: null },
+  'sara@jnbllc.com':                    { name: 'Sara',    role: 'operator', defaultCalendar: null },
+  'admin@jnbservice.com':               { name: 'Sara',    role: 'operator', defaultCalendar: null },
+  'trevor@drhsecurityservices.com':     { name: 'Trevor',  role: 'tech',     defaultCalendar: 'Installations' },
 };
 
-// Email → role mapping (for future permissions)
-export const USER_ROLES = {
-  'jr@drhsecurityservices.com': ROLES.OWNER,
-  'info@drhsecurityservices.com': ROLES.ADMIN,
-  'sara@jnbllc.com': ROLES.ADMIN,
-  'shanaparks@drhsecurityservices.com': ROLES.ADMIN,
-  'drhservicetech1@gmail.com': ROLES.TECH,
-  'austin@drhsecurityservices.com': ROLES.TECH,
-};
-
-export const DISPLAY_NAMES = {
-  'drhservicetech1@gmail.com': 'Austin',
-  'austin@drhsecurityservices.com': 'Austin',
-  'jr@drhsecurityservices.com': 'JR',
-  'info@drhsecurityservices.com': 'Sara',
-  'sara@jnbllc.com': 'Sara',
-  'shanaparks@drhsecurityservices.com': 'Shana',
-};
-
-export function getUserRole(email) {
-  return USER_ROLES[email?.toLowerCase()] || ROLES.WORKER;
+export function getUserConfig(email) {
+  return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null };
 }
 
-export function getDisplayName(email) {
-  return DISPLAY_NAMES[email?.toLowerCase()] || email?.split('@')[0] || 'User';
-}
+export const TECH_COLORS = {
+  'Austin':  '#F4511E',
+  'JR':      '#0B8043',
+  'Shana':   '#F6BF26',
+  'Trevor':  '#8E24AA',
+  'Sara':    '#039BE5',
+  'Service Queue': '#7986CB',
+  'Installations': '#8E24AA',
+  'Completed': '#616161',
+};

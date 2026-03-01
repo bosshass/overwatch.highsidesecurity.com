@@ -31,12 +31,17 @@ export default function TechView({ accessToken, userEmail, deepLinkEventId }) {
   const [customerHistory, setCustomerHistory] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Which calendars does this tech see?
-  // Techs see their own calendar + Service Queue + Installations
+  // Which calendars does this user see in Field View?
   const myCalendarId = getTechCalendarId(userEmail);
-  const visibleCalendars = ACTIVE_CALENDARS.filter(c =>
-    c.id === myCalendarId || c.type === 'queue' || c.type === 'installations'
-  );
+  const isOperator = config.role === 'operator';
+
+  // Operator sees all tech + queue + installations (NOT admin calendar — that's personal)
+  // Techs see their own calendar + queue + installations
+  const visibleCalendars = ACTIVE_CALENDARS.filter(c => {
+    if (c.type === 'admin') return false; // Sara Tasks = personal stuff, never in field view
+    if (isOperator) return true;          // Operator sees all field calendars
+    return c.id === myCalendarId || c.type === 'queue' || c.type === 'installations';
+  });
 
   // ---- FETCH EVENTS ----
   const loadEvents = useCallback(async (showRefresh = false) => {
@@ -98,9 +103,11 @@ export default function TechView({ accessToken, userEmail, deepLinkEventId }) {
     return [...events].reverse();
   })();
 
-  // Group today's events: my jobs vs service queue
-  const myJobs = filteredEvents.filter(e => e.calendarId === myCalendarId);
-  const queueJobs = filteredEvents.filter(e => e.calendarId !== myCalendarId);
+  // Group today's events
+  // Techs: my jobs vs service queue
+  // Operator: all jobs grouped by tech calendar
+  const myJobs = isOperator ? [] : filteredEvents.filter(e => e.calendarId === myCalendarId);
+  const queueJobs = isOperator ? filteredEvents : filteredEvents.filter(e => e.calendarId !== myCalendarId);
 
   // ---- DISPOSITION ACTIONS ----
   const handleDisposition = useCallback(async (parsed, type) => {
@@ -254,7 +261,7 @@ export default function TechView({ accessToken, userEmail, deepLinkEventId }) {
           {tab === 'today' && queueJobs.length > 0 && (
             <>
               <div style={{ ...s.sectionLabel, marginTop: myJobs.length > 0 ? 20 : 0 }}>
-                SERVICE QUEUE ({queueJobs.length})
+                {isOperator ? `ALL JOBS (${queueJobs.length})` : `SERVICE QUEUE (${queueJobs.length})`}
               </div>
               {queueJobs.map(e => (
                 <JobCard key={`${e.calendarId}-${e.id}`} event={e} onSelect={setSelectedEvent} techName={techName} isQueue />

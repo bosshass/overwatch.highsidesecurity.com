@@ -1,294 +1,162 @@
 // ============================================
-// OVERWATCH V3 - Tech View (Phase 1)
+// OVERWATCH V3 — Tech View
 // ============================================
-// Austin's daily driver. Mobile-first.
-// Today | Week | History. Job cards with actions.
-// Disposition: Complete / Return / Sales Opp / No Charge
-// Deep link: /job/EVENT_ID lands here with full card open.
+// "Hey Austin 👊" + today's jobs + action buttons
+// Start Job → Complete Job → 4 outcomes + notes
+// Call, Navigate, History, New Job intake
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { SYNC_CALENDARS, ACTIVE_CALENDARS, TECH_CALENDARS, CALENDARS, getCalendarMeta, getTechCalendarId } from '../config/calendars.js';
-import { fetchCalendarEvents, apiUpdate, apiMove, rewriteEvent } from '../services/calendarApi.js';
-import { parseEvent, formatTitle, formatDescription, TAGS, getTagColor, ACTIVE_TAGS, BILLING_TAGS, SKIP_TAGS } from '../services/eventParser.js';
+import { useState, useEffect, useCallback } from 'react';
+import { ACTIVE_CALENDARS, SYNC_CALENDARS, CALENDARS, getCalendarMeta, getTechCalendarId } from '../config/calendars.js';
+import { fetchCalendarEvents, apiMove, rewriteEvent, createEvent } from '../services/calendarApi.js';
+import { parseEvent, formatTitle, formatDescription, TAGS, getTagColor, SKIP_TAGS } from '../services/eventParser.js';
 import { getUserConfig } from '../config/roles.js';
 
-// ============================================
-// MAIN COMPONENT
-// ============================================
 export default function TechView({ accessToken, userEmail, deepLinkEventId }) {
   const config = getUserConfig(userEmail);
   const techName = config.name;
+  const isOperator = config.role === 'operator';
+  const myCalendarId = getTechCalendarId(userEmail);
 
-  // State
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState('today');           // today | week | history
+  const [tab, setTab] = useState('today');
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [dispositionLoading, setDispositionLoading] = useState(false);
-  const [notesInput, setNotesInput] = useState('');
-  const [customerHistory, setCustomerHistory] = useState(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [showNewJob, setShowNewJob] = useState(false);
 
-  // Which calendars does this user see in Field View?
-  const myCalendarId = getTechCalendarId(userEmail);
-  const isOperator = config.role === 'operator';
-
-  // Operator sees all tech + queue + installations (NOT admin calendar — that's personal)
-  // Techs see their own calendar + queue + installations
+  // Visible calendars
   const visibleCalendars = ACTIVE_CALENDARS.filter(c => {
-    if (c.type === 'admin') return false; // Sara Tasks = personal stuff, never in field view
-    if (isOperator) return true;          // Operator sees all field calendars
+    if (c.type === 'admin') return false;
+    if (isOperator) return true;
     return c.id === myCalendarId || c.type === 'queue' || c.type === 'installations';
   });
 
-  // ---- FETCH EVENTS ----
-  const loadEvents = useCallback(async (showRefresh = false) => {
-    if (showRefresh) setRefreshing(true);
-    else setLoading(true);
+  // ---- LOAD ----
+  const loadEvents = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     setError('');
-
     try {
       const daysBack = tab === 'history' ? 30 : 1;
       const daysForward = tab === 'today' ? 1 : tab === 'week' ? 7 : 30;
       const raw = await fetchCalendarEvents(accessToken, visibleCalendars, daysBack, daysForward);
-
-      // Parse all events
-      const parsed = raw.map(e => parseEvent(e)).filter(e => {
-        // Skip personal/ignore tagged
-        if (SKIP_TAGS.includes(e.tag)) return false;
-        // Skip all-day events (usually holidays, etc)
-        if (e.allDay) return false;
-        return true;
-      });
-
+      const parsed = raw.map(e => parseEvent(e)).filter(e => !SKIP_TAGS.includes(e.tag) && !e.allDay);
       setEvents(parsed);
-
-      // If deep link, auto-open that event
       if (deepLinkEventId) {
         const target = parsed.find(e => e.id === deepLinkEventId);
         if (target) setSelectedEvent(target);
       }
     } catch (err) {
-      setError(`Failed to load: ${err.message}`);
+      setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [accessToken, tab, visibleCalendars, deepLinkEventId]);
+  }, [accessToken, tab, deepLinkEventId]);
 
   useEffect(() => { loadEvents(); }, [tab]);
 
-  // ---- FILTER BY TAB ----
-  const filteredEvents = (() => {
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-
-    if (tab === 'today') {
-      return events.filter(e => {
-        const eventDate = (e.start || '').slice(0, 10);
-        return eventDate === todayStr;
-      });
-    }
+  // ---- FILTER ----
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const filtered = (() => {
+    if (tab === 'today') return events.filter(e => (e.start || '').slice(0, 10) === todayStr);
     if (tab === 'week') {
-      const weekEnd = new Date(now);
-      weekEnd.setDate(weekEnd.getDate() + 7);
-      return events.filter(e => {
-        const d = new Date(e.start);
-        return d >= new Date(todayStr) && d <= weekEnd;
-      });
+      const end = new Date(now); end.setDate(end.getDate() + 7);
+      return events.filter(e => { const d = new Date(e.start); return d >= new Date(todayStr) && d <= end; });
     }
-    // history — show everything, most recent first
     return [...events].reverse();
   })();
 
-  // Group today's events
-  // Techs: my jobs vs service queue
-  // Operator: all jobs grouped by tech calendar
-  const myJobs = isOperator ? [] : filteredEvents.filter(e => e.calendarId === myCalendarId);
-  const queueJobs = isOperator ? filteredEvents : filteredEvents.filter(e => e.calendarId !== myCalendarId);
+  const myJobs = isOperator ? [] : filtered.filter(e => e.calendarId === myCalendarId);
+  const otherJobs = isOperator ? filtered : filtered.filter(e => e.calendarId !== myCalendarId);
 
-  // ---- DISPOSITION ACTIONS ----
-  const handleDisposition = useCallback(async (parsed, type) => {
-    setDispositionLoading(true);
-    try {
-      const tagMap = {
-        complete: TAGS.COMPLETE,
-        return: TAGS.RETURN,
-        sales: TAGS.ESTIMATE,
-        nc: TAGS.NC,
-      };
-      const newTag = tagMap[type];
-      if (!newTag) throw new Error(`Unknown disposition: ${type}`);
+  // ---- GREETING ----
+  const hour = now.getHours();
+  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-      // Build new title & description
-      const updatedParsed = { ...parsed, tag: newTag };
-      if (notesInput.trim()) {
-        updatedParsed.notes = [...parsed.notes, `${new Date().toLocaleDateString()} ${techName}: ${notesInput.trim()}`];
-      }
-
-      const newTitle = formatTitle(updatedParsed, newTag);
-      const newDesc = formatDescription(updatedParsed);
-
-      // Update the event on its current calendar
-      await rewriteEvent(accessToken, parsed.calendarId, parsed.id, {
-        summary: newTitle,
-        description: newDesc,
-      });
-
-      // Move to appropriate destination
-      if (type === 'complete' || type === 'nc') {
-        // Move to Completed calendar
-        try {
-          await apiMove(accessToken, parsed.calendarId, parsed.id, CALENDARS.COMPLETED);
-        } catch (_) {
-          // If move fails (permissions), that's ok — tag is still updated
-        }
-      }
-      // Return + sales stay on current calendar with new tag — Sara handles routing
-
-      setNotesInput('');
-      setSelectedEvent(null);
-      await loadEvents(true);
-    } catch (err) {
-      alert(`Disposition failed: ${err.message}`);
-    } finally {
-      setDispositionLoading(false);
-    }
-  }, [accessToken, notesInput, techName, loadEvents]);
-
-  // ---- CUSTOMER HISTORY ----
-  const loadCustomerHistory = useCallback(async (customerName) => {
-    if (!customerName || customerName === '(No title)') return;
-    setHistoryLoading(true);
-    setCustomerHistory(null);
-
-    try {
-      // Search all calendars for this customer name (all time, 2 years back)
-      const raw = await fetchCalendarEvents(accessToken, SYNC_CALENDARS, 730, 30);
-      const matches = raw
-        .map(e => parseEvent(e))
-        .filter(e => {
-          const name = e.customerName?.toLowerCase() || '';
-          const search = customerName.toLowerCase();
-          return name.includes(search) || search.includes(name);
-        })
-        .sort((a, b) => new Date(b.start) - new Date(a.start));
-
-      setCustomerHistory(matches);
-    } catch (err) {
-      setCustomerHistory([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [accessToken]);
-
-  // ---- RENDER ----
   return (
-    <div style={s.container}>
-      {/* Pull to refresh indicator */}
+    <div style={s.wrap}>
       {refreshing && <div style={s.refreshBar}>Refreshing...</div>}
 
       {/* Header */}
       <div style={s.header}>
-        <div style={s.headerLeft}>
-          <div style={s.greeting}>
-            {getGreeting()}, {techName}
+        <div>
+          <div style={s.greet}>Hey {techName} 👊</div>
+          <div style={s.dateLabel}>
+            {now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {tab === 'today' && ` · ${myJobs.length + otherJobs.length} job${(myJobs.length + otherJobs.length) !== 1 ? 's' : ''}`}
           </div>
-          <div style={s.dateLabel}>{formatDate(new Date())}</div>
         </div>
-        <button onClick={() => loadEvents(true)} style={s.refreshBtn}>↻</button>
+        <div style={s.headerR}>
+          <button onClick={() => setShowNewJob(true)} style={s.newJobBtn}>+ New</button>
+          <button onClick={() => loadEvents(true)} style={s.refreshBtn}>↻</button>
+        </div>
       </div>
 
-      {/* Tab Bar */}
-      <div style={s.tabBar}>
-        {[
-          { key: 'today', label: 'Today', count: tab === 'today' ? myJobs.length : null },
-          { key: 'week', label: 'Week' },
-          { key: 'history', label: 'History' },
-        ].map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              ...s.tabBtn,
-              ...(tab === t.key ? s.tabActive : {}),
-            }}
-          >
-            {t.label}
-            {t.count != null && <span style={s.tabCount}>{t.count}</span>}
+      {/* Tabs */}
+      <div style={s.tabs}>
+        {['today', 'week', 'history'].map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            style={{ ...s.tab, ...(tab === t ? s.tabActive : {}) }}>
+            {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
 
-      {/* Error */}
-      {error && <div style={s.errorBanner}>{error}</div>}
+      {error && <div style={s.errBox}>{error}</div>}
 
-      {/* Loading */}
       {loading && (
-        <div style={s.loadingContainer}>
+        <div style={s.center}>
           <div style={s.spinner} />
-          <div style={s.loadingText}>Loading calendar...</div>
+          <div style={s.loadText}>Loading calendar...</div>
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && filteredEvents.length === 0 && (
-        <div style={s.emptyState}>
-          <div style={s.emptyIcon}>📋</div>
-          <div style={s.emptyTitle}>
-            {tab === 'today' ? 'No jobs today' : tab === 'week' ? 'Clear week ahead' : 'No recent history'}
-          </div>
-          <div style={s.emptySub}>Pull down to refresh</div>
+      {!loading && filtered.length === 0 && (
+        <div style={s.empty}>
+          <div style={s.emptyIcon}>{tab === 'today' ? '☀️' : '📋'}</div>
+          <div style={s.emptyTitle}>{tab === 'today' ? 'No jobs today' : tab === 'week' ? 'Clear week' : 'No history'}</div>
         </div>
       )}
 
-      {/* Job Cards */}
-      {!loading && filteredEvents.length > 0 && (
-        <div style={s.cardList}>
-          {/* My Jobs section */}
-          {tab === 'today' && myJobs.length > 0 && (
+      {!loading && filtered.length > 0 && (
+        <div style={s.list}>
+          {!isOperator && myJobs.length > 0 && (
             <>
               <div style={s.sectionLabel}>MY JOBS ({myJobs.length})</div>
-              {myJobs.map(e => (
-                <JobCard key={`${e.calendarId}-${e.id}`} event={e} onSelect={setSelectedEvent} techName={techName} />
-              ))}
+              {myJobs.map(e => <JobCard key={`${e.calendarId}-${e.id}`} event={e} onSelect={setSelectedEvent} showDate={tab !== 'today'} />)}
             </>
           )}
-
-          {/* Queue / Other section */}
-          {tab === 'today' && queueJobs.length > 0 && (
+          {otherJobs.length > 0 && (
             <>
-              <div style={{ ...s.sectionLabel, marginTop: myJobs.length > 0 ? 20 : 0 }}>
-                {isOperator ? `ALL JOBS (${queueJobs.length})` : `SERVICE QUEUE (${queueJobs.length})`}
+              <div style={{ ...s.sectionLabel, marginTop: myJobs.length > 0 ? 16 : 0 }}>
+                {isOperator ? `ALL JOBS (${otherJobs.length})` : `SERVICE QUEUE (${otherJobs.length})`}
               </div>
-              {queueJobs.map(e => (
-                <JobCard key={`${e.calendarId}-${e.id}`} event={e} onSelect={setSelectedEvent} techName={techName} isQueue />
-              ))}
+              {otherJobs.map(e => <JobCard key={`${e.calendarId}-${e.id}`} event={e} onSelect={setSelectedEvent} showDate={tab !== 'today'} isQueue={!isOperator} />)}
             </>
           )}
-
-          {/* Week / History — flat list */}
-          {tab !== 'today' && filteredEvents.map(e => (
-            <JobCard key={`${e.calendarId}-${e.id}`} event={e} onSelect={setSelectedEvent} techName={techName} showDate />
-          ))}
         </div>
       )}
 
-      {/* ---- JOB DETAIL PANEL ---- */}
+      {/* Detail Panel */}
       {selectedEvent && (
-        <JobDetail
+        <JobDetailPanel
           event={selectedEvent}
+          accessToken={accessToken}
           techName={techName}
-          notesInput={notesInput}
-          onNotesChange={setNotesInput}
-          dispositionLoading={dispositionLoading}
-          onDisposition={handleDisposition}
-          onClose={() => { setSelectedEvent(null); setCustomerHistory(null); setNotesInput(''); }}
-          customerHistory={customerHistory}
-          historyLoading={historyLoading}
-          onLoadHistory={loadCustomerHistory}
+          onClose={() => setSelectedEvent(null)}
+          onRefresh={() => { setSelectedEvent(null); loadEvents(true); }}
+        />
+      )}
+
+      {/* New Job Modal */}
+      {showNewJob && (
+        <NewJobModal
+          accessToken={accessToken}
+          techName={techName}
+          onClose={() => setShowNewJob(false)}
+          onCreated={() => { setShowNewJob(false); loadEvents(true); }}
         />
       )}
     </div>
@@ -296,420 +164,409 @@ export default function TechView({ accessToken, userEmail, deepLinkEventId }) {
 }
 
 // ============================================
-// JOB CARD (list item)
+// JOB CARD
 // ============================================
-function JobCard({ event, onSelect, techName, isQueue, showDate }) {
-  const timeStr = event.start ? new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
-  const dateStr = event.start ? new Date(event.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+function JobCard({ event, onSelect, showDate, isQueue }) {
+  const time = event.start ? new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+  const date = event.start ? new Date(event.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
   const calMeta = getCalendarMeta(event.calendarId);
 
   return (
     <div onClick={() => onSelect(event)} style={s.card}>
-      {/* Top row: time + tag */}
       <div style={s.cardTop}>
-        <div style={s.cardTime}>
-          {showDate && <span style={s.cardDate}>{dateStr} · </span>}
-          {timeStr}
-        </div>
+        <div style={s.cardTime}>{showDate && <span style={{ color: '#5a7a9a' }}>{date} · </span>}{time}</div>
         <div style={s.cardTags}>
-          {event.tag && (
-            <span style={{ ...s.tag, background: `${getTagColor(event.tag)}22`, color: getTagColor(event.tag), borderColor: `${getTagColor(event.tag)}44` }}>
-              {event.tag}
-            </span>
-          )}
-          {!event.isTagged && <span style={{ ...s.tag, background: '#cc111122', color: '#cc1111', borderColor: '#cc111144' }}>ROGUE</span>}
-          {isQueue && <span style={{ ...s.tag, background: '#6633cc22', color: '#aa77ff', borderColor: '#6633cc44' }}>QUEUE</span>}
+          {event.tag && <span style={{ ...s.badge, background: `${getTagColor(event.tag)}15`, color: getTagColor(event.tag), borderColor: `${getTagColor(event.tag)}33` }}>{event.tag}</span>}
+          {!event.isTagged && <span style={{ ...s.badge, background: '#cc111115', color: '#cc1111', borderColor: '#cc111133' }}>ROGUE</span>}
+          {isQueue && <span style={{ ...s.badge, background: '#7986CB15', color: '#7986CB', borderColor: '#7986CB33' }}>QUEUE</span>}
         </div>
       </div>
-
-      {/* Customer name */}
+      {event.jobNumber && <div style={s.cardJobNum}>DRH-{event.jobNumber}</div>}
       <div style={s.cardCustomer}>{event.customerName || '(No title)'}</div>
-
-      {/* Address */}
-      {event.address && (
-        <div style={s.cardAddress}>📍 {event.address}</div>
-      )}
-
-      {/* Missing fields warning */}
-      {event.missingFields.length > 0 && (
-        <div style={s.cardMissing}>
-          ⚠ Missing: {event.missingFields.join(', ')}
-        </div>
-      )}
-
-      {/* Calendar indicator */}
-      <div style={s.cardCalendar}>
-        <span style={{ ...s.calDot, background: calMeta?.color || '#5a7a9a' }} />
-        {event.calendarName}
-      </div>
+      {event.address && <div style={s.cardAddr}>📍 {event.address}</div>}
+      {event.issue && <div style={s.cardIssue}>{event.issue.slice(0, 60)}{event.issue.length > 60 ? '...' : ''}</div>}
+      {event.missingFields.length > 0 && <div style={s.cardWarn}>⚠ Missing: {event.missingFields.join(', ')}</div>}
+      <div style={s.cardCal}><span style={{ ...s.dot, background: calMeta?.color || '#5a7a9a' }} />{event.calendarName}</div>
     </div>
   );
 }
 
 // ============================================
-// JOB DETAIL (full screen panel)
+// JOB DETAIL PANEL (bottom sheet)
 // ============================================
-function JobDetail({ event, techName, notesInput, onNotesChange, dispositionLoading, onDisposition, onClose, customerHistory, historyLoading, onLoadHistory }) {
+function JobDetailPanel({ event, accessToken, techName, onClose, onRefresh }) {
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showComplete, setShowComplete] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [startTime, setStartTime] = useState(null);
+  const [historyData, setHistoryData] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  const timeStr = event.start ? new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
-  const endStr = event.end ? new Date(event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
-  const dateStr = event.start ? new Date(event.start).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '';
+  const time = event.start ? new Date(event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+  const endTime = event.end ? new Date(event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+  const dateStr = event.start ? new Date(event.start).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : '';
+
+  // Start Job
+  const handleStart = () => {
+    setStarted(true);
+    setStartTime(new Date());
+  };
+
+  // Complete Job — show outcome picker
+  const handleShowComplete = () => setShowComplete(true);
+
+  // Submit completion
+  const handleComplete = async (outcome) => {
+    setBusy(true);
+    try {
+      const tagMap = { done: TAGS.COMPLETE, return: TAGS.RETURN, parts: TAGS.RETURN, sales: TAGS.ESTIMATE };
+      const newTag = tagMap[outcome] || TAGS.COMPLETE;
+      const outcomeLabels = { done: 'Completed', return: 'Return needed', parts: 'Need parts — return', sales: 'Sales opportunity' };
+
+      const updatedParsed = { ...event, tag: newTag };
+      const allNotes = [...event.notes];
+      if (startTime) allNotes.push(`${new Date().toLocaleDateString()} ${techName}: Started ${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`);
+      allNotes.push(`${new Date().toLocaleDateString()} ${techName}: ${outcomeLabels[outcome]}`);
+      if (notes.trim()) allNotes.push(`${new Date().toLocaleDateString()} ${techName}: ${notes.trim()}`);
+      updatedParsed.notes = allNotes;
+
+      const newTitle = formatTitle(updatedParsed, newTag);
+      const newDesc = formatDescription(updatedParsed);
+
+      await rewriteEvent(accessToken, event.calendarId, event.id, { summary: newTitle, description: newDesc });
+
+      if (outcome === 'done' || outcome === 'parts') {
+        try { await apiMove(accessToken, event.calendarId, event.id, CALENDARS.COMPLETED); } catch (_) {}
+      }
+
+      onRefresh();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Customer history
+  const loadHistory = async () => {
+    if (!event.customerName || event.customerName === '(No title)') return;
+    setHistoryLoading(true);
+    try {
+      const raw = await fetchCalendarEvents(accessToken, SYNC_CALENDARS, 730, 30);
+      const matches = raw.map(e => parseEvent(e))
+        .filter(e => {
+          const n = e.customerName?.toLowerCase() || '';
+          const q = event.customerName.toLowerCase();
+          return n.includes(q) || q.includes(n);
+        })
+        .sort((a, b) => new Date(b.start) - new Date(a.start));
+      setHistoryData(matches);
+    } catch (_) { setHistoryData([]); }
+    finally { setHistoryLoading(false); }
+  };
 
   return (
-    <div style={s.detailOverlay}>
-      <div style={s.detailPanel}>
-        {/* Handle bar */}
-        <div style={s.handleBar} />
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.panel} onClick={e => e.stopPropagation()}>
+        <div style={s.handle} />
+        <button onClick={onClose} style={s.closeBtn}>✕</button>
 
-        {/* Close */}
-        <button onClick={onClose} style={s.detailClose}>✕</button>
-
-        {/* Tag + Job Number */}
+        {/* Tag + Job */}
         <div style={s.detailTagRow}>
-          {event.tag && (
-            <span style={{ ...s.detailTag, background: `${getTagColor(event.tag)}22`, color: getTagColor(event.tag) }}>
-              [{event.tag}{event.jobNumber ? ` #${event.jobNumber}` : ''}]
-            </span>
-          )}
-          {!event.isTagged && (
-            <span style={{ ...s.detailTag, background: '#cc111122', color: '#cc1111' }}>ROGUE EVENT</span>
-          )}
-          <span style={s.detailCalLabel}>{event.calendarName}</span>
+          {event.tag && <span style={{ ...s.detailTag, background: `${getTagColor(event.tag)}18`, color: getTagColor(event.tag) }}>
+            [{event.tag}{event.jobNumber ? ` #${event.jobNumber}` : ''}]
+          </span>}
+          {!event.isTagged && <span style={{ ...s.detailTag, background: '#cc111118', color: '#cc1111' }}>ROGUE</span>}
+          <span style={s.detailCal}>{event.calendarName}</span>
         </div>
 
-        {/* Customer Name */}
-        <h2 style={s.detailCustomer}>{event.customerName || '(No title)'}</h2>
+        <h2 style={s.detailName}>{event.customerName || '(No title)'}</h2>
+        <div style={s.detailDate}>{dateStr} · {time}{endTime ? ` – ${endTime}` : ''}</div>
 
-        {/* Time */}
-        <div style={s.detailTime}>{dateStr} · {timeStr}{endStr ? ` – ${endStr}` : ''}</div>
-
-        {/* ---- ACTION BUTTONS (phone + navigate) ---- */}
-        <div style={s.actionRow}>
+        {/* Quick Actions */}
+        <div style={s.actions}>
           {event.phone && (
             <a href={`tel:${event.phone.replace(/\D/g, '')}`} style={s.actionBtn}>
-              <span style={s.actionIcon}>📞</span>
+              <span style={{ fontSize: 22 }}>📞</span>
               <span style={s.actionLabel}>Call</span>
               <span style={s.actionSub}>{event.phone}</span>
             </a>
           )}
           {event.address && (
-            <a
-              href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={s.actionBtn}
-            >
-              <span style={s.actionIcon}>🗺️</span>
+            <a href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`} target="_blank" rel="noopener noreferrer" style={s.actionBtn}>
+              <span style={{ fontSize: 22 }}>🗺️</span>
               <span style={s.actionLabel}>Navigate</span>
-              <span style={s.actionSub}>{event.address.slice(0, 30)}{event.address.length > 30 ? '...' : ''}</span>
+              <span style={s.actionSub}>{event.address.slice(0, 25)}{event.address.length > 25 ? '...' : ''}</span>
             </a>
           )}
         </div>
 
-        {/* ---- DETAILS GRID ---- */}
-        <div style={s.detailGrid}>
-          {event.issue && (
-            <div style={s.detailField}>
-              <div style={s.detailFieldLabel}>ISSUE</div>
-              <div style={s.detailFieldValue}>{event.issue}</div>
-            </div>
-          )}
-          {event.gateCode && (
-            <div style={s.detailFieldSmall}>
-              <div style={s.detailFieldLabel}>GATE CODE</div>
-              <div style={s.detailFieldValueMono}>{event.gateCode}</div>
-            </div>
-          )}
-          {event.panelPassword && (
-            <div style={s.detailFieldSmall}>
-              <div style={s.detailFieldLabel}>PANEL PASSWORD</div>
-              <div style={s.detailFieldValueMono}>{event.panelPassword}</div>
-            </div>
-          )}
+        {/* Fields */}
+        <div style={s.fields}>
+          {event.issue && <Field label="ISSUE" value={event.issue} />}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {event.gateCode && <Field label="GATE CODE" value={event.gateCode} mono />}
+            {event.panelPassword && <Field label="PANEL" value={event.panelPassword} mono />}
+          </div>
         </div>
 
-        {/* ---- NOTES ---- */}
+        {/* Existing Notes */}
         {event.notes.length > 0 && (
-          <div style={s.notesSection}>
-            <div style={s.notesSectionTitle}>NOTES</div>
-            {event.notes.map((note, i) => (
-              <div key={i} style={s.noteItem}>{note}</div>
+          <div style={s.notesBox}>
+            <div style={s.fieldLabel}>NOTES</div>
+            {event.notes.map((n, i) => <div key={i} style={s.noteItem}>{n}</div>)}
+          </div>
+        )}
+
+        {/* Customer History */}
+        <button onClick={() => { setShowHistory(!showHistory); if (!showHistory && !historyData) loadHistory(); }} style={s.historyBtn}>
+          {showHistory ? '▼' : '▶'} Customer History {historyData && `(${historyData.length})`}
+        </button>
+        {showHistory && (
+          <div style={s.historyBox}>
+            {historyLoading && <div style={s.historyMsg}>Searching all calendars...</div>}
+            {historyData?.length === 0 && <div style={s.historyMsg}>No previous visits</div>}
+            {historyData?.map((h, i) => (
+              <div key={i} style={s.historyItem}>
+                <span style={s.historyDate}>{h.start?.slice(0, 10)}</span>
+                <span style={{ color: getTagColor(h.tag), fontSize: 10 }}>{h.tag ? `[${h.tag}]` : ''}</span>
+                <span style={{ color: '#5a7a9a', fontSize: 11 }}>{h.calendarName}</span>
+              </div>
             ))}
           </div>
         )}
 
-        {/* ---- CUSTOMER HISTORY ---- */}
-        <div style={s.historySection}>
-          <button
-            onClick={() => {
-              setShowHistory(!showHistory);
-              if (!showHistory && !customerHistory) onLoadHistory(event.customerName);
-            }}
-            style={s.historyToggle}
-          >
-            {showHistory ? '▼' : '▶'} Customer History
-            {customerHistory && <span style={s.historyCount}>({customerHistory.length})</span>}
-          </button>
+        {/* === JOB FLOW === */}
+        {!showComplete ? (
+          <div style={s.flowSection}>
+            {/* Notes input */}
+            <textarea value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Notes — what did you do? Parts used?" rows={3} style={s.textarea} />
 
-          {showHistory && (
-            <div style={s.historyList}>
-              {historyLoading && <div style={s.historyLoading}>Searching all calendars...</div>}
-              {customerHistory && customerHistory.length === 0 && <div style={s.historyEmpty}>No previous visits found</div>}
-              {customerHistory && customerHistory.map((h, i) => (
-                <div key={i} style={s.historyItem}>
-                  <span style={s.historyDate}>{h.start?.slice(0, 10)}</span>
-                  <span style={s.historyCal}>{h.calendarName}</span>
-                  {h.tag && <span style={{ ...s.historyTag, color: getTagColor(h.tag) }}>[{h.tag}]</span>}
-                  <span style={s.historyNote}>{h.latestNote?.slice(0, 60) || ''}</span>
+            {/* Start / Complete buttons */}
+            {!started ? (
+              <button onClick={handleStart} style={s.startBtn} disabled={busy}>
+                ▶ Start Job
+              </button>
+            ) : (
+              <div>
+                <div style={s.timerBadge}>
+                  ⏱️ Started at {startTime?.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ---- COMPLETION NOTES ---- */}
-        <div style={s.completionSection}>
-          <div style={s.completionTitle}>COMPLETION NOTES</div>
-          <textarea
-            value={notesInput}
-            onChange={e => onNotesChange(e.target.value)}
-            placeholder="What did you do? Parts used? Issues found?"
-            style={s.notesTextarea}
-            rows={3}
-          />
-        </div>
-
-        {/* ---- DISPOSITION BUTTONS ---- */}
-        <div style={s.dispositionSection}>
-          <div style={s.dispositionTitle}>MARK JOB AS:</div>
-          <div style={s.dispositionGrid}>
-            <button
-              onClick={() => onDisposition(event, 'complete')}
-              disabled={dispositionLoading}
-              style={{ ...s.dispBtn, ...s.dispComplete }}
-            >
-              <span style={s.dispIcon}>✓</span>
-              <span style={s.dispLabel}>Complete</span>
-            </button>
-            <button
-              onClick={() => onDisposition(event, 'return')}
-              disabled={dispositionLoading}
-              style={{ ...s.dispBtn, ...s.dispReturn }}
-            >
-              <span style={s.dispIcon}>↩</span>
-              <span style={s.dispLabel}>Return Needed</span>
-            </button>
-            <button
-              onClick={() => onDisposition(event, 'sales')}
-              disabled={dispositionLoading}
-              style={{ ...s.dispBtn, ...s.dispSales }}
-            >
-              <span style={s.dispIcon}>$</span>
-              <span style={s.dispLabel}>Sales Opp</span>
-            </button>
-            <button
-              onClick={() => onDisposition(event, 'nc')}
-              disabled={dispositionLoading}
-              style={{ ...s.dispBtn, ...s.dispNC }}
-            >
-              <span style={s.dispIcon}>—</span>
-              <span style={s.dispLabel}>No Charge</span>
-            </button>
+                <button onClick={handleShowComplete} style={s.completeBtn} disabled={busy}>
+                  ✓ Complete Job
+                </button>
+              </div>
+            )}
           </div>
-          {dispositionLoading && <div style={s.dispLoading}>Updating calendar...</div>}
-        </div>
+        ) : (
+          /* === COMPLETION MODAL === */
+          <div style={s.completionBox}>
+            <div style={s.completionTitle}>How'd it go?</div>
+            <div style={s.completionGrid}>
+              <button onClick={() => handleComplete('done')} disabled={busy} style={{ ...s.outcomeBtn, borderColor: '#4caf50', color: '#4caf50' }}>
+                <span style={{ fontSize: 24 }}>✅</span>
+                <span>All Done</span>
+              </button>
+              <button onClick={() => handleComplete('return')} disabled={busy} style={{ ...s.outcomeBtn, borderColor: '#ff8844', color: '#ff8844' }}>
+                <span style={{ fontSize: 24 }}>🔄</span>
+                <span>Return Needed</span>
+              </button>
+              <button onClick={() => handleComplete('parts')} disabled={busy} style={{ ...s.outcomeBtn, borderColor: '#4a90d9', color: '#4a90d9' }}>
+                <span style={{ fontSize: 24 }}>📦</span>
+                <span>Need Parts</span>
+              </button>
+              <button onClick={() => handleComplete('sales')} disabled={busy} style={{ ...s.outcomeBtn, borderColor: '#f6bf26', color: '#f6bf26' }}>
+                <span style={{ fontSize: 24 }}>💰</span>
+                <span>Sales Opp</span>
+              </button>
+            </div>
+            <button onClick={() => setShowComplete(false)} style={s.backBtn}>← Back</button>
+            {busy && <div style={s.busyText}>Updating calendar...</div>}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ============================================
-// HELPERS
+// FIELD COMPONENT
 // ============================================
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+function Field({ label, value, mono }) {
+  return (
+    <div style={s.field}>
+      <div style={s.fieldLabel}>{label}</div>
+      <div style={mono ? s.fieldValueMono : s.fieldValue}>{value}</div>
+    </div>
+  );
 }
 
-function formatDate(d) {
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+// ============================================
+// NEW JOB MODAL
+// ============================================
+function NewJobModal({ accessToken, techName, onClose, onCreated }) {
+  const [customer, setCustomer] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [issue, setIssue] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!customer.trim()) { alert('Customer name required'); return; }
+    setBusy(true);
+    try {
+      const now = new Date();
+      const endTime = new Date(now.getTime() + 2 * 3600000);
+      const parsed = {
+        customerName: customer.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        issue: issue.trim(),
+        notes: [`${now.toLocaleDateString()} ${techName}: Created from field`],
+        jobNumber: null, tag: TAGS.SERVICE, gateCode: '', panelPassword: '',
+      };
+      const title = formatTitle(parsed, TAGS.SERVICE);
+      const desc = formatDescription(parsed);
+      await createEvent(accessToken, CALENDARS.SERVICE_QUEUE, {
+        title, description: desc, location: address.trim(),
+        startTime: now.toISOString(), endTime: endTime.toISOString(),
+      });
+      onCreated();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.panel} onClick={e => e.stopPropagation()}>
+        <div style={s.handle} />
+        <button onClick={onClose} style={s.closeBtn}>✕</button>
+        <h2 style={s.detailName}>New Job</h2>
+
+        <div style={s.formGroup}>
+          <label style={s.formLabel}>Customer Name *</label>
+          <input value={customer} onChange={e => setCustomer(e.target.value)} style={s.formInput} placeholder="Smith, John" autoFocus />
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.formLabel}>Phone</label>
+          <input value={phone} onChange={e => setPhone(e.target.value)} style={s.formInput} placeholder="303-555-1234" type="tel" />
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.formLabel}>Address</label>
+          <input value={address} onChange={e => setAddress(e.target.value)} style={s.formInput} placeholder="123 Main St, Denver CO" />
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.formLabel}>Issue</label>
+          <textarea value={issue} onChange={e => setIssue(e.target.value)} style={s.textarea} placeholder="Panel not responding, needs reset" rows={2} />
+        </div>
+
+        <button onClick={submit} disabled={busy} style={s.startBtn}>
+          {busy ? 'Creating...' : '+ Create Job on Service Queue'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ============================================
 // STYLES
 // ============================================
 const s = {
-  container: { maxWidth: 480, margin: '0 auto', padding: '0 0 100px', minHeight: '100vh' },
+  wrap: { maxWidth: 480, margin: '0 auto', padding: '0 0 100px' },
+  refreshBar: { textAlign: 'center', padding: 6, fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#4a90d9', background: 'rgba(74,144,217,0.06)', letterSpacing: 1 },
 
-  // Refresh
-  refreshBar: { textAlign: 'center', padding: 8, fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#4a90d9', background: 'rgba(74,144,217,0.08)', letterSpacing: 1 },
-
-  // Header
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 16px 8px' },
-  headerLeft: {},
-  greeting: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 22, color: 'white', letterSpacing: 0.5 },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 16px 4px' },
+  greet: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 24, color: 'white', letterSpacing: 0.5 },
   dateLabel: { fontSize: 13, color: '#5a7a9a', marginTop: 2 },
-  refreshBtn: { width: 40, height: 40, borderRadius: 10, border: '1px solid #1a3a6a', background: 'rgba(13,27,62,0.5)', color: '#4a90d9', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  headerR: { display: 'flex', gap: 8 },
+  newJobBtn: { padding: '8px 14px', borderRadius: 8, border: '1px solid #4a90d9', background: 'rgba(74,144,217,0.1)', color: '#4a90d9', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: 1 },
+  refreshBtn: { width: 36, height: 36, borderRadius: 8, border: '1px solid #1a3a6a', background: 'rgba(13,27,62,0.5)', color: '#4a90d9', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
 
-  // Tab bar
-  tabBar: { display: 'flex', gap: 0, padding: '0 16px', marginBottom: 8, borderBottom: '1px solid #0d1b3e' },
-  tabBtn: { flex: 1, padding: '10px 0', background: 'none', border: 'none', borderBottom: '2px solid transparent', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase', color: '#5a7a9a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  tabs: { display: 'flex', padding: '0 16px', borderBottom: '1px solid #0d1b3e', marginBottom: 4 },
+  tab: { flex: 1, padding: '8px 0', background: 'none', border: 'none', borderBottom: '2px solid transparent', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase', color: '#5a7a9a', cursor: 'pointer', textAlign: 'center' },
   tabActive: { borderBottomColor: '#4a90d9', color: 'white' },
-  tabCount: { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, background: 'rgba(74,144,217,0.2)', color: '#4a90d9', padding: '1px 6px', borderRadius: 8 },
 
-  // Error
-  errorBanner: { margin: '0 16px 8px', padding: '10px 14px', borderRadius: 8, background: 'rgba(204,17,17,0.1)', border: '1px solid #cc1111', fontSize: 13, color: '#ff4444' },
-
-  // Loading
-  loadingContainer: { display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 60 },
+  errBox: { margin: '0 16px 8px', padding: 10, borderRadius: 8, background: 'rgba(204,17,17,0.1)', border: '1px solid #cc1111', fontSize: 13, color: '#ff4444' },
+  center: { display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 60 },
   spinner: { width: 28, height: 28, border: '3px solid #1a3a6a', borderTopColor: '#4a90d9', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
-  loadingText: { marginTop: 12, fontSize: 13, color: '#5a7a9a' },
-
-  // Empty
-  emptyState: { textAlign: 'center', paddingTop: 60 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
+  loadText: { marginTop: 12, fontSize: 13, color: '#5a7a9a' },
+  empty: { textAlign: 'center', paddingTop: 60 },
+  emptyIcon: { fontSize: 48, marginBottom: 8 },
   emptyTitle: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 20, color: 'white', letterSpacing: 1 },
-  emptySub: { fontSize: 13, color: '#5a7a9a', marginTop: 4 },
 
-  // Card list
-  cardList: { padding: '0 12px' },
-  sectionLabel: { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, letterSpacing: 2, color: '#5a7a9a', padding: '12px 4px 6px', textTransform: 'uppercase' },
+  list: { padding: '0 12px' },
+  sectionLabel: { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, letterSpacing: 2, color: '#5a7a9a', padding: '10px 4px 4px', textTransform: 'uppercase' },
 
-  // Job card
-  card: {
-    background: 'rgba(13,27,62,0.6)',
-    border: '1px solid #1a2b8c',
-    borderRadius: 12,
-    padding: '14px 16px',
-    marginBottom: 8,
-    cursor: 'pointer',
-    transition: 'border-color 0.15s, transform 0.15s',
-    WebkitTapHighlightColor: 'transparent',
-  },
-  cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  // Card
+  card: { background: 'rgba(13,27,62,0.6)', border: '1px solid #1a2b8c', borderRadius: 12, padding: '12px 14px', marginBottom: 8, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' },
+  cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   cardTime: { fontFamily: "'Share Tech Mono', monospace", fontSize: 12, color: '#4a90d9' },
-  cardDate: { color: '#5a7a9a' },
   cardTags: { display: 'flex', gap: 4 },
-  tag: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, padding: '2px 6px', borderRadius: 4, border: '1px solid', letterSpacing: 0.5 },
+  badge: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, padding: '1px 5px', borderRadius: 3, border: '1px solid', letterSpacing: 0.5 },
+  cardJobNum: { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#5a7a9a', marginBottom: 2 },
   cardCustomer: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 18, color: 'white', letterSpacing: 0.5, lineHeight: 1.2 },
-  cardAddress: { fontSize: 13, color: '#5a7a9a', marginTop: 4, lineHeight: 1.3 },
-  cardMissing: { fontSize: 11, color: '#cc5500', marginTop: 4 },
-  cardCalendar: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11, color: '#5a7a9a' },
-  calDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
+  cardAddr: { fontSize: 13, color: '#5a7a9a', marginTop: 3 },
+  cardIssue: { fontSize: 12, color: '#7a9aba', marginTop: 2, fontStyle: 'italic' },
+  cardWarn: { fontSize: 11, color: '#cc5500', marginTop: 3 },
+  cardCal: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#5a7a9a' },
+  dot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
 
-  // ---- DETAIL PANEL ----
-  detailOverlay: { position: 'fixed', inset: 0, background: 'rgba(6,13,31,0.4)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' },
-  detailPanel: {
-    background: '#0a1228',
-    borderTop: '2px solid #1a2b8c',
-    borderRadius: '20px 20px 0 0',
-    width: '100%',
-    maxWidth: 480,
-    maxHeight: '92vh',
-    overflowY: 'auto',
-    padding: '8px 20px 32px',
-    position: 'relative',
-    WebkitOverflowScrolling: 'touch',
-  },
-  handleBar: { width: 40, height: 4, borderRadius: 2, background: '#1a3a6a', margin: '4px auto 16px' },
-  detailClose: { position: 'absolute', top: 12, right: 16, background: 'none', border: '1px solid #1a3a6a', borderRadius: 8, color: '#5a7a9a', padding: '6px 10px', cursor: 'pointer', fontSize: 14 },
+  // Panel
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(6,13,31,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' },
+  panel: { background: '#0a1228', borderTop: '2px solid #1a2b8c', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', padding: '8px 20px 32px', position: 'relative', animation: 'slideUp 0.25s ease', WebkitOverflowScrolling: 'touch' },
+  handle: { width: 40, height: 4, borderRadius: 2, background: '#1a3a6a', margin: '4px auto 16px' },
+  closeBtn: { position: 'absolute', top: 12, right: 16, background: 'none', border: '1px solid #1a3a6a', borderRadius: 8, color: '#5a7a9a', padding: '6px 10px', cursor: 'pointer', fontSize: 14 },
 
-  // Tag row
-  detailTagRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
-  detailTag: { fontFamily: "'Share Tech Mono', monospace", fontSize: 12, padding: '3px 8px', borderRadius: 4, letterSpacing: 0.5 },
-  detailCalLabel: { fontSize: 12, color: '#5a7a9a', marginLeft: 'auto' },
+  detailTagRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 },
+  detailTag: { fontFamily: "'Share Tech Mono', monospace", fontSize: 12, padding: '2px 7px', borderRadius: 4, letterSpacing: 0.5 },
+  detailCal: { fontSize: 12, color: '#5a7a9a', marginLeft: 'auto' },
+  detailName: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 900, fontSize: 28, color: 'white', letterSpacing: 1, lineHeight: 1.1, margin: '4px 0' },
+  detailDate: { fontSize: 13, color: '#5a7a9a', marginBottom: 14 },
 
-  // Customer
-  detailCustomer: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 900, fontSize: 28, color: 'white', letterSpacing: 1, lineHeight: 1.1, margin: '4px 0 4px' },
-  detailTime: { fontSize: 13, color: '#5a7a9a', marginBottom: 16 },
+  actions: { display: 'flex', gap: 10, marginBottom: 14 },
+  actionBtn: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px 8px', borderRadius: 12, background: 'rgba(74,144,217,0.06)', border: '1px solid #1a3a6a', textDecoration: 'none', cursor: 'pointer' },
+  actionLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 13, color: 'white', letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
+  actionSub: { fontSize: 11, color: '#5a7a9a', marginTop: 1, textAlign: 'center', wordBreak: 'break-word' },
 
-  // Action buttons (call + navigate)
-  actionRow: { display: 'flex', gap: 10, marginBottom: 16 },
-  actionBtn: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    padding: '14px 8px',
-    borderRadius: 12,
-    background: 'rgba(74,144,217,0.08)',
-    border: '1px solid #1a3a6a',
-    textDecoration: 'none',
-    cursor: 'pointer',
-    transition: 'border-color 0.15s',
-    WebkitTapHighlightColor: 'transparent',
-  },
-  actionIcon: { fontSize: 24, marginBottom: 4 },
-  actionLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 14, color: 'white', letterSpacing: 1, textTransform: 'uppercase' },
-  actionSub: { fontSize: 11, color: '#5a7a9a', marginTop: 2, textAlign: 'center', wordBreak: 'break-word' },
+  fields: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 },
+  field: { background: 'rgba(13,27,62,0.5)', border: '1px solid #0d1b3e', borderRadius: 8, padding: '8px 12px', flex: 1 },
+  fieldLabel: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, letterSpacing: 2, color: '#5a7a9a', textTransform: 'uppercase', marginBottom: 2 },
+  fieldValue: { fontSize: 14, color: '#c8d8e8', lineHeight: 1.4 },
+  fieldValueMono: { fontFamily: "'Share Tech Mono', monospace", fontSize: 18, color: '#ffcc44', letterSpacing: 2 },
 
-  // Detail grid
-  detailGrid: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 },
-  detailField: { background: 'rgba(13,27,62,0.5)', border: '1px solid #0d1b3e', borderRadius: 8, padding: '10px 14px' },
-  detailFieldSmall: { background: 'rgba(13,27,62,0.5)', border: '1px solid #0d1b3e', borderRadius: 8, padding: '8px 14px' },
-  detailFieldLabel: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, letterSpacing: 2, color: '#5a7a9a', textTransform: 'uppercase', marginBottom: 2 },
-  detailFieldValue: { fontSize: 14, color: '#c8d8e8', lineHeight: 1.4 },
-  detailFieldValueMono: { fontFamily: "'Share Tech Mono', monospace", fontSize: 18, color: '#ffcc44', letterSpacing: 2 },
+  notesBox: { marginBottom: 12 },
+  noteItem: { fontSize: 13, color: '#c8d8e8', padding: '5px 10px', borderLeft: '2px solid #1a3a6a', marginBottom: 3, lineHeight: 1.4 },
 
-  // Notes
-  notesSection: { marginBottom: 16 },
-  notesSectionTitle: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, letterSpacing: 2, color: '#5a7a9a', marginBottom: 6, textTransform: 'uppercase' },
-  noteItem: { fontSize: 13, color: '#c8d8e8', padding: '6px 10px', borderLeft: '2px solid #1a3a6a', marginBottom: 4, lineHeight: 1.4 },
+  historyBtn: { background: 'none', border: 'none', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 13, color: '#4a90d9', cursor: 'pointer', padding: '6px 0', letterSpacing: 1, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 },
+  historyBox: { maxHeight: 160, overflowY: 'auto', marginBottom: 12 },
+  historyMsg: { fontSize: 12, color: '#5a7a9a', padding: 6 },
+  historyItem: { display: 'flex', gap: 8, alignItems: 'center', padding: '3px 0', fontSize: 12, borderBottom: '1px solid #0d1b3e' },
+  historyDate: { fontFamily: "'Share Tech Mono', monospace", color: '#5a7a9a', fontSize: 11 },
 
-  // Customer history
-  historySection: { marginBottom: 16 },
-  historyToggle: { background: 'none', border: 'none', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 14, color: '#4a90d9', cursor: 'pointer', padding: '8px 0', letterSpacing: 1, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 },
-  historyCount: { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#5a7a9a' },
-  historyList: { marginTop: 6, maxHeight: 200, overflowY: 'auto' },
-  historyLoading: { fontSize: 12, color: '#5a7a9a', padding: 8 },
-  historyEmpty: { fontSize: 12, color: '#5a7a9a', padding: 8, fontStyle: 'italic' },
-  historyItem: { display: 'flex', gap: 8, alignItems: 'baseline', padding: '4px 0', fontSize: 12, borderBottom: '1px solid #0d1b3e', flexWrap: 'wrap' },
-  historyDate: { fontFamily: "'Share Tech Mono', monospace", color: '#5a7a9a', flexShrink: 0, fontSize: 11 },
-  historyCal: { color: '#5a7a9a', fontSize: 11 },
-  historyTag: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10 },
-  historyNote: { color: '#c8d8e8', fontSize: 11, flex: 1 },
+  // Job flow
+  flowSection: { marginTop: 16, borderTop: '1px solid #0d1b3e', paddingTop: 14 },
+  textarea: { width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #1a3a6a', background: 'rgba(13,27,62,0.5)', color: '#c8d8e8', fontSize: 14, fontFamily: "'Barlow', sans-serif", resize: 'vertical', outline: 'none', lineHeight: 1.5, marginBottom: 10 },
 
-  // Completion notes
-  completionSection: { marginBottom: 16 },
-  completionTitle: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, letterSpacing: 2, color: '#5a7a9a', marginBottom: 6, textTransform: 'uppercase' },
-  notesTextarea: {
-    width: '100%',
-    padding: '12px 14px',
-    borderRadius: 10,
-    border: '1px solid #1a3a6a',
-    background: 'rgba(13,27,62,0.5)',
-    color: '#c8d8e8',
-    fontSize: 14,
-    fontFamily: "'Barlow', sans-serif",
-    resize: 'vertical',
-    outline: 'none',
-    lineHeight: 1.5,
-  },
+  startBtn: { width: '100%', padding: '14px', borderRadius: 12, border: '2px solid #4a90d9', background: 'rgba(74,144,217,0.08)', color: '#4a90d9', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 16, letterSpacing: 2, textTransform: 'uppercase', cursor: 'pointer' },
+  timerBadge: { textAlign: 'center', padding: '8px', borderRadius: 8, background: 'rgba(76,175,80,0.08)', border: '1px solid #4caf5033', color: '#4caf50', fontFamily: "'Share Tech Mono', monospace", fontSize: 12, letterSpacing: 1, marginBottom: 8 },
+  completeBtn: { width: '100%', padding: '14px', borderRadius: 12, border: '2px solid #4caf50', background: 'rgba(76,175,80,0.08)', color: '#4caf50', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 16, letterSpacing: 2, textTransform: 'uppercase', cursor: 'pointer' },
 
-  // Disposition
-  dispositionSection: { marginBottom: 16 },
-  dispositionTitle: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, letterSpacing: 2, color: '#5a7a9a', marginBottom: 8, textTransform: 'uppercase' },
-  dispositionGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
-  dispBtn: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    padding: '14px 8px',
-    borderRadius: 12,
-    border: '2px solid',
-    background: 'transparent',
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-    WebkitTapHighlightColor: 'transparent',
-  },
-  dispIcon: { fontSize: 22, marginBottom: 4, fontWeight: 700 },
-  dispLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: 1, textTransform: 'uppercase' },
-  dispComplete: { borderColor: '#4caf50', color: '#4caf50' },
-  dispReturn: { borderColor: '#cc5500', color: '#ff8844' },
-  dispSales: { borderColor: '#f6bf26', color: '#f6bf26' },
-  dispNC: { borderColor: '#5a7a9a', color: '#5a7a9a' },
-  dispLoading: { textAlign: 'center', fontSize: 12, color: '#4a90d9', marginTop: 8, fontFamily: "'Share Tech Mono', monospace" },
+  // Completion
+  completionBox: { marginTop: 16, borderTop: '1px solid #0d1b3e', paddingTop: 14, animation: 'fadeIn 0.2s ease' },
+  completionTitle: { fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 20, color: 'white', textAlign: 'center', marginBottom: 12, letterSpacing: 1 },
+  completionGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 },
+  outcomeBtn: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '16px 8px', borderRadius: 12, border: '2px solid', background: 'transparent', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: 1, textTransform: 'uppercase', cursor: 'pointer' },
+  backBtn: { width: '100%', marginTop: 10, padding: '10px', borderRadius: 8, border: '1px solid #1a3a6a', background: 'transparent', color: '#5a7a9a', fontSize: 13, cursor: 'pointer', fontFamily: "'Barlow', sans-serif", textAlign: 'center' },
+  busyText: { textAlign: 'center', fontSize: 12, color: '#4a90d9', marginTop: 8, fontFamily: "'Share Tech Mono', monospace" },
+
+  // New Job form
+  formGroup: { marginBottom: 12 },
+  formLabel: { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, letterSpacing: 2, color: '#5a7a9a', textTransform: 'uppercase', marginBottom: 4, display: 'block' },
+  formInput: { width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #1a3a6a', background: 'rgba(13,27,62,0.5)', color: '#c8d8e8', fontSize: 15, fontFamily: "'Barlow', sans-serif", outline: 'none' },
 };

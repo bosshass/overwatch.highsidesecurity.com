@@ -1,16 +1,26 @@
 // ============================================
 // OVERWATCH V3 - App Shell
 // ============================================
-// Phase 0: Auth + Migration Tool only
-// Phase 1+: Add role-based views (field, operator, owner)
+// Phase 0: Migration Tool (operator only)
+// Phase 1: Tech View (field techs) + role routing
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUserConfig, getDefaultView, requiresPin } from './config/roles.js';
+import { getUserConfig, getDefaultView, requiresPin, ROLES } from './config/roles.js';
 import MigrationTool from './views/MigrationTool.jsx';
+import TechView from './views/TechView.jsx';
 
-const APP_VERSION = '3.0.0-phase0';
+const APP_VERSION = '3.1.0-phase1';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
+
+// ============================================
+// DEEP LINK PARSING
+// ============================================
+function getDeepLinkEventId() {
+  const path = window.location.pathname;
+  const match = path.match(/^\/job\/(.+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 // ============================================
 // PIN GATE
@@ -55,13 +65,45 @@ function PinGate({ userName, expectedPin, onUnlock, onCancel }) {
 }
 
 // ============================================
+// VIEW SWITCHER (for operator — can access all views)
+// ============================================
+function ViewSwitcher({ currentView, onSwitch, role }) {
+  if (role !== ROLES.OPERATOR) return null;
+
+  const views = [
+    { key: 'field', label: 'Field', icon: '🔧' },
+    { key: 'migration', label: 'Migration', icon: '📦' },
+  ];
+
+  return (
+    <div style={styles.switcherBar}>
+      {views.map(v => (
+        <button
+          key={v.key}
+          onClick={() => onSwitch(v.key)}
+          style={{
+            ...styles.switcherBtn,
+            ...(currentView === v.key ? styles.switcherActive : {}),
+          }}
+        >
+          {v.icon} {v.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================
 // MAIN APP
 // ============================================
 export default function App() {
-  const [user, setUser] = useState(null);           // { email, name, picture, accessToken }
+  const [user, setUser] = useState(null);
   const [pinUnlocked, setPinUnlocked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [currentView, setCurrentView] = useState(null);
+
+  const deepLinkEventId = getDeepLinkEventId();
 
   // Check for existing session on mount
   useEffect(() => {
@@ -69,18 +111,18 @@ export default function App() {
     if (stored) {
       try {
         const session = JSON.parse(stored);
-        // Check if token is likely still valid (stored less than 55 min ago)
         if (session.storedAt && Date.now() - session.storedAt < 55 * 60 * 1000) {
           setUser(session);
-          // If user doesn't need PIN, auto-unlock
           if (!requiresPin(session.email)) setPinUnlocked(true);
+          const defaultView = getDefaultView(session.email);
+          setCurrentView(deepLinkEventId ? 'field' : defaultView);
         }
       } catch (_) {}
     }
     setLoading(false);
   }, []);
 
-  // Google OAuth via GIS (Google Identity Services)
+  // Google OAuth
   const handleLogin = useCallback(() => {
     if (!GOOGLE_CLIENT_ID) {
       setError('Missing VITE_GOOGLE_CLIENT_ID');
@@ -95,9 +137,7 @@ export default function App() {
           setError(`OAuth error: ${response.error}`);
           return;
         }
-
         try {
-          // Get user info
           const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
             headers: { Authorization: `Bearer ${response.access_token}` },
           }).then(r => r.json());
@@ -113,18 +153,24 @@ export default function App() {
           sessionStorage.setItem('ow_session', JSON.stringify(session));
           setUser(session);
           if (!requiresPin(userInfo.email)) setPinUnlocked(true);
+          const defaultView = getDefaultView(userInfo.email);
+          setCurrentView(deepLinkEventId ? 'field' : defaultView);
         } catch (err) {
           setError(`Login failed: ${err.message}`);
         }
       },
     });
     client?.requestAccessToken();
-  }, []);
+  }, [deepLinkEventId]);
 
   const handleLogout = () => {
     sessionStorage.removeItem('ow_session');
     setUser(null);
     setPinUnlocked(false);
+    setCurrentView(null);
+    if (window.location.pathname !== '/') {
+      window.history.replaceState(null, '', '/');
+    }
   };
 
   // Load GIS script
@@ -171,18 +217,33 @@ export default function App() {
     );
   }
 
+  // ---- RESOLVE VIEW ----
+  const resolvedView = (() => {
+    if (currentView === 'field') return 'field';
+    if (currentView === 'migration') return 'migration';
+    if (config.role === ROLES.TECH) return 'field';
+    if (config.role === ROLES.OPERATOR) return 'field';
+    if (config.role === ROLES.OWNER) return 'field';
+    if (config.role === ROLES.OFFICE) return 'field';
+    return 'field';
+  })();
+
+  const viewLabels = {
+    field: 'FIELD VIEW',
+    migration: 'MIGRATION TOOL',
+    operator: 'OPERATOR BOARD',
+    owner: 'OWNER VIEW',
+  };
+
   // ---- MAIN APP ----
-  // Phase 0: Migration Tool only
-  // Phase 1+: Route based on role
   return (
     <div>
-      {/* Top Bar */}
       <nav style={styles.nav}>
         <div style={styles.navLeft}>
           <div style={styles.navLogo}>OW</div>
           <div>
             <div style={styles.navTitle}>OVERWATCH</div>
-            <div style={styles.navSub}>PHASE 0 — MIGRATION</div>
+            <div style={styles.navSub}>{viewLabels[resolvedView] || 'OVERWATCH'}</div>
           </div>
         </div>
         <div style={styles.navRight}>
@@ -192,9 +253,22 @@ export default function App() {
         </div>
       </nav>
 
-      {/* Content */}
       <div style={{ marginTop: 56 }}>
-        <MigrationTool accessToken={user.accessToken} userEmail={user.email} />
+        <ViewSwitcher currentView={resolvedView} onSwitch={setCurrentView} role={config.role} />
+
+        {resolvedView === 'field' && (
+          <TechView
+            accessToken={user.accessToken}
+            userEmail={user.email}
+            deepLinkEventId={deepLinkEventId}
+          />
+        )}
+        {resolvedView === 'migration' && (
+          <MigrationTool
+            accessToken={user.accessToken}
+            userEmail={user.email}
+          />
+        )}
       </div>
     </div>
   );
@@ -207,7 +281,6 @@ const styles = {
   center: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' },
   spinner: { width: 32, height: 32, border: '3px solid #1a3a6a', borderTopColor: '#4a90d9', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
 
-  // Login
   loginContainer: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 24 },
   loginCard: { textAlign: 'center', maxWidth: 360 },
   loginLogo: { width: 64, height: 64, borderRadius: 12, background: 'linear-gradient(135deg, #0d1b3e, #1a2b8c)', border: '2px solid #4a90d9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 900, fontSize: 24, color: 'white', margin: '0 auto 16px', letterSpacing: 2 },
@@ -217,7 +290,6 @@ const styles = {
   loginError: { background: 'rgba(204,17,17,0.15)', border: '1px solid #cc1111', borderRadius: 8, padding: '8px 16px', fontSize: 13, color: '#ff4444', marginBottom: 16 },
   loginBtn: { background: 'white', color: '#333', border: 'none', borderRadius: 8, padding: '12px 32px', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: "'Barlow', sans-serif" },
 
-  // PIN
   pinOverlay: { position: 'fixed', inset: 0, background: 'rgba(6,13,31,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
   pinCard: { textAlign: 'center', padding: 32 },
   pinTitle: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
@@ -227,7 +299,6 @@ const styles = {
   btnPrimary: { flex: 1, padding: '10px 24px', borderRadius: 8, border: 'none', background: '#4a90d9', color: 'white', fontWeight: 600, cursor: 'pointer', fontFamily: "'Barlow', sans-serif" },
   btnGhost: { flex: 1, padding: '10px 24px', borderRadius: 8, border: '1px solid #1a3a6a', background: 'transparent', color: '#5a7a9a', cursor: 'pointer', fontFamily: "'Barlow', sans-serif" },
 
-  // Nav
   nav: { position: 'fixed', top: 0, left: 0, right: 0, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', background: 'rgba(6,13,31,0.95)', borderBottom: '1px solid #1a2b8c', backdropFilter: 'blur(8px)', zIndex: 100 },
   navLeft: { display: 'flex', alignItems: 'center', gap: 10 },
   navLogo: { width: 34, height: 34, borderRadius: 6, background: 'linear-gradient(135deg, #0d1b3e, #1a2b8c)', border: '1.5px solid #4a90d9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 900, fontSize: 13, color: 'white', letterSpacing: 1 },
@@ -237,12 +308,19 @@ const styles = {
   navUser: { fontSize: 13, color: '#c8d8e8' },
   navBadge: { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(74,144,217,0.12)', border: '1px solid #1a3a6a', color: '#4a90d9' },
   navLogout: { fontSize: 12, color: '#5a7a9a', background: 'none', border: '1px solid #1a3a6a', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Barlow', sans-serif" },
+
+  switcherBar: { display: 'flex', gap: 0, padding: '0 16px', background: 'rgba(6,13,31,0.8)', borderBottom: '1px solid #0d1b3e' },
+  switcherBtn: { flex: 1, padding: '8px 0', background: 'none', border: 'none', borderBottom: '2px solid transparent', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: '#5a7a9a', cursor: 'pointer', textAlign: 'center' },
+  switcherActive: { borderBottomColor: '#4a90d9', color: '#4a90d9' },
 };
 
-// Add keyframe animation
 if (typeof document !== 'undefined' && !document.getElementById('ow-styles')) {
   const style = document.createElement('style');
   style.id = 'ow-styles';
-  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+  style.textContent = `
+    @keyframes spin { to { transform: rotate(360deg); } }
+    * { -webkit-tap-highlight-color: transparent; }
+    input, textarea, select { font-size: 16px !important; }
+  `;
   document.head.appendChild(style);
 }

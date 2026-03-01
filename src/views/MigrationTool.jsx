@@ -9,13 +9,21 @@ import { SYNC_CALENDARS, ACTIVE_CALENDARS } from '../config/calendars.js';
 import { fetchAllHistorical, rewriteEvent } from '../services/calendarApi.js';
 import { parseEvent, classifyEvents, generateV3Rewrite, formatTitle, formatDescription, TAGS, getTagColor, getFormatColor, getFormatLabel } from '../services/eventParser.js';
 
-const DEFAULT_START = '2024-01-01';
+// Only scan calendars that hold ACTIVE work — skip archive calendars
+const SCANNABLE_CALENDARS = SYNC_CALENDARS.filter(c => !['completed', 'sales'].includes(c.type));
+
+// Default: 90 days back
+function get90DaysAgo() {
+  const d = new Date();
+  d.setDate(d.getDate() - 90);
+  return d.toISOString().slice(0, 10);
+}
 
 export default function MigrationTool({ accessToken, userEmail }) {
   // Scan config
-  const [startDate, setStartDate] = useState(DEFAULT_START);
+  const [startDate, setStartDate] = useState(get90DaysAgo);
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
-  const [selectedCalendars, setSelectedCalendars] = useState(SYNC_CALENDARS.map(c => c.id));
+  const [selectedCalendars, setSelectedCalendars] = useState(SCANNABLE_CALENDARS.map(c => c.id));
 
   // Scan state
   const [scanning, setScanning] = useState(false);
@@ -36,13 +44,13 @@ export default function MigrationTool({ accessToken, userEmail }) {
   // ---- SCAN ----
   const runScan = useCallback(async () => {
     setScanning(true);
-    setProgress({ calendar: 'Starting...', index: 0, total: SYNC_CALENDARS.length, events: 0 });
+    setProgress({ calendar: 'Starting...', index: 0, total: SCANNABLE_CALENDARS.length, events: 0 });
     setClassified(null);
     setRawEvents([]);
     setActiveTab('summary');
 
     try {
-      const calendars = SYNC_CALENDARS.filter(c => selectedCalendars.includes(c.id));
+      const calendars = SCANNABLE_CALENDARS.filter(c => selectedCalendars.includes(c.id));
       const timeMin = new Date(startDate + 'T00:00:00');
       const timeMax = new Date(endDate + 'T23:59:59');
 
@@ -104,42 +112,42 @@ export default function MigrationTool({ accessToken, userEmail }) {
   // ---- EXPORT REPORT ----
   const exportReport = useCallback(() => {
     if (!classified) return;
-    const lines = [
-      `OVERWATCH V3 MIGRATION REPORT`,
-      `Date: ${new Date().toLocaleString()}`,
-      `Range: ${startDate} to ${endDate}`,
-      ``,
-      `SUMMARY`,
-      `Total events: ${classified.total}`,
-      `V3 tagged: ${classified.v3.length}`,
-      `V2 legacy: ${classified.v2.length}`,
-      `Rogue (untagged): ${classified.rogue.length}`,
-      `Personal/Ignore: ${classified.personal.length}`,
-      `Cancelled/Empty: ${classified.cancelled.length}`,
-      ``,
+
+    // CSV — opens in Sheets/Excel
+    const csvRows = [
+      ['Date', 'Calendar', 'Title', 'Format', 'Tag', 'Customer', 'Phone', 'Address', 'Issue', 'Missing Fields'].join(','),
     ];
 
-    // Detail each category
-    for (const cat of ['v2', 'rogue']) {
-      lines.push(`\n${'='.repeat(60)}`);
-      lines.push(`${cat.toUpperCase()} EVENTS (${classified[cat].length})`);
-      lines.push(`${'='.repeat(60)}`);
-      for (const e of classified[cat]) {
-        lines.push(`  ${e.start?.slice(0,10) || '????-??-??'} | ${e.calendarName.padEnd(20)} | ${e.rawSummary}`);
-        if (e.phone) lines.push(`    Phone: ${e.phone}`);
-        if (e.address) lines.push(`    Address: ${e.address}`);
-        if (e.missingFields.length > 0) lines.push(`    ⚠ Missing: ${e.missingFields.join(', ')}`);
+    const escCsv = (val) => {
+      const s = String(val || '').replace(/"/g, '""');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+    };
+
+    for (const cat of ['v3', 'v2', 'rogue', 'personal']) {
+      for (const e of (classified[cat] || [])) {
+        csvRows.push([
+          e.start?.slice(0, 10) || '',
+          e.calendarName,
+          e.rawSummary,
+          cat.toUpperCase(),
+          e.tag || '',
+          e.customerName,
+          e.phone,
+          e.address,
+          e.issue,
+          e.missingFields.join('; '),
+        ].map(escCsv).join(','));
       }
     }
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ow_migration_report_${new Date().toISOString().slice(0,10)}.txt`;
+    a.download = `ow_migration_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [classified, startDate, endDate]);
+  }, [classified]);
 
   // ---- CALENDAR TOGGLE ----
   const toggleCalendar = (calId) => {
@@ -183,7 +191,7 @@ export default function MigrationTool({ accessToken, userEmail }) {
         <div style={{ marginTop: 16 }}>
           <label style={s.label}>Calendars to Scan</label>
           <div style={s.calGrid}>
-            {SYNC_CALENDARS.map(cal => (
+            {SCANNABLE_CALENDARS.map(cal => (
               <button
                 key={cal.id}
                 onClick={() => toggleCalendar(cal.id)}

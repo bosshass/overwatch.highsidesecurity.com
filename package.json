@@ -1,6 +1,7 @@
 {
-  "name": "overwatch-v3",
-  "version": "3.1.0",
+  "name": "juce-v4",
+  "private": true,
+  "version": "4.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -8,11 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@supabase/supabase-js": "^2.45.0",
+    "firebase": "^10.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.0",
-    "vite": "^5.0.0"
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
   }
 }

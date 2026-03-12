@@ -1,34 +1,242 @@
 // ============================================
-// Overwatch V3 - DRH Security Field Dashboard
+// Overwatch V3 - Main App
 // ============================================
-// Calendar-only. No Supabase. No database.
-// Reads from Google Calendar, displays jobs.
-// Roles: operator (Sara), owner (JR), tech (Austin/Trevor)
+// Role-based views. Owner sees Dashboard first.
+// Techs see Today's Jobs first.
+// "Useful first, strict never"
+// ============================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { getUserConfig } from './config/roles.js';
-import TechView from './views/TechView.jsx';
-import OwnerView from './views/OwnerView.jsx';
+import TechCalendar from './views/TechCalendar.jsx';
+import TechTodayView from './views/TechTodayView.jsx';
+import OfficeHub from './views/OfficeHub.jsx';
+import OwnerDashboard from './views/OwnerDashboard.jsx';
+import HelpBot from './components/HelpBot.jsx';
+import QuickGuide from './components/QuickGuide.jsx';
+import NotificationBell from './components/NotificationBell.jsx';
 
-const APP_VERSION = '3.1.0';
+// ============================================
+// VERSION — bump to force re-login for all users
+// ============================================
+const APP_VERSION = '3.0.0';
+
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar.readonly';
+const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
+
+// ============================================
+// USER CONFIG
+// ============================================
+// role: 'owner' | 'tech' | 'operator'
+// defaultView: what they see when they open the app
+// ============================================
+
+const USER_CONFIG = {
+  // Owner / JR
+  'jr@drhsecurityservices.com':         { name: 'JR',     role: 'owner',    defaultView: 'dashboard', defaultCalendar: null },
+
+  // Field Techs
+  'austin@drhsecurityservices.com':     { name: 'Austin', role: 'tech',     defaultView: 'today',     defaultCalendar: 'Austin' },
+  'drhservicetech1@gmail.com':          { name: 'Austin', role: 'tech',     defaultView: 'today',     defaultCalendar: 'Austin' },
+
+  // Legacy / fallback
+  'info@drhsecurityservices.com':       { name: 'Office', role: 'operator', defaultView: 'calendar',  defaultCalendar: null },
+  'sara@jnbllc.com':                    { name: 'Sara',   role: 'operator', defaultView: 'calendar',  defaultCalendar: null },
+  'admin@jnbservice.com':               { name: 'Sara',   role: 'operator', defaultView: 'calendar',  defaultCalendar: null },
+  'trevor@drhsecurityservices.com':     { name: 'Trevor', role: 'tech',     defaultView: 'today',     defaultCalendar: 'Installations' },
+};
+
+function getUserConfig(email) {
+  return USER_CONFIG[email?.toLowerCase()] || {
+    name: email?.split('@')[0] || 'User',
+    role: 'tech',
+    defaultView: 'today',
+    defaultCalendar: null
+  };
+}
+
+// ============================================
+// CALENDAR OPTIONS
+// ============================================
+const CALENDAR_OPTIONS = [
+  { key: null, label: 'All Calendars' },
+  { key: 'Austin', label: 'Austin' },
+  { key: 'JR', label: 'JR' },
+  { key: 'Service Queue', label: 'Service Queue' },
+  { key: 'Installations', label: 'Installations' },
+];
+
+// ============================================
+// PIN GATE MODAL
+// ============================================
+const PRESET_PINS = {
+  'austin@drhsecurityservices.com': '56174',
+  'drhservicetech1@gmail.com': '56174',
+  'trevor@drhsecurityservices.com': '56174',
+};
+
+function PinModal({ userEmail, onUnlock, onCancel }) {
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [error, setError] = useState('');
+  const [phase, setPhase] = useState('check');
+  const pinKey = `overwatch_pin_${userEmail}`;
+  const presetPin = PRESET_PINS[userEmail?.toLowerCase()];
+
+  useEffect(() => {
+    if (presetPin) {
+      setPhase('enter');
+    } else {
+      const stored = localStorage.getItem(pinKey);
+      setPhase(stored ? 'enter' : 'create');
+    }
+  }, [pinKey, presetPin]);
+
+  const handleSubmit = () => {
+    if (phase === 'create') {
+      if (pin.length < 4) { setError('PIN must be at least 4 digits'); return; }
+      if (!/^\d+$/.test(pin)) { setError('Numbers only'); return; }
+      setPhase('confirm');
+      setConfirmPin('');
+      setError('');
+      return;
+    }
+    if (phase === 'confirm') {
+      if (confirmPin !== pin) { setError("PINs don't match — try again"); setPhase('create'); setPin(''); setConfirmPin(''); return; }
+      localStorage.setItem(pinKey, pin);
+      onUnlock();
+      return;
+    }
+    if (phase === 'enter') {
+      const correctPin = presetPin || localStorage.getItem(pinKey);
+      if (pin === correctPin) { onUnlock(); return; }
+      setError('Wrong PIN');
+      setPin('');
+    }
+  };
+
+  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSubmit(); };
+  const titles = { create: '🔒 Set Your PIN', confirm: '🔒 Confirm PIN', enter: '🔒 Enter PIN' };
+  const placeholders = { create: 'Choose a 4+ digit PIN', confirm: 'Confirm your PIN', enter: 'Enter PIN' };
+
+  if (phase === 'check') return null;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+      <div style={{ background: '#1e293b', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '320px', textAlign: 'center' }}>
+        <div style={{ fontSize: '24px', fontWeight: '700', color: '#e2e8f0', marginBottom: '8px' }}>{titles[phase]}</div>
+        <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '24px' }}>
+          {phase === 'create' && 'This PIN protects Office & Dashboard.'}
+          {phase === 'confirm' && 'Type it again to confirm.'}
+          {phase === 'enter' && 'PIN required to access this area.'}
+        </p>
+
+        <input
+          type="password"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={8}
+          autoFocus
+          value={phase === 'confirm' ? confirmPin : pin}
+          onChange={e => {
+            const v = e.target.value.replace(/\D/g, '');
+            if (phase === 'confirm') setConfirmPin(v);
+            else setPin(v);
+            setError('');
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholders[phase]}
+          style={{
+            width: '100%', background: '#0f1729', border: `2px solid ${error ? '#ef4444' : '#334155'}`,
+            borderRadius: '12px', color: '#e2e8f0', padding: '16px', fontSize: '24px',
+            textAlign: 'center', letterSpacing: '8px', outline: 'none', boxSizing: 'border-box'
+          }}
+        />
+
+        {error && <p style={{ color: '#ef4444', fontSize: '13px', marginTop: '8px' }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+          <button onClick={onCancel} style={{
+            flex: 1, background: '#334155', color: '#94a3b8', border: 'none',
+            borderRadius: '10px', padding: '14px', fontSize: '14px', cursor: 'pointer'
+          }}>Cancel</button>
+          <button onClick={handleSubmit} style={{
+            flex: 1, background: '#00c8e8', color: '#000', border: 'none',
+            borderRadius: '10px', padding: '14px', fontSize: '14px', fontWeight: '700', cursor: 'pointer'
+          }}>{phase === 'enter' ? 'Unlock' : phase === 'confirm' ? 'Confirm' : 'Next'}</button>
+        </div>
+
+        {phase === 'enter' && !presetPin && (
+          <button onClick={() => {
+            if (window.confirm("Reset your PIN? You'll need to set a new one.")) {
+              localStorage.removeItem(pinKey);
+              setPhase('create');
+              setPin('');
+              setError('');
+            }
+          }} style={{ background: 'none', border: 'none', color: '#475569', fontSize: '12px', marginTop: '16px', cursor: 'pointer' }}>
+            Forgot PIN? Reset
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// MAIN APP
+// ============================================
 
 export default function App() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [accessToken, setAccessToken] = useState(null);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
-  const [userRole, setUserRole] = useState('tech');
-  const [defaultCalendar, setDefaultCalendar] = useState(null);
+  const [activeView, setActiveView] = useState('today');
   const [isLoading, setIsLoading] = useState(true);
-  const [activeView, setActiveView] = useState('default'); // default | calendar | owner
+  const [showSetup, setShowSetup] = useState(false);
+  const [defaultCalendar, setDefaultCalendar] = useState(null);
+  const [pinUnlocked, setPinUnlocked] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [pinTarget, setPinTarget] = useState(null);
+
+  // Android back button navigation
+  useEffect(() => {
+    window.history.replaceState({ view: 'today' }, '');
+    const handlePopState = (e) => {
+      const state = e.state;
+      if (state?.view) {
+        setActiveView(state.view);
+      } else {
+        window.history.pushState({ view: activeView }, '');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Check stored session
   useEffect(() => {
-    const storedToken = localStorage.getItem('ow_v3_token');
-    const storedEmail = localStorage.getItem('ow_v3_email');
-    const storedExpiry = localStorage.getItem('ow_v3_expiry');
+    const storedVersion = localStorage.getItem('overwatch_version');
+    if (storedVersion && storedVersion !== APP_VERSION) {
+      localStorage.removeItem('overwatch_token');
+      localStorage.removeItem('overwatch_email');
+      localStorage.removeItem('overwatch_expiry');
+      localStorage.removeItem('overwatch_view');
+      localStorage.removeItem('juce_v4_token');
+      localStorage.removeItem('juce_v4_email');
+      localStorage.removeItem('juce_v4_expiry');
+      localStorage.setItem('overwatch_version', APP_VERSION);
+      setIsLoading(false);
+      return;
+    }
+    localStorage.setItem('overwatch_version', APP_VERSION);
+
+    // Try overwatch keys first, fall back to juce keys for existing sessions
+    const storedToken = localStorage.getItem('overwatch_token') || localStorage.getItem('juce_v4_token');
+    const storedEmail = localStorage.getItem('overwatch_email') || localStorage.getItem('juce_v4_email');
+    const storedExpiry = localStorage.getItem('overwatch_expiry') || localStorage.getItem('juce_v4_expiry');
+    const storedView = localStorage.getItem('overwatch_view');
 
     if (storedToken && storedEmail && storedExpiry) {
       const expiry = new Date(storedExpiry);
@@ -37,9 +245,18 @@ export default function App() {
         setAccessToken(storedToken);
         setUserEmail(storedEmail);
         setUserName(config.name);
-        setUserRole(config.role);
-        setDefaultCalendar(config.defaultCalendar);
         setIsSignedIn(true);
+
+        const savedDefault = localStorage.getItem(`overwatch_default_cal_${storedEmail}`);
+        if (savedDefault !== null) {
+          setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
+        } else {
+          setDefaultCalendar(config.defaultCalendar);
+          if (config.role === 'tech') setShowSetup(true);
+        }
+
+        // Restore last view, or use role default
+        setActiveView(storedView || config.defaultView || 'today');
       } else {
         clearStorage();
       }
@@ -48,9 +265,10 @@ export default function App() {
   }, []);
 
   const clearStorage = () => {
-    localStorage.removeItem('ow_v3_token');
-    localStorage.removeItem('ow_v3_email');
-    localStorage.removeItem('ow_v3_expiry');
+    localStorage.removeItem('overwatch_token');
+    localStorage.removeItem('overwatch_email');
+    localStorage.removeItem('overwatch_expiry');
+    localStorage.removeItem('overwatch_view');
   };
 
   // Google Sign In
@@ -82,16 +300,33 @@ export default function App() {
             const expiry = new Date(Date.now() + expiresIn * 1000);
             const config = getUserConfig(email);
 
-            localStorage.setItem('ow_v3_token', token);
-            localStorage.setItem('ow_v3_email', email);
-            localStorage.setItem('ow_v3_expiry', expiry.toISOString());
+            localStorage.setItem('overwatch_token', token);
+            localStorage.setItem('overwatch_email', email);
+            localStorage.setItem('overwatch_expiry', expiry.toISOString());
 
             setAccessToken(token);
             setUserEmail(email);
             setUserName(config.name);
-            setUserRole(config.role);
-            setDefaultCalendar(config.defaultCalendar);
             setIsSignedIn(true);
+
+            const savedDefault = localStorage.getItem(`overwatch_default_cal_${email}`);
+            if (savedDefault !== null) {
+              setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
+            } else {
+              setDefaultCalendar(config.defaultCalendar);
+              if (config.role === 'tech') setShowSetup(true);
+            }
+
+            const guideKey = `overwatch_guide_${email}`;
+            if (!localStorage.getItem(guideKey)) {
+              localStorage.setItem(guideKey, 'seen');
+              setShowGuide(true);
+            }
+
+            const defaultView = config.defaultView || 'today';
+            setActiveView(defaultView);
+            localStorage.setItem('overwatch_view', defaultView);
+
             window.history.replaceState(null, '', window.location.pathname);
           })
           .catch(err => console.error('Auth error:', err));
@@ -105,9 +340,42 @@ export default function App() {
     setUserEmail('');
     setUserName('');
     setIsSignedIn(false);
+    setPinUnlocked(false);
   }, []);
 
-  // Loading
+  // Role checks
+  const config = getUserConfig(userEmail);
+  const isOwner = config.role === 'owner';
+  const isOperator = config.role === 'operator';
+  const isTech = config.role === 'tech';
+
+  const switchView = (view) => {
+    // Techs can't access office or dashboard
+    if ((view === 'office' || view === 'dashboard') && isTech) return;
+
+    // Owners and operators skip PIN
+    if (isOwner || isOperator) {
+      setActiveView(view);
+      localStorage.setItem('overwatch_view', view);
+      window.history.pushState({ view }, '');
+      return;
+    }
+
+    // Others need PIN for office/dashboard
+    if ((view === 'office' || view === 'dashboard') && !pinUnlocked) {
+      setPinTarget(view);
+      setShowPinModal(true);
+      return;
+    }
+
+    setActiveView(view);
+    localStorage.setItem('overwatch_view', view);
+    window.history.pushState({ view }, '');
+  };
+
+  // ============================================
+  // LOADING
+  // ============================================
   if (isLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f1729' }}>
@@ -119,19 +387,27 @@ export default function App() {
     );
   }
 
-  // Login
+  // ============================================
+  // LOGIN SCREEN
+  // ============================================
   if (!isSignedIn) {
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)', padding: '20px'
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)',
+        padding: '20px'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ fontSize: '64px', marginBottom: '20px' }}>🛡️</div>
-          <h1 style={{ fontSize: '28px', marginBottom: '8px', color: '#fff' }}>DRH Security</h1>
-          <p style={{ fontSize: '16px', color: '#00c8e8' }}>Overwatch V3</p>
+          <h1 style={{ fontSize: '32px', marginBottom: '4px', color: '#fff', fontWeight: '800' }}>Overwatch</h1>
+          <p style={{ fontSize: '14px', color: '#00c8e8', marginBottom: '4px' }}>DRH Security</p>
+          <p style={{ fontSize: '12px', color: '#475569' }}>v{APP_VERSION}</p>
         </div>
+
         <button
           onClick={handleSignIn}
           style={{
@@ -150,20 +426,39 @@ export default function App() {
           </svg>
           Sign in with Google
         </button>
-        <p style={{ marginTop: '24px', color: '#666', fontSize: '12px' }}>v{APP_VERSION}</p>
       </div>
     );
   }
 
-  // Determine which view to show
-  const isOperator = userRole === 'operator';
-  const isOwner = userRole === 'owner';
-  const showOwnerView = activeView === 'owner' || (activeView === 'default' && (isOwner || isOperator));
-  const showTechView = activeView === 'calendar' || (activeView === 'default' && userRole === 'tech');
-  const hasViewToggle = isOperator || isOwner; // Can switch between views
+  // ============================================
+  // NAV ITEMS — role-based
+  // ============================================
+  const navItems = [];
 
+  if (isTech) {
+    navItems.push({ key: 'today', label: '📋', name: 'Today' });
+    navItems.push({ key: 'calendar', label: '📅', name: 'Calendar' });
+  }
+
+  if (isOwner) {
+    navItems.push({ key: 'dashboard', label: '📊', name: 'Dashboard' });
+    navItems.push({ key: 'today', label: '📋', name: 'Jobs' });
+    navItems.push({ key: 'calendar', label: '📅', name: 'Calendar' });
+    navItems.push({ key: 'office', label: '🏢', name: 'Office' });
+  }
+
+  if (isOperator) {
+    navItems.push({ key: 'calendar', label: '📅', name: 'Calendar' });
+    navItems.push({ key: 'office', label: '🏢', name: 'Office' });
+    navItems.push({ key: 'dashboard', label: '📊', name: 'Dashboard' });
+    navItems.push({ key: 'today', label: '📋', name: 'Jobs' });
+  }
+
+  // ============================================
+  // MAIN APP RENDER
+  // ============================================
   return (
-    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: hasViewToggle ? '70px' : '20px' }}>
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: '70px' }}>
 
       {/* Top bar */}
       <div style={{
@@ -173,62 +468,164 @@ export default function App() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '20px' }}>🛡️</span>
-          <span style={{ fontWeight: '700', color: '#00c8e8', fontSize: '14px' }}>Overwatch</span>
-          <span style={{ color: '#475569', fontSize: '11px' }}>V3</span>
+          <span style={{ fontWeight: '800', color: '#00c8e8', fontSize: '15px' }}>Overwatch</span>
+          <span style={{ color: '#334155', fontSize: '11px' }}>V3</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ color: '#94a3b8', fontSize: '13px' }}>{userName}</span>
+          <NotificationBell userEmail={userEmail} />
+          <button
+            onClick={() => setShowGuide(true)}
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#00c8e8', padding: '4px 8px', fontSize: '13px', cursor: 'pointer', fontWeight: '700' }}
+          >
+            ?
+          </button>
           <button
             onClick={handleSignOut}
-            style={{
-              background: 'none', border: '1px solid #334155', borderRadius: '6px',
-              color: '#94a3b8', padding: '4px 10px', fontSize: '11px', cursor: 'pointer'
-            }}
-          >Out</button>
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#94a3b8', padding: '4px 10px', fontSize: '11px', cursor: 'pointer' }}
+          >
+            Out
+          </button>
         </div>
-      </div>
-
-      {/* Date header */}
-      <div style={{ padding: '12px 16px 0', fontSize: '15px', fontWeight: '600', color: '#94a3b8' }}>
-        {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
       </div>
 
       {/* Active view */}
-      {showOwnerView && <OwnerView accessToken={accessToken} userName={userName} />}
-      {showTechView && <TechView accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} userName={userName} />}
+      {activeView === 'today' && (
+        <TechTodayView
+          accessToken={accessToken}
+          userEmail={userEmail}
+          userName={userName}
+        />
+      )}
+      {activeView === 'calendar' && (
+        <TechCalendar
+          accessToken={accessToken}
+          userEmail={userEmail}
+          defaultCalendar={defaultCalendar}
+          pinUnlocked={pinUnlocked || isOwner || isOperator}
+          onRequestPin={() => setShowPinModal(true)}
+          isRestricted={isTech}
+          isOperator={isOperator || isOwner}
+          userName={userName}
+        />
+      )}
+      {activeView === 'office' && (
+        <OfficeHub
+          accessToken={accessToken}
+          userEmail={userEmail}
+          userRole={isOwner || isOperator ? 'operator' : 'tech'}
+        />
+      )}
+      {activeView === 'dashboard' && (
+        <OwnerDashboard
+          accessToken={accessToken}
+          userEmail={userEmail}
+          userRole={isOwner || isOperator ? 'operator' : 'tech'}
+        />
+      )}
 
-      {/* Bottom nav — only for operator/owner */}
-      {hasViewToggle && (
+      {/* PIN Modal */}
+      {showPinModal && (
+        <PinModal
+          userEmail={userEmail}
+          onUnlock={() => {
+            setPinUnlocked(true);
+            setShowPinModal(false);
+            if (pinTarget) {
+              setActiveView(pinTarget);
+              localStorage.setItem('overwatch_view', pinTarget);
+              setPinTarget(null);
+            }
+          }}
+          onCancel={() => { setShowPinModal(false); setPinTarget(null); }}
+        />
+      )}
+
+      {/* First-time calendar setup (techs only) */}
+      {showSetup && isTech && (
         <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          display: 'flex', justifyContent: 'space-around',
-          background: '#0a0f1e', borderTop: '1px solid #1e293b',
-          padding: '6px 0 calc(6px + env(safe-area-inset-bottom, 0px))',
-          zIndex: 100
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
         }}>
-          {[
-            { key: 'calendar', label: '📅', name: 'Calendar' },
-            { key: 'owner', label: '📊', name: 'Dashboard' },
-          ].map(v => {
-            const isActive = (v.key === 'owner' && showOwnerView) || (v.key === 'calendar' && showTechView);
-            return (
-              <button
-                key={v.key}
-                onClick={() => setActiveView(v.key)}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: isActive ? '#3b82f6' : '#64748b',
-                  fontSize: '20px', padding: '4px 20px',
-                }}
-              >
-                <span>{v.label}</span>
-                <span style={{ fontSize: '10px', fontWeight: isActive ? '700' : '400' }}>{v.name}</span>
-              </button>
-            );
-          })}
+          <div style={{ background: '#1e293b', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%' }}>
+            <div style={{ fontSize: '32px', textAlign: 'center', marginBottom: '12px' }}>🛡️</div>
+            <h2 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: '700', textAlign: 'center', margin: '0 0 4px 0' }}>
+              Welcome, {userName}!
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 20px 0' }}>
+              Pick your default calendar view.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+              {CALENDAR_OPTIONS.map(opt => (
+                <button
+                  key={opt.key || 'all'}
+                  onClick={() => setDefaultCalendar(opt.key)}
+                  style={{
+                    background: defaultCalendar === opt.key ? '#00c8e820' : '#0f1729',
+                    color: defaultCalendar === opt.key ? '#00c8e8' : '#94a3b8',
+                    border: `1px solid ${defaultCalendar === opt.key ? '#00c8e8' : '#334155'}`,
+                    borderRadius: '10px', padding: '12px 16px', fontSize: '14px',
+                    fontWeight: defaultCalendar === opt.key ? '700' : '500',
+                    cursor: 'pointer', textAlign: 'left'
+                  }}
+                >
+                  {opt.label}
+                  {opt.key === defaultCalendar && ' ✓'}
+                  {opt.key === null && defaultCalendar === null && ' ✓'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                localStorage.setItem(`overwatch_default_cal_${userEmail}`, defaultCalendar === null ? 'null' : defaultCalendar);
+                setShowSetup(false);
+              }}
+              style={{
+                width: '100%', background: '#00c8e8', color: '#000', border: 'none',
+                borderRadius: '10px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer'
+              }}
+            >
+              Save & Go
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Help Bot */}
+      <HelpBot
+        userEmail={userEmail}
+        currentView={activeView}
+        userName={userName}
+        userRole={config.role}
+      />
+      {showGuide && <QuickGuide onClose={() => setShowGuide(false)} />}
+
+      {/* Bottom nav */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0,
+        display: 'flex', justifyContent: 'space-around',
+        background: '#0f1729', borderTop: '1px solid #1e293b',
+        padding: '8px 0 calc(8px + env(safe-area-inset-bottom, 0px))',
+        zIndex: 100
+      }}>
+        {navItems.map(({ key, label, name }) => (
+          <button
+            key={key}
+            onClick={() => switchView(key)}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: activeView === key ? '#00c8e8' : '#64748b',
+              fontSize: activeView === key ? '22px' : '20px',
+              padding: '4px 16px',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <span>{label}</span>
+            <span style={{ fontSize: '10px', fontWeight: activeView === key ? '700' : '400' }}>{name}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

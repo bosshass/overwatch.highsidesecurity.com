@@ -465,7 +465,7 @@ export default function Queue({ accessToken, onBack }) {
   const markBilled = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[BILLED] ${ev.title}`)) loadQueue(); setActing(null); };
   const markIgnore = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[IGNORE] ${ev.title}`)) loadQueue(); setActing(null); };
   const markNeedsParts = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[NEEDS PARTS] ${ev.title}`)) loadQueue(); setActing(null); };
-  const markDone = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[COMPLETED] ${ev.title}`)) { loadQueue(); loadScheduleQueue(); } setActing(null); };
+  const sendToBilling = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[TO BILL] ${ev.title}`)) { loadQueue(); loadScheduleQueue(); } setActing(null); };
 
   const addNote = async (ev) => {
     if (!addingNote.trim()) return;
@@ -813,7 +813,7 @@ export default function Queue({ accessToken, onBack }) {
                   ))}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
                     <button onClick={() => { setScheduling(group.events[0]); loadTechAvailability(); }} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>📅 Schedule</button>
-                    <button onClick={() => markDone(group.events[0])} disabled={acting === group.events[0]?.id} style={{ background: '#059669', border: 'none', color: '#fff', padding: 12, cursor: 'pointer' }}>✓ Done</button>
+                    <button onClick={() => sendToBilling(group.events[0])} disabled={acting === group.events[0]?.id} style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, cursor: 'pointer' }}>💵 To Billing</button>
                   </div>
                 </div>
               ))}
@@ -836,7 +836,7 @@ export default function Queue({ accessToken, onBack }) {
                   ))}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
                     <button onClick={() => { setScheduling(group.events[0]); loadTechAvailability(); }} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>📅 Schedule</button>
-                    <button onClick={() => markDone(group.events[0])} style={{ background: '#059669', border: 'none', color: '#fff', padding: 12, cursor: 'pointer' }}>✓ Done</button>
+                    <button onClick={() => sendToBilling(group.events[0])} style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, cursor: 'pointer' }}>💵 To Billing</button>
                   </div>
                 </div>
               ))}

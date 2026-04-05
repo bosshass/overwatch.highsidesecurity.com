@@ -1,4 +1,4 @@
-// Queue V6 — Main Operator Hub with Visual Scheduler
+// Queue V6.1 — Main Operator Hub with Visual Scheduler + Time Range Picker
 // Tabs: Triage | Jobs | Customers | Schedule
 // CALENDAR IS SOURCE OF TRUTH — Supabase is for metadata/history only
 
@@ -49,6 +49,20 @@ const formatDate = (dateStr) => {
   return `${dayName}, ${monthDay} · ${diffDays}d ago`;
 };
 
+// Helper: generate time options in 30-min increments
+const generateTimeOptions = (startHour = 7, endHour = 18) => {
+  const times = [];
+  for (let h = startHour; h <= endHour; h++) {
+    times.push({ hour: h, min: 0, label: `${h > 12 ? h - 12 : h}:00 ${h >= 12 ? 'PM' : 'AM'}` });
+    if (h < endHour) {
+      times.push({ hour: h, min: 30, label: `${h > 12 ? h - 12 : h}:30 ${h >= 12 ? 'PM' : 'AM'}` });
+    }
+  }
+  return times;
+};
+
+const TIME_OPTIONS = generateTimeOptions();
+
 export default function Queue({ accessToken, onBack }) {
   const [activeTab, setActiveTab] = useState('triage');
   
@@ -66,6 +80,11 @@ export default function Queue({ accessToken, onBack }) {
   const [loadingAvail, setLoadingAvail] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [bookingSlot, setBookingSlot] = useState(null);
+  
+  // Time picker state
+  const [selectedSlot, setSelectedSlot] = useState(null); // { tech, slot, dayData }
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
 
   // Jobs tab state
   const [jobs, setJobs] = useState([]);
@@ -318,13 +337,13 @@ export default function Queue({ accessToken, onBack }) {
           busyPeriods.forEach(busy => {
             if (busy.start > cursor) {
               const duration = (busy.start - cursor) / (1000 * 60 * 60);
-              if (duration >= 1) freeSlots.push({ start: new Date(cursor), end: new Date(busy.start), hours: duration });
+              if (duration >= 0.5) freeSlots.push({ start: new Date(cursor), end: new Date(busy.start), hours: duration });
             }
             if (busy.end > cursor) cursor = new Date(busy.end);
           });
           if (cursor < workEnd) {
             const duration = (workEnd - cursor) / (1000 * 60 * 60);
-            if (duration >= 1) freeSlots.push({ start: new Date(cursor), end: new Date(workEnd), hours: duration });
+            if (duration >= 0.5) freeSlots.push({ start: new Date(cursor), end: new Date(workEnd), hours: duration });
           }
           
           availability[tech.name].push({
@@ -347,22 +366,51 @@ export default function Queue({ accessToken, onBack }) {
   }, [accessToken]);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // BOOK SLOT — Create calendar event
+  // BOOK SLOT — Create calendar event with custom time range
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const bookSlot = async (tech, slot, event) => {
-    if (!accessToken || !event) return;
-    setBookingSlot(`${tech}-${slot.start.toISOString()}`);
+  const openTimePicker = (tech, slot, dayData) => {
+    setSelectedSlot({ tech, slot, dayData });
+    // Default to slot start and +2 hours or slot end
+    const defaultStart = `${slot.start.getHours().toString().padStart(2,'0')}:${slot.start.getMinutes().toString().padStart(2,'0')}`;
+    const defaultEndDate = new Date(slot.start.getTime() + 2 * 60 * 60 * 1000);
+    const maxEnd = slot.end < defaultEndDate ? slot.end : defaultEndDate;
+    const defaultEnd = `${maxEnd.getHours().toString().padStart(2,'0')}:${maxEnd.getMinutes().toString().padStart(2,'0')}`;
+    setStartTime(defaultStart);
+    setEndTime(defaultEnd);
+  };
+
+  const confirmBooking = async () => {
+    if (!selectedSlot || !startTime || !endTime || !scheduling) return;
     
+    const { tech, slot } = selectedSlot;
     const calendarId = TECH_CAL_IDS[tech];
-    const title = event.title.includes('[RETURN') ? event.title : `[RETURN] ${extractCustomerName(event.title)}`;
+    
+    // Build start/end dates
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
+    
+    const startDate = new Date(slot.start);
+    startDate.setHours(startH, startM, 0, 0);
+    
+    const endDate = new Date(slot.start);
+    endDate.setHours(endH, endM, 0, 0);
+    
+    if (endDate <= startDate) {
+      alert('End time must be after start time');
+      return;
+    }
+    
+    setBookingSlot(`${tech}-confirming`);
+    
+    const title = scheduling.title.includes('[RETURN') ? scheduling.title : `[RETURN] ${extractCustomerName(scheduling.title)}`;
     
     const newEvent = {
       summary: title,
-      location: event.location,
-      description: `Return visit scheduled from Queue.\n\nOriginal: ${event.title}\n\n${event.description || ''}`,
-      start: { dateTime: slot.start.toISOString(), timeZone: 'America/Denver' },
-      end: { dateTime: new Date(slot.start.getTime() + 2 * 60 * 60 * 1000).toISOString(), timeZone: 'America/Denver' }
+      location: scheduling.location,
+      description: `Return visit scheduled from Queue.\n\nOriginal: ${scheduling.title}\n\n${scheduling.description || ''}`,
+      start: { dateTime: startDate.toISOString(), timeZone: 'America/Denver' },
+      end: { dateTime: endDate.toISOString(), timeZone: 'America/Denver' }
     };
     
     try {
@@ -373,9 +421,11 @@ export default function Queue({ accessToken, onBack }) {
       });
       
       if (res.ok) {
-        alert(`✅ Booked on ${tech}'s calendar!\n\n${slot.start.toLocaleString()}`);
+        const duration = (endDate - startDate) / (1000 * 60 * 60);
+        alert(`✅ Booked ${duration.toFixed(1)}h on ${tech}'s calendar!\n\n${startDate.toLocaleString()} - ${endDate.toLocaleTimeString()}`);
         setScheduling(null);
         setSelectedDay(null);
+        setSelectedSlot(null);
         loadTechAvailability();
         loadQueue();
         loadScheduleQueue();
@@ -453,12 +503,80 @@ export default function Queue({ accessToken, onBack }) {
               <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 14 }}>{extractCustomerName(scheduling.title)}</p>
               {scheduling.location && <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: 12 }}>📍 {scheduling.location}</p>}
             </div>
-            <button onClick={() => { setScheduling(null); setSelectedDay(null); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
+            <button onClick={() => { setScheduling(null); setSelectedDay(null); setSelectedSlot(null); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
           
           {loadingAvail ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading availability...</div>
+          ) : selectedSlot ? (
+            /* TIME PICKER VIEW */
+            <div>
+              <button onClick={() => setSelectedSlot(null)} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, marginBottom: 16, cursor: 'pointer' }}>← Back</button>
+              
+              <div style={{ background: '#0f172a', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: TECHS.find(t => t.name === selectedSlot.tech)?.color }} />
+                  <span style={{ color: '#fff', fontWeight: 600 }}>{selectedSlot.tech}</span>
+                  <span style={{ color: '#64748b' }}>·</span>
+                  <span style={{ color: '#94a3b8' }}>{new Date(selectedSlot.slot.start).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+                </div>
+                
+                <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                  Available: {selectedSlot.slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {selectedSlot.slot.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} ({selectedSlot.slot.hours.toFixed(1)}h)
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Start Time</label>
+                    <input 
+                      type="time" 
+                      value={startTime} 
+                      onChange={e => setStartTime(e.target.value)}
+                      style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: '12px', color: '#fff', fontSize: 16 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>End Time</label>
+                    <input 
+                      type="time" 
+                      value={endTime} 
+                      onChange={e => setEndTime(e.target.value)}
+                      style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: '12px', color: '#fff', fontSize: 16 }}
+                    />
+                  </div>
+                </div>
+                
+                {startTime && endTime && (() => {
+                  const [sh, sm] = startTime.split(':').map(Number);
+                  const [eh, em] = endTime.split(':').map(Number);
+                  const duration = (eh * 60 + em) - (sh * 60 + sm);
+                  if (duration > 0) {
+                    return <div style={{ color: '#22c55e', fontSize: 14, marginTop: 12, textAlign: 'center' }}>Duration: {(duration / 60).toFixed(1)} hours</div>;
+                  }
+                  return <div style={{ color: '#ef4444', fontSize: 14, marginTop: 12, textAlign: 'center' }}>End time must be after start time</div>;
+                })()}
+              </div>
+              
+              <button
+                onClick={confirmBooking}
+                disabled={bookingSlot || !startTime || !endTime}
+                style={{ 
+                  width: '100%', 
+                  background: bookingSlot ? '#475569' : '#3b82f6', 
+                  border: 'none', 
+                  color: '#fff', 
+                  padding: 16, 
+                  borderRadius: 12, 
+                  fontSize: 16, 
+                  fontWeight: 600,
+                  cursor: bookingSlot ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {bookingSlot ? 'Booking...' : `✓ Book on ${selectedSlot.tech}'s Calendar`}
+              </button>
+            </div>
           ) : selectedDay ? (
+            /* DAY DETAIL VIEW */
             <div>
               <button onClick={() => setSelectedDay(null)} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, marginBottom: 16, cursor: 'pointer' }}>← Back</button>
               <h4 style={{ color: '#fff', margin: '0 0 16px' }}>{new Date(selectedDay).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h4>
@@ -491,11 +609,10 @@ export default function Queue({ accessToken, onBack }) {
                         {dayData.freeSlots.map((slot, i) => (
                           <button
                             key={i}
-                            onClick={() => bookSlot(tech.name, slot, scheduling)}
-                            disabled={bookingSlot === `${tech.name}-${slot.start.toISOString()}`}
-                            style={{ background: bookingSlot === `${tech.name}-${slot.start.toISOString()}` ? '#475569' : tech.color, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
+                            onClick={() => openTimePicker(tech.name, slot, dayData)}
+                            style={{ background: tech.color, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
                           >
-                            {slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            {slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {slot.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                             <span style={{ opacity: 0.7, marginLeft: 4 }}>({slot.hours.toFixed(1)}h)</span>
                           </button>
                         ))}
@@ -508,6 +625,7 @@ export default function Queue({ accessToken, onBack }) {
               })}
             </div>
           ) : (
+            /* CALENDAR GRID VIEW */
             <div>
               <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>Tap a day to see available time slots</p>
               

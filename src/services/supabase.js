@@ -219,9 +219,16 @@ export const jobsApi = {
   },
 
   async create(job, createdBy) {
+    // Strip null, undefined, and empty string values — only send fields that have data
+    const cleaned = {};
+    for (const [k, v] of Object.entries(job)) {
+      if (v !== null && v !== undefined && v !== '') cleaned[k] = v;
+    }
+    cleaned.created_by = createdBy;
+    cleaned.updated_by = createdBy;
     const { data, error } = await supabase
       .from('jobs')
-      .insert([{ ...job, created_by: createdBy, updated_by: createdBy }])
+      .insert([cleaned])
       .select()
       .single();
     if (error) throw error;
@@ -230,7 +237,12 @@ export const jobsApi = {
   },
 
   async update(id, updates, updatedBy) {
-    const { data, error } = await supabase.from('jobs').update({ ...updates, updated_by: updatedBy }).eq('id', id).select().single();
+    const cleaned = {};
+    for (const [k, v] of Object.entries(updates)) {
+      if (v !== undefined) cleaned[k] = v; // allow null for clearing fields, but not undefined
+    }
+    cleaned.updated_by = updatedBy;
+    const { data, error } = await supabase.from('jobs').update(cleaned).eq('id', id).select().single();
     if (error) throw error;
     return data;
   },

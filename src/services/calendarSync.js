@@ -4,7 +4,7 @@
 // Simple toolkit: create events, archive events, detect orphans.
 // Views decide WHEN to call these. No state machine.
 
-import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi } from './supabase.js';
+import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -35,6 +35,15 @@ async function apiCreate(accessToken, calendarId, event) {
     { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(event) }
   );
   if (!res.ok) throw new Error(`Create event error: ${(await res.json()).error?.message || res.statusText}`);
+  return await res.json();
+}
+
+async function apiPatch(accessToken, calendarId, eventId, patch) {
+  const res = await fetch(
+    `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+    { method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }
+  );
+  if (!res.ok) throw new Error(`Patch event error: ${(await res.json()).error?.message || res.statusText}`);
   return await res.json();
 }
 
@@ -69,7 +78,14 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
     end: { dateTime: new Date(endTime || new Date(startTime).getTime() + 2 * 60 * 60 * 1000).toISOString(), timeZone: 'America/Denver' },
   };
   if (colorId) event.colorId = colorId;
-  return await apiCreate(accessToken, calendarId, event);
+  const created = await apiCreate(accessToken, calendarId, event);
+  try {
+    const deepLink = `https://juc-e-v2.vercel.app/?cal=${encodeURIComponent(calendarId)}&job=${encodeURIComponent(created.id)}`;
+    const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;
+    await apiPatch(accessToken, calendarId, created.id, { description: updatedDesc });
+    created.description = updatedDesc;
+  } catch (e) { console.warn('Deep link patch failed (non-fatal):', e.message); }
+  return created;
 }
 
 // Archive an event: delete from source calendar
@@ -202,7 +218,10 @@ export async function scanForOrphans(accessToken) {
         if (existing) {
           results.synced++;
         } else {
-          const isJuce = event.description?.includes('Managed by JUC-E');
+          // isJuce: matches BOTH the old "Managed by JUC-E" marker AND the deeplink marker makeJuceJob writes
+          const isJuce = event.description?.includes('Managed by JUC-E') || 
+                         event.description?.includes('📱 Open in JUC-E') ||
+                         event.description?.includes('Open in JUC-E:');
           if (!isJuce && !isOrphanIgnored(event.id)) {
             results.orphans.push({ event, calendar: cal });
           }
@@ -252,20 +271,46 @@ async function fetchCalendarEvents(accessToken, calendarIds, daysBack = 1, daysF
 }
 
 // ============================================
-// ORPHAN IGNORE (localStorage for now)
+// ORPHAN IGNORE — Supabase-backed, localStorage fallback
 // ============================================
 
-export function ignoreOrphan(eventId) {
+export async function ignoreOrphan(eventId) {
   const ignored = JSON.parse(localStorage.getItem('juce_ignored_events') || '[]');
   if (!ignored.includes(eventId)) {
     ignored.push(eventId);
     localStorage.setItem('juce_ignored_events', JSON.stringify(ignored));
   }
+  try {
+    await supabase.from('activity_log').upsert(
+      { event_type: 'orphan_ignored', calendar_event_id: eventId, created_at: new Date().toISOString() },
+      { onConflict: 'calendar_event_id' }
+    );
+  } catch (e) { console.warn('ignoreOrphan Supabase write failed (localStorage active):', e.message); }
+}
+
+export async function ignoreAllOrphans(eventIds) {
+  const ignored = JSON.parse(localStorage.getItem('juce_ignored_events') || '[]');
+  const merged = [...new Set([...ignored, ...eventIds])];
+  localStorage.setItem('juce_ignored_events', JSON.stringify(merged));
+  try {
+    const rows = eventIds.map(id => ({ event_type: 'orphan_ignored', calendar_event_id: id, created_at: new Date().toISOString() }));
+    if (rows.length) await supabase.from('activity_log').upsert(rows, { onConflict: 'calendar_event_id' });
+  } catch (e) { console.warn('ignoreAllOrphans Supabase write failed:', e.message); }
 }
 
 export function isOrphanIgnored(eventId) {
   const ignored = JSON.parse(localStorage.getItem('juce_ignored_events') || '[]');
   return ignored.includes(eventId);
+}
+
+export async function syncIgnoredOrphansFromSupabase() {
+  try {
+    const { data } = await supabase.from('activity_log').select('calendar_event_id').eq('event_type', 'orphan_ignored');
+    if (data?.length) {
+      const local = JSON.parse(localStorage.getItem('juce_ignored_events') || '[]');
+      localStorage.setItem('juce_ignored_events', JSON.stringify([...new Set([...local, ...data.map(r => r.calendar_event_id).filter(Boolean)])]));
+    }
+  } catch (e) { console.warn('syncIgnoredOrphans failed:', e.message); }
 }
 
 export default {
@@ -280,5 +325,7 @@ export default {
   scanForOrphans,
   fetchCalendarEvents,
   ignoreOrphan,
+  ignoreAllOrphans,
+  syncIgnoredOrphansFromSupabase,
   isOrphanIgnored
 };

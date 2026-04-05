@@ -1,242 +1,141 @@
 // ============================================
-// Overwatch V3 - Main App
-// ============================================
-// Role-based views. Owner sees Dashboard first.
-// Techs see Today's Jobs first.
-// "Useful first, strict never"
+// JUC-E V6 - Main App (React Router)
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
-import TechTodayView from './views/TechTodayView.jsx';
 import OfficeHub from './views/OfficeHub.jsx';
+import ThingsToDo from './views/ThingsToDo.jsx';
+import JobStatus from './views/JobStatus.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
+import CommandCenter from './views/CommandCenter.jsx';
+import Queue from './views/Queue.jsx';
+import Billing from './views/Billing.jsx';
+import TechWorkToday from './views/TechWorkToday.jsx';
+import AdminGap from './views/AdminGap.jsx';
+import NewJobModal from './components/NewJobModal.jsx';
+import CompletionModal from './components/CompletionModal.jsx';
 import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 
-// ============================================
-// VERSION — bump to force re-login for all users
-// ============================================
-const APP_VERSION = '3.0.0';
-
+const APP_VERSION = '6.1.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
-// ============================================
-// USER CONFIG
-// ============================================
-// role: 'owner' | 'tech' | 'operator'
-// defaultView: what they see when they open the app
-// ============================================
-
 const USER_CONFIG = {
-  // Owner / JR
-  'jr@drhsecurityservices.com':         { name: 'JR',     role: 'owner',    defaultView: 'dashboard', defaultCalendar: null },
-
-  // Field Techs
-  'austin@drhsecurityservices.com':     { name: 'Austin', role: 'tech',     defaultView: 'today',     defaultCalendar: 'Austin' },
-  'drhservicetech1@gmail.com':          { name: 'Austin', role: 'tech',     defaultView: 'today',     defaultCalendar: 'Austin' },
-
-  // Legacy / fallback
-  'info@drhsecurityservices.com':       { name: 'Office', role: 'operator', defaultView: 'calendar',  defaultCalendar: null },
-  'sara@jnbllc.com':                    { name: 'Sara',   role: 'operator', defaultView: 'calendar',  defaultCalendar: null },
-  'admin@jnbservice.com':               { name: 'Sara',   role: 'operator', defaultView: 'calendar',  defaultCalendar: null },
-  'trevor@drhsecurityservices.com':     { name: 'Trevor', role: 'tech',     defaultView: 'today',     defaultCalendar: 'Installations' },
+  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin' },
+  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin' },
+  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR' },
+  'info@drhsecurityservices.com':     { name: 'Sara',   role: 'operator', defaultCalendar: null },
+  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana' },
+  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null },
+  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations' },
 };
 
-function getUserConfig(email) {
-  return USER_CONFIG[email?.toLowerCase()] || {
-    name: email?.split('@')[0] || 'User',
-    role: 'tech',
-    defaultView: 'today',
-    defaultCalendar: null
-  };
-}
-
-// ============================================
-// CALENDAR OPTIONS
-// ============================================
 const CALENDAR_OPTIONS = [
   { key: null, label: 'All Calendars' },
   { key: 'Austin', label: 'Austin' },
   { key: 'JR', label: 'JR' },
+  { key: 'Sara', label: 'Sara' },
+  { key: 'Shana', label: 'Shana' },
   { key: 'Service Queue', label: 'Service Queue' },
   { key: 'Installations', label: 'Installations' },
 ];
 
-// ============================================
-// PIN GATE MODAL
-// ============================================
-const PRESET_PINS = {
-  'austin@drhsecurityservices.com': '56174',
-  'drhservicetech1@gmail.com': '56174',
-  'trevor@drhsecurityservices.com': '56174',
-};
-
-function PinModal({ userEmail, onUnlock, onCancel }) {
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [error, setError] = useState('');
-  const [phase, setPhase] = useState('check');
-  const pinKey = `overwatch_pin_${userEmail}`;
-  const presetPin = PRESET_PINS[userEmail?.toLowerCase()];
-
-  useEffect(() => {
-    if (presetPin) {
-      setPhase('enter');
-    } else {
-      const stored = localStorage.getItem(pinKey);
-      setPhase(stored ? 'enter' : 'create');
-    }
-  }, [pinKey, presetPin]);
-
-  const handleSubmit = () => {
-    if (phase === 'create') {
-      if (pin.length < 4) { setError('PIN must be at least 4 digits'); return; }
-      if (!/^\d+$/.test(pin)) { setError('Numbers only'); return; }
-      setPhase('confirm');
-      setConfirmPin('');
-      setError('');
-      return;
-    }
-    if (phase === 'confirm') {
-      if (confirmPin !== pin) { setError("PINs don't match — try again"); setPhase('create'); setPin(''); setConfirmPin(''); return; }
-      localStorage.setItem(pinKey, pin);
-      onUnlock();
-      return;
-    }
-    if (phase === 'enter') {
-      const correctPin = presetPin || localStorage.getItem(pinKey);
-      if (pin === correctPin) { onUnlock(); return; }
-      setError('Wrong PIN');
-      setPin('');
-    }
-  };
-
-  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSubmit(); };
-  const titles = { create: '🔒 Set Your PIN', confirm: '🔒 Confirm PIN', enter: '🔒 Enter PIN' };
-  const placeholders = { create: 'Choose a 4+ digit PIN', confirm: 'Confirm your PIN', enter: 'Enter PIN' };
-
-  if (phase === 'check') return null;
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div style={{ background: '#1e293b', borderRadius: '16px', padding: '32px', width: '100%', maxWidth: '320px', textAlign: 'center' }}>
-        <div style={{ fontSize: '24px', fontWeight: '700', color: '#e2e8f0', marginBottom: '8px' }}>{titles[phase]}</div>
-        <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '24px' }}>
-          {phase === 'create' && 'This PIN protects Office & Dashboard.'}
-          {phase === 'confirm' && 'Type it again to confirm.'}
-          {phase === 'enter' && 'PIN required to access this area.'}
-        </p>
-
-        <input
-          type="password"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          maxLength={8}
-          autoFocus
-          value={phase === 'confirm' ? confirmPin : pin}
-          onChange={e => {
-            const v = e.target.value.replace(/\D/g, '');
-            if (phase === 'confirm') setConfirmPin(v);
-            else setPin(v);
-            setError('');
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholders[phase]}
-          style={{
-            width: '100%', background: '#0f1729', border: `2px solid ${error ? '#ef4444' : '#334155'}`,
-            borderRadius: '12px', color: '#e2e8f0', padding: '16px', fontSize: '24px',
-            textAlign: 'center', letterSpacing: '8px', outline: 'none', boxSizing: 'border-box'
-          }}
-        />
-
-        {error && <p style={{ color: '#ef4444', fontSize: '13px', marginTop: '8px' }}>{error}</p>}
-
-        <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-          <button onClick={onCancel} style={{
-            flex: 1, background: '#334155', color: '#94a3b8', border: 'none',
-            borderRadius: '10px', padding: '14px', fontSize: '14px', cursor: 'pointer'
-          }}>Cancel</button>
-          <button onClick={handleSubmit} style={{
-            flex: 1, background: '#00c8e8', color: '#000', border: 'none',
-            borderRadius: '10px', padding: '14px', fontSize: '14px', fontWeight: '700', cursor: 'pointer'
-          }}>{phase === 'enter' ? 'Unlock' : phase === 'confirm' ? 'Confirm' : 'Next'}</button>
-        </div>
-
-        {phase === 'enter' && !presetPin && (
-          <button onClick={() => {
-            if (window.confirm("Reset your PIN? You'll need to set a new one.")) {
-              localStorage.removeItem(pinKey);
-              setPhase('create');
-              setPin('');
-              setError('');
-            }
-          }} style={{ background: 'none', border: 'none', color: '#475569', fontSize: '12px', marginTop: '16px', cursor: 'pointer' }}>
-            Forgot PIN? Reset
-          </button>
-        )}
-      </div>
-    </div>
-  );
+function getUserConfig(email) {
+  return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null };
 }
 
-// ============================================
-// MAIN APP
-// ============================================
-
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [accessToken, setAccessToken] = useState(null);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
-  const [activeView, setActiveView] = useState('today');
+  const [userRole, setUserRole] = useState('tech');
   const [isLoading, setIsLoading] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
   const [defaultCalendar, setDefaultCalendar] = useState(null);
-  const [pinUnlocked, setPinUnlocked] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [pinTarget, setPinTarget] = useState(null);
+  const [showBackfill, setShowBackfill] = useState(false);
+  const [backfillLog, setBackfillLog] = useState([]);
+  const [backfillRunning, setBackfillRunning] = useState(false);
 
-  // Android back button navigation
-  useEffect(() => {
-    window.history.replaceState({ view: 'today' }, '');
-    const handlePopState = (e) => {
-      const state = e.state;
-      if (state?.view) {
-        setActiveView(state.view);
-      } else {
-        window.history.pushState({ view: activeView }, '');
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  // Deep link detection — ?cal=X&job=Y at root
+  const urlParams = new URLSearchParams(location.search);
+  const deepLinkCal = urlParams.get('cal');
+  const deepLinkJob = urlParams.get('job');
 
-  // Check stored session
+  const runBackfill = async () => {
+    const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
+    const JUCE_BASE = 'https://juc-e-v2.vercel.app';
+    const CALS = [
+      { id: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com', name: 'Tentatively Scheduled' },
+      { id: 'drhservicetech1@gmail.com', name: 'Austin' },
+      { id: 'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com', name: 'JR' },
+      { id: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
+      { id: 'c_c84c0a24e2a7386cb519b21569fbb4b17a19214ce33744a63e06394f8c57339f@group.calendar.google.com', name: 'Installations' },
+      { id: 'c_aa764bfa5d492c689c26e3ed589df2804a04ee175db1b68d48217bd18883d178@group.calendar.google.com', name: 'Sales & Accounting' },
+    ];
+    setBackfillRunning(true);
+    setBackfillLog([]);
+    const addLog = (msg, type='info') => setBackfillLog(prev => [...prev, { msg, type }]);
+    const now = new Date();
+    const timeMin = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    let patched = 0, skipped = 0, errors = 0;
+    for (const cal of CALS) {
+      addLog(`📅 ${cal.name}`, 'cal');
+      try {
+        const params = new URLSearchParams({ timeMin, timeMax: now.toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
+        const res = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!res.ok) { const e = await res.json(); addLog(`  ⚠️ ${res.status}: ${e.error?.message}`, 'err'); errors++; continue; }
+        const events = (await res.json()).items || [];
+        addLog(`  ${events.length} events found`, 'dim');
+        for (const event of events) {
+          if (event.status === 'cancelled') continue;
+          const desc = event.description || '';
+          if (desc.includes('juc-e-v2.vercel.app') && !desc.includes('overwatch.highsidesecurity.com')) { skipped++; continue; }
+          const deepLink = `${JUCE_BASE}/?cal=${encodeURIComponent(cal.id)}&job=${encodeURIComponent(event.id)}`;
+          const stripped = desc.replace(/\n*🔗 OPEN IN OVERWATCH:.*$/s, '').replace(/\n*📱 Open in JUC-E:.*$/s, '').trimEnd();
+          const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;
+          const pr = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(cal.id)}/events/${event.id}`, {
+            method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description: newDesc })
+          });
+          if (pr.ok) { addLog(`  ✅ ${event.summary || '(no title)'}`, 'ok'); patched++; }
+          else { addLog(`  ❌ ${event.summary}`, 'err'); errors++; }
+          await new Promise(r => setTimeout(r, 150));
+        }
+      } catch(e) { addLog(`  ❌ ${e.message}`, 'err'); errors++; }
+    }
+    addLog(`─────────────────────`, 'dim');
+    addLog(`✅ Patched: ${patched}  ⏭ Skipped: ${skipped}  ❌ Errors: ${errors}`, 'info');
+    setBackfillRunning(false);
+  };
+
+  // ── AUTH: Check stored session ──────────────────────────────────────────
   useEffect(() => {
-    const storedVersion = localStorage.getItem('overwatch_version');
+    const storedVersion = localStorage.getItem('juce_v4_version');
     if (storedVersion && storedVersion !== APP_VERSION) {
-      localStorage.removeItem('overwatch_token');
-      localStorage.removeItem('overwatch_email');
-      localStorage.removeItem('overwatch_expiry');
-      localStorage.removeItem('overwatch_view');
       localStorage.removeItem('juce_v4_token');
       localStorage.removeItem('juce_v4_email');
       localStorage.removeItem('juce_v4_expiry');
-      localStorage.setItem('overwatch_version', APP_VERSION);
+      localStorage.removeItem('juce_v4_view');
+      localStorage.setItem('juce_v4_version', APP_VERSION);
       setIsLoading(false);
       return;
     }
-    localStorage.setItem('overwatch_version', APP_VERSION);
+    localStorage.setItem('juce_v4_version', APP_VERSION);
 
-    // Try overwatch keys first, fall back to juce keys for existing sessions
-    const storedToken = localStorage.getItem('overwatch_token') || localStorage.getItem('juce_v4_token');
-    const storedEmail = localStorage.getItem('overwatch_email') || localStorage.getItem('juce_v4_email');
-    const storedExpiry = localStorage.getItem('overwatch_expiry') || localStorage.getItem('juce_v4_expiry');
-    const storedView = localStorage.getItem('overwatch_view');
+    const storedToken = localStorage.getItem('juce_v4_token');
+    const storedEmail = localStorage.getItem('juce_v4_email');
+    const storedExpiry = localStorage.getItem('juce_v4_expiry');
 
     if (storedToken && storedEmail && storedExpiry) {
       const expiry = new Date(storedExpiry);
@@ -245,18 +144,16 @@ export default function App() {
         setAccessToken(storedToken);
         setUserEmail(storedEmail);
         setUserName(config.name);
+        setUserRole(config.role);
         setIsSignedIn(true);
 
-        const savedDefault = localStorage.getItem(`overwatch_default_cal_${storedEmail}`);
+        const savedDefault = localStorage.getItem(`juce_default_cal_${storedEmail}`);
         if (savedDefault !== null) {
           setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
         } else {
           setDefaultCalendar(config.defaultCalendar);
-          if (config.role === 'tech') setShowSetup(true);
+          setShowSetup(true);
         }
-
-        // Restore last view, or use role default
-        setActiveView(storedView || config.defaultView || 'today');
       } else {
         clearStorage();
       }
@@ -265,13 +162,12 @@ export default function App() {
   }, []);
 
   const clearStorage = () => {
-    localStorage.removeItem('overwatch_token');
-    localStorage.removeItem('overwatch_email');
-    localStorage.removeItem('overwatch_expiry');
-    localStorage.removeItem('overwatch_view');
+    localStorage.removeItem('juce_v4_token');
+    localStorage.removeItem('juce_v4_email');
+    localStorage.removeItem('juce_v4_expiry');
   };
 
-  // Google Sign In
+  // ── AUTH: Google Sign In ────────────────────────────────────────────────
   const handleSignIn = useCallback(() => {
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
@@ -282,13 +178,12 @@ export default function App() {
     window.location.href = authUrl.toString();
   }, []);
 
-  // Handle OAuth redirect
+  // ── AUTH: Handle OAuth redirect ─────────────────────────────────────────
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes('access_token')) {
       const params = new URLSearchParams(hash.substring(1));
       const token = params.get('access_token');
-      const expiresIn = parseInt(params.get('expires_in') || '3600');
 
       if (token) {
         fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -297,37 +192,35 @@ export default function App() {
           .then(res => res.json())
           .then(data => {
             const email = data.email;
-            const expiry = new Date(Date.now() + expiresIn * 1000);
+            // Session lasts 36 hours — token refresh happens silently
+            const expiry = new Date(Date.now() + 36 * 60 * 60 * 1000);
             const config = getUserConfig(email);
 
-            localStorage.setItem('overwatch_token', token);
-            localStorage.setItem('overwatch_email', email);
-            localStorage.setItem('overwatch_expiry', expiry.toISOString());
+            localStorage.setItem('juce_v4_token', token);
+            localStorage.setItem('juce_v4_email', email);
+            localStorage.setItem('juce_v4_expiry', expiry.toISOString());
 
             setAccessToken(token);
             setUserEmail(email);
             setUserName(config.name);
+            setUserRole(config.role);
             setIsSignedIn(true);
 
-            const savedDefault = localStorage.getItem(`overwatch_default_cal_${email}`);
+            const savedDefault = localStorage.getItem(`juce_default_cal_${email}`);
             if (savedDefault !== null) {
               setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
             } else {
               setDefaultCalendar(config.defaultCalendar);
-              if (config.role === 'tech') setShowSetup(true);
+              setShowSetup(true);
             }
 
-            const guideKey = `overwatch_guide_${email}`;
+            const guideKey = `juce_guide_${email}`;
             if (!localStorage.getItem(guideKey)) {
               localStorage.setItem(guideKey, 'seen');
               setShowGuide(true);
             }
 
-            const defaultView = config.defaultView || 'today';
-            setActiveView(defaultView);
-            localStorage.setItem('overwatch_view', defaultView);
-
-            window.history.replaceState(null, '', window.location.pathname);
+            window.history.replaceState(null, '', '/');
           })
           .catch(err => console.error('Auth error:', err));
       }
@@ -340,42 +233,103 @@ export default function App() {
     setUserEmail('');
     setUserName('');
     setIsSignedIn(false);
-    setPinUnlocked(false);
-  }, []);
+    navigate('/');
+  }, [navigate]);
 
-  // Role checks
-  const config = getUserConfig(userEmail);
-  const isOwner = config.role === 'owner';
-  const isOperator = config.role === 'operator';
-  const isTech = config.role === 'tech';
+  // ── AUTH: Silent token refresh ────────────────────────────────────────
+  // Google tokens expire after ~1hr. Session lasts 36hrs.
+  // On 401, silently get a new token via hidden iframe.
+  // If silent auth fails, THEN sign out.
+  const silentRefresh = useCallback(() => {
+    return new Promise((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
+      authUrl.searchParams.set('redirect_uri', window.location.origin);
+      authUrl.searchParams.set('response_type', 'token');
+      authUrl.searchParams.set('scope', SCOPES);
+      authUrl.searchParams.set('prompt', 'none'); // silent — no user interaction
+      authUrl.searchParams.set('login_hint', userEmail);
 
-  const switchView = (view) => {
-    // Techs can't access office or dashboard
-    if ((view === 'office' || view === 'dashboard') && isTech) return;
+      const timeout = setTimeout(() => {
+        try { document.body.removeChild(iframe); } catch {}
+        resolve(false);
+      }, 8000);
 
-    // Owners and operators skip PIN
-    if (isOwner || isOperator) {
-      setActiveView(view);
-      localStorage.setItem('overwatch_view', view);
-      window.history.pushState({ view }, '');
-      return;
-    }
+      const onMessage = () => {
+        try {
+          const hash = iframe.contentWindow?.location?.hash;
+          if (hash?.includes('access_token')) {
+            const params = new URLSearchParams(hash.substring(1));
+            const newToken = params.get('access_token');
+            if (newToken) {
+              localStorage.setItem('juce_v4_token', newToken);
+              setAccessToken(newToken);
+              clearTimeout(timeout);
+              try { document.body.removeChild(iframe); } catch {}
+              resolve(true);
+              return;
+            }
+          }
+        } catch {} // cross-origin — expected during redirect
+      };
 
-    // Others need PIN for office/dashboard
-    if ((view === 'office' || view === 'dashboard') && !pinUnlocked) {
-      setPinTarget(view);
-      setShowPinModal(true);
-      return;
-    }
+      iframe.addEventListener('load', onMessage);
+      document.body.appendChild(iframe);
+      iframe.src = authUrl.toString();
+    });
+  }, [userEmail]);
 
-    setActiveView(view);
-    localStorage.setItem('overwatch_view', view);
-    window.history.pushState({ view }, '');
-  };
+  // ── AUTH: Session expiry check (36hr) ───────────────────────────────────
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const check = () => {
+      const expiry = localStorage.getItem('juce_v4_expiry');
+      if (!expiry || new Date(expiry) <= new Date()) {
+        handleSignOut(); // 36 hours up — full sign out
+      }
+    };
+    check();
+    const interval = setInterval(check, 5 * 60 * 1000); // check every 5 min
+    return () => clearInterval(interval);
+  }, [isSignedIn, handleSignOut]);
 
-  // ============================================
-  // LOADING
-  // ============================================
+  // ── AUTH: 401 interceptor — try silent refresh before signing out ──────
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let refreshing = false;
+    const origFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const res = await origFetch(...args);
+      if (res.status === 401 && !refreshing) {
+        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+        if (url.includes('googleapis.com')) {
+          refreshing = true;
+          const ok = await silentRefresh();
+          refreshing = false;
+          if (ok) {
+            // Retry the failed request with new token
+            const newToken = localStorage.getItem('juce_v4_token');
+            const [input, init = {}] = args;
+            const newInit = { ...init, headers: { ...init.headers, Authorization: `Bearer ${newToken}` } };
+            return origFetch(input, newInit);
+          } else {
+            handleSignOut();
+          }
+        }
+      }
+      return res;
+    };
+    return () => { window.fetch = origFetch; };
+  }, [isSignedIn, silentRefresh, handleSignOut]);
+
+  // ── ROLE CHECKS ─────────────────────────────────────────────────────────
+  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
+  const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
+  const isOperator = getUserConfig(userEmail).role === 'operator';
+
+  // ── LOADING ─────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f1729' }}>
@@ -387,37 +341,25 @@ export default function App() {
     );
   }
 
-  // ============================================
-  // LOGIN SCREEN
-  // ============================================
+  // ── LOGIN ───────────────────────────────────────────────────────────────
   if (!isSignedIn) {
     return (
       <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)',
-        padding: '20px'
+        minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)', padding: '20px'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ fontSize: '64px', marginBottom: '20px' }}>🛡️</div>
-          <h1 style={{ fontSize: '32px', marginBottom: '4px', color: '#fff', fontWeight: '800' }}>Overwatch</h1>
-          <p style={{ fontSize: '14px', color: '#00c8e8', marginBottom: '4px' }}>DRH Security</p>
-          <p style={{ fontSize: '12px', color: '#475569' }}>v{APP_VERSION}</p>
+          <h1 style={{ fontSize: '28px', marginBottom: '8px', color: '#fff' }}>DRH Security</h1>
+          <p style={{ fontSize: '16px', color: '#00c8e8' }}>JUC-E V6</p>
         </div>
-
-        <button
-          onClick={handleSignIn}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '12px',
-            padding: '16px 32px', fontSize: '16px', fontWeight: '600',
-            background: 'white', color: '#333', border: 'none',
-            borderRadius: '12px', cursor: 'pointer',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
-          }}
-        >
+        <button onClick={handleSignIn} style={{
+          display: 'flex', alignItems: 'center', gap: '12px',
+          padding: '16px 32px', fontSize: '16px', fontWeight: '600',
+          background: 'white', color: '#333', border: 'none',
+          borderRadius: '12px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+        }}>
           <svg width="20" height="20" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -426,205 +368,237 @@ export default function App() {
           </svg>
           Sign in with Google
         </button>
+        <p style={{ marginTop: '24px', color: '#666', fontSize: '12px' }}>v{APP_VERSION}</p>
       </div>
     );
   }
 
-  // ============================================
-  // NAV ITEMS — role-based
-  // ============================================
-  const navItems = [];
-
-  if (isTech) {
-    navItems.push({ key: 'today', label: '📋', name: 'Today' });
-    navItems.push({ key: 'calendar', label: '📅', name: 'Calendar' });
+  // ── DEEP LINK: ?cal=X&job=Y → Completion Modal ─────────────────────────
+  if (deepLinkCal && deepLinkJob) {
+    return (
+      <CompletionModal
+        calendarId={deepLinkCal}
+        eventId={deepLinkJob}
+        accessToken={accessToken}
+        userEmail={userEmail}
+        onDone={() => navigate('/')}
+      />
+    );
   }
 
-  if (isOwner) {
-    navItems.push({ key: 'dashboard', label: '📊', name: 'Dashboard' });
-    navItems.push({ key: 'today', label: '📋', name: 'Jobs' });
-    navItems.push({ key: 'calendar', label: '📅', name: 'Calendar' });
-    navItems.push({ key: 'office', label: '🏢', name: 'Office' });
-  }
-
-  if (isOperator) {
-    navItems.push({ key: 'calendar', label: '📅', name: 'Calendar' });
-    navItems.push({ key: 'office', label: '🏢', name: 'Office' });
-    navItems.push({ key: 'dashboard', label: '📊', name: 'Dashboard' });
-    navItems.push({ key: 'today', label: '📋', name: 'Jobs' });
-  }
-
-  // ============================================
-  // MAIN APP RENDER
-  // ============================================
-  return (
-    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: '70px' }}>
-
-      {/* Top bar */}
+  // ── VIEW SHELL (shared nav bar for full-screen views) ───────────────────
+  const ViewShell = ({ children }) => (
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', gap: 12,
         padding: '12px 16px', borderBottom: '1px solid #1e293b',
         position: 'sticky', top: 0, zIndex: 100, background: '#0f1729'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '20px' }}>🛡️</span>
-          <span style={{ fontWeight: '800', color: '#00c8e8', fontSize: '15px' }}>Overwatch</span>
-          <span style={{ color: '#334155', fontSize: '11px' }}>V3</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ color: '#94a3b8', fontSize: '13px' }}>{userName}</span>
-          <NotificationBell userEmail={userEmail} />
-          <button
-            onClick={() => setShowGuide(true)}
-            style={{ background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#00c8e8', padding: '4px 8px', fontSize: '13px', cursor: 'pointer', fontWeight: '700' }}
-          >
-            ?
-          </button>
-          <button
-            onClick={handleSignOut}
-            style={{ background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#94a3b8', padding: '4px 10px', fontSize: '11px', cursor: 'pointer' }}
-          >
-            Out
-          </button>
+        <button onClick={() => navigate('/')} style={{
+          background: '#1e293b', border: 'none', borderRadius: 8,
+          color: '#e2e8f0', fontSize: 14, fontWeight: 700,
+          padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
+        }}>← Home</button>
+        <span style={{ fontSize: 18 }}>🛡️</span>
+        <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>JUC-E</span>
+        <span style={{ color: '#475569', fontSize: 11 }}>V6</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
+          {isOperator && (
+            <button onClick={() => { setShowBackfill(true); setBackfillLog([]); }}
+              style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#f59e0b', padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+            >🔗</button>
+          )}
+          <button onClick={() => setShowGuide(true)}
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#00c8e8', padding: '4px 8px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+          >?</button>
+          <button onClick={handleSignOut}
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
+          >Out</button>
         </div>
       </div>
+      {children}
+    </div>
+  );
 
-      {/* Active view */}
-      {activeView === 'today' && (
-        <TechTodayView
-          accessToken={accessToken}
-          userEmail={userEmail}
-          userName={userName}
-        />
-      )}
-      {activeView === 'calendar' && (
-        <TechCalendar
-          accessToken={accessToken}
-          userEmail={userEmail}
-          defaultCalendar={defaultCalendar}
-          pinUnlocked={pinUnlocked || isOwner || isOperator}
-          onRequestPin={() => setShowPinModal(true)}
-          isRestricted={isTech}
-          isOperator={isOperator || isOwner}
-          userName={userName}
-        />
-      )}
-      {activeView === 'office' && (
-        <OfficeHub
-          accessToken={accessToken}
-          userEmail={userEmail}
-          userRole={isOwner || isOperator ? 'operator' : 'tech'}
-        />
-      )}
-      {activeView === 'dashboard' && (
-        <OwnerDashboard
-          accessToken={accessToken}
-          userEmail={userEmail}
-          userRole={isOwner || isOperator ? 'operator' : 'tech'}
-        />
-      )}
+  // ── ROUTE GUARDS ────────────────────────────────────────────────────────
+  const OperatorOnly = ({ children }) => isOperator ? children : <Navigate to="/" replace />;
 
-      {/* PIN Modal */}
-      {showPinModal && (
-        <PinModal
-          userEmail={userEmail}
-          onUnlock={() => {
-            setPinUnlocked(true);
-            setShowPinModal(false);
-            if (pinTarget) {
-              setActiveView(pinTarget);
-              localStorage.setItem('overwatch_view', pinTarget);
-              setPinTarget(null);
-            }
-          }}
-          onCancel={() => { setShowPinModal(false); setPinTarget(null); }}
-        />
-      )}
+  // ── ROUTES ──────────────────────────────────────────────────────────────
+  return (
+    <>
+      <Routes>
+        <Route path="/" element={
+          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} />
+        } />
 
-      {/* First-time calendar setup (techs only) */}
-      {showSetup && isTech && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-        }}>
+        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
+
+        <Route path="/work" element={
+          isRestricted
+            ? <TechWorkToday accessToken={accessToken} userEmail={userEmail} userName={getUserConfig(userEmail).name} onBack={() => navigate('/')} />
+            : <ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} autoWorkToDo={true} /></ViewShell>
+        } />
+
+        <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} />} />
+        <Route path="/billing" element={<Billing accessToken={accessToken} onBack={() => navigate('/')} />} />
+        <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
+        <Route path="/jobs" element={<JobStatus onBack={() => navigate('/')} />} />
+
+        <Route path="/newjob" element={
+          <div style={{ minHeight: '100vh', background: '#0f1729' }}>
+            <NewJobModal accessToken={accessToken} userEmail={userEmail} onClose={() => navigate('/')} onCreated={() => navigate('/')} />
+          </div>
+        } />
+
+        <Route path="/lifeline" element={
+          <ViewShell>
+            <div style={{ padding: 24, textAlign: 'center', marginTop: 60 }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>🔴</div>
+              <div style={{ color: '#e2e8f0', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Lifeline</div>
+              <div style={{ color: '#64748b', fontSize: 14 }}>Coming soon.</div>
+            </div>
+          </ViewShell>
+        } />
+
+        {/* Operator-only */}
+        <Route path="/command" element={<OperatorOnly><ViewShell><CommandCenter accessToken={accessToken} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
+        <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
+        <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
+        <Route path="/board" element={<ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole={isOperator ? 'operator' : 'tech'} defaultTab="board" /></ViewShell>} />
+
+        {/* Admin */}
+        <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
+
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+
+      {/* Modals (render on top of any route) */}
+      {showSetup && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: '#1e293b', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%' }}>
             <div style={{ fontSize: '32px', textAlign: 'center', marginBottom: '12px' }}>🛡️</div>
-            <h2 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: '700', textAlign: 'center', margin: '0 0 4px 0' }}>
-              Welcome, {userName}!
-            </h2>
-            <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 20px 0' }}>
-              Pick your default calendar view.
-            </p>
+            <h2 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: '700', textAlign: 'center', margin: '0 0 4px 0' }}>Welcome, {userName}!</h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 20px 0' }}>Pick your default calendar view for this device.</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
               {CALENDAR_OPTIONS.map(opt => (
-                <button
-                  key={opt.key || 'all'}
-                  onClick={() => setDefaultCalendar(opt.key)}
-                  style={{
-                    background: defaultCalendar === opt.key ? '#00c8e820' : '#0f1729',
-                    color: defaultCalendar === opt.key ? '#00c8e8' : '#94a3b8',
-                    border: `1px solid ${defaultCalendar === opt.key ? '#00c8e8' : '#334155'}`,
-                    borderRadius: '10px', padding: '12px 16px', fontSize: '14px',
-                    fontWeight: defaultCalendar === opt.key ? '700' : '500',
-                    cursor: 'pointer', textAlign: 'left'
-                  }}
-                >
-                  {opt.label}
-                  {opt.key === defaultCalendar && ' ✓'}
+                <button key={opt.key || 'all'} onClick={() => setDefaultCalendar(opt.key)} style={{
+                  background: defaultCalendar === opt.key ? '#00c8e820' : '#0f1729',
+                  color: defaultCalendar === opt.key ? '#00c8e8' : '#94a3b8',
+                  border: `1px solid ${defaultCalendar === opt.key ? '#00c8e8' : '#334155'}`,
+                  borderRadius: '10px', padding: '12px 16px', fontSize: '14px',
+                  fontWeight: defaultCalendar === opt.key ? '700' : '500', cursor: 'pointer', textAlign: 'left'
+                }}>
+                  {opt.key === null ? '📅 ' : ''}{opt.label}
+                  {opt.key === defaultCalendar && defaultCalendar !== null && ' ✓'}
                   {opt.key === null && defaultCalendar === null && ' ✓'}
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => {
-                localStorage.setItem(`overwatch_default_cal_${userEmail}`, defaultCalendar === null ? 'null' : defaultCalendar);
-                setShowSetup(false);
-              }}
-              style={{
-                width: '100%', background: '#00c8e8', color: '#000', border: 'none',
-                borderRadius: '10px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer'
-              }}
-            >
+            <button onClick={() => { localStorage.setItem(`juce_default_cal_${userEmail}`, defaultCalendar === null ? 'null' : defaultCalendar); setShowSetup(false); }}
+              style={{ width: '100%', background: '#00c8e8', color: '#000', border: 'none', borderRadius: '10px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer' }}>
               Save & Go
             </button>
           </div>
         </div>
       )}
 
-      {/* Help Bot */}
-      <HelpBot
-        userEmail={userEmail}
-        currentView={activeView}
-        userName={userName}
-        userRole={config.role}
-      />
-      {showGuide && <QuickGuide onClose={() => setShowGuide(false)} />}
+      {showBackfill && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: '#1e293b', borderRadius: '16px', padding: '24px', maxWidth: '480px', width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ color: '#00c8e8', fontSize: '16px', fontWeight: '700', margin: 0 }}>🔗 Backfill Deep Links</h2>
+              <button onClick={() => setShowBackfill(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>×</button>
+            </div>
+            <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 16px 0' }}>Patches "📱 Open in JUC-E" into all non-completed events from the last 60 days.</p>
+            <button onClick={runBackfill} disabled={backfillRunning}
+              style={{ background: backfillRunning ? '#334155' : '#00c8e8', color: backfillRunning ? '#64748b' : '#000', border: 'none', borderRadius: '8px', padding: '12px', fontSize: '14px', fontWeight: '700', cursor: backfillRunning ? 'not-allowed' : 'pointer', marginBottom: '12px' }}>
+              {backfillRunning ? 'Running...' : 'Run Backfill'}
+            </button>
+            <div style={{ flex: 1, overflowY: 'auto', background: '#0f1729', borderRadius: '8px', padding: '12px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.8' }}>
+              {backfillLog.length === 0 && <span style={{ color: '#475569' }}>Log will appear here...</span>}
+              {backfillLog.map((entry, i) => (
+                <div key={i} style={{ color: entry.type === 'ok' ? '#22c55e' : entry.type === 'err' ? '#ef4444' : entry.type === 'cal' ? '#00c8e8' : entry.type === 'dim' ? '#475569' : '#e2e8f0' }}>{entry.msg}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Bottom nav */}
+      <HelpBot userEmail={userEmail} currentView={location.pathname} userName={getUserConfig(userEmail).name} userRole={getUserConfig(userEmail).role} />
+      {showGuide && <QuickGuide onClose={() => setShowGuide(false)} />}
+    </>
+  );
+}
+
+// ── HOME SCREEN ───────────────────────────────────────────────────────────
+function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill }) {
+  const allButtons = [
+    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a', techVisible: true },
+    { path: '/queue',   emoji: '🗂️', label: 'Queue',           sub: 'Schedule · Bill · Parts · Ignore',    color: '#f59e0b', dark: '#2d1a00', border: '#d97706', techVisible: false },
+    { path: '/billing', emoji: '💰', label: 'Billing',         sub: 'Ready to invoice',                    color: '#a78bfa', dark: '#1e0a3c', border: '#7c3aed', techVisible: false },
+    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2', techVisible: true },
+  ];
+  const buttons = isRestricted ? allButtons.filter(b => b.techVisible) : allButtons;
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0,
-        display: 'flex', justifyContent: 'space-around',
-        background: '#0f1729', borderTop: '1px solid #1e293b',
-        padding: '8px 0 calc(8px + env(safe-area-inset-bottom, 0px))',
-        zIndex: 100
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', borderBottom: '1px solid #1e293b'
       }}>
-        {navItems.map(({ key, label, name }) => (
-          <button
-            key={key}
-            onClick={() => switchView(key)}
-            style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: activeView === key ? '#00c8e8' : '#64748b',
-              fontSize: activeView === key ? '22px' : '20px',
-              padding: '4px 16px',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <span>{label}</span>
-            <span style={{ fontSize: '10px', fontWeight: activeView === key ? '700' : '400' }}>{name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 22 }}>🛡️</span>
+          <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>JUC-E</span>
+          <span style={{ color: '#475569', fontSize: 11 }}>V6</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
+          {isOperator && (
+            <button onClick={onBackfill}
+              style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#f59e0b', padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+            >🔗</button>
+          )}
+          <button onClick={onSignOut}
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
+          >Out</button>
+        </div>
+      </div>
+
+      <div style={{ padding: '32px 20px 16px', textAlign: 'center' }}>
+        <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
+        <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
+      </div>
+
+      <div style={{ padding: '8px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {buttons.map(({ path, emoji, label, sub, color, dark, border }) => (
+          <button key={path} onClick={() => onNavigate(path)} style={{
+            background: dark, border: `1px solid ${border}`,
+            borderRadius: 16, padding: '22px 20px',
+            textAlign: 'left', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 18,
+          }}>
+            <span style={{ fontSize: 36 }}>{emoji}</span>
+            <div>
+              <div style={{ color, fontSize: 18, fontWeight: 700 }}>{label}</div>
+              <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{sub}</div>
+            </div>
+            <span style={{ marginLeft: 'auto', color: border, fontSize: 20 }}>›</span>
           </button>
         ))}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          {[
+            { path: '/calendar', label: '📅 Calendar' },
+            ...(isOperator ? [{ path: '/dashboard', label: '📊 Dashboard' }] : []),
+          ].map(({ path, label }) => (
+            <button key={path} onClick={() => onNavigate(path)} style={{
+              flex: 1, background: '#1e293b', border: '1px solid #334155',
+              borderRadius: 10, padding: '10px 8px', color: '#475569',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer'
+            }}>{label}</button>
+          ))}
+        </div>
       </div>
     </div>
   );

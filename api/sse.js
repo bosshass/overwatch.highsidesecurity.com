@@ -171,6 +171,31 @@ const TOOLS = [
     name: 'get_gap_report',
     description: 'Get jobs with remaining balance that may be missing calendar events or invoices (the $147K gap)',
     inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'create_return_visit',
+    description: 'Create a return visit linked to an existing job. The new job inherits customer info and links back to the parent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_job_id: { type: 'string', description: 'UUID of the original job' },
+        issue: { type: 'string', description: 'Reason for return visit' },
+        notes: { type: 'string', description: 'Additional notes' },
+        created_by: { type: 'string', description: 'Email of person creating' }
+      },
+      required: ['parent_job_id', 'issue', 'created_by']
+    }
+  },
+  {
+    name: 'get_job_family',
+    description: 'Get a job with all its linked jobs (parent, siblings, children). Use this to see the full history of a multi-visit job.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        job_id: { type: 'string', description: 'Job UUID' }
+      },
+      required: ['job_id']
+    }
   }
 ];
 
@@ -423,6 +448,117 @@ async function handleTool(name, args) {
         total_gap: total,
         job_count: jobs.length,
         jobs: jobs.slice(0, 50) // Top 50 by remaining amount
+      };
+    }
+
+    case 'create_return_visit': {
+      const { parent_job_id, issue, notes, created_by } = args;
+      
+      // Get parent job
+      const { data: parent } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('id', parent_job_id)
+        .single();
+      
+      if (!parent) throw new Error('Parent job not found');
+      
+      // Generate job number
+      const { data: lastJob } = await supabase
+        .from('jobs')
+        .select('job_number')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      const lastNum = lastJob?.job_number ? parseInt(lastJob.job_number.replace('DRH-', '')) : 5000;
+      const newJobNumber = `DRH-${lastNum + 1}`;
+      
+      // Create linked return visit
+      const { data: newJob, error } = await supabase
+        .from('jobs')
+        .insert({
+          job_number: newJobNumber,
+          customer_name: parent.customer_name,
+          customer_phone: parent.customer_phone,
+          customer_address: parent.customer_address,
+          customer_id: parent.customer_id,
+          parent_job_id: parent_job_id,
+          job_type: 'return_trip',
+          issue: issue,
+          priority: parent.priority,
+          status: 'return_pending',
+          created_by: created_by,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Log to parent job history
+      await supabase.from('job_history').insert({
+        job_id: parent_job_id,
+        notes: `Return visit created: ${newJobNumber} - ${issue}`,
+        changed_by: created_by,
+        changed_at: new Date().toISOString()
+      });
+      
+      return {
+        success: true,
+        new_job: newJob,
+        parent_job_number: parent.job_number,
+        linked: true
+      };
+    }
+
+    case 'get_job_family': {
+      const { job_id } = args;
+      
+      const { data: job } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('id', job_id)
+        .single();
+      
+      if (!job) throw new Error('Job not found');
+      
+      let parent = null;
+      let siblings = [];
+      let children = [];
+      
+      // If this job has a parent, get it and siblings
+      if (job.parent_job_id) {
+        const { data: p } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('id', job.parent_job_id)
+          .single();
+        parent = p;
+        
+        const { data: sibs } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('parent_job_id', job.parent_job_id)
+          .neq('id', job_id)
+          .order('created_at', { ascending: true });
+        siblings = sibs || [];
+      }
+      
+      // Get children of this job
+      const { data: kids } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('parent_job_id', job_id)
+        .order('created_at', { ascending: true });
+      children = kids || [];
+      
+      return {
+        job,
+        parent,
+        siblings,
+        children,
+        is_part_of_series: !!(parent || children.length > 0 || siblings.length > 0)
       };
     }
 

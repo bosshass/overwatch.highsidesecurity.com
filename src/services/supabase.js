@@ -279,6 +279,104 @@ export const jobsApi = {
       .limit(50);
     if (error) throw error;
     return data || [];
+  },
+
+  // ── JOB LINKING (Return trips, multi-visit jobs) ──────────────────────────
+  
+  async createLinkedJob(parentJobId, newJobData, createdBy) {
+    // Get parent job details
+    const parent = await this.getById(parentJobId);
+    if (!parent) throw new Error('Parent job not found');
+    
+    // Generate next job number
+    const { data: lastJob } = await supabase
+      .from('jobs')
+      .select('job_number')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    const lastNum = lastJob?.job_number ? parseInt(lastJob.job_number.replace('DRH-', '')) : 5000;
+    const newJobNumber = `DRH-${lastNum + 1}`;
+    
+    // Create linked job inheriting customer info
+    const linkedJob = {
+      job_number: newJobNumber,
+      customer_name: parent.customer_name,
+      customer_phone: parent.customer_phone,
+      customer_address: parent.customer_address,
+      customer_id: parent.customer_id,
+      parent_job_id: parentJobId,
+      job_type: newJobData.job_type || 'return_trip',
+      issue: newJobData.issue || `Return visit for ${parent.job_number}`,
+      priority: newJobData.priority || parent.priority,
+      status: JOB_STATUS.RETURN_PENDING,
+      ...newJobData
+    };
+    
+    return this.create(linkedJob, createdBy);
+  },
+
+  async getLinkedJobs(jobId) {
+    // Get all jobs linked to this parent
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('*')
+      .eq('parent_job_id', jobId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async getJobWithFamily(jobId) {
+    // Get the job, its parent (if any), and all siblings/children
+    const job = await this.getById(jobId);
+    if (!job) return null;
+    
+    let parent = null;
+    let siblings = [];
+    let children = [];
+    
+    if (job.parent_job_id) {
+      // This is a child job - get parent and siblings
+      parent = await this.getById(job.parent_job_id);
+      const { data: sibs } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('parent_job_id', job.parent_job_id)
+        .neq('id', jobId)
+        .order('created_at', { ascending: true });
+      siblings = sibs || [];
+    }
+    
+    // Get children regardless
+    children = await this.getLinkedJobs(jobId);
+    
+    return { job, parent, siblings, children };
+  },
+
+  async getTotalJobValue(jobId) {
+    // Sum estimate/invoice amounts across parent + all linked jobs
+    const family = await this.getJobWithFamily(jobId);
+    if (!family) return 0;
+    
+    let total = parseFloat(family.job.estimate_amount || 0) + parseFloat(family.job.invoice_amount || 0);
+    
+    if (family.parent) {
+      total += parseFloat(family.parent.estimate_amount || 0) + parseFloat(family.parent.invoice_amount || 0);
+    }
+    
+    for (const child of family.children) {
+      total += parseFloat(child.estimate_amount || 0) + parseFloat(child.invoice_amount || 0);
+    }
+    
+    for (const sib of family.siblings) {
+      total += parseFloat(sib.estimate_amount || 0) + parseFloat(sib.invoice_amount || 0);
+    }
+    
+    return total;
+  }
+    return data || [];
   }
 };
 

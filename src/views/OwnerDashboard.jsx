@@ -42,6 +42,120 @@ function AgeBadge({ days }) {
 }
 
 // ============================================
+// GAP REPORT WIDGET
+// ============================================
+// Shows accepted QBO estimates without matching calendar events or invoices.
+// The $147K+ gap that needs attention.
+
+function GapReportWidget({ onDrilldown }) {
+  const [gapData, setGapData] = useState({ total: 0, count: 0, jobs: [] });
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        // Get jobs with remaining_amount > 0 (accepted estimates not fully invoiced)
+        const { data } = await supabase
+          .from('jobs')
+          .select('*')
+          .gt('remaining_amount', 0)
+          .order('remaining_amount', { ascending: false })
+          .limit(20);
+        
+        const jobs = data || [];
+        const total = jobs.reduce((sum, j) => sum + (parseFloat(j.remaining_amount) || 0), 0);
+        setGapData({ total, count: jobs.length, jobs });
+      } catch (e) {
+        console.error('Gap load error:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  if (loading) return null;
+  if (gapData.count === 0) return null; // No gap = no widget
+
+  return (
+    <div style={{
+      background: gapData.total > 50000 ? '#dc262615' : '#f59e0b15',
+      borderRadius: '12px', padding: '16px', marginBottom: '16px',
+      border: `1px solid ${gapData.total > 50000 ? '#dc262640' : '#f59e0b40'}`,
+      borderLeft: `4px solid ${gapData.total > 50000 ? '#dc2626' : '#f59e0b'}`
+    }}>
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        style={{ cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            💰 Revenue Gap
+          </div>
+          <span style={{ color: '#475569', fontSize: '12px' }}>{expanded ? '▼' : '▶'}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <div style={{ color: gapData.total > 50000 ? '#dc2626' : '#f59e0b', fontSize: '28px', fontWeight: '800' }}>
+            ${gapData.total.toLocaleString()}
+          </div>
+          <div style={{ color: '#64748b', fontSize: '12px' }}>
+            {gapData.count} job{gapData.count !== 1 ? 's' : ''} with remaining balance
+          </div>
+        </div>
+        <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+          Accepted estimates without matching invoices or calendar events
+        </div>
+      </div>
+
+      {/* Expanded job list */}
+      {expanded && (
+        <div style={{ marginTop: '12px', borderTop: '1px solid #334155', paddingTop: '12px' }}>
+          {gapData.jobs.slice(0, 10).map(job => (
+            <div 
+              key={job.id}
+              onClick={() => onDrilldown && onDrilldown([job])}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '8px 0', borderBottom: '1px solid #0f1729', cursor: 'pointer'
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '500' }}>
+                  {job.customer_name}
+                </div>
+                <div style={{ color: '#64748b', fontSize: '11px' }}>
+                  {job.job_number} • {job.issue?.slice(0, 40)}...
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: '700' }}>
+                  ${parseFloat(job.remaining_amount).toLocaleString()}
+                </div>
+                <div style={{ color: '#475569', fontSize: '10px' }}>
+                  of ${parseFloat(job.estimate_amount || 0).toLocaleString()}
+                </div>
+              </div>
+            </div>
+          ))}
+          {gapData.count > 10 && (
+            <div 
+              onClick={() => onDrilldown && onDrilldown(gapData.jobs)}
+              style={{ 
+                color: '#00c8e8', fontSize: '12px', fontWeight: '600', 
+                textAlign: 'center', padding: '10px', cursor: 'pointer' 
+              }}
+            >
+              View all {gapData.count} jobs →
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // SCHEDULING PIPELINE VIEW
 // ============================================
 // The core pain point: approved estimates sitting 14+ days without scheduling.
@@ -636,6 +750,9 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
           ))}
         </div>
       </div>
+
+      {/* GAP REPORT WIDGET — Money sitting unscheduled or unbilled */}
+      <GapReportWidget onDrilldown={(jobs) => { setDrilldown({ label: 'Revenue Gap', jobs }); setView('drilldown'); }} />
 
       {/* TODAY'S SCHEDULE */}
       <TodaySchedule stats={stats} />

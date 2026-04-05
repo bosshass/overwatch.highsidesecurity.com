@@ -410,6 +410,8 @@ export default function CommandCenter({ accessToken, userEmail }) {
   const [loading, setLoading]         = useState(true);
   const [activeEvent, setActiveEvent] = useState(null);
   const [activeSection, setActiveSection] = useState('all');
+  const [capacityView, setCapacityView] = useState(false);
+  const [capacityData, setCapacityData] = useState({ loading: true, days: [] });
 
   const fetchEvents = useCallback(async () => {
     if (!accessToken) return;
@@ -446,7 +448,85 @@ export default function CommandCenter({ accessToken, userEmail }) {
     setLoading(false);
   }, [accessToken]);
 
+  // ── Install Capacity Check ─────────────────────────────────────────────────
+  const fetchCapacity = useCallback(async () => {
+    if (!accessToken) return;
+    setCapacityData(d => ({ ...d, loading: true }));
+    
+    const now = new Date();
+    const days = [];
+    
+    // Check next 14 business days
+    for (let i = 0; i < 21; i++) {
+      const date = new Date(now);
+      date.setDate(date.getDate() + i);
+      
+      // Skip weekends
+      if (date.getDay() === 0 || date.getDay() === 6) continue;
+      if (days.length >= 14) break;
+      
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+      
+      const dayData = {
+        date,
+        dateStr: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        techs: []
+      };
+      
+      // Check each tech's calendar
+      for (const tech of TECH_CALS) {
+        try {
+          const params = new URLSearchParams({
+            timeMin: dayStart.toISOString(),
+            timeMax: dayEnd.toISOString(),
+            singleEvents: 'true'
+          });
+          const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(tech.id)}/events?${params}`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          
+          const events = (data.items || []).filter(e => e.status !== 'cancelled');
+          let totalHours = 0;
+          let hasInstall = false;
+          
+          events.forEach(e => {
+            if (e.start?.dateTime && e.end?.dateTime) {
+              const hrs = (new Date(e.end.dateTime) - new Date(e.start.dateTime)) / 3600000;
+              totalHours += hrs;
+            }
+            // Check for install indicators in title
+            const title = (e.summary || '').toLowerCase();
+            if (title.includes('install') || title.includes('[install]') || title.includes('installation')) {
+              hasInstall = true;
+            }
+          });
+          
+          dayData.techs.push({
+            name: tech.name,
+            color: tech.color,
+            hours: totalHours,
+            eventCount: events.length,
+            hasInstall,
+            overbooked: totalHours > 8
+          });
+        } catch (err) {
+          console.error('Capacity fetch error:', err);
+        }
+      }
+      
+      days.push(dayData);
+    }
+    
+    setCapacityData({ loading: false, days });
+  }, [accessToken]);
+
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
+  useEffect(() => { if (capacityView) fetchCapacity(); }, [capacityView, fetchCapacity]);
 
   const sections = [
     { key: 'all', label: 'All' },
@@ -454,6 +534,101 @@ export default function CommandCenter({ accessToken, userEmail }) {
   ];
 
   const filtered = activeSection === 'all' ? events : events.filter(e => e.calendarName === activeSection);
+
+  // ── Capacity View ──────────────────────────────────────────────────────────
+  if (capacityView) {
+    const overbookedDays = capacityData.days.filter(d => d.techs.some(t => t.overbooked));
+    
+    return (
+      <div style={{ padding: '0', minHeight: '100vh', background: '#0f1729' }}>
+        {/* Header */}
+        <div style={{ padding: '16px 16px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <button onClick={() => setCapacityView(false)} style={{ background: 'none', border: 'none', color: '#00c8e8', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 6, display: 'block' }}>
+              ← Back to Command Center
+            </button>
+            <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>📊 Install Capacity</div>
+            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Next 14 business days — avoid overbooking</div>
+          </div>
+          <button onClick={fetchCapacity} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
+            ↺ Refresh
+          </button>
+        </div>
+
+        {/* Overbooking alert */}
+        {overbookedDays.length > 0 && (
+          <div style={{ margin: '0 16px 12px', padding: '12px', background: '#dc262620', border: '1px solid #dc262650', borderRadius: 10 }}>
+            <div style={{ color: '#dc2626', fontSize: 13, fontWeight: 600 }}>
+              ⚠️ {overbookedDays.length} day{overbookedDays.length > 1 ? 's' : ''} overbooked (8+ hours)
+            </div>
+          </div>
+        )}
+
+        {/* Capacity grid */}
+        <div style={{ padding: '0 16px 100px' }}>
+          {capacityData.loading ? (
+            <div style={{ color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 40 }}>Loading capacity...</div>
+          ) : (
+            capacityData.days.map((day, i) => {
+              const totalHours = day.techs.reduce((sum, t) => sum + t.hours, 0);
+              const isOverbooked = day.techs.some(t => t.overbooked);
+              const isToday = i === 0;
+              
+              return (
+                <div key={day.dateStr} style={{
+                  background: isOverbooked ? '#dc262615' : '#1e293b',
+                  borderRadius: 10, padding: '14px', marginBottom: 8,
+                  border: `1px solid ${isOverbooked ? '#dc262640' : isToday ? '#00c8e840' : '#334155'}`,
+                  borderLeft: isToday ? '4px solid #00c8e8' : isOverbooked ? '4px solid #dc2626' : '4px solid transparent'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>
+                      {isToday ? '📌 TODAY' : day.dateStr}
+                    </div>
+                    <div style={{ color: isOverbooked ? '#dc2626' : '#64748b', fontSize: 12, fontWeight: 600 }}>
+                      {totalHours.toFixed(1)}h total
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {day.techs.map(tech => (
+                      <div key={tech.name} style={{
+                        flex: 1, background: '#0f1729', borderRadius: 8, padding: '10px',
+                        borderLeft: `3px solid ${tech.color}`
+                      }}>
+                        <div style={{ color: tech.color, fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                          {tech.name}
+                        </div>
+                        <div style={{ 
+                          color: tech.overbooked ? '#dc2626' : '#e2e8f0', 
+                          fontSize: 18, fontWeight: 700 
+                        }}>
+                          {tech.hours.toFixed(1)}h
+                        </div>
+                        <div style={{ color: '#64748b', fontSize: 10, marginTop: 2 }}>
+                          {tech.eventCount} event{tech.eventCount !== 1 ? 's' : ''}
+                          {tech.hasInstall && <span style={{ color: '#f59e0b' }}> • 📦 Install</span>}
+                        </div>
+                        {/* Capacity bar */}
+                        <div style={{ marginTop: 6, height: 4, background: '#334155', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min(100, (tech.hours / 8) * 100)}%`,
+                            background: tech.overbooked ? '#dc2626' : tech.hours > 6 ? '#f59e0b' : '#22c55e',
+                            borderRadius: 2
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '0', minHeight: '100vh', background: '#0f1729' }}>
@@ -464,9 +639,17 @@ export default function CommandCenter({ accessToken, userEmail }) {
           <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>Command Center</div>
           <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Schedule, task, and dispatch from here</div>
         </div>
-        <button onClick={fetchEvents} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-          ↺ Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setCapacityView(true)} style={{ 
+            background: '#1e293b', border: '1px solid #334155', borderRadius: 8, 
+            color: '#00c8e8', padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600 
+          }}>
+            📊 Capacity
+          </button>
+          <button onClick={fetchEvents} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
+            ↺ Refresh
+          </button>
+        </div>
       </div>
 
       {/* Section filter chips */}

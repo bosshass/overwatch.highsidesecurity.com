@@ -480,6 +480,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
       }}>
         {[
           { key: 'board', label: 'Board' },
+          { key: 'schedule', label: 'Schedule', badge: blockedJobs.length },
           { key: 'customers', label: 'Customers' },
           { key: 'billing', label: 'Billing' }
         ].map(t => (
@@ -490,11 +491,18 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
               flex: 1, padding: '12px', background: 'none', border: 'none',
               color: activeTab === t.key ? '#00c8e8' : '#64748b',
               fontSize: '14px', fontWeight: activeTab === t.key ? '700' : '400',
-              cursor: 'pointer',
+              cursor: 'pointer', position: 'relative',
               borderBottom: activeTab === t.key ? '2px solid #00c8e8' : '2px solid transparent'
             }}
           >
             {t.label}
+            {t.badge > 0 && (
+              <span style={{
+                position: 'absolute', top: '6px', right: '8px',
+                background: '#ef4444', color: '#fff', fontSize: '10px', fontWeight: 700,
+                padding: '1px 5px', borderRadius: '8px', minWidth: '16px', textAlign: 'center'
+              }}>{t.badge}</span>
+            )}
           </button>
         ))}
       </div>
@@ -898,6 +906,254 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                 </div>
               )}
               </>)}
+            </>
+          )}
+
+          {/* ===== SCHEDULE TAB (Scheduler Queues) ===== */}
+          {activeTab === 'schedule' && (
+            <>
+              {/* Returns Pending Section */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ 
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: '10px', padding: '10px 12px',
+                  background: '#ec489920', borderRadius: '10px', borderLeft: '4px solid #ec4899'
+                }}>
+                  <div>
+                    <div style={{ color: '#ec4899', fontSize: '14px', fontWeight: 700 }}>🔄 Returns Pending</div>
+                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>Jobs that need to be rescheduled</div>
+                  </div>
+                  <div style={{ 
+                    background: '#ec4899', color: '#fff', fontSize: '16px', fontWeight: 700,
+                    padding: '4px 12px', borderRadius: '12px'
+                  }}>
+                    {allJobs.filter(j => j.status === JOB_STATUS.RETURN_PENDING).length}
+                  </div>
+                </div>
+                {allJobs.filter(j => j.status === JOB_STATUS.RETURN_PENDING).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                    ✓ No returns waiting
+                  </div>
+                ) : (
+                  allJobs.filter(j => j.status === JOB_STATUS.RETURN_PENDING).map(job => {
+                    const age = getJobAge(job.created_at);
+                    return (
+                      <div key={job.id} onClick={() => setSelectedJobId(job.id)} style={{
+                        background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '8px',
+                        cursor: 'pointer', borderLeft: '3px solid #ec4899'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '14px' }}>{job.customer_name}</div>
+                            <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>{job.issue}</div>
+                            {job.completion_notes && (
+                              <div style={{ color: '#ec4899', fontSize: '11px', marginTop: '4px', fontStyle: 'italic' }}>
+                                "{job.completion_notes}"
+                              </div>
+                            )}
+                            {job.parent_job_id && (
+                              <div style={{ color: '#64748b', fontSize: '10px', marginTop: '4px' }}>
+                                🔗 Linked to original job
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ color: '#00c8e8', fontSize: '11px', fontWeight: 600 }}>{job.job_number}</div>
+                            <div style={{ color: age > 3 ? '#ef4444' : '#64748b', fontSize: '10px', marginTop: '2px' }}>
+                              {age}d ago
+                            </div>
+                          </div>
+                        </div>
+                        {/* Quick assign buttons */}
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                          {allTechs.map(t => (
+                            <button key={t.id} onClick={(e) => { e.stopPropagation(); quickAssign(job, t.id); }}
+                              style={{
+                                flex: 1, padding: '8px', border: 'none', borderRadius: '6px',
+                                background: TECH_COLORS[t.name] || '#334155', color: '#fff',
+                                fontSize: '12px', fontWeight: 600, cursor: 'pointer'
+                              }}>
+                              {t.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Parts Waiting Section */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ 
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: '10px', padding: '10px 12px',
+                  background: '#eab30820', borderRadius: '10px', borderLeft: '4px solid #eab308'
+                }}>
+                  <div>
+                    <div style={{ color: '#eab308', fontSize: '14px', fontWeight: 700 }}>📦 Parts Waiting</div>
+                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>Jobs blocked until parts arrive</div>
+                  </div>
+                  <div style={{ 
+                    background: '#eab308', color: '#000', fontSize: '16px', fontWeight: 700,
+                    padding: '4px 12px', borderRadius: '12px'
+                  }}>
+                    {allJobs.filter(j => j.status === JOB_STATUS.NEEDS_PARTS).length}
+                  </div>
+                </div>
+                {allJobs.filter(j => j.status === JOB_STATUS.NEEDS_PARTS).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                    ✓ No jobs waiting on parts
+                  </div>
+                ) : (
+                  allJobs.filter(j => j.status === JOB_STATUS.NEEDS_PARTS).map(job => {
+                    const age = getJobAge(job.created_at);
+                    return (
+                      <div key={job.id} onClick={() => setSelectedJobId(job.id)} style={{
+                        background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '8px',
+                        cursor: 'pointer', borderLeft: '3px solid #eab308'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '14px' }}>{job.customer_name}</div>
+                            <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>{job.issue}</div>
+                            {job.completion_notes && (
+                              <div style={{ color: '#eab308', fontSize: '11px', marginTop: '4px', fontStyle: 'italic' }}>
+                                Parts: "{job.completion_notes}"
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ color: '#00c8e8', fontSize: '11px', fontWeight: 600 }}>{job.job_number}</div>
+                            <div style={{ color: age > 7 ? '#ef4444' : '#64748b', fontSize: '10px', marginTop: '2px' }}>
+                              {age}d waiting
+                            </div>
+                          </div>
+                        </div>
+                        {/* Mark parts received button */}
+                        <button onClick={(e) => { 
+                          e.stopPropagation(); 
+                          jobsApi.changeStatus(job.id, JOB_STATUS.READY_TO_SCHEDULE, userEmail, 'Parts received');
+                          loadData();
+                        }} style={{
+                          marginTop: '10px', width: '100%', padding: '10px', border: 'none', borderRadius: '8px',
+                          background: '#22c55e', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer'
+                        }}>
+                          ✓ Parts Received → Ready to Schedule
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Materials Pending Section */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ 
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: '10px', padding: '10px 12px',
+                  background: '#f59e0b20', borderRadius: '10px', borderLeft: '4px solid #f59e0b'
+                }}>
+                  <div>
+                    <div style={{ color: '#f59e0b', fontSize: '14px', fontWeight: 700 }}>🚚 Materials Pending</div>
+                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>Install jobs waiting for materials</div>
+                  </div>
+                  <div style={{ 
+                    background: '#f59e0b', color: '#000', fontSize: '16px', fontWeight: 700,
+                    padding: '4px 12px', borderRadius: '12px'
+                  }}>
+                    {allJobs.filter(j => j.status === JOB_STATUS.PENDING_MATERIALS).length}
+                  </div>
+                </div>
+                {allJobs.filter(j => j.status === JOB_STATUS.PENDING_MATERIALS).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                    ✓ No installs waiting on materials
+                  </div>
+                ) : (
+                  allJobs.filter(j => j.status === JOB_STATUS.PENDING_MATERIALS).map(job => (
+                    <div key={job.id} onClick={() => setSelectedJobId(job.id)} style={{
+                      background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '8px',
+                      cursor: 'pointer', borderLeft: '3px solid #f59e0b'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '14px' }}>{job.customer_name}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>{job.issue}</div>
+                          {job.estimate_amount && (
+                            <div style={{ color: '#22c55e', fontSize: '12px', fontWeight: 600, marginTop: '4px' }}>
+                              ${parseFloat(job.estimate_amount).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ color: '#00c8e8', fontSize: '11px', fontWeight: 600 }}>{job.job_number}</div>
+                      </div>
+                      <button onClick={(e) => { 
+                        e.stopPropagation(); 
+                        jobsApi.changeStatus(job.id, JOB_STATUS.READY_TO_SCHEDULE, userEmail, 'Materials received');
+                        loadData();
+                      }} style={{
+                        marginTop: '10px', width: '100%', padding: '10px', border: 'none', borderRadius: '8px',
+                        background: '#22c55e', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer'
+                      }}>
+                        ✓ Materials Received → Ready to Schedule
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Ready to Schedule Section */}
+              <div>
+                <div style={{ 
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: '10px', padding: '10px 12px',
+                  background: '#22c55e20', borderRadius: '10px', borderLeft: '4px solid #22c55e'
+                }}>
+                  <div>
+                    <div style={{ color: '#22c55e', fontSize: '14px', fontWeight: 700 }}>✅ Ready to Schedule</div>
+                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>Jobs cleared for scheduling</div>
+                  </div>
+                  <div style={{ 
+                    background: '#22c55e', color: '#fff', fontSize: '16px', fontWeight: 700,
+                    padding: '4px 12px', borderRadius: '12px'
+                  }}>
+                    {allJobs.filter(j => j.status === JOB_STATUS.READY_TO_SCHEDULE).length}
+                  </div>
+                </div>
+                {allJobs.filter(j => j.status === JOB_STATUS.READY_TO_SCHEDULE).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                    No jobs ready to schedule
+                  </div>
+                ) : (
+                  allJobs.filter(j => j.status === JOB_STATUS.READY_TO_SCHEDULE).map(job => (
+                    <div key={job.id} onClick={() => setSelectedJobId(job.id)} style={{
+                      background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '8px',
+                      cursor: 'pointer', borderLeft: '3px solid #22c55e'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '14px' }}>{job.customer_name}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>{job.issue}</div>
+                        </div>
+                        <div style={{ color: '#00c8e8', fontSize: '11px', fontWeight: 600 }}>{job.job_number}</div>
+                      </div>
+                      {/* Quick assign buttons */}
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                        {allTechs.map(t => (
+                          <button key={t.id} onClick={(e) => { e.stopPropagation(); quickAssign(job, t.id); }}
+                            style={{
+                              flex: 1, padding: '8px', border: 'none', borderRadius: '6px',
+                              background: TECH_COLORS[t.name] || '#334155', color: '#fff',
+                              fontSize: '12px', fontWeight: 600, cursor: 'pointer'
+                            }}>
+                            {t.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </>
           )}
 

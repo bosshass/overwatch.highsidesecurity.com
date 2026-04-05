@@ -1,4 +1,4 @@
-// Queue — Main Operator Hub
+// Queue V6 — Main Operator Hub with Visual Scheduler
 // Tabs: Triage | Jobs | Customers | Schedule
 // CALENDAR IS SOURCE OF TRUTH — Supabase is for metadata/history only
 
@@ -16,14 +16,38 @@ const QUEUE_SOURCES = [
 ];
 const TECH_CAL_IDS = { Austin: CALENDARS.AUSTIN, JR: CALENDARS.JR };
 const TECH_CALENDARS = [CALENDARS.AUSTIN, CALENDARS.JR];
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 7); // 7am–6pm
+const TECHS = [
+  { name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#f97316' },
+  { name: 'JR', calendarId: CALENDARS.JR, color: '#22c55e' },
+];
 
-// Tag patterns for Schedule tab (calendar-based)
+// Tag patterns
 const RETURN_TAGS = ['[RETURN]', '[RETURN NEEDED]', '[RETURN PENDING]'];
 const PARTS_TAGS = ['[NEEDS PARTS]', '[PARTS]', '[WAITING PARTS]'];
-
-// Tags that indicate work is DONE — filter these out even if they have [RETURN] or [NEEDS PARTS]
 const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE'];
+
+// Helper: strip tags from title to get customer name
+const extractCustomerName = (title) => {
+  return title
+    .replace(/\[.*?\]/g, '')
+    .replace(/Confirmed|confirmed/g, '')
+    .replace(/- Install|- Return|- Service/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// Helper: format date
+const formatDate = (dateStr) => {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+  const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${dayName} · ${diffDays}d ago`;
+  return `${dayName}, ${monthDay} · ${diffDays}d ago`;
+};
 
 export default function Queue({ accessToken, onBack }) {
   const [activeTab, setActiveTab] = useState('triage');
@@ -32,15 +56,16 @@ export default function Queue({ accessToken, onBack }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(null);
-  const [scheduling, setScheduling] = useState(null);
-  const [schedDate, setSchedDate] = useState('');
-  const [schedTime, setSchedTime] = useState('09:00');
-  const [schedTech, setSchedTech] = useState('Austin');
-  const [availability, setAvailability] = useState([]);
-  const [loadingAvail, setLoadingAvail] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [addingNote, setAddingNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+
+  // Visual Scheduler state
+  const [scheduling, setScheduling] = useState(null);
+  const [techAvailability, setTechAvailability] = useState({ Austin: [], JR: [] });
+  const [loadingAvail, setLoadingAvail] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [bookingSlot, setBookingSlot] = useState(null);
 
   // Jobs tab state
   const [jobs, setJobs] = useState([]);
@@ -54,7 +79,7 @@ export default function Queue({ accessToken, onBack }) {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerJobs, setCustomerJobs] = useState([]);
 
-  // Schedule tab state (calendar-based returns/parts)
+  // Schedule tab state
   const [scheduleEvents, setScheduleEvents] = useState({ returns: [], parts: [] });
   const [scheduleLoading, setScheduleLoading] = useState(false);
 
@@ -62,11 +87,11 @@ export default function Queue({ accessToken, onBack }) {
   // TRIAGE TAB — Calendar events needing action
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const loadTriage = useCallback(async () => {
+  const loadQueue = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
     const now = new Date();
-    const tMin = new Date(); tMin.setDate(tMin.getDate() - 90);
+    const tMin = new Date(); tMin.setDate(tMin.getDate() - 60);
     const tMax = new Date(); tMax.setHours(23, 59, 59, 999);
     const results = [];
 
@@ -80,9 +105,7 @@ export default function Queue({ accessToken, onBack }) {
           if (ev.status === 'cancelled') return;
           const title = ev.summary || '';
           const titleUpper = title.toUpperCase();
-          // Skip if starts with a done prefix
           if (SKIP_PREFIXES.some(p => titleUpper.startsWith(p.toUpperCase()))) return;
-          // Skip if contains any done tag anywhere (handles stacked tags like [BILLED] [RETURN NEEDED])
           if (DONE_TAGS.some(tag => titleUpper.includes(tag.toUpperCase()))) return;
           if (TECH_CALENDARS.includes(cal.id)) {
             const start = new Date(ev.start?.dateTime || ev.start?.date);
@@ -99,40 +122,40 @@ export default function Queue({ accessToken, onBack }) {
   }, [accessToken]);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // JOBS TAB — Supabase job history lookup (not source of truth, just metadata)
+  // JOBS TAB
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const loadJobs = useCallback(async () => {
+  const searchJobs = useCallback(async () => {
     setJobsLoading(true);
     try {
-      if (jobSearch.length >= 2) {
-        const results = await jobsApi.search(jobSearch);
-        setJobs(results);
+      const all = await jobsApi.getAll();
+      if (jobSearch.trim()) {
+        const q = jobSearch.toLowerCase();
+        setJobs(all.filter(j => 
+          (j.customer_name || '').toLowerCase().includes(q) ||
+          (j.issue || '').toLowerCase().includes(q) ||
+          (j.status || '').toLowerCase().includes(q)
+        ).slice(0, 50));
       } else {
-        // Show recent jobs
-        const results = await jobsApi.getByStatus([
-          JOB_STATUS.SCHEDULED, JOB_STATUS.COMPLETE, JOB_STATUS.TO_BILL,
-          JOB_STATUS.NEEDS_ESTIMATE, JOB_STATUS.ESTIMATE_SENT
-        ]);
-        setJobs(results.slice(0, 50));
+        setJobs(all.slice(0, 50));
       }
     } catch (e) {
-      console.error('Jobs load error:', e);
+      console.error('Jobs search error:', e);
       setJobs([]);
     }
     setJobsLoading(false);
   }, [jobSearch]);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // CUSTOMERS TAB — Customer search with job history
+  // CUSTOMERS TAB
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const loadCustomers = useCallback(async () => {
+  const searchCustomers = useCallback(async () => {
     setCustomersLoading(true);
     try {
-      if (customerSearch.length >= 2) {
+      if (customerSearch.trim().length >= 2) {
         const results = await customersApi.search(customerSearch);
-        setCustomers(results);
+        setCustomers(results.slice(0, 30));
       } else {
         const all = await customersApi.getAll();
         setCustomers(all.slice(0, 30));
@@ -156,7 +179,7 @@ export default function Queue({ accessToken, onBack }) {
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // SCHEDULE TAB — Calendar events tagged as returns/parts (SOURCE OF TRUTH)
+  // SCHEDULE TAB — Groups events by customer name
   // ═══════════════════════════════════════════════════════════════════════════
 
   const loadScheduleQueue = useCallback(async () => {
@@ -169,7 +192,6 @@ export default function Queue({ accessToken, onBack }) {
     const returns = [];
     const parts = [];
     
-    // Check all calendars for tagged events
     const allCals = [
       ...QUEUE_SOURCES,
       { id: CALENDARS.COMPLETED, name: 'Completed', color: '#22c55e' },
@@ -178,15 +200,8 @@ export default function Queue({ accessToken, onBack }) {
     
     await Promise.all(allCals.map(async (cal) => {
       try {
-        const params = new URLSearchParams({ 
-          timeMin: tMin.toISOString(), 
-          timeMax: tMax.toISOString(), 
-          singleEvents: 'true', 
-          maxResults: '250' 
-        });
-        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, { 
-          headers: { Authorization: `Bearer ${accessToken}` } 
-        });
+        const params = new URLSearchParams({ timeMin: tMin.toISOString(), timeMax: tMax.toISOString(), singleEvents: 'true', maxResults: '250' });
+        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
         if (!res.ok) return;
         const data = await res.json();
         
@@ -194,7 +209,6 @@ export default function Queue({ accessToken, onBack }) {
           if (ev.status === 'cancelled') return;
           const title = (ev.summary || '').toUpperCase();
           
-          // Skip if event has any done tag (billed, completed, invoiced, ignored)
           const isDone = DONE_TAGS.some(tag => title.includes(tag.toUpperCase()));
           if (isDone) return;
           
@@ -207,6 +221,7 @@ export default function Queue({ accessToken, onBack }) {
             calendarName: cal.name,
             calendarColor: cal.color,
             title: ev.summary || '',
+            customerName: extractCustomerName(ev.summary || ''),
             start: ev.start?.dateTime || ev.start?.date,
             location: ev.location || '',
             description: ev.description || '',
@@ -218,556 +233,492 @@ export default function Queue({ accessToken, onBack }) {
       } catch (e) { console.warn('Schedule fetch error:', cal.name, e.message); }
     }));
     
-    // Sort by date
-    returns.sort((a, b) => new Date(a.start) - new Date(b.start));
-    parts.sort((a, b) => new Date(a.start) - new Date(b.start));
+    // Group by customer name
+    const groupByCustomer = (items) => {
+      const groups = {};
+      items.forEach(item => {
+        const key = item.customerName || 'Unknown';
+        if (!groups[key]) {
+          groups[key] = { customerName: key, location: item.location, events: [] };
+        }
+        groups[key].events.push(item);
+        if (!groups[key].location && item.location) groups[key].location = item.location;
+      });
+      Object.values(groups).forEach(g => g.events.sort((a, b) => new Date(a.start) - new Date(b.start)));
+      return Object.values(groups).sort((a, b) => new Date(a.events[0]?.start) - new Date(b.events[0]?.start));
+    };
     
-    setScheduleEvents({ returns, parts });
+    setScheduleEvents({ returns: groupByCustomer(returns), parts: groupByCustomer(parts) });
     setScheduleLoading(false);
   }, [accessToken]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VISUAL SCHEDULER — Load tech availability for next 14 days
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const loadTechAvailability = useCallback(async () => {
+    if (!accessToken) return;
+    setLoadingAvail(true);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() + 14);
+    
+    const availability = { Austin: [], JR: [] };
+    
+    for (const tech of TECHS) {
+      try {
+        const params = new URLSearchParams({
+          timeMin: today.toISOString(),
+          timeMax: endDate.toISOString(),
+          singleEvents: 'true',
+          orderBy: 'startTime',
+          maxResults: '100'
+        });
+        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(tech.calendarId)}/events?${params}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        
+        for (let d = 0; d < 14; d++) {
+          const day = new Date(today);
+          day.setDate(day.getDate() + d);
+          const dayStr = day.toISOString().split('T')[0];
+          
+          const dayEvents = (data.items || []).filter(ev => {
+            if (ev.status === 'cancelled') return false;
+            const evStart = new Date(ev.start?.dateTime || ev.start?.date);
+            return evStart.toISOString().split('T')[0] === dayStr;
+          });
+          
+          let bookedHours = 0;
+          dayEvents.forEach(ev => {
+            const start = new Date(ev.start?.dateTime || ev.start?.date);
+            const end = new Date(ev.end?.dateTime || ev.end?.date);
+            bookedHours += (end - start) / (1000 * 60 * 60);
+          });
+          
+          const workdayHours = 11;
+          const freeHours = Math.max(0, workdayHours - bookedHours);
+          
+          // Find free slots
+          const freeSlots = [];
+          const busyPeriods = dayEvents.map(ev => ({
+            start: new Date(ev.start?.dateTime || ev.start?.date),
+            end: new Date(ev.end?.dateTime || ev.end?.date),
+            title: ev.summary || ''
+          })).sort((a, b) => a.start - b.start);
+          
+          const workStart = new Date(day); workStart.setHours(7, 0, 0, 0);
+          const workEnd = new Date(day); workEnd.setHours(18, 0, 0, 0);
+          
+          let cursor = workStart;
+          busyPeriods.forEach(busy => {
+            if (busy.start > cursor) {
+              const duration = (busy.start - cursor) / (1000 * 60 * 60);
+              if (duration >= 1) freeSlots.push({ start: new Date(cursor), end: new Date(busy.start), hours: duration });
+            }
+            if (busy.end > cursor) cursor = new Date(busy.end);
+          });
+          if (cursor < workEnd) {
+            const duration = (workEnd - cursor) / (1000 * 60 * 60);
+            if (duration >= 1) freeSlots.push({ start: new Date(cursor), end: new Date(workEnd), hours: duration });
+          }
+          
+          availability[tech.name].push({
+            date: dayStr,
+            day: day.toLocaleDateString('en-US', { weekday: 'short' }),
+            dayNum: day.getDate(),
+            month: day.toLocaleDateString('en-US', { month: 'short' }),
+            bookedHours,
+            freeHours,
+            freeSlots,
+            events: dayEvents.map(ev => ({ title: ev.summary || '', start: ev.start?.dateTime || ev.start?.date, end: ev.end?.dateTime || ev.end?.date })),
+            isWeekend: day.getDay() === 0 || day.getDay() === 6
+          });
+        }
+      } catch (e) { console.warn('Availability fetch error:', tech.name, e.message); }
+    }
+    
+    setTechAvailability(availability);
+    setLoadingAvail(false);
+  }, [accessToken]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOOK SLOT — Create calendar event
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const bookSlot = async (tech, slot, event) => {
+    if (!accessToken || !event) return;
+    setBookingSlot(`${tech}-${slot.start.toISOString()}`);
+    
+    const calendarId = TECH_CAL_IDS[tech];
+    const title = event.title.includes('[RETURN') ? event.title : `[RETURN] ${extractCustomerName(event.title)}`;
+    
+    const newEvent = {
+      summary: title,
+      location: event.location,
+      description: `Return visit scheduled from Queue.\n\nOriginal: ${event.title}\n\n${event.description || ''}`,
+      start: { dateTime: slot.start.toISOString(), timeZone: 'America/Denver' },
+      end: { dateTime: new Date(slot.start.getTime() + 2 * 60 * 60 * 1000).toISOString(), timeZone: 'America/Denver' }
+    };
+    
+    try {
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(calendarId)}/events`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEvent)
+      });
+      
+      if (res.ok) {
+        alert(`✅ Booked on ${tech}'s calendar!\n\n${slot.start.toLocaleString()}`);
+        setScheduling(null);
+        setSelectedDay(null);
+        loadTechAvailability();
+        loadQueue();
+        loadScheduleQueue();
+      } else {
+        const err = await res.json();
+        alert(`❌ Failed: ${err.error?.message || 'Unknown error'}`);
+      }
+    } catch (e) { alert(`❌ Error: ${e.message}`); }
+    
+    setBookingSlot(null);
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACTIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const updateEventTitle = async (event, newTitle) => {
+    try {
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: newTitle })
+      });
+      return res.ok;
+    } catch (e) { return false; }
+  };
+
+  const markBilled = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[BILLED] ${ev.title}`)) loadQueue(); setActing(null); };
+  const markIgnore = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[IGNORE] ${ev.title}`)) loadQueue(); setActing(null); };
+  const markNeedsParts = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[NEEDS PARTS] ${ev.title}`)) loadQueue(); setActing(null); };
+  const markDone = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[COMPLETED] ${ev.title}`)) { loadQueue(); loadScheduleQueue(); } setActing(null); };
+
+  const addNote = async (ev) => {
+    if (!addingNote.trim()) return;
+    setSavingNote(true);
+    const timestamp = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit', hour: 'numeric', minute: '2-digit' });
+    const newDesc = `${ev.description || ''}\n\n💬 ${addingNote} — ${timestamp}`.trim();
+    try {
+      await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: newDesc })
+      });
+      setAddingNote('');
+      loadQueue();
+    } catch (e) { console.error('Add note error:', e); }
+    setSavingNote(false);
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // EFFECTS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  useEffect(() => { 
-    if (activeTab === 'triage') loadTriage(); 
-  }, [activeTab, loadTriage]);
-  
-  useEffect(() => { 
-    if (activeTab === 'jobs') loadJobs(); 
-  }, [activeTab, loadJobs]);
-  
-  useEffect(() => { 
-    if (activeTab === 'customers') loadCustomers(); 
-  }, [activeTab, loadCustomers]);
-  
-  useEffect(() => { 
-    if (activeTab === 'schedule') loadScheduleQueue(); 
-  }, [activeTab, loadScheduleQueue]);
+  useEffect(() => { loadQueue(); loadTechAvailability(); }, [loadQueue, loadTechAvailability]);
+  useEffect(() => { if (activeTab === 'jobs') searchJobs(); }, [activeTab, searchJobs]);
+  useEffect(() => { if (activeTab === 'customers') searchCustomers(); }, [activeTab, searchCustomers]);
+  useEffect(() => { if (activeTab === 'schedule') loadScheduleQueue(); }, [activeTab, loadScheduleQueue]);
 
-  // Availability for scheduling
-  useEffect(() => {
-    if (!schedDate || !schedTech || !accessToken) { setAvailability([]); return; }
-    const fetchAvail = async () => {
-      setLoadingAvail(true);
-      const calId = TECH_CAL_IDS[schedTech];
-      const dayStart = new Date(`${schedDate}T00:00:00`);
-      const dayEnd   = new Date(`${schedDate}T23:59:59`);
-      try {
-        const params = new URLSearchParams({ timeMin: dayStart.toISOString(), timeMax: dayEnd.toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '50' });
-        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events?${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-        const data = await res.json();
-        setAvailability((data.items || []).filter(e => e.status !== 'cancelled' && e.start?.dateTime).map(e => ({ start: new Date(e.start.dateTime), end: new Date(e.end.dateTime), title: e.summary || '' })));
-      } catch { setAvailability([]); }
-      setLoadingAvail(false);
-    };
-    fetchAvail();
-  }, [schedDate, schedTech, accessToken]);
+  const countReturns = scheduleEvents.returns.reduce((sum, g) => sum + g.events.length, 0);
+  const countParts = scheduleEvents.parts.reduce((sum, g) => sum + g.events.length, 0);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // TRIAGE ACTIONS (Calendar operations)
+  // VISUAL SCHEDULER MODAL
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const saveNote = async (ev) => {
-    if (!addingNote.trim()) return;
-    setSavingNote(true);
-    const ts = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
-    const newDesc = (ev.description ? ev.description + '\n\n' : '') + `📝 ${ts}: ${addingNote.trim()}`;
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: newDesc }),
-    });
-    setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, description: newDesc } : e));
-    setAddingNote('');
-    setSavingNote(false);
-  };
-
-  const moveToCompleted = async (ev) => {
-    try {
-      await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
-    } catch (e) { console.warn('Move to completed failed:', e.message); }
-  };
-
-  const handleBill = async (ev) => {
-    setActing(ev.id);
-    const stripped = ev.title.replace(/^\[.*?\]\s*/, '');
-    const newEvent = { summary: `[TO BILL] ${stripped}`, description: ev.description, location: ev.location, start: { date: new Date().toISOString().split('T')[0] }, end: { date: new Date().toISOString().split('T')[0] } };
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(CALENDARS.SALES_ACCOUNTING)}/events`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(newEvent) });
-    await moveToCompleted(ev);
-    setEvents(prev => prev.filter(e => e.id !== ev.id));
-    setActing(null);
-  };
-
-  const handleNeedsParts = async (ev) => {
-    setActing(ev.id);
-    const stripped = ev.title.replace(/^\[.*?\]\s*/, '');
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: `[NEEDS PARTS] ${stripped}` }),
-    });
-    setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, title: `[NEEDS PARTS] ${stripped}` } : e));
-    setActing(null);
-  };
-
-  const handleIgnore = async (ev) => {
-    setActing(ev.id);
-    await moveToCompleted(ev);
-    setEvents(prev => prev.filter(e => e.id !== ev.id));
-    setActing(null);
-  };
-
-  const handleSchedule = async () => {
-    if (!scheduling || !schedDate || !schedTime) return;
-    setActing(scheduling.id);
-    const techCalId = TECH_CAL_IDS[schedTech];
-    const startDT = new Date(`${schedDate}T${schedTime}:00`);
-    const endDT   = new Date(startDT.getTime() + 2 * 60 * 60 * 1000);
-    const stripped = scheduling.title.replace(/^\[.*?\]\s*/, '');
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(techCalId)}/events`, {
-      method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: stripped, location: scheduling.location, description: (scheduling.description || '') + `\n\nScheduled via JUC-E Queue`, start: { dateTime: startDT.toISOString(), timeZone: 'America/Denver' }, end: { dateTime: endDT.toISOString(), timeZone: 'America/Denver' } }),
-    });
-    await moveToCompleted(scheduling);
-    setEvents(prev => prev.filter(e => e.id !== scheduling.id));
-    setScheduling(null);
-    setActing(null);
-  };
-
-  // Schedule tab action: Remove tag and reschedule
-  const handleClearTag = async (ev, tagType) => {
-    setActing(ev.id);
-    const tagsToRemove = tagType === 'return' ? RETURN_TAGS : PARTS_TAGS;
-    let newTitle = ev.title;
-    tagsToRemove.forEach(tag => {
-      newTitle = newTitle.replace(new RegExp(tag.replace(/[[\]]/g, '\\$&'), 'gi'), '');
-    });
-    newTitle = newTitle.trim();
+  const renderSchedulerModal = () => {
+    if (!scheduling) return null;
     
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: newTitle }),
-    });
-    
-    // Refresh
-    loadScheduleQueue();
-    setActing(null);
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+        <div style={{ background: '#1e293b', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 800, maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>📅 Schedule Return</h3>
+              <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 14 }}>{extractCustomerName(scheduling.title)}</p>
+              {scheduling.location && <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: 12 }}>📍 {scheduling.location}</p>}
+            </div>
+            <button onClick={() => { setScheduling(null); setSelectedDay(null); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
+          </div>
+          
+          {loadingAvail ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading availability...</div>
+          ) : selectedDay ? (
+            <div>
+              <button onClick={() => setSelectedDay(null)} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, marginBottom: 16, cursor: 'pointer' }}>← Back</button>
+              <h4 style={{ color: '#fff', margin: '0 0 16px' }}>{new Date(selectedDay).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h4>
+              
+              {TECHS.map(tech => {
+                const dayData = techAvailability[tech.name]?.find(d => d.date === selectedDay);
+                if (!dayData) return null;
+                
+                return (
+                  <div key={tech.name} style={{ marginBottom: 24 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <div style={{ width: 12, height: 12, borderRadius: '50%', background: tech.color }} />
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{tech.name}</span>
+                      <span style={{ color: '#64748b', fontSize: 13 }}>{dayData.freeHours.toFixed(1)}h free</span>
+                    </div>
+                    
+                    {dayData.events.length > 0 && (
+                      <div style={{ marginBottom: 12, paddingLeft: 20 }}>
+                        <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Booked:</div>
+                        {dayData.events.map((ev, i) => (
+                          <div key={i} style={{ color: '#94a3b8', fontSize: 13, padding: '4px 0' }}>
+                            {new Date(ev.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {new Date(ev.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {ev.title}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {dayData.freeSlots.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingLeft: 20 }}>
+                        {dayData.freeSlots.map((slot, i) => (
+                          <button
+                            key={i}
+                            onClick={() => bookSlot(tech.name, slot, scheduling)}
+                            disabled={bookingSlot === `${tech.name}-${slot.start.toISOString()}`}
+                            style={{ background: bookingSlot === `${tech.name}-${slot.start.toISOString()}` ? '#475569' : tech.color, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
+                          >
+                            {slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            <span style={{ opacity: 0.7, marginLeft: 4 }}>({slot.hours.toFixed(1)}h)</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ color: '#ef4444', fontSize: 13, paddingLeft: 20 }}>No availability</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div>
+              <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>Tap a day to see available time slots</p>
+              
+              {TECHS.map(tech => (
+                <div key={tech.name} style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: tech.color }} />
+                    <span style={{ color: '#fff', fontWeight: 600 }}>{tech.name}</span>
+                  </div>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                    {techAvailability[tech.name]?.map((day, i) => {
+                      const pctFree = (day.freeHours / 11) * 100;
+                      const bgColor = day.isWeekend ? '#1e293b' : pctFree > 70 ? '#166534' : pctFree > 30 ? '#ca8a04' : pctFree > 0 ? '#c2410c' : '#7f1d1d';
+                      
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => !day.isWeekend && setSelectedDay(day.date)}
+                          disabled={day.isWeekend}
+                          style={{ background: bgColor, border: 'none', borderRadius: 8, padding: 8, cursor: day.isWeekend ? 'not-allowed' : 'pointer', opacity: day.isWeekend ? 0.4 : 1, textAlign: 'center' }}
+                        >
+                          <div style={{ color: '#94a3b8', fontSize: 10 }}>{day.day}</div>
+                          <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>{day.dayNum}</div>
+                          <div style={{ color: '#94a3b8', fontSize: 10 }}>{day.freeHours.toFixed(0)}h</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              
+              <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 16 }}>
+                <span style={{ color: '#94a3b8', fontSize: 12 }}><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 4, background: '#166534', marginRight: 4 }} />Wide open</span>
+                <span style={{ color: '#94a3b8', fontSize: 12 }}><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 4, background: '#ca8a04', marginRight: 4 }} />Partial</span>
+                <span style={{ color: '#94a3b8', fontSize: 12 }}><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 4, background: '#c2410c', marginRight: 4 }} />Tight</span>
+                <span style={{ color: '#94a3b8', fontSize: 12 }}><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 4, background: '#7f1d1d', marginRight: 4 }} />Full</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // HELPERS
+  // MAIN RENDER
   // ═══════════════════════════════════════════════════════════════════════════
-
-  const isHourBusy = (h) => availability.some(b => { const s = b.start.getHours() + b.start.getMinutes()/60, e = b.end.getHours() + b.end.getMinutes()/60; return h < e && (h+1) > s; });
-  const getBusyLabel = (h) => (availability.find(b => { const s = b.start.getHours() + b.start.getMinutes()/60, e = b.end.getHours() + b.end.getMinutes()/60; return h < e && (h+1) > s; }) || {}).title || '';
-  const fmtHour = (h) => h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h-12}pm`;
-  const formatDate = (dateStr) => { if (!dateStr) return ''; const d = new Date(dateStr); const ago = Math.floor((Date.now()-d)/86400000); return `${d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})} · ${ago===0?'Today':ago===1?'Yesterday':ago>0?`${ago}d ago`:`in ${-ago}d`}`; };
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  const tabs = [
-    { key: 'triage', label: 'Triage', badge: events.length },
-    { key: 'jobs', label: 'Jobs' },
-    { key: 'customers', label: 'Customers' },
-    { key: 'schedule', label: 'Schedule', badge: scheduleEvents.returns.length + scheduleEvents.parts.length },
-  ];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
-      {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderBottom:'1px solid #1e293b', position:'sticky', top:0, background:'#0f1729', zIndex:10 }}>
-        <button onClick={onBack} style={{ background:'none', border:'1px solid #334155', borderRadius:8, color:'#94a3b8', padding:'6px 12px', fontSize:13, cursor:'pointer' }}>← Home</button>
-        <div style={{ flex: 1 }}>
-          <div style={{ color:'#f59e0b', fontWeight:700, fontSize:16 }}>🗂️ Queue</div>
-        </div>
-        <button onClick={() => {
-          if (activeTab === 'triage') loadTriage();
-          if (activeTab === 'jobs') loadJobs();
-          if (activeTab === 'customers') loadCustomers();
-          if (activeTab === 'schedule') loadScheduleQueue();
-        }} style={{ background:'none', border:'1px solid #334155', borderRadius:8, color:'#64748b', padding:'6px 12px', fontSize:12, cursor:'pointer' }}>↻</button>
+    <div style={{ minHeight: '100vh', background: '#0f172a', color: '#fff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 16, borderBottom: '1px solid #334155' }}>
+        <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>← Home</button>
+        <h2 style={{ margin: 0 }}>📂 Queue</h2>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #1e293b', position: 'sticky', top: 49, background: '#0f1729', zIndex: 9 }}>
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            style={{
-              flex: 1, padding: '12px 8px', background: 'none', border: 'none',
-              color: activeTab === t.key ? '#f59e0b' : '#64748b',
-              fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-              borderBottom: activeTab === t.key ? '2px solid #f59e0b' : '2px solid transparent',
-              cursor: 'pointer', position: 'relative'
-            }}
-          >
-            {t.label}
-            {t.badge > 0 && (
-              <span style={{
-                marginLeft: 6, background: '#ef4444', color: '#fff',
-                fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 8
-              }}>{t.badge}</span>
-            )}
+      <div style={{ display: 'flex', borderBottom: '1px solid #334155' }}>
+        {[
+          { key: 'triage', label: 'Triage', count: events.length },
+          { key: 'jobs', label: 'Jobs' },
+          { key: 'customers', label: 'Customers' },
+          { key: 'schedule', label: 'Schedule', count: countReturns + countParts },
+        ].map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ flex: 1, padding: '12px 8px', background: 'none', border: 'none', borderBottom: activeTab === tab.key ? '2px solid #f59e0b' : '2px solid transparent', color: activeTab === tab.key ? '#f59e0b' : '#94a3b8', cursor: 'pointer', fontSize: 14 }}>
+            {tab.label}
+            {tab.count > 0 && <span style={{ marginLeft: 6, background: '#f59e0b', color: '#000', padding: '2px 6px', borderRadius: 10, fontSize: 11 }}>{tab.count}</span>}
           </button>
         ))}
       </div>
 
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {/* TRIAGE TAB */}
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'triage' && (
-        <div style={{ padding:'12px 16px', display:'flex', flexDirection:'column', gap:10 }}>
-          {loading && <div style={{ textAlign:'center', padding:40, color:'#475569' }}>Loading queue...</div>}
-          {!loading && events.length === 0 && (
-            <div style={{ textAlign:'center', padding:60 }}>
-              <div style={{ fontSize:48, marginBottom:12 }}>🎉</div>
-              <div style={{ color:'#22c55e', fontSize:18, fontWeight:700 }}>Queue is clear</div>
-              <div style={{ color:'#475569', fontSize:13, marginTop:4 }}>Nothing waiting for attention</div>
-            </div>
-          )}
-          {events.map(ev => {
-            const isExpanded = expanded === ev.id;
-            const cleanDesc = ev.description.replace(/\n\nScheduled.*|📱.*|Open in JUC-E.*/g,'').trim();
-            const needsParts = ev.title.toUpperCase().startsWith('[NEEDS PARTS]');
-            return (
-            <div key={ev.id} style={{ background:'#1a1a2e', borderRadius:12, borderLeft:`3px solid ${needsParts?'#f97316':ev.calendarColor}`, overflow:'hidden' }}>
-              <div onClick={() => { setExpanded(isExpanded ? null : ev.id); setAddingNote(''); }} style={{ padding:'12px 14px', cursor:'pointer' }}>
-                <div style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:6 }}>
-                  <span style={{ background:ev.calendarColor+'25', color:ev.calendarColor, fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4, whiteSpace:'nowrap', marginTop:2 }}>{ev.calendarName}</span>
-                  <div style={{ color:'#e2e8f0', fontSize:14, fontWeight:600, lineHeight:1.3, flex:1 }}>{ev.title}</div>
-                  <span style={{ color:'#334155', fontSize:12, marginTop:2 }}>{isExpanded?'▲':'▼'}</span>
+      <div style={{ padding: 16 }}>
+        {activeTab === 'triage' && (
+          loading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading queue...</div> :
+          events.length === 0 ? <div style={{ textAlign: 'center', padding: 40 }}><div style={{ fontSize: 48, marginBottom: 16 }}>✅</div><div style={{ color: '#94a3b8' }}>Queue is clear!</div></div> :
+          events.map(ev => (
+            <div key={ev.id} style={{ background: '#1e293b', borderRadius: 12, marginBottom: 12, borderLeft: `4px solid ${ev.calendarColor}`, overflow: 'hidden' }}>
+              <div onClick={() => setExpanded(expanded === ev.id ? null : ev.id)} style={{ padding: 16, cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ background: ev.calendarColor, color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{ev.calendarName}</span>
+                  <span style={{ color: '#fff', fontWeight: 500 }}>{ev.title}</span>
                 </div>
-                <div style={{ color:'#64748b', fontSize:11 }}>{formatDate(ev.start)}</div>
-                {ev.location && <div style={{ color:'#475569', fontSize:11, marginTop:2 }}>📍 {ev.location}</div>}
-                {!isExpanded && cleanDesc && (
-                  <div style={{ color:'#475569', fontSize:11, marginTop:6, borderTop:'1px solid #1e293b', paddingTop:6, fontStyle:'italic' }}>
-                    {cleanDesc.split('\n').filter(Boolean).pop()?.slice(0,90)}...
-                  </div>
-                )}
+                <div style={{ color: '#64748b', fontSize: 13 }}>{formatDate(ev.start)}</div>
+                {ev.location && <div style={{ color: '#64748b', fontSize: 13 }}>📍 {ev.location}</div>}
               </div>
-              {isExpanded && (
-                <div style={{ padding:'0 14px 12px', borderTop:'1px solid #0f1729' }}>
-                  {cleanDesc ? (
-                    <div style={{ margin:'10px 0 12px' }}>
-                      {cleanDesc.split('\n\n').filter(Boolean).map((block, i) => (
-                        <div key={i} style={{ color: block.startsWith('📝') ? '#94a3b8' : '#475569', fontSize:12, marginBottom:8, paddingBottom:8, borderBottom:'1px solid #0f1729' }}>
-                          {block}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ color:'#334155', fontSize:12, margin:'10px 0', fontStyle:'italic' }}>No notes yet</div>
-                  )}
-                  <div style={{ display:'flex', gap:8 }}>
-                    <input value={addingNote} onChange={e => setAddingNote(e.target.value)} onKeyDown={e => e.key==='Enter' && saveNote(ev)}
-                      placeholder="Add a note..." style={{ flex:1, padding:'8px 10px', background:'#0f1729', border:'1px solid #334155', borderRadius:8, color:'#e2e8f0', fontSize:13 }} />
-                    <button onClick={() => saveNote(ev)} disabled={savingNote || !addingNote.trim()}
-                      style={{ padding:'8px 14px', background:addingNote.trim()?'#1d4ed8':'#1e293b', border:'none', borderRadius:8, color:addingNote.trim()?'#fff':'#475569', fontSize:13, fontWeight:700, cursor:addingNote.trim()?'pointer':'not-allowed' }}>
-                      {savingNote?'...':'💾'}
-                    </button>
+              
+              {expanded === ev.id && (
+                <div style={{ padding: '0 16px 16px', borderTop: '1px solid #334155' }}>
+                  {ev.description ? <div style={{ color: '#94a3b8', fontSize: 14, whiteSpace: 'pre-wrap', marginTop: 12 }}>{ev.description}</div> : <div style={{ color: '#64748b', fontSize: 14, fontStyle: 'italic', marginTop: 12 }}>No notes yet</div>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <input type="text" value={addingNote} onChange={e => setAddingNote(e.target.value)} placeholder="Add a note..." style={{ flex: 1, background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', color: '#fff' }} />
+                    <button onClick={() => addNote(ev)} disabled={savingNote || !addingNote.trim()} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>💾</button>
                   </div>
                 </div>
               )}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:1, background:'#0f1729' }}>
-                <button onClick={() => { setScheduling(ev); setSchedDate(''); setSchedTime('09:00'); setSchedTech('Austin'); setAvailability([]); }} disabled={acting===ev.id}
-                  style={{ padding:'12px 6px', background:'#0f2544', border:'none', color:'#3b82f6', fontSize:12, fontWeight:700, cursor:'pointer' }}>📅 Schedule</button>
-                <button onClick={() => handleBill(ev)} disabled={acting===ev.id}
-                  style={{ padding:'12px 6px', background:'#1e0a3c', border:'none', color:'#a78bfa', fontSize:12, fontWeight:700, cursor:acting===ev.id?'not-allowed':'pointer' }}>{acting===ev.id?'...':'💰 Bill It'}</button>
-                <button onClick={() => handleNeedsParts(ev)} disabled={acting===ev.id}
-                  style={{ padding:'12px 6px', background:'#2d1a00', border:'none', color:'#f97316', fontSize:12, fontWeight:700, cursor:acting===ev.id?'not-allowed':'pointer' }}>{acting===ev.id?'...':'🔧 Needs Parts'}</button>
-                <button onClick={() => handleIgnore(ev)} disabled={acting===ev.id}
-                  style={{ padding:'12px 6px', background:'#1e293b', border:'none', color:'#64748b', fontSize:12, fontWeight:700, cursor:acting===ev.id?'not-allowed':'pointer' }}>{acting===ev.id?'...':'🗑️ Ignore'}</button>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #334155' }}>
+                <button onClick={() => { setScheduling(ev); loadTechAvailability(); }} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>📅 Schedule</button>
+                <button onClick={() => markBilled(ev)} disabled={acting === ev.id} style={{ background: '#059669', border: 'none', color: '#fff', padding: 12, cursor: 'pointer' }}>💰 Bill It</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #334155' }}>
+                <button onClick={() => markNeedsParts(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#f59e0b', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>🔧 Needs Parts</button>
+                <button onClick={() => markIgnore(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#64748b', padding: 12, cursor: 'pointer' }}>🗑️ Ignore</button>
               </div>
             </div>
-            );
-          })}
-        </div>
-      )}
+          ))
+        )}
 
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {/* JOBS TAB — Supabase lookup (metadata only, calendar is truth) */}
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'jobs' && (
-        <div style={{ padding: '12px 16px' }}>
-          <div style={{ marginBottom: 12, color: '#64748b', fontSize: 11, fontStyle: 'italic' }}>
-            📌 Calendar is source of truth. This is for job history lookup only.
-          </div>
-          <input
-            value={jobSearch}
-            onChange={e => setJobSearch(e.target.value)}
-            placeholder="Search jobs by customer, number, issue..."
-            style={{
-              width: '100%', padding: '12px 14px', background: '#1e293b',
-              border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0',
-              fontSize: 14, marginBottom: 12, boxSizing: 'border-box'
-            }}
-          />
-          {jobsLoading && <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading...</div>}
-          {!jobsLoading && jobs.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>
-              {jobSearch.length >= 2 ? 'No jobs found' : 'Type to search jobs'}
-            </div>
-          )}
-          {jobs.map(job => {
-            const statusInfo = STATUS_INFO[job.status] || {};
-            return (
-              <div key={job.id} style={{
-                background: '#1e293b', borderRadius: 10, padding: '12px 14px',
-                marginBottom: 8, cursor: 'pointer', borderLeft: `3px solid ${statusInfo.color || '#475569'}`
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{job.customer_name}</div>
-                    <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>{job.issue?.slice(0, 60)}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ color: '#00c8e8', fontSize: 11, fontWeight: 600 }}>{job.job_number}</div>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                      background: (statusInfo.color || '#475569') + '20',
-                      color: statusInfo.color || '#475569'
-                    }}>{statusInfo.label || job.status}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {/* CUSTOMERS TAB — For tech history lookup */}
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'customers' && !selectedCustomer && (
-        <div style={{ padding: '12px 16px' }}>
-          <input
-            value={customerSearch}
-            onChange={e => setCustomerSearch(e.target.value)}
-            placeholder="Search by name, phone, address..."
-            style={{
-              width: '100%', padding: '12px 14px', background: '#1e293b',
-              border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0',
-              fontSize: 14, marginBottom: 12, boxSizing: 'border-box'
-            }}
-          />
-          {customersLoading && <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading...</div>}
-          {!customersLoading && customers.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>
-              {customerSearch.length >= 2 ? 'No customers found' : 'Type to search customers'}
-            </div>
-          )}
-          {customers.map(c => (
-            <div key={c.id} onClick={() => openCustomer(c)} style={{
-              background: '#1e293b', borderRadius: 10, padding: '12px 14px',
-              marginBottom: 8, cursor: 'pointer'
-            }}>
-              <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{c.name}</div>
-              {c.address && <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>{c.address}</div>}
-              {c.phone && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📞 {c.phone}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Customer Detail View */}
-      {activeTab === 'customers' && selectedCustomer && (
-        <div style={{ padding: '12px 16px' }}>
-          <button onClick={() => setSelectedCustomer(null)} style={{
-            background: 'none', border: 'none', color: '#00c8e8',
-            fontSize: 13, cursor: 'pointer', marginBottom: 12
-          }}>← Back to customers</button>
-          
-          <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{selectedCustomer.name}</div>
-            {selectedCustomer.address && <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>📍 {selectedCustomer.address}</div>}
-            {selectedCustomer.phone && <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>📞 {selectedCustomer.phone}</div>}
-            {selectedCustomer.email && <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>✉️ {selectedCustomer.email}</div>}
-            {selectedCustomer.gate_code && <div style={{ color: '#f59e0b', fontSize: 12, marginTop: 8 }}>🔐 Gate: {selectedCustomer.gate_code}</div>}
-            {selectedCustomer.panel_password && <div style={{ color: '#f59e0b', fontSize: 12, marginTop: 2 }}>🔑 Panel: {selectedCustomer.panel_password}</div>}
-          </div>
-
-          <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>
-            Job History ({customerJobs.length})
-          </div>
-          {customerJobs.length === 0 && (
-            <div style={{ color: '#475569', fontSize: 13, padding: 20, textAlign: 'center' }}>No jobs found</div>
-          )}
-          {customerJobs.map(job => {
-            const statusInfo = STATUS_INFO[job.status] || {};
-            return (
-              <div key={job.id} style={{
-                background: '#1a1a2e', borderRadius: 10, padding: '12px 14px',
-                marginBottom: 8, borderLeft: `3px solid ${statusInfo.color || '#475569'}`
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{job.issue?.slice(0, 50)}</div>
-                  <span style={{ color: '#00c8e8', fontSize: 11, fontWeight: 600 }}>{job.job_number}</span>
-                </div>
-                <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
-                  {new Date(job.created_at).toLocaleDateString()} • {statusInfo.label || job.status}
-                </div>
-                {job.completion_notes && (
-                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>
-                    "{job.completion_notes.slice(0, 100)}"
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {/* SCHEDULE TAB — Calendar-based returns/parts queue */}
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'schedule' && (
-        <div style={{ padding: '12px 16px' }}>
-          {scheduleLoading && <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading...</div>}
-          
-          {/* Returns Section */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 12px', background: '#ec489920', borderRadius: 10,
-              borderLeft: '4px solid #ec4899', marginBottom: 10
-            }}>
-              <div>
-                <div style={{ color: '#ec4899', fontSize: 14, fontWeight: 700 }}>🔄 Returns Pending</div>
-                <div style={{ color: '#94a3b8', fontSize: 11 }}>Calendar events tagged [RETURN]</div>
-              </div>
-              <div style={{
-                background: '#ec4899', color: '#fff', fontSize: 16, fontWeight: 700,
-                padding: '4px 12px', borderRadius: 12
-              }}>{scheduleEvents.returns.length}</div>
-            </div>
-            {scheduleEvents.returns.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 20, color: '#475569', fontSize: 13 }}>✓ No returns waiting</div>
-            ) : (
-              scheduleEvents.returns.map(ev => (
-                <div key={ev.id} style={{
-                  background: '#1e293b', borderRadius: 10, padding: '12px', marginBottom: 8,
-                  borderLeft: '3px solid #ec4899'
-                }}>
-                  <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{ev.title}</div>
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>{formatDate(ev.start)}</div>
-                  {ev.location && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📍 {ev.location}</div>}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button onClick={() => { setScheduling(ev); setSchedDate(''); }} style={{
-                      flex: 1, padding: '8px', border: 'none', borderRadius: 6,
-                      background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer'
-                    }}>📅 Schedule</button>
-                    <button onClick={() => handleClearTag(ev, 'return')} disabled={acting === ev.id} style={{
-                      flex: 1, padding: '8px', border: 'none', borderRadius: 6,
-                      background: '#22c55e', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer'
-                    }}>{acting === ev.id ? '...' : '✓ Done'}</button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Parts Section */}
+        {activeTab === 'jobs' && (
           <div>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 12px', background: '#eab30820', borderRadius: 10,
-              borderLeft: '4px solid #eab308', marginBottom: 10
-            }}>
-              <div>
-                <div style={{ color: '#eab308', fontSize: 14, fontWeight: 700 }}>📦 Parts Waiting</div>
-                <div style={{ color: '#94a3b8', fontSize: 11 }}>Calendar events tagged [NEEDS PARTS]</div>
+            <input type="text" value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs..." style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: '12px 16px', color: '#fff', marginBottom: 16 }} />
+            {jobsLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading...</div> :
+             jobs.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>No jobs found</div> :
+             jobs.map(job => (
+              <div key={job.id} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                <div style={{ fontWeight: 500 }}>{job.customer_name}</div>
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>{job.issue}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <span style={{ background: STATUS_INFO[job.status]?.color || '#64748b', color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{STATUS_INFO[job.status]?.label || job.status}</span>
+                </div>
               </div>
-              <div style={{
-                background: '#eab308', color: '#000', fontSize: 16, fontWeight: 700,
-                padding: '4px 12px', borderRadius: 12
-              }}>{scheduleEvents.parts.length}</div>
-            </div>
-            {scheduleEvents.parts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 20, color: '#475569', fontSize: 13 }}>✓ No jobs waiting on parts</div>
-            ) : (
-              scheduleEvents.parts.map(ev => (
-                <div key={ev.id} style={{
-                  background: '#1e293b', borderRadius: 10, padding: '12px', marginBottom: 8,
-                  borderLeft: '3px solid #eab308'
-                }}>
-                  <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{ev.title}</div>
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>{formatDate(ev.start)}</div>
-                  {ev.location && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📍 {ev.location}</div>}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button onClick={() => { setScheduling(ev); setSchedDate(''); }} style={{
-                      flex: 1, padding: '8px', border: 'none', borderRadius: 6,
-                      background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer'
-                    }}>📅 Schedule</button>
-                    <button onClick={() => handleClearTag(ev, 'parts')} disabled={acting === ev.id} style={{
-                      flex: 1, padding: '8px', border: 'none', borderRadius: 6,
-                      background: '#22c55e', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer'
-                    }}>{acting === ev.id ? '...' : '✓ Parts In'}</button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'customers' && (
+          <div>
+            <input type="text" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="Search customers..." style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: '12px 16px', color: '#fff', marginBottom: 16 }} />
+            {selectedCustomer ? (
+              <div>
+                <button onClick={() => setSelectedCustomer(null)} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, marginBottom: 16, cursor: 'pointer' }}>← Back</button>
+                <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                  <h3 style={{ margin: '0 0 8px' }}>{selectedCustomer.name}</h3>
+                  {selectedCustomer.phone && <div style={{ color: '#94a3b8' }}>📞 {selectedCustomer.phone}</div>}
+                  {selectedCustomer.address && <div style={{ color: '#94a3b8' }}>📍 {selectedCustomer.address}</div>}
+                </div>
+                <h4 style={{ color: '#94a3b8', marginBottom: 12 }}>Job History ({customerJobs.length})</h4>
+                {customerJobs.map(job => (
+                  <div key={job.id} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                    <div style={{ fontWeight: 500 }}>{job.issue}</div>
+                    <div style={{ color: '#64748b', fontSize: 13 }}>{new Date(job.created_at).toLocaleDateString()}</div>
+                  </div>
+                ))}
+              </div>
+            ) : customersLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading...</div> :
+            customers.map(c => (
+              <div key={c.id} onClick={() => openCustomer(c)} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12, cursor: 'pointer' }}>
+                <div style={{ fontWeight: 500 }}>{c.name}</div>
+                {c.phone && <div style={{ color: '#64748b', fontSize: 13 }}>📞 {c.phone}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'schedule' && (
+          scheduleLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading...</div> :
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ color: '#f59e0b', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>🔄 Returns Pending<span style={{ background: '#f59e0b', color: '#000', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}>{countReturns}</span></h3>
+              {scheduleEvents.returns.length === 0 ? <div style={{ color: '#64748b', fontStyle: 'italic' }}>No returns pending</div> :
+              scheduleEvents.returns.map((group, i) => (
+                <div key={i} style={{ background: '#1e293b', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                  <div style={{ padding: 16, borderBottom: '1px solid #334155' }}>
+                    <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>📦 {group.customerName}</div>
+                    {group.location && <div style={{ color: '#64748b', fontSize: 13 }}>📍 {group.location}</div>}
+                  </div>
+                  {group.events.map((ev, j) => (
+                    <div key={j} style={{ padding: '12px 16px', borderBottom: '1px solid #334155', background: '#0f172a' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ color: ev.calendarColor, fontSize: 12, marginRight: 8 }}>{ev.calendarName}</span>
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>{formatDate(ev.start)}</span>
+                        </div>
+                      </div>
+                      {ev.description && <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{ev.description.slice(0, 100)}...</div>}
+                    </div>
+                  ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+                    <button onClick={() => { setScheduling(group.events[0]); loadTechAvailability(); }} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>📅 Schedule</button>
+                    <button onClick={() => markDone(group.events[0])} disabled={acting === group.events[0]?.id} style={{ background: '#059669', border: 'none', color: '#fff', padding: 12, cursor: 'pointer' }}>✓ Done</button>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {/* SCHEDULING MODAL */}
-      {/* ════════════════════════════════════════════════════════════════════════ */}
-      {scheduling && (
-        <div onClick={() => setScheduling(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:100, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background:'#1e293b', borderRadius:'20px 20px 0 0', padding:'24px 20px 36px', width:'100%', maxWidth:480, maxHeight:'90vh', overflowY:'auto' }}>
-            <div style={{ width:40, height:4, background:'#334155', borderRadius:2, margin:'0 auto 20px' }} />
-            <div style={{ color:'#e2e8f0', fontSize:16, fontWeight:700, marginBottom:2 }}>📅 Schedule Job</div>
-            <div style={{ color:'#64748b', fontSize:12, marginBottom:16 }}>{scheduling.title}</div>
-
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
-              {['Austin','JR'].map(t => (
-                <button key={t} onClick={() => setSchedTech(t)} style={{ padding:'12px', borderRadius:10, border:`2px solid ${schedTech===t?'#3b82f6':'#334155'}`, background:schedTech===t?'#0f2544':'#0f1729', color:schedTech===t?'#3b82f6':'#64748b', fontSize:14, fontWeight:700, cursor:'pointer' }}>{t}</button>
               ))}
             </div>
 
-            <input type="date" value={schedDate} onChange={e => setSchedDate(e.target.value)}
-              style={{ width:'100%', padding:'12px', background:'#0f1729', border:'1px solid #334155', borderRadius:10, color:'#e2e8f0', fontSize:14, marginBottom:14, boxSizing:'border-box' }} />
-
-            {schedDate && (
-              <div style={{ marginBottom:16 }}>
-                <div style={{ color:'#475569', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:8 }}>
-                  {loadingAvail ? `Checking ${schedTech}'s calendar...` : `${schedTech}'s Day — tap a slot`}
+            <div>
+              <h3 style={{ color: '#f59e0b', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>🔧 Parts Waiting<span style={{ background: '#f59e0b', color: '#000', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}>{countParts}</span></h3>
+              {scheduleEvents.parts.length === 0 ? <div style={{ color: '#64748b', fontStyle: 'italic' }}>No parts waiting</div> :
+              scheduleEvents.parts.map((group, i) => (
+                <div key={i} style={{ background: '#1e293b', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                  <div style={{ padding: 16, borderBottom: '1px solid #334155' }}>
+                    <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>📦 {group.customerName}</div>
+                    {group.location && <div style={{ color: '#64748b', fontSize: 13 }}>📍 {group.location}</div>}
+                  </div>
+                  {group.events.map((ev, j) => (
+                    <div key={j} style={{ padding: '12px 16px', borderBottom: '1px solid #334155', background: '#0f172a' }}>
+                      <span style={{ color: ev.calendarColor, fontSize: 12, marginRight: 8 }}>{ev.calendarName}</span>
+                      <span style={{ color: '#94a3b8', fontSize: 13 }}>{formatDate(ev.start)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+                    <button onClick={() => { setScheduling(group.events[0]); loadTechAvailability(); }} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>📅 Schedule</button>
+                    <button onClick={() => markDone(group.events[0])} style={{ background: '#059669', border: 'none', color: '#fff', padding: 12, cursor: 'pointer' }}>✓ Done</button>
+                  </div>
                 </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:4 }}>
-                  {HOURS.map(h => {
-                    const busy = isHourBusy(h);
-                    const selected = schedTime === `${String(h).padStart(2,'0')}:00`;
-                    return (
-                      <button key={h} onClick={() => !busy && setSchedTime(`${String(h).padStart(2,'0')}:00`)}
-                        title={busy ? getBusyLabel(h) : `${fmtHour(h)} — available`}
-                        style={{ padding:'8px 2px', borderRadius:6, border:`2px solid ${selected?'#3b82f6':'transparent'}`, background:busy?'#450a0a':selected?'#052e16':'#0a2918', color:busy?'#fca5a5':'#86efac', fontSize:10, fontWeight:700, cursor:busy?'not-allowed':'pointer', textAlign:'center' }}>
-                        {fmtHour(h)}
-                        <div style={{ fontSize:8, marginTop:1 }}>{busy?'●':'○'}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={{ fontSize:10, color:'#334155', marginTop:6 }}>● busy &nbsp; ○ open</div>
-              </div>
-            )}
-
-            <input type="time" value={schedTime} onChange={e => setSchedTime(e.target.value)}
-              style={{ width:'100%', padding:'12px', background:'#0f1729', border:'1px solid #334155', borderRadius:10, color:'#e2e8f0', fontSize:14, marginBottom:14, boxSizing:'border-box' }} />
-
-            <button onClick={handleSchedule} disabled={!schedDate || !schedTime || !!acting}
-              style={{ width:'100%', padding:'14px', border:'none', borderRadius:12, fontSize:15, fontWeight:700, background:schedDate&&schedTime?'#1d4ed8':'#1e293b', color:schedDate&&schedTime?'#fff':'#475569', cursor:schedDate&&schedTime?'pointer':'not-allowed' }}>
-              {acting ? 'Scheduling...' : `Book on ${schedTech}'s Calendar →`}
-            </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {renderSchedulerModal()}
     </div>
   );
 }

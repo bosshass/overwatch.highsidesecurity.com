@@ -421,6 +421,15 @@ export default function Queue({ accessToken, onBack }) {
       });
       
       if (res.ok) {
+        // Mark the original event as [SCHEDULED] so it drops out of the queue
+        try {
+          await fetch(`${GCAL}/calendars/${encodeURIComponent(scheduling.calendarId)}/events/${scheduling.id}`, {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ summary: `[SCHEDULED] ${scheduling.title}` })
+          });
+        } catch (e) { console.warn('Could not mark original as scheduled:', e); }
+        
         const duration = (endDate - startDate) / (1000 * 60 * 60);
         alert(`✅ Booked ${duration.toFixed(1)}h on ${tech}'s calendar!\n\n${startDate.toLocaleString()} - ${endDate.toLocaleTimeString()}`);
         setScheduling(null);

@@ -22,6 +22,9 @@ const HOURS = Array.from({ length: 12 }, (_, i) => i + 7); // 7am–6pm
 const RETURN_TAGS = ['[RETURN]', '[RETURN NEEDED]', '[RETURN PENDING]'];
 const PARTS_TAGS = ['[NEEDS PARTS]', '[PARTS]', '[WAITING PARTS]'];
 
+// Tags that indicate work is DONE — filter these out even if they have [RETURN] or [NEEDS PARTS]
+const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE'];
+
 export default function Queue({ accessToken, onBack }) {
   const [activeTab, setActiveTab] = useState('triage');
   
@@ -76,7 +79,11 @@ export default function Queue({ accessToken, onBack }) {
         (data.items || []).forEach(ev => {
           if (ev.status === 'cancelled') return;
           const title = ev.summary || '';
-          if (SKIP_PREFIXES.some(p => title.toUpperCase().startsWith(p.toUpperCase()))) return;
+          const titleUpper = title.toUpperCase();
+          // Skip if starts with a done prefix
+          if (SKIP_PREFIXES.some(p => titleUpper.startsWith(p.toUpperCase()))) return;
+          // Skip if contains any done tag anywhere (handles stacked tags like [BILLED] [RETURN NEEDED])
+          if (DONE_TAGS.some(tag => titleUpper.includes(tag.toUpperCase()))) return;
           if (TECH_CALENDARS.includes(cal.id)) {
             const start = new Date(ev.start?.dateTime || ev.start?.date);
             if (start > now) return;
@@ -186,6 +193,10 @@ export default function Queue({ accessToken, onBack }) {
         (data.items || []).forEach(ev => {
           if (ev.status === 'cancelled') return;
           const title = (ev.summary || '').toUpperCase();
+          
+          // Skip if event has any done tag (billed, completed, invoiced, ignored)
+          const isDone = DONE_TAGS.some(tag => title.includes(tag.toUpperCase()));
+          if (isDone) return;
           
           const isReturn = RETURN_TAGS.some(tag => title.includes(tag.toUpperCase()));
           const isParts = PARTS_TAGS.some(tag => title.includes(tag.toUpperCase()));

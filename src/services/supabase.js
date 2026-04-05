@@ -376,8 +376,6 @@ export const jobsApi = {
     
     return total;
   }
-    return data || [];
-  }
 };
 
 // ============================================

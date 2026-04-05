@@ -64,7 +64,7 @@ const generateTimeOptions = (startHour = 7, endHour = 18) => {
 const TIME_OPTIONS = generateTimeOptions();
 
 export default function Queue({ accessToken, onBack }) {
-  const [activeTab, setActiveTab] = useState('triage');
+  const [activeTab, setActiveTab] = useState('schedule');
   
   // Triage state
   const [events, setEvents] = useState([]);
@@ -319,7 +319,7 @@ export default function Queue({ accessToken, onBack }) {
             bookedHours += (end - start) / (1000 * 60 * 60);
           });
           
-          const workdayHours = 11;
+          const workdayHours = 9;
           const freeHours = Math.max(0, workdayHours - bookedHours);
           
           // Find free slots
@@ -330,7 +330,7 @@ export default function Queue({ accessToken, onBack }) {
             title: ev.summary || ''
           })).sort((a, b) => a.start - b.start);
           
-          const workStart = new Date(day); workStart.setHours(7, 0, 0, 0);
+          const workStart = new Date(day); workStart.setHours(9, 0, 0, 0);
           const workEnd = new Date(day); workEnd.setHours(18, 0, 0, 0);
           
           let cursor = workStart;
@@ -693,10 +693,10 @@ export default function Queue({ accessToken, onBack }) {
 
       <div style={{ display: 'flex', borderBottom: '1px solid #334155' }}>
         {[
-          { key: 'triage', label: 'Triage', count: events.length },
+          { key: 'schedule', label: 'Schedule', count: countReturns + countParts },
           { key: 'jobs', label: 'Jobs' },
           { key: 'customers', label: 'Customers' },
-          { key: 'schedule', label: 'Schedule', count: countReturns + countParts },
+          { key: 'triage', label: 'Triage', count: events.length },
         ].map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ flex: 1, padding: '12px 8px', background: 'none', border: 'none', borderBottom: activeTab === tab.key ? '2px solid #f59e0b' : '2px solid transparent', color: activeTab === tab.key ? '#f59e0b' : '#94a3b8', cursor: 'pointer', fontSize: 14 }}>
             {tab.label}

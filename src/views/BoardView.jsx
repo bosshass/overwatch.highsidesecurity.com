@@ -11,6 +11,12 @@ import { supabase } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
+// Tech calendars for scheduling
+const TECH_CALS = [
+  { name: 'Austin', id: CALENDARS.AUSTIN, color: '#f97316' },
+  { name: 'JR', id: CALENDARS.JR, color: '#22c55e' },
+];
+
 // Calendars to pull open tasks from
 const TASK_CALENDARS = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service/Urgent', color: '#f59e0b' },
@@ -42,6 +48,118 @@ export default function BoardView({ accessToken, onBack }) {
   const [pendingEstimates, setPendingEstimates] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [activeColumn, setActiveColumn] = useState('tasks'); // For mobile view
+  const [updating, setUpdating] = useState(false);
+  
+  // Scheduling state
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduleEstimate, setScheduleEstimate] = useState(null);
+  const [selectedTech, setSelectedTech] = useState(null);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('17:00');
+  const [scheduling, setScheduling] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SCHEDULE ESTIMATE TO CALENDAR
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const openScheduler = (estimate) => {
+    setScheduleEstimate(estimate);
+    setSelectedTech(null);
+    setSelectedDate('');
+    setStartTime('09:00');
+    setEndTime('17:00');
+    setShowScheduler(true);
+    setSelectedItem(null);
+  };
+
+  const createCalendarEvent = async () => {
+    if (!selectedTech || !selectedDate || !startTime || !endTime) {
+      alert('Please select tech, date, and times');
+      return;
+    }
+    
+    setScheduling(true);
+    try {
+      const est = scheduleEstimate;
+      const startDateTime = `${selectedDate}T${startTime}:00`;
+      const endDateTime = `${selectedDate}T${endTime}:00`;
+      
+      // Create calendar event
+      const eventBody = {
+        summary: `${est.customer_name || 'Customer'} - Install`,
+        description: `Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${est.issue || ''}\n\n${est.notes || ''}`.trim(),
+        location: est.customer_address || '',
+        start: { dateTime: startDateTime, timeZone: 'America/Denver' },
+        end: { dateTime: endDateTime, timeZone: 'America/Denver' },
+      };
+      
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(selectedTech.id)}/events`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(eventBody)
+      });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || 'Failed to create event');
+      }
+      
+      const newEvent = await res.json();
+      
+      // Update Supabase with calendar_event_id
+      const { error: dbError } = await supabase
+        .from('jobs')
+        .update({ 
+          calendar_event_id: newEvent.id,
+          scheduled_date: selectedDate,
+          tech_name: selectedTech.name
+        })
+        .eq('id', est.id);
+      
+      if (dbError) console.warn('Supabase update warning:', dbError);
+      
+      // Refresh and close
+      await loadEstimates();
+      setShowScheduler(false);
+      setScheduleEstimate(null);
+      alert(`✅ Scheduled ${est.customer_name} with ${selectedTech.name} on ${selectedDate}`);
+      
+    } catch (e) {
+      console.error('Schedule error:', e);
+      alert(`Error: ${e.message}`);
+    }
+    setScheduling(false);
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UPDATE ESTIMATE STATUS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const updateEstimateStatus = async (estimateId, newStatus) => {
+    setUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .update({ qbo_estimate_status: newStatus })
+        .eq('id', estimateId);
+      
+      if (error) throw error;
+      
+      // Refresh data
+      await loadEstimates();
+      setSelectedItem(null);
+    } catch (e) {
+      console.error('Update error:', e);
+      alert(`Error updating status: ${e.message}`);
+    }
+    setUpdating(false);
+  };
+
+  const markAsLost = async (estimateId) => {
+    if (!confirm('Mark this estimate as Closed/Lost?')) return;
+    await updateEstimateStatus(estimateId, 'Closed');
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LOAD DATA
@@ -284,6 +402,46 @@ export default function BoardView({ accessToken, onBack }) {
                   <div style={{ color: '#fff', fontSize: 14, whiteSpace: 'pre-wrap' }}>{item.notes}</div>
                 </div>
               )}
+              
+              {/* Action Buttons */}
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {item.qbo_estimate_status === 'Pending' && (
+                  <>
+                    <button
+                      onClick={() => updateEstimateStatus(item.id, 'Accepted')}
+                      disabled={updating}
+                      style={{ background: '#22c55e', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      ✓ Mark as Approved
+                    </button>
+                    <button
+                      onClick={() => markAsLost(item.id)}
+                      disabled={updating}
+                      style={{ background: '#ef4444', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      ✕ Mark as Lost
+                    </button>
+                  </>
+                )}
+                {item.qbo_estimate_status === 'Accepted' && !item.calendar_event_id && (
+                  <>
+                    <button
+                      onClick={() => openScheduler(item)}
+                      disabled={updating}
+                      style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      📅 Schedule Now
+                    </button>
+                    <button
+                      onClick={() => markAsLost(item.id)}
+                      disabled={updating}
+                      style={{ background: '#ef4444', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      ✕ Mark as Lost
+                    </button>
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -423,6 +581,132 @@ export default function BoardView({ accessToken, onBack }) {
 
       {/* Detail Modal */}
       {renderDetailModal()}
+
+      {/* Scheduler Modal */}
+      {showScheduler && scheduleEstimate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, width: '100%', maxWidth: 400, padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>📅 Schedule Install</h3>
+              <button onClick={() => setShowScheduler(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
+            </div>
+            
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <div style={{ color: '#fff', fontWeight: 600 }}>{scheduleEstimate.customer_name}</div>
+              <div style={{ color: '#22c55e', fontSize: 14 }}>{formatMoney(scheduleEstimate.estimate_amount)}</div>
+              {scheduleEstimate.customer_address && <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>📍 {scheduleEstimate.customer_address}</div>}
+            </div>
+            
+            {/* Tech Selection */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Select Tech</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {TECH_CALS.map(tech => (
+                  <button
+                    key={tech.id}
+                    onClick={() => setSelectedTech(tech)}
+                    style={{
+                      flex: 1,
+                      padding: 12,
+                      borderRadius: 8,
+                      border: selectedTech?.id === tech.id ? `2px solid ${tech.color}` : '2px solid #334155',
+                      background: selectedTech?.id === tech.id ? `${tech.color}20` : '#0f172a',
+                      color: selectedTech?.id === tech.id ? tech.color : '#94a3b8',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {tech.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Date Selection */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Date</label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 12,
+                  borderRadius: 8,
+                  border: '1px solid #334155',
+                  background: '#0f172a',
+                  color: '#fff',
+                  fontSize: 16,
+                }}
+              />
+            </div>
+            
+            {/* Time Selection */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Start Time</label>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid #334155',
+                    background: '#0f172a',
+                    color: '#fff',
+                    fontSize: 16,
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>End Time</label>
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid #334155',
+                    background: '#0f172a',
+                    color: '#fff',
+                    fontSize: 16,
+                  }}
+                />
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowScheduler(false)}
+                style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createCalendarEvent}
+                disabled={scheduling || !selectedTech || !selectedDate}
+                style={{
+                  flex: 2,
+                  padding: 12,
+                  borderRadius: 8,
+                  border: 'none',
+                  background: (!selectedTech || !selectedDate) ? '#334155' : '#22c55e',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: (!selectedTech || !selectedDate) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {scheduling ? 'Scheduling...' : '✓ Create Event'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile-only styles */}
       <style>{`

@@ -1,6 +1,6 @@
 {
-  "name": "JUC-E V4 | DRH Security",
-  "short_name": "JUC-E",
+  "name": "Overwatch | DRH Security",
+  "short_name": "Overwatch",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
@@ -8,7 +8,7 @@
   "gcm_sender_id": "103953800507",
   "icons": [
     {
-      "src": "/juce-icon-drh.png",
+      "src": "/overwatch-icon.png",
       "sizes": "512x512",
       "type": "image/png"
     }

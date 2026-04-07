@@ -15,6 +15,7 @@ import Queue from './views/Queue.jsx';
 import Billing from './views/Billing.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
+import BoardView from './views/BoardView.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import CompletionModal from './components/CompletionModal.jsx';
 import HelpBot from './components/HelpBot.jsx';
@@ -465,7 +466,7 @@ export default function App() {
         <Route path="/command" element={<OperatorOnly><ViewShell><CommandCenter accessToken={accessToken} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
         <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
-        <Route path="/board" element={<ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole={isOperator ? 'operator' : 'tech'} defaultTab="board" /></ViewShell>} />
+        <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
@@ -590,6 +591,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           {[
             { path: '/calendar', label: '📅 Calendar' },
+            { path: '/board', label: '📋 Board' },
             ...(isOperator ? [{ path: '/dashboard', label: '📊 Dashboard' }] : []),
           ].map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{

@@ -161,6 +161,49 @@ export default function BoardView({ accessToken, onBack }) {
     await updateEstimateStatus(estimateId, 'Closed');
   };
 
+  // Mark calendar task as complete
+  const markTaskComplete = async (task) => {
+    setUpdating(true);
+    try {
+      const newTitle = `[COMPLETED] ${task.title}`;
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(task.calendarId)}/events/${task.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: newTitle })
+      });
+      
+      if (!res.ok) throw new Error('Failed to update event');
+      
+      await loadOpenTasks();
+      setSelectedItem(null);
+    } catch (e) {
+      console.error('Mark complete error:', e);
+      alert(`Error: ${e.message}`);
+    }
+    setUpdating(false);
+  };
+
+  const sendTaskToBilling = async (task) => {
+    setUpdating(true);
+    try {
+      const newTitle = `[TO BILL] ${task.title}`;
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(task.calendarId)}/events/${task.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: newTitle })
+      });
+      
+      if (!res.ok) throw new Error('Failed to update event');
+      
+      await loadOpenTasks();
+      setSelectedItem(null);
+    } catch (e) {
+      console.error('Send to billing error:', e);
+      alert(`Error: ${e.message}`);
+    }
+    setUpdating(false);
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LOAD DATA
   // ═══════════════════════════════════════════════════════════════════════════
@@ -377,15 +420,29 @@ export default function BoardView({ accessToken, onBack }) {
                   <div style={{ color: '#fff', fontSize: 14, whiteSpace: 'pre-wrap' }}>{item.description}</div>
                 </div>
               )}
-              <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <a
-                  href={`https://calendar.google.com/calendar/r/eventedit/${item.id}`}
+                  href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ flex: 1, background: '#3b82f6', color: '#fff', padding: 12, borderRadius: 8, textAlign: 'center', textDecoration: 'none' }}
+                  style={{ background: '#3b82f6', color: '#fff', padding: 12, borderRadius: 8, textAlign: 'center', textDecoration: 'none', fontWeight: 600 }}
                 >
-                  Open in Calendar
+                  📅 Open in Calendar
                 </a>
+                <button
+                  onClick={() => sendTaskToBilling(item)}
+                  disabled={updating}
+                  style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  💵 Send to Billing
+                </button>
+                <button
+                  onClick={() => markTaskComplete(item)}
+                  disabled={updating}
+                  style={{ background: '#22c55e', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ✓ Mark Complete
+                </button>
               </div>
             </>
           ) : (

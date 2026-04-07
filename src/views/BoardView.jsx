@@ -58,6 +58,7 @@ export default function BoardView({ accessToken, onBack }) {
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
   const [scheduling, setScheduling] = useState(false);
+  const [scheduleNotes, setScheduleNotes] = useState('');
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SCHEDULE ESTIMATE TO CALENDAR
@@ -69,6 +70,14 @@ export default function BoardView({ accessToken, onBack }) {
     setSelectedDate('');
     setStartTime('09:00');
     setEndTime('17:00');
+    // Pre-fill notes with existing description
+    const existingNotes = [
+      estimate.issue || '',
+      estimate.notes || '',
+      estimate.customer_address ? `📍 ${estimate.customer_address}` : '',
+      estimate.customer_phone ? `📞 ${estimate.customer_phone}` : '',
+    ].filter(Boolean).join('\n\n');
+    setScheduleNotes(existingNotes);
     setShowScheduler(true);
     setSelectedItem(null);
   };
@@ -85,10 +94,10 @@ export default function BoardView({ accessToken, onBack }) {
       const startDateTime = `${selectedDate}T${startTime}:00`;
       const endDateTime = `${selectedDate}T${endTime}:00`;
       
-      // Create calendar event
+      // Create calendar event with user-edited notes
       const eventBody = {
         summary: `${est.customer_name || 'Customer'} - Install`,
-        description: `Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${est.issue || ''}\n\n${est.notes || ''}`.trim(),
+        description: `Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${scheduleNotes}`.trim(),
         location: est.customer_address || '',
         start: { dateTime: startDateTime, timeZone: 'America/Denver' },
         end: { dateTime: endDateTime, timeZone: 'America/Denver' },
@@ -699,7 +708,7 @@ export default function BoardView({ accessToken, onBack }) {
             </div>
             
             {/* Time Selection */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
                 <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Start Time</label>
                 <input
@@ -734,6 +743,28 @@ export default function BoardView({ accessToken, onBack }) {
                   }}
                 />
               </div>
+            </div>
+            
+            {/* Editable Notes */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Job Notes (edit before scheduling)</label>
+              <textarea
+                value={scheduleNotes}
+                onChange={(e) => setScheduleNotes(e.target.value)}
+                rows={5}
+                style={{
+                  width: '100%',
+                  padding: 12,
+                  borderRadius: 8,
+                  border: '1px solid #334155',
+                  background: '#0f172a',
+                  color: '#fff',
+                  fontSize: 14,
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                }}
+                placeholder="Add job details, special instructions, materials needed..."
+              />
             </div>
             
             {/* Actions */}

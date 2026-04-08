@@ -449,8 +449,9 @@ const TECHS = [
   { id: 'jr', name: 'JR', calendarId: CALENDARS.JR, color: '#22c55e', hoursPerWeek: 20 },
 ];
 
-const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
+const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
 const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]'];
+const TO_BILL_TAGS = ['[TO BILL]'];
 
 function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
   const [techData, setTechData] = useState({});
@@ -461,6 +462,8 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
     openTasks: 0,
     blocked: 0,
     readyToSchedule: 0,
+    toBill: 0,
+    needsNotes: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -516,34 +519,45 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       }
       setTechData(techResults);
 
-      // Fetch Ready to Schedule (Queue + Returns calendars)
-      const [queueEvents, returnEvents] = await Promise.all([
+      // Fetch all calendars
+      const [queueEvents, returnEvents, austinEvents, jrEvents, installEvents, completedEvents] = await Promise.all([
         fetchCalendarEvents(CALENDARS.TENTATIVELY_SCHEDULED, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.RETURN_VISITS, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.AUSTIN, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.JR, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.INSTALLATIONS, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.COMPLETED, ninetyDaysBack, sixtyDaysOut),
       ]);
 
+      // Ready to Schedule (Queue + Returns, no done/blocked tags)
       const readyItems = [...queueEvents, ...returnEvents].filter(e => {
         const title = (e.summary || '').toUpperCase();
         return !DONE_TAGS.some(tag => title.includes(tag)) && !BLOCKED_TAGS.some(tag => title.includes(tag));
       });
 
-      // Fetch Open Tasks (Tech calendars)
-      const [austinEvents, jrEvents, installEvents] = await Promise.all([
-        fetchCalendarEvents(CALENDARS.AUSTIN, ninetyDaysBack, sixtyDaysOut),
-        fetchCalendarEvents(CALENDARS.JR, ninetyDaysBack, sixtyDaysOut),
-        fetchCalendarEvents(CALENDARS.INSTALLATIONS, ninetyDaysBack, sixtyDaysOut),
-      ]);
-
+      // Open Tasks (Tech calendars, no done/blocked tags)
       const openTaskItems = [...austinEvents, ...jrEvents, ...installEvents].filter(e => {
         const title = (e.summary || '').toUpperCase();
         return !DONE_TAGS.some(tag => title.includes(tag)) && !BLOCKED_TAGS.some(tag => title.includes(tag));
       });
 
-      // Fetch Blocked (all calendars with blocked tags)
+      // Blocked (all calendars with blocked tags)
       const allEvents = [...queueEvents, ...returnEvents, ...austinEvents, ...jrEvents, ...installEvents];
       const blockedItems = allEvents.filter(e => {
         const title = (e.summary || '').toUpperCase();
         return BLOCKED_TAGS.some(tag => title.includes(tag));
+      });
+
+      // Needs Notes (specific blocked tag)
+      const needsNotesItems = allEvents.filter(e => {
+        const title = (e.summary || '').toUpperCase();
+        return title.includes('[NEEDS NOTES]');
+      });
+
+      // To Bill (Completed calendar with [TO BILL] tag OR tech calendars with [TO BILL])
+      const toBillItems = [...completedEvents, ...austinEvents, ...jrEvents, ...installEvents].filter(e => {
+        const title = (e.summary || '').toUpperCase();
+        return TO_BILL_TAGS.some(tag => title.includes(tag));
       });
 
       // Approved estimates from Supabase
@@ -572,6 +586,8 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
         openTasks: openTaskItems.length,
         blocked: blockedItems.length,
         readyToSchedule: readyItems.length + estimateCount,
+        toBill: toBillItems.length,
+        needsNotes: needsNotesItems.length,
       };
       setCalendarStats(stats);
       
@@ -595,62 +611,126 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
   }
 
   return (
-    <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginBottom: '16px', border: '1px solid #334155' }}>
-      <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
-        <span>📊 Tech Capacity (2 weeks)</span>
-        <a href="/scheduler" style={{ color: '#8b5cf6', textDecoration: 'none', fontSize: '11px' }}>Open Scheduler →</a>
+    <div style={{ marginBottom: '16px' }}>
+      {/* Tech Capacity */}
+      <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginBottom: '8px', border: '1px solid #334155' }}>
+        <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
+          <span>📊 Tech Capacity (2 weeks)</span>
+          <a href="/scheduler" style={{ color: '#8b5cf6', textDecoration: 'none', fontSize: '11px' }}>Open Scheduler →</a>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {TECHS.map(tech => {
+            const data = techData[tech.id] || {};
+            return (
+              <div key={tech.id} style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{tech.name}</span>
+                  <span style={{ color: data.utilization > 80 ? '#ef4444' : data.utilization > 60 ? '#f59e0b' : '#22c55e', fontSize: '12px', fontWeight: '600' }}>
+                    {data.utilization || 0}%
+                  </span>
+                </div>
+                <div style={{ background: '#0f172a', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${Math.min(100, data.utilization || 0)}%`,
+                    height: '100%',
+                    background: data.utilization > 80 ? '#ef4444' : data.utilization > 60 ? '#f59e0b' : tech.color,
+                    transition: 'width 0.3s',
+                  }} />
+                </div>
+                <div style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
+                  {data.availableHours || 0}h available / {data.totalCapacity || 0}h
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Tech utilization bars */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-        {TECHS.map(tech => {
-          const data = techData[tech.id] || {};
-          return (
-            <div key={tech.id} style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{tech.name}</span>
-                <span style={{ color: data.utilization > 80 ? '#ef4444' : data.utilization > 60 ? '#f59e0b' : '#22c55e', fontSize: '12px', fontWeight: '600' }}>
-                  {data.utilization || 0}%
-                </span>
-              </div>
-              <div style={{ background: '#0f172a', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-                <div style={{
-                  width: `${Math.min(100, data.utilization || 0)}%`,
-                  height: '100%',
-                  background: data.utilization > 80 ? '#ef4444' : data.utilization > 60 ? '#f59e0b' : tech.color,
-                  transition: 'width 0.3s',
-                }} />
-              </div>
-              <div style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
-                {data.availableHours || 0}h available / {data.totalCapacity || 0}h capacity
-              </div>
+      {/* Key Metrics Grid - from Calendar */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+        <a href="/board" style={{ textDecoration: 'none' }}>
+          <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', border: '1px solid #334155' }}>
+            <div style={{ color: '#3b82f6', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
+              {calendarStats.openTasks}
             </div>
-          );
-        })}
+            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Open Tasks</div>
+          </div>
+        </a>
+        <a href="/board" style={{ textDecoration: 'none' }}>
+          <div style={{
+            background: calendarStats.readyToSchedule > 0 ? '#22c55e15' : '#1e293b',
+            borderRadius: '12px', padding: '16px',
+            border: `1px solid ${calendarStats.readyToSchedule > 0 ? '#22c55e40' : '#334155'}`
+          }}>
+            <div style={{ color: '#22c55e', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
+              {calendarStats.readyToSchedule}
+            </div>
+            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Ready to Schedule</div>
+          </div>
+        </a>
+        <a href="/board" style={{ textDecoration: 'none' }}>
+          <div style={{
+            background: calendarStats.blocked > 0 ? '#ef444415' : '#1e293b',
+            borderRadius: '12px', padding: '16px',
+            border: `1px solid ${calendarStats.blocked > 0 ? '#ef444440' : '#334155'}`
+          }}>
+            <div style={{ color: '#ef4444', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
+              {calendarStats.blocked}
+            </div>
+            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Blocked</div>
+          </div>
+        </a>
+        <a href="/billing" style={{ textDecoration: 'none' }}>
+          <div style={{
+            background: calendarStats.toBill > 0 ? '#8b5cf615' : '#1e293b',
+            borderRadius: '12px', padding: '16px',
+            border: `1px solid ${calendarStats.toBill > 0 ? '#8b5cf640' : '#334155'}`
+          }}>
+            <div style={{ color: '#8b5cf6', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
+              {calendarStats.toBill}
+            </div>
+            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>To Bill</div>
+          </div>
+        </a>
       </div>
 
-      {/* Board overview - links to Board */}
-      <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid #334155', paddingTop: '12px' }}>
-        <a href="/board" style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}>
-          <div style={{ color: '#22c55e', fontSize: '18px', fontWeight: '700' }}>{calendarStats.projects}</div>
-          <div style={{ color: '#64748b', fontSize: '11px' }}>Projects</div>
-        </a>
-        <a href="/board" style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}>
-          <div style={{ color: '#06b6d4', fontSize: '18px', fontWeight: '700' }}>{calendarStats.returns}</div>
-          <div style={{ color: '#64748b', fontSize: '11px' }}>Returns</div>
-        </a>
-        <a href="/board" style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}>
-          <div style={{ color: '#8b5cf6', fontSize: '18px', fontWeight: '700' }}>{calendarStats.service}</div>
-          <div style={{ color: '#64748b', fontSize: '11px' }}>Service</div>
-        </a>
-        <a href="/board" style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}>
-          <div style={{ color: '#ef4444', fontSize: '18px', fontWeight: '700' }}>{calendarStats.blocked}</div>
-          <div style={{ color: '#64748b', fontSize: '11px' }}>Blocked</div>
-        </a>
-        <a href="/board" style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}>
-          <div style={{ color: '#3b82f6', fontSize: '18px', fontWeight: '700' }}>{calendarStats.openTasks}</div>
-          <div style={{ color: '#64748b', fontSize: '11px' }}>Open Tasks</div>
-        </a>
+      {/* By Status - Board columns */}
+      <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', border: '1px solid #334155' }}>
+        <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.05em' }}>
+          Board Status
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          {[
+            { label: 'Projects', count: calendarStats.projects, color: '#22c55e', icon: '🔨' },
+            { label: 'Returns', count: calendarStats.returns, color: '#06b6d4', icon: '🔄' },
+            { label: 'Service Calls', count: calendarStats.service, color: '#8b5cf6', icon: '🔧' },
+            { label: 'Open Tasks', count: calendarStats.openTasks, color: '#3b82f6', icon: '📋' },
+            { label: 'Blocked', count: calendarStats.blocked, color: '#ef4444', icon: '🚫' },
+            { label: 'Needs Notes', count: calendarStats.needsNotes, color: '#f59e0b', icon: '📝' },
+            { label: 'To Bill', count: calendarStats.toBill, color: '#8b5cf6', icon: '💰' },
+          ].map(item => {
+            const total = calendarStats.openTasks + calendarStats.readyToSchedule + calendarStats.blocked;
+            const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
+            return (
+              <a
+                key={item.label}
+                href={item.label === 'To Bill' ? '/billing' : '/board'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '7px 4px', textDecoration: 'none', borderRadius: '6px'
+                }}
+              >
+                <span style={{ fontSize: '13px', width: '18px', textAlign: 'center' }}>{item.icon}</span>
+                <span style={{ color: '#94a3b8', fontSize: '13px', flex: 1 }}>{item.label}</span>
+                <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '700', width: '28px', textAlign: 'right' }}>{item.count}</span>
+                <div style={{ width: '50px', height: '3px', background: '#0f1729', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: item.color, borderRadius: '2px' }} />
+                </div>
+              </a>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -833,16 +913,6 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
   // MAIN DASHBOARD VIEW
   // ============================================
 
-  // Ready to schedule count (the key metric)
-  const readyToScheduleCount = stats.allJobs.filter(j =>
-    j.status === JOB_STATUS.READY_TO_SCHEDULE || j.status === JOB_STATUS.WON
-  ).length;
-
-  const statusCounts = {};
-  stats.allJobs.forEach(j => {
-    statusCounts[j.status] = (statusCounts[j.status] || 0) + 1;
-  });
-
   return (
     <div style={{ padding: '12px 12px 20px' }}>
       <PullIndicator />
@@ -890,69 +960,6 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
 
       {/* CALENDAR STATS - Source of truth */}
       <CalendarStatsWidget accessToken={accessToken} />
-
-      {/* KEY METRICS */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-        {/* Open jobs */}
-        <div
-          onClick={() => { setDrilldown({ label: 'All Open Jobs', jobs: stats.allJobs }); setView('drilldown'); }}
-          style={{
-            background: '#1e293b', borderRadius: '12px', padding: '16px',
-            cursor: 'pointer', border: '1px solid #334155'
-          }}
-        >
-          <div style={{ color: '#00c8e8', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
-            {stats.totalOpen}
-          </div>
-          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Open Jobs</div>
-        </div>
-
-        {/* Ready to schedule — the key metric */}
-        <div
-          onClick={() => setView('pipeline')}
-          style={{
-            background: readyToScheduleCount > 0 ? '#22c55e15' : '#1e293b',
-            borderRadius: '12px', padding: '16px',
-            cursor: 'pointer',
-            border: `1px solid ${readyToScheduleCount > 0 ? '#22c55e40' : '#334155'}`
-          }}
-        >
-          <div style={{ color: '#22c55e', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
-            {readyToScheduleCount}
-          </div>
-          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Ready to Book</div>
-        </div>
-
-        {/* Scheduled */}
-        <div
-          onClick={() => { setDrilldown({ label: 'Scheduled', jobs: stats.allJobs.filter(j => j.status === JOB_STATUS.SCHEDULED) }); setView('drilldown'); }}
-          style={{
-            background: '#1e293b', borderRadius: '12px', padding: '16px',
-            cursor: 'pointer', border: '1px solid #334155'
-          }}
-        >
-          <div style={{ color: '#3b82f6', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
-            {stats.scheduled}
-          </div>
-          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Scheduled</div>
-        </div>
-
-        {/* To bill */}
-        <div
-          onClick={() => { setDrilldown({ label: 'To Bill', jobs: stats.billingJobs.filter(j => j.status === JOB_STATUS.TO_BILL) }); setView('drilldown'); }}
-          style={{
-            background: stats.toBill > 0 ? '#8b5cf615' : '#1e293b',
-            borderRadius: '12px', padding: '16px',
-            cursor: 'pointer',
-            border: `1px solid ${stats.toBill > 0 ? '#8b5cf640' : '#334155'}`
-          }}
-        >
-          <div style={{ color: '#8b5cf6', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
-            {stats.toBill}
-          </div>
-          <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>To Bill</div>
-        </div>
-      </div>
 
       {/* PIPELINE CARD */}
       <div
@@ -1003,45 +1010,6 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
       {/* P&L SECTION */}
       <div style={{ marginBottom: '16px' }}>
         <PLDashboard userEmail={userEmail} />
-      </div>
-
-      {/* STATUS BREAKDOWN (collapsible feel — all visible) */}
-      <div style={{
-        background: '#1e293b', borderRadius: '12px', padding: '16px', marginBottom: '16px',
-        border: '1px solid #334155'
-      }}>
-        <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.05em' }}>
-          By Status
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          {Object.entries(statusCounts)
-            .sort(([, a], [, b]) => b - a)
-            .map(([status, count]) => {
-              const info = STATUS_INFO[status] || {};
-              const pct = Math.round((count / Math.max(stats.totalOpen, 1)) * 100);
-              return (
-                <div
-                  key={status}
-                  onClick={() => {
-                    setDrilldown({ label: info.label || status, jobs: stats.allJobs.filter(j => j.status === status) });
-                    setView('drilldown');
-                  }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '7px 4px', cursor: 'pointer', borderRadius: '6px'
-                  }}
-                >
-                  <span style={{ color: info.color, fontSize: '13px', width: '18px', textAlign: 'center' }}>{info.icon}</span>
-                  <span style={{ color: '#94a3b8', fontSize: '13px', flex: 1 }}>{info.label || status}</span>
-                  <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '700', width: '28px', textAlign: 'right' }}>{count}</span>
-                  <div style={{ width: '50px', height: '3px', background: '#0f1729', borderRadius: '2px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: info.color || '#475569', borderRadius: '2px' }} />
-                  </div>
-                </div>
-              );
-            })
-          }
-        </div>
       </div>
 
       {/* Job Detail Modal */}

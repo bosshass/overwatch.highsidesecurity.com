@@ -395,11 +395,13 @@ export default function Billing({ accessToken, onBack }) {
 
                     {bucket === 'bill_it' && (<>
                       <Btn color="#a78bfa" disabled={isActing} onClick={() => { setBillItem(item); setBillAmount(''); setBillInvoice(''); }}>💰 Enter Invoice & Bill</Btn>
+                      <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate Needed</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>✓ NC / Archive</Btn>
                     </>)}
 
                     {bucket === 'return' && (<>
                       <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETE')}>✅ Bill It</Btn>
+                      <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate Needed</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>✓ Done</Btn>
                     </>)}
 

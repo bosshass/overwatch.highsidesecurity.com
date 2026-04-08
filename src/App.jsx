@@ -27,14 +27,14 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
 const USER_CONFIG = {
-  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin' },
-  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin' },
-  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR' },
-  'info@drhsecurityservices.com':     { name: 'Sara',   role: 'operator', defaultCalendar: null },
-  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null },
-  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana' },
-  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null },
-  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations' },
+  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
+  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
+  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
+  'info@drhsecurityservices.com':     { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
+  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
+  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
+  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
 };
 
 const CALENDAR_OPTIONS = [
@@ -48,7 +48,7 @@ const CALENDAR_OPTIONS = [
 ];
 
 function getUserConfig(email) {
-  return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null };
+  return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null, defaultView: null };
 }
 
 export default function App() {
@@ -155,6 +155,11 @@ export default function App() {
           setDefaultCalendar(config.defaultCalendar);
           setShowSetup(true);
         }
+        
+        // Navigate to user's default view if at root
+        if (config.defaultView && window.location.pathname === '/') {
+          window.history.replaceState(null, '', `/${config.defaultView}`);
+        }
       } else {
         clearStorage();
       }
@@ -221,7 +226,13 @@ export default function App() {
               setShowGuide(true);
             }
 
-            window.history.replaceState(null, '', '/');
+            // Navigate to user's default view if set
+            if (config.defaultView) {
+              window.history.replaceState(null, '', `/${config.defaultView}`);
+              navigate(`/${config.defaultView}`);
+            } else {
+              window.history.replaceState(null, '', '/');
+            }
           })
           .catch(err => console.error('Auth error:', err));
       }

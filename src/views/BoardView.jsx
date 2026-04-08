@@ -476,9 +476,14 @@ export default function BoardView({ accessToken, onBack }) {
           
           // Extract the blocking reason from the tag
           let blockReason = 'Blocked';
+          let blockColor = '#ef4444'; // default red
           for (const tag of BLOCKED_TAGS) {
             if (title.includes(tag.toUpperCase())) {
               blockReason = tag.replace(/[\[\]]/g, '');
+              // Orange for NEEDS NOTES
+              if (tag === '[NEEDS NOTES]') {
+                blockColor = '#f59e0b';
+              }
               break;
             }
           }
@@ -488,7 +493,7 @@ export default function BoardView({ accessToken, onBack }) {
             type: 'blocked',
             calendarId: cal.id,
             calendarName: cal.name,
-            calendarColor: '#ef4444',
+            calendarColor: blockColor,
             title: ev.summary || '',
             customerName: extractCustomerName(ev.summary || ''),
             start: ev.start?.dateTime || ev.start?.date,
@@ -827,8 +832,8 @@ export default function BoardView({ accessToken, onBack }) {
             </>
           ) : isBlocked ? (
             <>
-              <div style={{ background: '#ef444420', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 4 }}>🚫 {item.blockReason}</div>
+              <div style={{ background: `${item.calendarColor}20`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ color: item.calendarColor, fontWeight: 600, marginBottom: 4 }}>{item.blockReason === 'NEEDS NOTES' ? '📝' : '🚫'} {item.blockReason}</div>
                 <div style={{ color: '#94a3b8', fontSize: 12 }}>{item.calendarName}</div>
               </div>
               <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📅 {formatDate(item.start)}</div>
@@ -1320,13 +1325,13 @@ export default function BoardView({ accessToken, onBack }) {
                     borderRadius: 8,
                     padding: 12,
                     marginBottom: 8,
-                    borderLeft: '3px solid #ef4444',
+                    borderLeft: `3px solid ${item.calendarColor}`,
                     cursor: 'pointer',
                   }}
                 >
                   <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{item.customerName || item.title}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <span style={{ background: '#ef4444', color: '#fff', fontSize: 10, padding: '2px 6px', borderRadius: 4 }}>{item.blockReason}</span>
+                    <span style={{ background: item.calendarColor, color: item.calendarColor === '#f59e0b' ? '#000' : '#fff', fontSize: 10, padding: '2px 6px', borderRadius: 4 }}>{item.blockReason}</span>
                     <span style={{ fontSize: 11, color: '#64748b' }}>{item.calendarName}</span>
                   </div>
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>

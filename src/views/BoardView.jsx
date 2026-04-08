@@ -35,6 +35,9 @@ const TASK_CALENDARS = [
 // Tags that mean task is DONE — exclude from board
 const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]'];
 
+// Tags that mean task is BLOCKED — show in Blocked column
+const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]'];
+
 // Extract customer name from title
 const extractCustomerName = (title) => {
   return title
@@ -47,7 +50,8 @@ const extractCustomerName = (title) => {
 
 export default function BoardView({ accessToken, onBack }) {
   const [loading, setLoading] = useState(true);
-  const [readyToSchedule, setReadyToSchedule] = useState([]); // NEW: Queue + Returns + Approved Estimates
+  const [readyToSchedule, setReadyToSchedule] = useState([]); // Queue + Returns + Approved Estimates
+  const [blockedItems, setBlockedItems] = useState([]); // Items waiting on parts/info
   const [openTasks, setOpenTasks] = useState([]);
   const [approvedEstimates, setApprovedEstimates] = useState([]);
   const [pendingEstimates, setPendingEstimates] = useState([]);
@@ -295,8 +299,9 @@ export default function BoardView({ accessToken, onBack }) {
           if (ev.status === 'cancelled') return;
           const title = (ev.summary || '').toUpperCase();
           
-          // Skip if done
+          // Skip if done or blocked
           if (DONE_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
+          if (BLOCKED_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
           
           items.push({
             id: ev.id,
@@ -355,6 +360,76 @@ export default function BoardView({ accessToken, onBack }) {
     setReadyToSchedule(items);
   }, [accessToken]);
 
+  // Load "Blocked" items — anything tagged with [NEEDS PARTS], [BLOCKED], etc.
+  const loadBlockedItems = useCallback(async () => {
+    if (!accessToken) return;
+    
+    const items = [];
+    const now = new Date();
+    const tMin = new Date();
+    tMin.setDate(tMin.getDate() - 90);
+    const tMax = new Date();
+    tMax.setDate(tMax.getDate() + 60);
+    
+    // Check all calendars for blocked items
+    const ALL_CALENDARS = [...SCHEDULE_SOURCE_CALENDARS, ...TASK_CALENDARS];
+    
+    await Promise.all(ALL_CALENDARS.map(async (cal) => {
+      try {
+        const params = new URLSearchParams({
+          timeMin: tMin.toISOString(),
+          timeMax: tMax.toISOString(),
+          singleEvents: 'true',
+          orderBy: 'startTime',
+          maxResults: '250'
+        });
+        
+        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        (data.items || []).forEach(ev => {
+          if (ev.status === 'cancelled') return;
+          const title = (ev.summary || '').toUpperCase();
+          
+          // Only include if blocked
+          if (!BLOCKED_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
+          
+          // Extract the blocking reason from the tag
+          let blockReason = 'Blocked';
+          for (const tag of BLOCKED_TAGS) {
+            if (title.includes(tag.toUpperCase())) {
+              blockReason = tag.replace(/[\[\]]/g, '');
+              break;
+            }
+          }
+          
+          items.push({
+            id: ev.id,
+            type: 'blocked',
+            calendarId: cal.id,
+            calendarName: cal.name,
+            calendarColor: '#ef4444',
+            title: ev.summary || '',
+            customerName: extractCustomerName(ev.summary || ''),
+            start: ev.start?.dateTime || ev.start?.date,
+            location: ev.location || '',
+            description: ev.description || '',
+            blockReason,
+          });
+        });
+      } catch (e) {
+        console.warn('Blocked fetch error:', cal.name, e.message);
+      }
+    }));
+    
+    items.sort((a, b) => new Date(a.start) - new Date(b.start));
+    setBlockedItems(items);
+  }, [accessToken]);
+
   const loadOpenTasks = useCallback(async () => {
     if (!accessToken) return;
     
@@ -387,8 +462,9 @@ export default function BoardView({ accessToken, onBack }) {
           if (ev.status === 'cancelled') return;
           const title = (ev.summary || '').toUpperCase();
           
-          // Skip if done
+          // Skip if done or blocked
           if (DONE_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
+          if (BLOCKED_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
           
           tasks.push({
             id: ev.id,
@@ -447,9 +523,9 @@ export default function BoardView({ accessToken, onBack }) {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadReadyToSchedule(), loadOpenTasks(), loadEstimates()]);
+    await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks(), loadEstimates()]);
     setLoading(false);
-  }, [loadReadyToSchedule, loadOpenTasks, loadEstimates]);
+  }, [loadReadyToSchedule, loadBlockedItems, loadOpenTasks, loadEstimates]);
 
   useEffect(() => {
     loadAll();
@@ -541,6 +617,7 @@ export default function BoardView({ accessToken, onBack }) {
     
     const isTask = selectedItem.type === 'task';
     const isReady = selectedItem.type === 'ready';
+    const isBlocked = selectedItem.type === 'blocked';
     const item = selectedItem.data;
     
     return (
@@ -548,8 +625,8 @@ export default function BoardView({ accessToken, onBack }) {
         <div style={{ background: '#1e293b', borderRadius: 12, width: '100%', maxWidth: 500, maxHeight: '80vh', overflow: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 12, color: (isTask || isReady) ? item.calendarColor : '#22c55e', marginBottom: 4 }}>
-                {(isTask || isReady) ? item.calendarName : (item.qbo_estimate_status || 'Estimate')}
+              <div style={{ fontSize: 12, color: isBlocked ? '#ef4444' : ((isTask || isReady) ? item.calendarColor : '#22c55e'), marginBottom: 4 }}>
+                {isBlocked ? item.blockReason : ((isTask || isReady) ? item.calendarName : (item.qbo_estimate_status || 'Estimate'))}
               </div>
               <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>
                 {(isTask || isReady) ? (item.customerName || item.title) : item.customer_name}
@@ -558,7 +635,61 @@ export default function BoardView({ accessToken, onBack }) {
             <button onClick={() => setSelectedItem(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
           
-          {isReady ? (
+          {isBlocked ? (
+            <>
+              <div style={{ background: '#ef444420', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 4 }}>🚫 {item.blockReason}</div>
+                <div style={{ color: '#94a3b8', fontSize: 12 }}>{item.calendarName}</div>
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📅 {formatDate(item.start)}</div>
+              {item.location && <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📍 {item.location}</div>}
+              {item.description && (
+                <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginTop: 12 }}>
+                  <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Notes</div>
+                  <div style={{ color: '#fff', fontSize: 14, whiteSpace: 'pre-wrap' }}>{item.description}</div>
+                </div>
+              )}
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  onClick={async () => {
+                    setUpdating(true);
+                    try {
+                      // Remove the blocked tag from the title
+                      let newTitle = item.title;
+                      for (const tag of BLOCKED_TAGS) {
+                        newTitle = newTitle.replace(new RegExp(tag.replace(/[[\]]/g, '\\$&'), 'gi'), '');
+                      }
+                      newTitle = newTitle.replace(/\s+/g, ' ').trim();
+                      
+                      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ summary: newTitle })
+                      });
+                      if (!res.ok) throw new Error('Failed to unblock');
+                      await loadAll();
+                      setSelectedItem(null);
+                    } catch (e) {
+                      alert(`Error: ${e.message}`);
+                    }
+                    setUpdating(false);
+                  }}
+                  disabled={updating}
+                  style={{ background: '#22c55e', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ✓ Unblock — Ready to Schedule
+                </button>
+                <a
+                  href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ background: '#334155', color: '#fff', padding: 12, borderRadius: 8, textAlign: 'center', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  View in Calendar
+                </a>
+              </div>
+            </>
+          ) : isReady ? (
             <>
               <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📅 {formatDate(item.start)}</div>
               {item.location && <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📍 {item.location}</div>}
@@ -762,6 +893,7 @@ export default function BoardView({ accessToken, onBack }) {
       <div style={{ display: 'flex', borderBottom: '1px solid #334155' }} className="mobile-only">
         {[
           { key: 'ready', label: 'Schedule', count: readyToSchedule.length },
+          { key: 'blocked', label: 'Blocked', count: blockedItems.length },
           { key: 'tasks', label: 'Tasks', count: openTasks.length },
           { key: 'pending', label: 'Pending', count: pendingEstimates.length },
         ].map(col => (
@@ -776,7 +908,7 @@ export default function BoardView({ accessToken, onBack }) {
               borderBottom: activeColumn === col.key ? '2px solid #3b82f6' : '2px solid transparent',
               color: activeColumn === col.key ? '#3b82f6' : '#64748b',
               cursor: 'pointer',
-              fontSize: 13,
+              fontSize: 12,
             }}
           >
             {col.label} ({col.count})
@@ -812,6 +944,34 @@ export default function BoardView({ accessToken, onBack }) {
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
                   {item.estimateAmount && <div style={{ fontSize: 13, color: '#22c55e', fontWeight: 600 }}>{formatMoney(item.estimateAmount)}</div>}
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
+                </div>
+              ))
+            )}
+          </Column>
+
+          <Column title="🚫 Blocked" count={blockedItems.length} color="#ef4444" columnKey="blocked">
+            {blockedItems.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>Nothing blocked</div>
+            ) : (
+              blockedItems.map(item => (
+                <div
+                  key={`blocked-${item.id}`}
+                  onClick={() => setSelectedItem({ type: 'blocked', data: item })}
+                  style={{
+                    background: '#1e293b',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 8,
+                    borderLeft: '3px solid #ef4444',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{item.customerName || item.title}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <span style={{ background: '#ef4444', color: '#fff', fontSize: 10, padding: '2px 6px', borderRadius: 4 }}>{item.blockReason}</span>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>{item.calendarName}</span>
+                  </div>
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
                 </div>
               ))

@@ -148,6 +148,36 @@ export default function Scheduler({ accessToken, onBack }) {
         ...filterReady(returnEvents, 'returns'),
       ];
 
+      // Also load Approved estimates not yet scheduled (same as Board)
+      try {
+        const { data: approved } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('qbo_estimate_status', 'Accepted')
+          .is('calendar_event_id', null)
+          .order('created_at', { ascending: false })
+          .limit(100);
+        
+        (approved || []).forEach(est => {
+          allBacklog.push({
+            id: est.id,
+            calendarId: null, // Supabase estimate, no calendar yet
+            title: est.customer_name || 'Unknown',
+            description: est.issue || est.notes || '',
+            location: est.customer_address || '',
+            source: 'estimate',
+            jobType: 'INS-M', // Default estimates to medium install
+            priority: 'P2', // High priority - customer already approved
+            estimatedHours: 8,
+            estimateAmount: est.estimate_amount,
+            customer_phone: est.customer_phone,
+            customer_address: est.customer_address,
+          });
+        });
+      } catch (e) {
+        console.warn('Estimates fetch error:', e);
+      }
+
       // Sort by priority
       allBacklog.sort((a, b) => PRIORITIES[a.priority].order - PRIORITIES[b.priority].order);
       setBacklogItems(allBacklog);

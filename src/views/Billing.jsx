@@ -36,11 +36,18 @@ const TAG_MAP = [
 
 function parseEvent(ev, cal) {
   const summary = ev.summary || '(no title)';
-  const tagMatch = summary.match(/^\[([^\]]+)\]\s*/);
-  const rawTag = tagMatch ? tagMatch[1].toUpperCase() : null;
-  const name = tagMatch
-    ? summary.slice(tagMatch[0].length).split(' - ')[0].trim() || '(no title)'
-    : summary.split(' - ')[0].trim();
+  
+  // Match the FIRST tag for bucket routing
+  const firstTagMatch = summary.match(/^\[([^\]]+)\]\s*/);
+  const rawTag = firstTagMatch ? firstTagMatch[1].toUpperCase() : null;
+  
+  // Strip ALL leading tags to get clean customer name
+  let cleanName = summary;
+  while (cleanName.match(/^\[([^\]]+)\]\s*/)) {
+    cleanName = cleanName.replace(/^\[([^\]]+)\]\s*/, '');
+  }
+  const name = cleanName.split(' - ')[0].trim() || '(no title)';
+  
   const eventDate = new Date(ev.start?.dateTime || ev.start?.date);
   const daysAgo = Math.floor((Date.now() - eventDate) / 86400000);
   const isAdmin = cal.name === 'Admin Notes';
@@ -49,7 +56,7 @@ function parseEvent(ev, cal) {
   let isNC = false;
 
   if (rawTag) {
-    const match = TAG_MAP.find(t => t.re.test(tagMatch[0]));
+    const match = TAG_MAP.find(t => t.re.test(firstTagMatch[0]));
     if (match) { bucket = match.bucket; isNC = !!match.nc; }
   } else {
     if (isAdmin && daysAgo > 7) bucket = 'bill_it';

@@ -12,28 +12,48 @@ export default function PLUpload({ onDataParsed, onClose }) {
     const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     
     // Debug: show first 10 rows
-    setDebug({ rowCount: raw.length, sample: raw.slice(0, 10) });
+    setDebug({ rowCount: raw.length, sample: raw.slice(0, 6) });
 
-    // Find header row (contains month columns like "Jan 2026" or date ranges)
+    // Find header row (contains date columns)
+    // Patterns: "Jan 2026", "Jan 1-4 2026", "Jan 26 - Feb 1 2026", "Mar 1-1 2026"
     let headerRowIdx = -1;
     let periods = [];
     
+    const datePattern = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s\d\-]+\d{4}$/i;
+    
     for (let i = 0; i < Math.min(10, raw.length); i++) {
       const row = raw[i];
-      // Look for row with month/date patterns in columns 1+
-      const hasDateCols = row.slice(1).some(cell => 
-        cell && /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}|^\w+\s+\d+-\d+/.test(String(cell))
-      );
-      if (hasDateCols) {
+      // Look for row with date patterns in columns 1+
+      const dateCols = row.slice(1).filter(cell => {
+        if (!cell) return false;
+        const str = String(cell).trim();
+        return datePattern.test(str);
+      });
+      
+      if (dateCols.length >= 2) {
         headerRowIdx = i;
-        // Extract period names (skip first col which is label, skip last "Total" col)
-        periods = row.slice(1).filter(c => c && !/^Total$/i.test(String(c))).map(String);
+        // Extract all date columns (exclude "Total")
+        periods = row.slice(1).filter(c => {
+          if (!c) return false;
+          const str = String(c).trim();
+          return datePattern.test(str);
+        }).map(String);
         break;
       }
     }
 
     if (headerRowIdx === -1) {
-      throw new Error('Could not find header row with date columns');
+      throw new Error('Could not find header row with date columns. Expected formats like "Jan 2026" or "Jan 1-4 2026"');
+    }
+
+    // Build column index map for periods
+    const periodColIndexes = [];
+    const headerRow = raw[headerRowIdx];
+    for (let c = 1; c < headerRow.length; c++) {
+      const cell = String(headerRow[c] || '').trim();
+      if (datePattern.test(cell)) {
+        periodColIndexes.push(c);
+      }
     }
 
     // Parse data rows
@@ -52,8 +72,11 @@ export default function PLUpload({ onDataParsed, onClose }) {
     for (let i = headerRowIdx + 1; i < raw.length; i++) {
       const row = raw[i];
       const label = String(row[0] || '').trim();
-      const values = row.slice(1, 1 + periods.length).map(v => {
-        if (v === '' || v === null || v === undefined) return 0;
+      
+      // Extract values for each period column
+      const values = periodColIndexes.map(colIdx => {
+        const v = row[colIdx];
+        if (v === '' || v === null || v === undefined || v === '-') return 0;
         const num = parseFloat(String(v).replace(/[,$]/g, ''));
         return isNaN(num) ? 0 : num;
       });
@@ -64,7 +87,7 @@ export default function PLUpload({ onDataParsed, onClose }) {
       if (/^Income$/i.test(label)) { currentSection = 'income'; continue; }
       if (/^Cost of Goods Sold$/i.test(label)) { currentSection = 'cogs'; continue; }
       if (/^Expenses$/i.test(label)) { currentSection = 'expenses'; continue; }
-      if (/^Other Income$/i.test(label)) { currentSection = null; continue; }
+      if (/^Other Income$/i.test(label) || /^Other Expenses$/i.test(label)) { currentSection = null; continue; }
 
       // Totals
       if (/^Total for Income$/i.test(label)) {
@@ -160,18 +183,21 @@ export default function PLUpload({ onDataParsed, onClose }) {
       {debug && (
         <div style={{ color: '#888', fontSize: 12, marginBottom: 16 }}>
           <div>Rows found: {debug.rowCount}</div>
-          <div>Sample: {JSON.stringify(debug.sample?.slice(0,3))}</div>
+          <div style={{ maxHeight: 100, overflow: 'auto', fontSize: 10 }}>
+            {debug.sample?.map((row, i) => <div key={i}>Row {i}: {JSON.stringify(row.slice(0,5))}</div>)}
+          </div>
         </div>
       )}
 
       {preview && (
         <div style={{ color: '#4ade80', marginBottom: 16 }}>
-          <div>✓ Parsed {preview.periods.length} periods: {preview.periods.join(', ')}</div>
+          <div>✓ Parsed {preview.periods.length} periods</div>
+          <div style={{ fontSize: 11, color: '#888', marginLeft: 16 }}>{preview.periods.slice(0,4).join(', ')}{preview.periods.length > 4 ? '...' : ''}</div>
           <div>✓ Income categories: {Object.keys(preview.income.categories).length}</div>
           <div>✓ COGS categories: {Object.keys(preview.cogs.categories).length}</div>
           <div>✓ Expense categories: {Object.keys(preview.expenses.categories).length}</div>
           {preview.netIncome.length > 0 && (
-            <div>✓ Net Income: {preview.netIncome.map(n => '$' + n.toLocaleString()).join(', ')}</div>
+            <div>✓ Net Income (last): ${preview.netIncome[preview.netIncome.length - 1]?.toLocaleString()}</div>
           )}
         </div>
       )}

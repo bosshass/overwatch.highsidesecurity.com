@@ -42,7 +42,7 @@ const USER_CONFIG = {
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
   { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: null },
-  { key: 'JR', label: 'JR', defaultCalendar: 'JR', defaultView: null },
+  { key: 'JR', label: 'JR', defaultCalendar: 'JR', defaultView: 'dashboard' },
   { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
 ];
 
@@ -648,7 +648,7 @@ export default function App() {
 function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill }) {
   const allButtons = [
     { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a', techVisible: true },
-    { path: '/queue',   emoji: '🗂️', label: 'Queue',           sub: 'Schedule · Bill · Parts · Ignore',    color: '#f59e0b', dark: '#2d1a00', border: '#d97706', techVisible: false },
+    { path: '/board',   emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706', techVisible: false },
     { path: '/billing', emoji: '💰', label: 'Billing',         sub: 'Ready to invoice',                    color: '#a78bfa', dark: '#1e0a3c', border: '#7c3aed', techVisible: false },
     { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2', techVisible: true },
   ];
@@ -702,7 +702,6 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           {[
             { path: '/calendar', label: '📅 Calendar' },
-            { path: '/board', label: '📋 Board' },
             ...(isOperator ? [{ path: '/dashboard', label: '📊 Dashboard' }] : []),
           ].map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{

@@ -56,6 +56,12 @@ export default function Scheduler({ accessToken, onBack }) {
   const [recommendations, setRecommendations] = useState([]);
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showForecast, setShowForecast] = useState(false);
+  const [forecastData, setForecastData] = useState({
+    pendingEstimates: { count: 0, hours: 0, value: 0 },
+    blockedItems: { count: 0, hours: 0 },
+    serviceCallReturns: { count: 0, hours: 0 },
+  });
 
   // Fetch calendar events
   const fetchCalendarEvents = useCallback(async (calendarId, timeMin, timeMax) => {
@@ -177,6 +183,51 @@ export default function Scheduler({ accessToken, onBack }) {
       } catch (e) {
         console.warn('Estimates fetch error:', e);
       }
+
+      // ========== FORECAST DATA ==========
+      let forecastPending = { count: 0, hours: 0, value: 0 };
+      let forecastBlocked = { count: 0, hours: 0 };
+      let forecastReturns = { count: 0, hours: 0 };
+
+      // 1. Pending Estimates (if all were won)
+      try {
+        const { data: pending } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('qbo_estimate_status', 'Pending');
+        if (pending) {
+          forecastPending = {
+            count: pending.length,
+            hours: pending.length * 8, // Assume 8h per install
+            value: pending.reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0),
+          };
+        }
+      } catch (e) { /* ignore */ }
+
+      // 2. Blocked Items (if all became unblocked)
+      const blockedFromQueue = [...queueEvents, ...returnEvents].filter(e => {
+        const title = (e.summary || '').toUpperCase();
+        return BLOCKED_TAGS.some(tag => title.includes(tag));
+      });
+      forecastBlocked = {
+        count: blockedFromQueue.length,
+        hours: blockedFromQueue.length * 2, // Assume 2h service call avg
+      };
+
+      // 3. Service Calls that might need returns
+      const serviceCalls = allBacklog.filter(item => 
+        item.jobType === 'SVC' || item.jobType === 'TRB'
+      );
+      forecastReturns = {
+        count: serviceCalls.length,
+        hours: serviceCalls.length * 4, // RTN = 4h each
+      };
+
+      setForecastData({
+        pendingEstimates: forecastPending,
+        blockedItems: forecastBlocked,
+        serviceCallReturns: forecastReturns,
+      });
 
       // Sort by priority
       allBacklog.sort((a, b) => PRIORITIES[a.priority].order - PRIORITIES[b.priority].order);
@@ -509,6 +560,148 @@ export default function Scheduler({ accessToken, onBack }) {
           <div style={{ color: '#64748b', fontSize: 11 }}>{jrAvail.utilization}% booked</div>
         </div>
       </div>
+
+      {/* Forecast Toggle */}
+      <button
+        onClick={() => setShowForecast(!showForecast)}
+        style={{
+          width: '100%',
+          background: showForecast ? '#8b5cf620' : '#1e293b',
+          border: `1px solid ${showForecast ? '#8b5cf6' : '#334155'}`,
+          borderRadius: 12,
+          padding: '12px 16px',
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🔮</span>
+          <span style={{ color: '#8b5cf6', fontWeight: 600, fontSize: 14 }}>Capacity Forecast</span>
+          <span style={{ color: '#64748b', fontSize: 12 }}>What-if scenarios</span>
+        </div>
+        <span style={{ color: '#64748b' }}>{showForecast ? '▼' : '▶'}</span>
+      </button>
+
+      {/* Forecast Panel */}
+      {showForecast && (
+        <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 20, border: '1px solid #8b5cf640' }}>
+          <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>
+            📊 Capacity Impact Scenarios (2-week window)
+          </div>
+          
+          {/* Current Capacity */}
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Current Available Capacity</span>
+              <span style={{ color: '#22c55e', fontSize: 15, fontWeight: 700 }}>{austinAvail.availableHours + jrAvail.availableHours}h</span>
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#64748b' }}>
+              <span>Austin: {austinAvail.availableHours}h</span>
+              <span>JR: {jrAvail.availableHours}h</span>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <div style={{ background: '#334155', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                <div style={{ 
+                  width: `${Math.min(100, (totalBacklogHours / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%`,
+                  height: '100%',
+                  background: totalBacklogHours > (austinAvail.availableHours + jrAvail.availableHours) ? '#ef4444' : '#22c55e',
+                }} />
+              </div>
+              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
+                Current backlog: {totalBacklogHours}h ({Math.round((totalBacklogHours / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}% of capacity)
+              </div>
+            </div>
+          </div>
+
+          {/* Scenario Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+            {/* Scenario 1: All Pending Estimates Won */}
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #f59e0b' }}>
+              <div style={{ color: '#f59e0b', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                If All Pending Estimates Won
+              </div>
+              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
+                {forecastData.pendingEstimates.count} estimates • ${forecastData.pendingEstimates.value.toLocaleString()}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>+{forecastData.pendingEstimates.hours}h</span>
+                <span style={{ color: '#64748b', fontSize: 11 }}>work added</span>
+              </div>
+              <div style={{ marginTop: 8, padding: '4px 8px', background: '#f59e0b20', borderRadius: 4, fontSize: 11 }}>
+                <span style={{ color: '#f59e0b' }}>
+                  Total: {totalBacklogHours + forecastData.pendingEstimates.hours}h 
+                  ({Math.round(((totalBacklogHours + forecastData.pendingEstimates.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%)
+                </span>
+              </div>
+            </div>
+
+            {/* Scenario 2: All Blocked Items Unblocked */}
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #ef4444' }}>
+              <div style={{ color: '#ef4444', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                If All Blocked Items Ready
+              </div>
+              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
+                {forecastData.blockedItems.count} blocked items
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>+{forecastData.blockedItems.hours}h</span>
+                <span style={{ color: '#64748b', fontSize: 11 }}>work added</span>
+              </div>
+              <div style={{ marginTop: 8, padding: '4px 8px', background: '#ef444420', borderRadius: 4, fontSize: 11 }}>
+                <span style={{ color: '#ef4444' }}>
+                  Total: {totalBacklogHours + forecastData.blockedItems.hours}h 
+                  ({Math.round(((totalBacklogHours + forecastData.blockedItems.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%)
+                </span>
+              </div>
+            </div>
+
+            {/* Scenario 3: All Service Calls Need Returns */}
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #06b6d4' }}>
+              <div style={{ color: '#06b6d4', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                If All Service Calls Need Returns
+              </div>
+              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
+                {forecastData.serviceCallReturns.count} service calls
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>+{forecastData.serviceCallReturns.hours}h</span>
+                <span style={{ color: '#64748b', fontSize: 11 }}>return visits</span>
+              </div>
+              <div style={{ marginTop: 8, padding: '4px 8px', background: '#06b6d420', borderRadius: 4, fontSize: 11 }}>
+                <span style={{ color: '#06b6d4' }}>
+                  Total: {totalBacklogHours + forecastData.serviceCallReturns.hours}h 
+                  ({Math.round(((totalBacklogHours + forecastData.serviceCallReturns.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Worst Case Scenario */}
+          <div style={{ background: '#7f1d1d20', borderRadius: 8, padding: 12, marginTop: 12, border: '1px solid #ef444440' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ color: '#ef4444', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+                  ⚠️ Worst Case (All Scenarios)
+                </div>
+                <div style={{ color: '#64748b', fontSize: 11 }}>
+                  Everything hits at once
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: '#ef4444', fontSize: 22, fontWeight: 700 }}>
+                  {totalBacklogHours + forecastData.pendingEstimates.hours + forecastData.blockedItems.hours + forecastData.serviceCallReturns.hours}h
+                </div>
+                <div style={{ color: '#ef4444', fontSize: 11 }}>
+                  {Math.round(((totalBacklogHours + forecastData.pendingEstimates.hours + forecastData.blockedItems.hours + forecastData.serviceCallReturns.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}% of capacity
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Backlog Table */}
       <div style={{ background: '#1e293b', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>

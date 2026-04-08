@@ -74,7 +74,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       ? [CALENDARS.AUSTIN, CALENDARS.JR]
       : [techCalId];
     
-    const calIds = [...techCalendars, CALENDARS.TENTATIVELY_SCHEDULED];
+    // Only tech calendars - no queue or admin calendars
+    const calIds = techCalendars;
     const fetches = calIds.map(calId =>
       fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` }

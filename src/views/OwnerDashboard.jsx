@@ -527,14 +527,16 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       }
       setTechData(techResults);
 
-      // Fetch all calendars
-      const [queueEvents, returnEvents, austinEvents, jrEvents, installEvents, completedEvents] = await Promise.all([
+      // Fetch all calendars (matching BoardView sources)
+      const [queueEvents, returnEvents, austinEvents, jrEvents, installEvents, completedEvents, adminEvents, salesEvents] = await Promise.all([
         fetchCalendarEvents(CALENDARS.TENTATIVELY_SCHEDULED, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.RETURN_VISITS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.AUSTIN, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.JR, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.INSTALLATIONS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.COMPLETED, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.ADMIN_NOTES, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.SALES_ACCOUNTING, ninetyDaysBack, sixtyDaysOut),
       ]);
 
       // Ready to Schedule (Queue + Returns, no done/blocked tags)
@@ -549,8 +551,8 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
         return !DONE_TAGS.some(tag => title.includes(tag)) && !BLOCKED_TAGS.some(tag => title.includes(tag));
       });
 
-      // Blocked (all calendars with blocked tags)
-      const allEvents = [...queueEvents, ...returnEvents, ...austinEvents, ...jrEvents, ...installEvents];
+      // Blocked (all calendars with blocked tags - matching BoardView)
+      const allEvents = [...queueEvents, ...returnEvents, ...austinEvents, ...jrEvents, ...installEvents, ...adminEvents, ...salesEvents];
       const blockedItems = allEvents.filter(e => {
         const title = (e.summary || '').toUpperCase();
         return BLOCKED_TAGS.some(tag => title.includes(tag));

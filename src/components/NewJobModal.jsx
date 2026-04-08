@@ -253,7 +253,7 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
       if (!willSchedule) {
         const today = new Date().toISOString().split('T')[0];
         const queueEvent = {
-          summary: `${form.job_type || 'Service Call'} — ${form.customer_name.trim()}`,
+          summary: `${form.customer_name.trim()} - ${JOB_TYPE_INFO[form.job_type]?.full || 'Service Call'}`,
           location: form.customer_address || '',
           description: [
             form.issue && `Issue: ${form.issue}`,

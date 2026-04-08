@@ -1218,6 +1218,25 @@ export default function BoardView({ accessToken, onBack }) {
   const readyEstimateValue = readyToSchedule.filter(i => i.type === 'estimate').reduce((sum, e) => sum + (e.estimateAmount || 0), 0);
   const pendingValue = pendingEstimates.reduce((sum, e) => sum + (e.estimate_amount || 0), 0);
 
+  // Split Ready to Schedule into 3 categories
+  const projectsToSchedule = readyToSchedule.filter(item => {
+    const title = (item.title || '').toLowerCase();
+    return title.includes('install') || item.type === 'estimate';
+  });
+  
+  const returnsToSchedule = readyToSchedule.filter(item => {
+    const title = (item.title || '').toUpperCase();
+    return title.includes('[RETURN NEEDED]') || title.includes('RETURN') || item.calendarName === 'Returns';
+  });
+  
+  const serviceCallsToSchedule = readyToSchedule.filter(item => {
+    const title = (item.title || '').toLowerCase();
+    const upperTitle = (item.title || '').toUpperCase();
+    const isProject = title.includes('install') || item.type === 'estimate';
+    const isReturn = upperTitle.includes('[RETURN NEEDED]') || upperTitle.includes('RETURN') || item.calendarName === 'Returns';
+    return !isProject && !isReturn;
+  });
+
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#fff', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -1239,8 +1258,16 @@ export default function BoardView({ accessToken, onBack }) {
       {/* Summary Bar */}
       <div style={{ display: 'flex', gap: 16, padding: 16, borderBottom: '1px solid #334155', flexWrap: 'wrap' }}>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
-          <div style={{ color: '#64748b', fontSize: 12 }}>Ready to Schedule</div>
-          <div style={{ color: '#8b5cf6', fontSize: 18, fontWeight: 600 }}>{readyToSchedule.length}</div>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Projects</div>
+          <div style={{ color: '#22c55e', fontSize: 18, fontWeight: 600 }}>{projectsToSchedule.length}</div>
+        </div>
+        <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Returns</div>
+          <div style={{ color: '#06b6d4', fontSize: 18, fontWeight: 600 }}>{returnsToSchedule.length}</div>
+        </div>
+        <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Service Calls</div>
+          <div style={{ color: '#8b5cf6', fontSize: 18, fontWeight: 600 }}>{serviceCallsToSchedule.length}</div>
         </div>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
           <div style={{ color: '#64748b', fontSize: 12 }}>Open Tasks</div>
@@ -1257,9 +1284,11 @@ export default function BoardView({ accessToken, onBack }) {
       </div>
 
       {/* Mobile Column Switcher */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #334155' }} className="mobile-only">
+      <div style={{ display: 'flex', borderBottom: '1px solid #334155', overflowX: 'auto' }} className="mobile-only">
         {[
-          { key: 'ready', label: 'Schedule', count: readyToSchedule.length },
+          { key: 'projects', label: 'Projects', count: projectsToSchedule.length },
+          { key: 'returns', label: 'Returns', count: returnsToSchedule.length },
+          { key: 'service', label: 'Service', count: serviceCallsToSchedule.length },
           { key: 'blocked', label: 'Blocked', count: blockedItems.length },
           { key: 'tasks', label: 'Tasks', count: openTasks.length },
           { key: 'pending', label: 'Pending', count: pendingEstimates.length },
@@ -1275,7 +1304,8 @@ export default function BoardView({ accessToken, onBack }) {
               borderBottom: activeColumn === col.key ? '2px solid #3b82f6' : '2px solid transparent',
               color: activeColumn === col.key ? '#3b82f6' : '#64748b',
               cursor: 'pointer',
-              fontSize: 12,
+              fontSize: 11,
+              whiteSpace: 'nowrap',
             }}
           >
             {col.label} ({col.count})
@@ -1288,11 +1318,12 @@ export default function BoardView({ accessToken, onBack }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Loading...</div>
       ) : (
         <div style={{ flex: 1, display: 'flex', gap: 16, padding: 16, overflow: 'auto' }}>
-          <Column title="📅 Ready to Schedule" count={readyToSchedule.length} color="#8b5cf6" columnKey="ready">
-            {readyToSchedule.length === 0 ? (
-              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>Nothing to schedule</div>
+          {/* Projects Column - Installs & Estimates */}
+          <Column title="🔨 Projects" count={projectsToSchedule.length} color="#22c55e" columnKey="projects">
+            {projectsToSchedule.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No projects</div>
             ) : (
-              readyToSchedule.map(item => (
+              projectsToSchedule.map(item => (
                 <div
                   key={`${item.type}-${item.id}`}
                   onClick={() => setSelectedItem({ type: item.type === 'estimate' ? 'readyEstimate' : 'ready', data: item })}
@@ -1301,7 +1332,7 @@ export default function BoardView({ accessToken, onBack }) {
                     borderRadius: 8,
                     padding: 12,
                     marginBottom: 8,
-                    borderLeft: `3px solid ${item.calendarColor}`,
+                    borderLeft: `3px solid ${item.calendarColor || '#22c55e'}`,
                     cursor: 'pointer',
                   }}
                 >
@@ -1311,6 +1342,58 @@ export default function BoardView({ accessToken, onBack }) {
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
                   {item.estimateAmount && <div style={{ fontSize: 13, color: '#22c55e', fontWeight: 600 }}>{formatMoney(item.estimateAmount)}</div>}
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
+                </div>
+              ))
+            )}
+          </Column>
+
+          {/* Returns Column */}
+          <Column title="🔄 Returns" count={returnsToSchedule.length} color="#06b6d4" columnKey="returns">
+            {returnsToSchedule.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No returns</div>
+            ) : (
+              returnsToSchedule.map(item => (
+                <div
+                  key={`${item.type}-${item.id}`}
+                  onClick={() => setSelectedItem({ type: 'ready', data: item })}
+                  style={{
+                    background: '#1e293b',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 8,
+                    borderLeft: '3px solid #06b6d4',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{item.customerName || item.title}</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
+                </div>
+              ))
+            )}
+          </Column>
+
+          {/* Service Calls Column */}
+          <Column title="🔧 Service Calls" count={serviceCallsToSchedule.length} color="#8b5cf6" columnKey="service">
+            {serviceCallsToSchedule.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No service calls</div>
+            ) : (
+              serviceCallsToSchedule.map(item => (
+                <div
+                  key={`${item.type}-${item.id}`}
+                  onClick={() => setSelectedItem({ type: 'ready', data: item })}
+                  style={{
+                    background: '#1e293b',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 8,
+                    borderLeft: '3px solid #8b5cf6',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{item.customerName || item.title}</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
                 </div>
               ))

@@ -30,12 +30,20 @@ const USER_CONFIG = {
   'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
   'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
-  'info@drhsecurityservices.com':     { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
+  'info@drhsecurityservices.com':     { name: null,     role: 'operator', defaultCalendar: null, defaultView: null, needsIdentity: true },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'billing' },
 };
+
+// Identity options for shared logins like info@
+const IDENTITY_OPTIONS = [
+  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: null },
+  { key: 'JR', label: 'JR', defaultCalendar: 'JR', defaultView: null },
+  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
+];
 
 const CALENDAR_OPTIONS = [
   { key: null, label: 'All Calendars' },
@@ -67,6 +75,7 @@ export default function App() {
   const [showBackfill, setShowBackfill] = useState(false);
   const [backfillLog, setBackfillLog] = useState([]);
   const [backfillRunning, setBackfillRunning] = useState(false);
+  const [showIdentityPicker, setShowIdentityPicker] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -144,21 +153,41 @@ export default function App() {
         const config = getUserConfig(storedEmail);
         setAccessToken(storedToken);
         setUserEmail(storedEmail);
-        setUserName(config.name);
         setUserRole(config.role);
         setIsSignedIn(true);
 
-        const savedDefault = localStorage.getItem(`juce_default_cal_${storedEmail}`);
-        if (savedDefault !== null) {
-          setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
+        // Check if user needs to pick identity (shared login like info@)
+        if (config.needsIdentity) {
+          const savedIdentity = localStorage.getItem(`juce_identity_${storedEmail}`);
+          if (savedIdentity) {
+            const identity = IDENTITY_OPTIONS.find(i => i.key === savedIdentity);
+            if (identity) {
+              setUserName(identity.key);
+              setDefaultCalendar(identity.defaultCalendar);
+              if (identity.defaultView && window.location.pathname === '/') {
+                window.history.replaceState(null, '', `/${identity.defaultView}`);
+              }
+            } else {
+              setShowIdentityPicker(true);
+            }
+          } else {
+            setShowIdentityPicker(true);
+          }
         } else {
-          setDefaultCalendar(config.defaultCalendar);
-          setShowSetup(true);
-        }
-        
-        // Navigate to user's default view if at root
-        if (config.defaultView && window.location.pathname === '/') {
-          window.history.replaceState(null, '', `/${config.defaultView}`);
+          setUserName(config.name);
+
+          const savedDefault = localStorage.getItem(`juce_default_cal_${storedEmail}`);
+          if (savedDefault !== null) {
+            setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
+          } else {
+            setDefaultCalendar(config.defaultCalendar);
+            setShowSetup(true);
+          }
+          
+          // Navigate to user's default view if at root
+          if (config.defaultView && window.location.pathname === '/') {
+            window.history.replaceState(null, '', `/${config.defaultView}`);
+          }
         }
       } else {
         clearStorage();
@@ -208,30 +237,55 @@ export default function App() {
 
             setAccessToken(token);
             setUserEmail(email);
-            setUserName(config.name);
             setUserRole(config.role);
             setIsSignedIn(true);
 
-            const savedDefault = localStorage.getItem(`juce_default_cal_${email}`);
-            if (savedDefault !== null) {
-              setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
+            // Check if user needs to pick identity (shared login like info@)
+            if (config.needsIdentity) {
+              const savedIdentity = localStorage.getItem(`juce_identity_${email}`);
+              if (savedIdentity) {
+                const identity = IDENTITY_OPTIONS.find(i => i.key === savedIdentity);
+                if (identity) {
+                  setUserName(identity.key);
+                  setDefaultCalendar(identity.defaultCalendar);
+                  if (identity.defaultView) {
+                    window.history.replaceState(null, '', `/${identity.defaultView}`);
+                    navigate(`/${identity.defaultView}`);
+                  } else {
+                    window.history.replaceState(null, '', '/');
+                  }
+                } else {
+                  setShowIdentityPicker(true);
+                  window.history.replaceState(null, '', '/');
+                }
+              } else {
+                setShowIdentityPicker(true);
+                window.history.replaceState(null, '', '/');
+              }
             } else {
-              setDefaultCalendar(config.defaultCalendar);
-              setShowSetup(true);
-            }
+              setUserName(config.name);
+              
+              const savedDefault = localStorage.getItem(`juce_default_cal_${email}`);
+              if (savedDefault !== null) {
+                setDefaultCalendar(savedDefault === 'null' ? null : savedDefault);
+              } else {
+                setDefaultCalendar(config.defaultCalendar);
+                setShowSetup(true);
+              }
 
-            const guideKey = `juce_guide_${email}`;
-            if (!localStorage.getItem(guideKey)) {
-              localStorage.setItem(guideKey, 'seen');
-              setShowGuide(true);
-            }
+              const guideKey = `juce_guide_${email}`;
+              if (!localStorage.getItem(guideKey)) {
+                localStorage.setItem(guideKey, 'seen');
+                setShowGuide(true);
+              }
 
-            // Navigate to user's default view if set
-            if (config.defaultView) {
-              window.history.replaceState(null, '', `/${config.defaultView}`);
-              navigate(`/${config.defaultView}`);
-            } else {
-              window.history.replaceState(null, '', '/');
+              // Navigate to user's default view if set
+              if (config.defaultView) {
+                window.history.replaceState(null, '', `/${config.defaultView}`);
+                navigate(`/${config.defaultView}`);
+              } else {
+                window.history.replaceState(null, '', '/');
+              }
             }
           })
           .catch(err => console.error('Auth error:', err));
@@ -487,6 +541,46 @@ export default function App() {
       </Routes>
 
       {/* Modals (render on top of any route) */}
+      {showIdentityPicker && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: '#1e293b', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%' }}>
+            <div style={{ fontSize: '32px', textAlign: 'center', marginBottom: '12px' }}>👋</div>
+            <h2 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: '700', textAlign: 'center', margin: '0 0 4px 0' }}>Who are you?</h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 20px 0' }}>Select your identity for this session</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {IDENTITY_OPTIONS.map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => {
+                    localStorage.setItem(`juce_identity_${userEmail}`, opt.key);
+                    setUserName(opt.key);
+                    setDefaultCalendar(opt.defaultCalendar);
+                    setShowIdentityPicker(false);
+                    if (opt.defaultView) {
+                      navigate(`/${opt.defaultView}`);
+                    }
+                  }}
+                  style={{
+                    background: '#0f1729',
+                    color: '#e2e8f0',
+                    border: '1px solid #334155',
+                    borderRadius: '12px',
+                    padding: '16px 20px',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSetup && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: '#1e293b', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%' }}>

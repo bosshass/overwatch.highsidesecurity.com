@@ -56,12 +56,12 @@ function GapReportWidget({ onDrilldown }) {
   useEffect(() => {
     const load = async () => {
       try {
-        // Get jobs with remaining_amount > 0 (accepted estimates not fully invoiced)
-        // Note: remaining_amount column may not exist yet
+        // Get ACCEPTED (won) jobs with remaining_amount > 0 (not fully invoiced)
         const { data, error } = await supabase
           .from('jobs')
           .select('*')
-          .gt('remaining_amount', 0)
+          .eq('qbo_estimate_status', 'Accepted') // Only WON estimates
+          .gt('remaining_amount', 0) // Still has balance to bill
           .order('remaining_amount', { ascending: false })
           .limit(20);
         
@@ -115,7 +115,7 @@ function GapReportWidget({ onDrilldown }) {
           </div>
         </div>
         <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-          Accepted estimates without matching invoices or calendar events
+          Won estimates - remaining amount to bill
         </div>
       </div>
 

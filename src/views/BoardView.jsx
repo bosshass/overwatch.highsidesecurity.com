@@ -69,12 +69,14 @@ export default function BoardView({ accessToken, onBack }) {
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduleEstimate, setScheduleEstimate] = useState(null);
   const [selectedTech, setSelectedTech] = useState(null);
+  const [helperTech, setHelperTech] = useState(null); // Second tech for 2-man jobs
   const [selectedDate, setSelectedDate] = useState('');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
   const [scheduling, setScheduling] = useState(false);
   const [scheduleNotes, setScheduleNotes] = useState('');
   const [techAvailability, setTechAvailability] = useState([]); // Busy blocks for selected tech+date
+  const [helperAvailability, setHelperAvailability] = useState([]); // Busy blocks for helper tech
   const [loadingAvailability, setLoadingAvailability] = useState(false);
 
   // Fetch tech availability for a specific date
@@ -149,10 +151,12 @@ export default function BoardView({ accessToken, onBack }) {
   const openScheduler = (estimate) => {
     setScheduleEstimate(estimate);
     setSelectedTech(null);
+    setHelperTech(null); // Reset helper
     setSelectedDate('');
     setStartTime('09:00');
     setEndTime('17:00');
     setTechAvailability([]); // Reset availability
+    setHelperAvailability([]);
     // Pre-fill notes with existing description
     const existingNotes = [
       estimate.issue || '',
@@ -176,10 +180,12 @@ export default function BoardView({ accessToken, onBack }) {
       issue: item.description,
     });
     setSelectedTech(null);
+    setHelperTech(null); // Reset helper
     setSelectedDate('');
     setStartTime('09:00');
     setEndTime('17:00');
     setTechAvailability([]); // Reset availability
+    setHelperAvailability([]);
     setScheduleNotes(item.description || '');
     setShowScheduler(true);
   };
@@ -267,17 +273,21 @@ export default function BoardView({ accessToken, onBack }) {
       const endDateTime = `${selectedDate}T${endTime}:00`;
       const isCalendarItem = est.type === 'calendar';
       
+      // Build crew string for event title
+      const crewText = helperTech ? `${selectedTech.name} + ${helperTech.name}` : selectedTech.name;
+      
       // Create calendar event with user-edited notes
       const eventBody = {
         summary: `${est.customer_name || 'Customer'} - Install`,
         description: isCalendarItem 
-          ? scheduleNotes 
-          : `Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${scheduleNotes}`.trim(),
+          ? `${helperTech ? `👥 Crew: ${crewText}\n\n` : ''}${scheduleNotes}` 
+          : `${helperTech ? `👥 Crew: ${crewText}\n` : ''}Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${scheduleNotes}`.trim(),
         location: est.customer_address || '',
         start: { dateTime: startDateTime, timeZone: 'America/Denver' },
         end: { dateTime: endDateTime, timeZone: 'America/Denver' },
       };
       
+      // Create event on LEAD tech's calendar
       const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(selectedTech.id)}/events`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -290,6 +300,25 @@ export default function BoardView({ accessToken, onBack }) {
       }
       
       const newEvent = await res.json();
+      
+      // If helper tech selected, create event on THEIR calendar too
+      if (helperTech) {
+        const helperEventBody = {
+          ...eventBody,
+          summary: `${est.customer_name || 'Customer'} - Install (w/ ${selectedTech.name})`,
+          description: `👥 Lead: ${selectedTech.name}\n${eventBody.description}`,
+        };
+        
+        try {
+          await fetch(`${GCAL}/calendars/${encodeURIComponent(helperTech.id)}/events`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(helperEventBody)
+          });
+        } catch (e) {
+          console.warn('Helper calendar event failed:', e);
+        }
+      }
       
       if (isCalendarItem) {
         // Mark original calendar event as [SCHEDULED]
@@ -315,7 +344,7 @@ export default function BoardView({ accessToken, onBack }) {
           .update({ 
             calendar_event_id: newEvent.id,
             scheduled_date: selectedDate,
-            tech_name: selectedTech.name
+            tech_name: crewText // Store both names if 2-man job
           })
           .eq('id', est.id);
         
@@ -326,7 +355,8 @@ export default function BoardView({ accessToken, onBack }) {
       await loadAll();
       setShowScheduler(false);
       setScheduleEstimate(null);
-      alert(`✅ Scheduled ${est.customer_name} with ${selectedTech.name} on ${selectedDate}`);
+      setHelperTech(null);
+      alert(`✅ Scheduled ${est.customer_name} with ${crewText} on ${selectedDate}`);
       
     } catch (e) {
       console.error('Schedule error:', e);
@@ -1598,15 +1628,17 @@ export default function BoardView({ accessToken, onBack }) {
               {scheduleEstimate.customer_address && <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>📍 {scheduleEstimate.customer_address}</div>}
             </div>
             
-            {/* Tech Selection */}
+            {/* Lead Tech Selection */}
             <div style={{ marginBottom: 16 }}>
-              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Select Tech</label>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>Lead Tech</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 {TECH_CALS.map(tech => (
                   <button
                     key={tech.id}
                     onClick={() => {
                       setSelectedTech(tech);
+                      // Clear helper if same as lead
+                      if (helperTech?.id === tech.id) setHelperTech(null);
                       if (selectedDate) fetchTechAvailability(tech.id, selectedDate);
                     }}
                     style={{
@@ -1625,6 +1657,60 @@ export default function BoardView({ accessToken, onBack }) {
                 ))}
               </div>
             </div>
+
+            {/* Helper Tech Selection (optional) */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>
+                + Helper Tech <span style={{ color: '#64748b' }}>(optional - 2-man job)</span>
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setHelperTech(null)}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: !helperTech ? '2px solid #64748b' : '2px solid #334155',
+                    background: !helperTech ? '#64748b20' : '#0f172a',
+                    color: !helperTech ? '#94a3b8' : '#64748b',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  None
+                </button>
+                {TECH_CALS.filter(t => t.id !== selectedTech?.id).map(tech => (
+                  <button
+                    key={tech.id}
+                    onClick={() => {
+                      setHelperTech(tech);
+                      // Fetch helper availability too
+                      if (selectedDate) {
+                        fetchTechAvailability(tech.id, selectedDate).then(blocks => setHelperAvailability(blocks || []));
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: 8,
+                      border: helperTech?.id === tech.id ? `2px solid ${tech.color}` : '2px solid #334155',
+                      background: helperTech?.id === tech.id ? `${tech.color}20` : '#0f172a',
+                      color: helperTech?.id === tech.id ? tech.color : '#64748b',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    + {tech.name}
+                  </button>
+                ))}
+              </div>
+              {helperTech && (
+                <div style={{ marginTop: 8, padding: 8, background: '#22c55e15', borderRadius: 6, fontSize: 12, color: '#22c55e' }}>
+                  👥 2-man job: {selectedTech?.name} (lead) + {helperTech.name}
+                </div>
+              )}
+            </div>
             
             {/* Date Selection */}
             <div style={{ marginBottom: 16 }}>
@@ -1635,6 +1721,10 @@ export default function BoardView({ accessToken, onBack }) {
                 onChange={(e) => {
                   setSelectedDate(e.target.value);
                   if (selectedTech) fetchTechAvailability(selectedTech.id, e.target.value);
+                  if (helperTech) {
+                    // Also check helper availability
+                    fetchTechAvailability(helperTech.id, e.target.value);
+                  }
                 }}
                 style={{
                   width: '100%',

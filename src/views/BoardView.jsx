@@ -59,6 +59,12 @@ export default function BoardView({ accessToken, onBack }) {
   const [activeColumn, setActiveColumn] = useState('ready'); // For mobile view
   const [updating, setUpdating] = useState(false);
   
+  // Search / Find matching event state
+  const [searching, setSearching] = useState(false);
+  const [matchingEvents, setMatchingEvents] = useState([]);
+  const [showMatches, setShowMatches] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  
   // Scheduling state
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduleEstimate, setScheduleEstimate] = useState(null);
@@ -107,6 +113,76 @@ export default function BoardView({ accessToken, onBack }) {
     setEndTime('17:00');
     setScheduleNotes(item.description || '');
     setShowScheduler(true);
+  };
+
+  // Find matching events on tech calendars
+  const findMatchingEvents = async (searchName) => {
+    if (!accessToken || !searchName) return;
+    
+    setSearching(true);
+    setMatchingEvents([]);
+    setShowMatches(true);
+    
+    const matches = [];
+    const now = new Date();
+    const tMin = new Date();
+    tMin.setDate(tMin.getDate() - 60);
+    const tMax = new Date();
+    tMax.setDate(tMax.getDate() + 60);
+    
+    // Search keywords from customer name
+    const searchTerms = searchName.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+    
+    // Search all tech calendars
+    const calendarsToSearch = [...TECH_CALS, { name: 'Installations', id: CALENDARS.INSTALLATIONS, color: '#3b82f6' }];
+    
+    await Promise.all(calendarsToSearch.map(async (cal) => {
+      try {
+        const params = new URLSearchParams({
+          timeMin: tMin.toISOString(),
+          timeMax: tMax.toISOString(),
+          singleEvents: 'true',
+          orderBy: 'startTime',
+          maxResults: '100'
+        });
+        
+        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        (data.items || []).forEach(ev => {
+          if (ev.status === 'cancelled') return;
+          const title = (ev.summary || '').toLowerCase();
+          const desc = (ev.description || '').toLowerCase();
+          
+          // Check if any search term matches
+          const isMatch = searchTerms.some(term => title.includes(term) || desc.includes(term));
+          if (!isMatch) return;
+          
+          matches.push({
+            id: ev.id,
+            calendarId: cal.id,
+            calendarName: cal.name,
+            calendarColor: cal.color,
+            title: ev.summary || '',
+            start: ev.start?.dateTime || ev.start?.date,
+            location: ev.location || '',
+            description: ev.description || '',
+            isPast: new Date(ev.start?.dateTime || ev.start?.date) < now,
+          });
+        });
+      } catch (e) {
+        console.warn('Search error:', cal.name, e.message);
+      }
+    }));
+    
+    // Sort by date
+    matches.sort((a, b) => new Date(a.start) - new Date(b.start));
+    setMatchingEvents(matches);
+    setSearching(false);
   };
 
   const createCalendarEvent = async () => {
@@ -632,7 +708,7 @@ export default function BoardView({ accessToken, onBack }) {
                 {(isTask || isReady) ? (item.customerName || item.title) : item.customer_name}
               </h3>
             </div>
-            <button onClick={() => setSelectedItem(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
+            <button onClick={() => { setSelectedItem(null); setSearchQuery(''); setShowMatches(false); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
           
           {isBlocked ? (
@@ -706,6 +782,34 @@ export default function BoardView({ accessToken, onBack }) {
                 >
                   📅 Schedule Now
                 </button>
+                
+                {/* Editable search field */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    value={searchQuery || item.customerName || item.title}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => { if (!searchQuery) setSearchQuery(item.customerName || item.title); }}
+                    placeholder="Search name..."
+                    style={{ 
+                      flex: 1, 
+                      background: '#0f172a', 
+                      border: '1px solid #334155', 
+                      borderRadius: 8, 
+                      padding: '10px 12px', 
+                      color: '#fff', 
+                      fontSize: 14 
+                    }}
+                  />
+                  <button
+                    onClick={() => findMatchingEvents(searchQuery || item.customerName || item.title)}
+                    disabled={searching}
+                    style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    {searching ? '...' : '🔍 Find'}
+                  </button>
+                </div>
+                
                 <a
                   href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}
                   target="_blank"
@@ -715,6 +819,47 @@ export default function BoardView({ accessToken, onBack }) {
                   View in Calendar
                 </a>
               </div>
+              
+              {/* Matching Events Results */}
+              {showMatches && (
+                <div style={{ marginTop: 16, background: '#0f172a', borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>Matching Events ({matchingEvents.length})</span>
+                    <button onClick={() => setShowMatches(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>✕</button>
+                  </div>
+                  {searching ? (
+                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: 8 }}>Searching...</div>
+                  ) : matchingEvents.length === 0 ? (
+                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: 8 }}>No matching events found</div>
+                  ) : (
+                    <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                      {matchingEvents.map(ev => (
+                        <a
+                          key={`${ev.calendarId}-${ev.id}`}
+                          href={`https://www.google.com/calendar/event?eid=${btoa(ev.id + ' ' + ev.calendarId)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'block',
+                            background: '#1e293b',
+                            borderRadius: 6,
+                            padding: 8,
+                            marginBottom: 6,
+                            borderLeft: `3px solid ${ev.calendarColor}`,
+                            textDecoration: 'none',
+                            color: ev.isPast ? '#64748b' : '#fff',
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{ev.title}</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            {ev.calendarName} • {formatDate(ev.start)}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : isTask ? (
             <>

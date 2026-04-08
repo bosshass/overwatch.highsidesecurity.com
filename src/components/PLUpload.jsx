@@ -237,6 +237,7 @@ export default function PLUpload({ userEmail, onUploadComplete }) {
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
   const [file, setFile] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
 
   const handleFileSelect = async (e) => {
     const selectedFile = e.target.files?.[0];
@@ -244,13 +245,25 @@ export default function PLUpload({ userEmail, onUploadComplete }) {
     
     setFile(selectedFile);
     setError(null);
+    setDebugInfo(null);
     setIsUploading(true);
     
     try {
       const parsed = await parseQBOFile(selectedFile);
-      setPreview(parsed);
+      console.log('Parsed P&L data:', parsed);
+      
+      if (!parsed || parsed.length === 0) {
+        setError('No periods found in file. Make sure the file has date headers like "Jan 1 - Jan 7, 2026" or "January 2026".');
+        setDebugInfo('The parser could not find any valid date columns in your file. Check that your QBO export has the correct format.');
+        setPreview(null);
+      } else {
+        setPreview(parsed);
+        setDebugInfo(`Found ${parsed.length} period(s): ${parsed.map(p => p.period_label).join(', ')}`);
+      }
     } catch (err) {
+      console.error('Parse error:', err);
       setError('Failed to parse file: ' + err.message);
+      setDebugInfo(err.stack || 'No stack trace available');
       setPreview(null);
     } finally {
       setIsUploading(false);
@@ -268,13 +281,16 @@ export default function PLUpload({ userEmail, onUploadComplete }) {
       const failures = results.filter(r => !r.success);
       
       if (failures.length > 0) {
-        setError(`${failures.length} record(s) failed to save`);
+        setError(`${failures.length} record(s) failed to save: ${failures.map(f => f.error).join(', ')}`);
+        console.error('Save failures:', failures);
       } else {
         setPreview(null);
         setFile(null);
+        setDebugInfo(null);
         onUploadComplete?.();
       }
     } catch (err) {
+      console.error('Upload error:', err);
       setError('Upload failed: ' + err.message);
     } finally {
       setIsUploading(false);
@@ -312,6 +328,12 @@ export default function PLUpload({ userEmail, onUploadComplete }) {
       {error && (
         <div style={{ marginTop: '12px', color: '#ef4444', fontSize: '13px' }}>
           ⚠️ {error}
+        </div>
+      )}
+
+      {debugInfo && (
+        <div style={{ marginTop: '8px', color: '#64748b', fontSize: '11px', background: '#0f172a', padding: '8px', borderRadius: '6px' }}>
+          ℹ️ {debugInfo}
         </div>
       )}
 

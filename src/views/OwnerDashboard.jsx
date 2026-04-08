@@ -576,7 +576,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
           .from('jobs')
           .select('*')
           .eq('qbo_estimate_status', 'Accepted')
-          .is('calendar_event_id', null);
+          .gt('remaining_amount', 0); // Only show projects with remaining balance
         acceptedEstimates = accepted || [];
         estimateCount = acceptedEstimates.length;
       } catch (e) { /* ignore */ }
@@ -602,8 +602,8 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
         pipelineValue = (pending || []).reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0);
       } catch (e) { /* ignore */ }
 
-      // Projects value (sum of accepted estimates)
-      const projectsValue = acceptedEstimates.reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0);
+      // Projects value (sum of REMAINING amounts, not total estimate)
+      const projectsValue = acceptedEstimates.reduce((sum, j) => sum + (parseFloat(j.remaining_amount) || 0), 0);
 
       // Categorize ready items
       const projects = readyItems.filter(e => (e.summary || '').toLowerCase().includes('install')).length + estimateCount;
@@ -805,14 +805,14 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       {calendarStats.projectsValue > 0 && (
         <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginTop: '8px', border: '1px solid #22c55e40' }}>
           <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.05em' }}>
-            💰 Active Projects
+            💰 Active Projects — Remaining to Bill
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
             <div style={{ color: '#22c55e', fontSize: '28px', fontWeight: '800' }}>
               ${calendarStats.projectsValue.toLocaleString()}
             </div>
             <div style={{ color: '#64748b', fontSize: '12px' }}>
-              {calendarStats.estimatesWon} projects to schedule
+              {calendarStats.estimatesWon} active projects
             </div>
           </div>
           {calendarStats.projectsList.length > 0 && (
@@ -821,7 +821,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #334155' }}>
                   <span style={{ color: '#e2e8f0', fontSize: '13px' }}>{proj.customer_name}</span>
                   <span style={{ color: '#22c55e', fontSize: '13px', fontWeight: '600' }}>
-                    ${(parseFloat(proj.estimate_amount) || 0).toLocaleString()}
+                    ${(parseFloat(proj.remaining_amount) || 0).toLocaleString()}
                   </span>
                 </div>
               ))}

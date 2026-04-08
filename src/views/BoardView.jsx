@@ -1,7 +1,7 @@
 // ============================================
 // BoardView — Kanban-style overview
 // ============================================
-// Columns: Open Tasks | Approved Estimates | Pending Estimates
+// Columns: Ready to Schedule | Open Tasks | Approved Estimates | Pending Estimates
 // Calendar = Source of Truth for tasks
 // Supabase = Source for estimates (QBO sync)
 
@@ -17,19 +17,23 @@ const TECH_CALS = [
   { name: 'JR', id: CALENDARS.JR, color: '#22c55e' },
 ];
 
-// Calendars to pull open tasks from
+// Calendars for "Ready to Schedule" — items that need tech assignment
+const SCHEDULE_SOURCE_CALENDARS = [
+  { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Queue', color: '#f59e0b' },
+  { id: CALENDARS.RETURN_VISITS, name: 'Returns', color: '#06b6d4' },
+];
+
+// Calendars to pull open tasks from (already scheduled on tech calendars)
 const TASK_CALENDARS = [
-  { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service/Urgent', color: '#f59e0b' },
-  { id: CALENDARS.ADMIN_NOTES, name: 'Admin Notes', color: '#ec4899' },
   { id: CALENDARS.AUSTIN, name: 'Austin', color: '#f97316' },
   { id: CALENDARS.JR, name: 'JR', color: '#22c55e' },
-  { id: CALENDARS.SALES_ACCOUNTING, name: 'Sales/Acct', color: '#8b5cf6' },
   { id: CALENDARS.INSTALLATIONS, name: 'Installations', color: '#3b82f6' },
-  { id: CALENDARS.RETURN_VISITS, name: 'Return Visits', color: '#06b6d4' },
+  { id: CALENDARS.ADMIN_NOTES, name: 'Admin Notes', color: '#ec4899' },
+  { id: CALENDARS.SALES_ACCOUNTING, name: 'Sales/Acct', color: '#8b5cf6' },
 ];
 
 // Tags that mean task is DONE — exclude from board
-const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]'];
+const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]'];
 
 // Extract customer name from title
 const extractCustomerName = (title) => {
@@ -43,11 +47,12 @@ const extractCustomerName = (title) => {
 
 export default function BoardView({ accessToken, onBack }) {
   const [loading, setLoading] = useState(true);
+  const [readyToSchedule, setReadyToSchedule] = useState([]); // NEW: Queue + Returns + Approved Estimates
   const [openTasks, setOpenTasks] = useState([]);
   const [approvedEstimates, setApprovedEstimates] = useState([]);
   const [pendingEstimates, setPendingEstimates] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [activeColumn, setActiveColumn] = useState('tasks'); // For mobile view
+  const [activeColumn, setActiveColumn] = useState('ready'); // For mobile view
   const [updating, setUpdating] = useState(false);
   
   // Scheduling state
@@ -82,6 +87,24 @@ export default function BoardView({ accessToken, onBack }) {
     setSelectedItem(null);
   };
 
+  // Open scheduler for calendar items (Queue, Returns)
+  const openSchedulerForCalendarItem = (item) => {
+    setScheduleEstimate({
+      id: item.id,
+      type: 'calendar',
+      calendarId: item.calendarId,
+      customer_name: item.customerName || item.title,
+      customer_address: item.location,
+      issue: item.description,
+    });
+    setSelectedTech(null);
+    setSelectedDate('');
+    setStartTime('09:00');
+    setEndTime('17:00');
+    setScheduleNotes(item.description || '');
+    setShowScheduler(true);
+  };
+
   const createCalendarEvent = async () => {
     if (!selectedTech || !selectedDate || !startTime || !endTime) {
       alert('Please select tech, date, and times');
@@ -93,11 +116,14 @@ export default function BoardView({ accessToken, onBack }) {
       const est = scheduleEstimate;
       const startDateTime = `${selectedDate}T${startTime}:00`;
       const endDateTime = `${selectedDate}T${endTime}:00`;
+      const isCalendarItem = est.type === 'calendar';
       
       // Create calendar event with user-edited notes
       const eventBody = {
         summary: `${est.customer_name || 'Customer'} - Install`,
-        description: `Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${scheduleNotes}`.trim(),
+        description: isCalendarItem 
+          ? scheduleNotes 
+          : `Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${scheduleNotes}`.trim(),
         location: est.customer_address || '',
         start: { dateTime: startDateTime, timeZone: 'America/Denver' },
         end: { dateTime: endDateTime, timeZone: 'America/Denver' },
@@ -116,20 +142,39 @@ export default function BoardView({ accessToken, onBack }) {
       
       const newEvent = await res.json();
       
-      // Update Supabase with calendar_event_id
-      const { error: dbError } = await supabase
-        .from('jobs')
-        .update({ 
-          calendar_event_id: newEvent.id,
-          scheduled_date: selectedDate,
-          tech_name: selectedTech.name
-        })
-        .eq('id', est.id);
-      
-      if (dbError) console.warn('Supabase update warning:', dbError);
+      if (isCalendarItem) {
+        // Mark original calendar event as [SCHEDULED]
+        try {
+          const origRes = await fetch(`${GCAL}/calendars/${encodeURIComponent(est.calendarId)}/events/${est.id}`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (origRes.ok) {
+            const origEvent = await origRes.json();
+            await fetch(`${GCAL}/calendars/${encodeURIComponent(est.calendarId)}/events/${est.id}`, {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ summary: `[SCHEDULED] ${origEvent.summary}` })
+            });
+          }
+        } catch (e) {
+          console.warn('Could not mark original as scheduled:', e);
+        }
+      } else {
+        // Update Supabase with calendar_event_id (for estimates)
+        const { error: dbError } = await supabase
+          .from('jobs')
+          .update({ 
+            calendar_event_id: newEvent.id,
+            scheduled_date: selectedDate,
+            tech_name: selectedTech.name
+          })
+          .eq('id', est.id);
+        
+        if (dbError) console.warn('Supabase update warning:', dbError);
+      }
       
       // Refresh and close
-      await loadEstimates();
+      await loadAll();
       setShowScheduler(false);
       setScheduleEstimate(null);
       alert(`✅ Scheduled ${est.customer_name} with ${selectedTech.name} on ${selectedDate}`);
@@ -216,6 +261,99 @@ export default function BoardView({ accessToken, onBack }) {
   // ═══════════════════════════════════════════════════════════════════════════
   // LOAD DATA
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // Load "Ready to Schedule" items from Queue + Returns calendars + Approved Estimates
+  const loadReadyToSchedule = useCallback(async () => {
+    if (!accessToken) return;
+    
+    const items = [];
+    const now = new Date();
+    const tMin = new Date();
+    tMin.setDate(tMin.getDate() - 60); // Look back 60 days
+    const tMax = new Date();
+    tMax.setDate(tMax.getDate() + 60); // Look ahead 60 days
+    
+    // Load from Queue + Returns calendars
+    await Promise.all(SCHEDULE_SOURCE_CALENDARS.map(async (cal) => {
+      try {
+        const params = new URLSearchParams({
+          timeMin: tMin.toISOString(),
+          timeMax: tMax.toISOString(),
+          singleEvents: 'true',
+          orderBy: 'startTime',
+          maxResults: '250'
+        });
+        
+        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        (data.items || []).forEach(ev => {
+          if (ev.status === 'cancelled') return;
+          const title = (ev.summary || '').toUpperCase();
+          
+          // Skip if done
+          if (DONE_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
+          
+          items.push({
+            id: ev.id,
+            type: 'calendar',
+            calendarId: cal.id,
+            calendarName: cal.name,
+            calendarColor: cal.color,
+            title: ev.summary || '',
+            customerName: extractCustomerName(ev.summary || ''),
+            start: ev.start?.dateTime || ev.start?.date,
+            location: ev.location || '',
+            description: ev.description || '',
+            isPast: new Date(ev.start?.dateTime || ev.start?.date) < now,
+          });
+        });
+      } catch (e) {
+        console.warn('Schedule source fetch error:', cal.name, e.message);
+      }
+    }));
+    
+    // Also load Approved estimates not scheduled
+    try {
+      const { data: approved } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('qbo_estimate_status', 'Accepted')
+        .is('calendar_event_id', null)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      
+      (approved || []).forEach(est => {
+        items.push({
+          id: est.id,
+          type: 'estimate',
+          calendarName: 'Estimate Won',
+          calendarColor: '#22c55e',
+          title: est.customer_name || 'Unknown',
+          customerName: est.customer_name || 'Unknown',
+          start: est.created_at,
+          location: est.customer_address || '',
+          description: est.issue || est.notes || '',
+          estimateAmount: est.estimate_amount,
+          qbo_estimate_ref: est.qbo_estimate_ref,
+          customer_phone: est.customer_phone,
+          customer_address: est.customer_address,
+          issue: est.issue,
+          notes: est.notes,
+        });
+      });
+    } catch (e) {
+      console.warn('Estimates fetch error:', e);
+    }
+    
+    // Sort by date
+    items.sort((a, b) => new Date(a.start) - new Date(b.start));
+    setReadyToSchedule(items);
+  }, [accessToken]);
 
   const loadOpenTasks = useCallback(async () => {
     if (!accessToken) return;
@@ -309,9 +447,9 @@ export default function BoardView({ accessToken, onBack }) {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadOpenTasks(), loadEstimates()]);
+    await Promise.all([loadReadyToSchedule(), loadOpenTasks(), loadEstimates()]);
     setLoading(false);
-  }, [loadOpenTasks, loadEstimates]);
+  }, [loadReadyToSchedule, loadOpenTasks, loadEstimates]);
 
   useEffect(() => {
     loadAll();
@@ -402,6 +540,7 @@ export default function BoardView({ accessToken, onBack }) {
     if (!selectedItem) return null;
     
     const isTask = selectedItem.type === 'task';
+    const isReady = selectedItem.type === 'ready';
     const item = selectedItem.data;
     
     return (
@@ -409,17 +548,44 @@ export default function BoardView({ accessToken, onBack }) {
         <div style={{ background: '#1e293b', borderRadius: 12, width: '100%', maxWidth: 500, maxHeight: '80vh', overflow: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 12, color: isTask ? item.calendarColor : '#22c55e', marginBottom: 4 }}>
-                {isTask ? item.calendarName : (item.qbo_estimate_status || 'Estimate')}
+              <div style={{ fontSize: 12, color: (isTask || isReady) ? item.calendarColor : '#22c55e', marginBottom: 4 }}>
+                {(isTask || isReady) ? item.calendarName : (item.qbo_estimate_status || 'Estimate')}
               </div>
               <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>
-                {isTask ? (item.customerName || item.title) : item.customer_name}
+                {(isTask || isReady) ? (item.customerName || item.title) : item.customer_name}
               </h3>
             </div>
             <button onClick={() => setSelectedItem(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
           
-          {isTask ? (
+          {isReady ? (
+            <>
+              <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📅 {formatDate(item.start)}</div>
+              {item.location && <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📍 {item.location}</div>}
+              {item.description && (
+                <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginTop: 12 }}>
+                  <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Notes</div>
+                  <div style={{ color: '#fff', fontSize: 14, whiteSpace: 'pre-wrap' }}>{item.description}</div>
+                </div>
+              )}
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  onClick={() => { setSelectedItem(null); openSchedulerForCalendarItem(item); }}
+                  style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  📅 Schedule Now
+                </button>
+                <a
+                  href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ background: '#334155', color: '#fff', padding: 12, borderRadius: 8, textAlign: 'center', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  View in Calendar
+                </a>
+              </div>
+            </>
+          ) : isTask ? (
             <>
               <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📅 {formatDate(item.start)}</div>
               {item.location && <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📍 {item.location}</div>}
@@ -556,7 +722,7 @@ export default function BoardView({ accessToken, onBack }) {
   // MAIN RENDER
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const totalValue = approvedEstimates.reduce((sum, e) => sum + (e.estimate_amount || 0), 0);
+  const readyEstimateValue = readyToSchedule.filter(i => i.type === 'estimate').reduce((sum, e) => sum + (e.estimateAmount || 0), 0);
   const pendingValue = pendingEstimates.reduce((sum, e) => sum + (e.estimate_amount || 0), 0);
 
   return (
@@ -575,15 +741,19 @@ export default function BoardView({ accessToken, onBack }) {
       {/* Summary Bar */}
       <div style={{ display: 'flex', gap: 16, padding: 16, borderBottom: '1px solid #334155', flexWrap: 'wrap' }}>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Ready to Schedule</div>
+          <div style={{ color: '#8b5cf6', fontSize: 18, fontWeight: 600 }}>{readyToSchedule.length}</div>
+        </div>
+        <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
           <div style={{ color: '#64748b', fontSize: 12 }}>Open Tasks</div>
-          <div style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>{openTasks.length}</div>
+          <div style={{ color: '#3b82f6', fontSize: 18, fontWeight: 600 }}>{openTasks.length}</div>
         </div>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
-          <div style={{ color: '#64748b', fontSize: 12 }}>Approved Revenue</div>
-          <div style={{ color: '#22c55e', fontSize: 18, fontWeight: 600 }}>{formatMoney(totalValue)}</div>
+          <div style={{ color: '#64748b', fontSize: 12 }}>To Schedule $</div>
+          <div style={{ color: '#22c55e', fontSize: 18, fontWeight: 600 }}>{formatMoney(readyEstimateValue)}</div>
         </div>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
-          <div style={{ color: '#64748b', fontSize: 12 }}>Pending Revenue</div>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Pending $</div>
           <div style={{ color: '#f59e0b', fontSize: 18, fontWeight: 600 }}>{formatMoney(pendingValue)}</div>
         </div>
       </div>
@@ -591,8 +761,8 @@ export default function BoardView({ accessToken, onBack }) {
       {/* Mobile Column Switcher */}
       <div style={{ display: 'flex', borderBottom: '1px solid #334155' }} className="mobile-only">
         {[
+          { key: 'ready', label: 'Schedule', count: readyToSchedule.length },
           { key: 'tasks', label: 'Tasks', count: openTasks.length },
-          { key: 'approved', label: 'Approved', count: approvedEstimates.length },
           { key: 'pending', label: 'Pending', count: pendingEstimates.length },
         ].map(col => (
           <button
@@ -619,19 +789,40 @@ export default function BoardView({ accessToken, onBack }) {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Loading...</div>
       ) : (
         <div style={{ flex: 1, display: 'flex', gap: 16, padding: 16, overflow: 'auto' }}>
+          <Column title="📅 Ready to Schedule" count={readyToSchedule.length} color="#8b5cf6" columnKey="ready">
+            {readyToSchedule.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>Nothing to schedule</div>
+            ) : (
+              readyToSchedule.map(item => (
+                <div
+                  key={`${item.type}-${item.id}`}
+                  onClick={() => item.type === 'estimate' ? openScheduler(item) : setSelectedItem({ type: 'ready', data: item })}
+                  style={{
+                    background: '#1e293b',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 8,
+                    borderLeft: `3px solid ${item.calendarColor}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', flex: 1 }}>{item.customerName || item.title}</div>
+                    {item.type === 'estimate' && <span style={{ background: '#22c55e', color: '#fff', fontSize: 10, padding: '2px 6px', borderRadius: 4 }}>EST</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
+                  {item.estimateAmount && <div style={{ fontSize: 13, color: '#22c55e', fontWeight: 600 }}>{formatMoney(item.estimateAmount)}</div>}
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
+                </div>
+              ))
+            )}
+          </Column>
+
           <Column title="Open Tasks" count={openTasks.length} color="#3b82f6" columnKey="tasks">
             {openTasks.length === 0 ? (
               <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No open tasks</div>
             ) : (
               openTasks.map(task => <TaskCard key={`${task.calendarId}-${task.id}`} task={task} />)
-            )}
-          </Column>
-
-          <Column title="Approved — Not Scheduled" count={approvedEstimates.length} color="#22c55e" columnKey="approved">
-            {approvedEstimates.length === 0 ? (
-              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>All approved estimates scheduled</div>
-            ) : (
-              approvedEstimates.map(est => <EstimateCard key={est.id} estimate={est} isApproved={true} />)
             )}
           </Column>
 

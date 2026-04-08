@@ -417,7 +417,7 @@ export default function App() {
         background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)', padding: '20px'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{ fontSize: '64px', marginBottom: '20px' }}>🛡️</div>
+          <img src="/overwatch-icon.png" alt="Overwatch" style={{ width: '80px', height: '80px', marginBottom: '20px' }} />
           <h1 style={{ fontSize: '28px', marginBottom: '8px', color: '#fff' }}>DRH Security</h1>
           <p style={{ fontSize: '16px', color: '#00c8e8' }}>Overwatch</p>
         </div>

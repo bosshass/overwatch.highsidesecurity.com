@@ -1,5 +1,5 @@
 // ============================================
-// JUC-E V6 - Main App (React Router)
+// Overwatch - Main App (React Router)
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
@@ -113,8 +113,8 @@ export default function App() {
           const desc = event.description || '';
           if (desc.includes('juc-e-v2.vercel.app') && !desc.includes('overwatch.highsidesecurity.com')) { skipped++; continue; }
           const deepLink = `${JUCE_BASE}/?cal=${encodeURIComponent(cal.id)}&job=${encodeURIComponent(event.id)}`;
-          const stripped = desc.replace(/\n*🔗 OPEN IN OVERWATCH:.*$/s, '').replace(/\n*📱 Open in JUC-E:.*$/s, '').trimEnd();
-          const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;
+          const stripped = desc.replace(/\n*🔗 OPEN IN OVERWATCH:.*$/s, '').replace(/\n*📱 Open in Overwatch:.*$/s, '').trimEnd();
+          const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
           const pr = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(cal.id)}/events/${event.id}`, {
             method: 'PATCH', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ description: newDesc })
@@ -419,7 +419,7 @@ export default function App() {
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ fontSize: '64px', marginBottom: '20px' }}>🛡️</div>
           <h1 style={{ fontSize: '28px', marginBottom: '8px', color: '#fff' }}>DRH Security</h1>
-          <p style={{ fontSize: '16px', color: '#00c8e8' }}>JUC-E V6</p>
+          <p style={{ fontSize: '16px', color: '#00c8e8' }}>Overwatch</p>
         </div>
         <button onClick={handleSignIn} style={{
           display: 'flex', alignItems: 'center', gap: '12px',
@@ -467,7 +467,7 @@ export default function App() {
           padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
         }}>← Home</button>
         <span style={{ fontSize: 18 }}>🛡️</span>
-        <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>JUC-E</span>
+        <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
         <span style={{ color: '#475569', fontSize: 11 }}>V6</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
@@ -623,7 +623,7 @@ export default function App() {
               <h2 style={{ color: '#00c8e8', fontSize: '16px', fontWeight: '700', margin: 0 }}>🔗 Backfill Deep Links</h2>
               <button onClick={() => setShowBackfill(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>×</button>
             </div>
-            <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 16px 0' }}>Patches "📱 Open in JUC-E" into all non-completed events from the last 60 days.</p>
+            <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 16px 0' }}>Patches "📱 Open in Overwatch" into all non-completed events from the last 60 days.</p>
             <button onClick={runBackfill} disabled={backfillRunning}
               style={{ background: backfillRunning ? '#334155' : '#00c8e8', color: backfillRunning ? '#64748b' : '#000', border: 'none', borderRadius: '8px', padding: '12px', fontSize: '14px', fontWeight: '700', cursor: backfillRunning ? 'not-allowed' : 'pointer', marginBottom: '12px' }}>
               {backfillRunning ? 'Running...' : 'Run Backfill'}
@@ -661,7 +661,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 22 }}>🛡️</span>
-          <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>JUC-E</span>
+          <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
           <span style={{ color: '#475569', fontSize: 11 }}>V6</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

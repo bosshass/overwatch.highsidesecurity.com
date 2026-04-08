@@ -842,7 +842,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
 
           {/* Action row */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button onClick={() => setShowWorkToDo(true)} style={{
+            <button onClick={() => window.location.href = '/work'} style={{
               flex: 2, background: 'linear-gradient(135deg, #1e3a2f, #0f2820)',
               border: '1px solid #16a34a', borderRadius: 12,
               padding: '14px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1236,93 +1236,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
         />
       )}
 
-      {/* Work To Do Now — today + past uncompleted events for this tech */}
-      {showWorkToDo && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 500, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-          onClick={() => setShowWorkToDo(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#1e293b', borderRadius: '20px 20px 0 0', padding: '24px 20px 36px', width: '100%', maxWidth: 480, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>Work To Do Now</div>
-                <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Today + past jobs not yet completed</div>
-              </div>
-              <button onClick={() => setShowWorkToDo(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer' }}>×</button>
-            </div>
-            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(() => {
-                const EXCLUDE_PREFIXES = ['[COMPLETED]','[TO BILL]','[BILLED]','[ESTIMATE NEEDED]','[ESTIMATE SENT]','[IGNORE]','[IGNORED]'];
-                const now = new Date();
-                const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
-                // Only tech-owned calendars — never queue/tentatively scheduled/sales/completed
-                const myTechCals = USER_CALENDARS.filter(c => c.type === 'tech');
-
-                const workEvents = calEvents.filter(e => {
-                  if (!e.start) return false;
-                  // Must be on a tech calendar only
-                  if (!myTechCals.find(c => c.name === e.calendarName)) return false;
-                  // Must be today or past
-                  if (e.start > todayEnd) return false;
-                  // Exclude anything already processed
-                  const title = (e.summary || '').toUpperCase();
-                  if (EXCLUDE_PREFIXES.some(p => title.startsWith(p.toUpperCase()))) return false;
-                  return true;
-                }).sort((a, b) => a.start - b.start);
-
-                if (!workEvents.length) return (
-                  <div style={{ color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 40 }}>
-                    🎉 You're all caught up!
-                  </div>
-                );
-
-                return workEvents.map(e => {
-                  const isPast = e.start < now && e.start.toDateString() !== now.toDateString();
-                  return (
-                    <div key={e.id} style={{ background: '#0f1729', border: `2px solid ${isPast ? '#ef444440' : '#334155'}`, borderRadius: 12, padding: '14px' }}>
-                      <div onClick={() => { setEventPreview(e); setShowWorkToDo(false); }} style={{ cursor: 'pointer' }}>
-                        {isPast && <div style={{ color: '#ef4444', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>⚠️ Past Due</div>}
-                        <div style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700 }}>{e.summary}</div>
-                        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
-                          {e.start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                          {!e.isAllDay && ` · ${e.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
-                        </div>
-                        {e.location && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📍 {e.location}</div>}
-                        <div style={{ marginTop: 8, display: 'inline-block', background: '#1e293b', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: CALENDAR_COLORS[e.calendarName] || '#64748b', fontWeight: 600 }}>
-                          {e.calendarName}
-                        </div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            const ts = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
-                            const GCAL = 'https://www.googleapis.com/calendar/v3';
-                            const getRes = await fetch(`${GCAL}/calendars/${encodeURIComponent(e.calendarId)}/events/${e.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-                            const current = await getRes.json();
-                            const updated = (current.description || '') + `\n\n✅ MOVED TO COMPLETE — ${ts}`;
-                            await fetch(`${GCAL}/calendars/${encodeURIComponent(e.calendarId)}/events/${e.id}`, {
-                              method: 'PATCH',
-                              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ description: updated })
-                            });
-                            await fetch(`${GCAL}/calendars/${encodeURIComponent(e.calendarId)}/events/${e.id}/move?destination=${encodeURIComponent(USER_CALENDARS.find(c => c.type === 'completed')?.id || CALENDARS.COMPLETED)}`, {
-                              method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }
-                            });
-                            fetchCalendarEvents();
-                            setShowWorkToDo(true);
-                          } catch (err) { alert('Failed: ' + err.message); }
-                        }}
-                        style={{ marginTop: 10, width: '100%', background: '#052e16', border: '1px solid #16a34a', borderRadius: 8, color: '#22c55e', fontSize: 13, fontWeight: 700, padding: '10px', cursor: 'pointer' }}
-                      >
-                        ✅ Move to Complete
-                      </button>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Work To Do now navigates to /work instead of showing modal */}
 
       {showNewJob && (
         <NewJobModal

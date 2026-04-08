@@ -502,9 +502,13 @@ export default function App() {
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
 
         <Route path="/work" element={
-          isRestricted
-            ? <TechWorkToday accessToken={accessToken} userEmail={userEmail} userName={getUserConfig(userEmail).name} onBack={() => navigate('/')} />
-            : <ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} autoWorkToDo={true} /></ViewShell>
+          <TechWorkToday 
+            accessToken={accessToken} 
+            userEmail={userEmail} 
+            userName={getUserConfig(userEmail).name} 
+            onBack={() => navigate('/')} 
+            showAllTechs={!isRestricted}
+          />
         } />
 
         <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} />} />

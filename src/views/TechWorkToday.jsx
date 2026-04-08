@@ -37,7 +37,7 @@ const TABS = [
   { key: 'billit',   label: 'Bill It',  emoji: '✅', color: '#1B2A4A' },
 ];
 
-export default function TechWorkToday({ accessToken, userEmail, userName, onBack }) {
+export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
   const today = dayStart(new Date());
   const [offset, setOffset]     = useState(0);
   const [allEvents, setAll]     = useState([]);
@@ -47,6 +47,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [notes, setNotes]       = useState('');
   const [acting, setActing]     = useState(false);
 
+  // Single tech calendar OR all techs for operators
   const techCalId = TECH_CAL_MAP[userEmail?.toLowerCase()] || TECH_CAL_MAP[userName] || CALENDARS.AUSTIN;
 
   const viewDate = new Date(today);
@@ -68,12 +69,21 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       singleEvents: 'true', orderBy: 'startTime', maxResults: '100'
     });
 
-    const calIds = [techCalId, CALENDARS.TENTATIVELY_SCHEDULED];
+    // If showAllTechs, pull Austin + JR; otherwise just the tech's calendar
+    const techCalendars = showAllTechs 
+      ? [CALENDARS.AUSTIN, CALENDARS.JR]
+      : [techCalId];
+    
+    const calIds = [...techCalendars, CALENDARS.TENTATIVELY_SCHEDULED];
     const fetches = calIds.map(calId =>
       fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       }).then(r => r.json())
-        .then(data => (data.items || []).map(ev => ({ ...ev, _calId: calId })))
+        .then(data => (data.items || []).map(ev => ({ 
+          ...ev, 
+          _calId: calId,
+          _techName: calId === CALENDARS.AUSTIN ? 'Austin' : calId === CALENDARS.JR ? 'JR' : null
+        })))
         .catch(() => [])
     );
 
@@ -82,11 +92,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
     const items = merged.filter(ev => {
       if (ev.status === 'cancelled') return false;
+      // Skip events with no title or empty title
+      if (!ev.summary || !ev.summary.trim()) return false;
       const t = (ev.summary || '').toUpperCase();
       return !HARD_SKIP.some(s => t.includes(s.toUpperCase()));
     }).map(ev => ({
       id: ev.id,
       calendarId: ev._calId,
+      techName: ev._techName,
       title: ev.summary || '(no title)',
       start: ev.start?.dateTime ? new Date(ev.start.dateTime) : new Date((ev.start?.date || '') + 'T08:00:00'),
       end:   ev.end?.dateTime   ? new Date(ev.end.dateTime)   : new Date((ev.end?.date   || '') + 'T09:00:00'),
@@ -98,7 +111,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
     setAll(items);
     setLoading(false);
-  }, [accessToken, techCalId, offset]);
+  }, [accessToken, techCalId, offset, showAllTechs]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -167,6 +180,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const tabCounts   = {};
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
   const activeTabObj = TABS.find(t => t.key === activeTab);
+  
+  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR)" : `${userName}'s Jobs`;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
@@ -178,7 +193,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
             ← Home
           </button>
-          <div style={{ fontWeight: 700, fontSize: 15, color: '#1B2A4A' }}>{userName}'s Jobs</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
           <button onClick={load}
             style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
             ↻
@@ -244,6 +259,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           const phone = extractPhone(ev.description);
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : null;
 
           return (
             <div key={ev.id} onClick={() => openDetail(ev)}
@@ -252,13 +268,27 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                 borderRadius: i === 0 && events.length === 1 ? 12 : i === 0 ? '12px 12px 0 0' : i === events.length - 1 ? '0 0 12px 12px' : 0,
                 padding: '14px 16px', cursor: 'pointer',
                 borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
-                borderLeft: '3px solid ' + (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb'),
+                borderLeft: '3px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {isNow && <div style={{ color: '#1a8a8a', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>In Progress</div>}
-                <div style={{ fontWeight: 600, fontSize: 15, color: '#1B2A4A', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {name || '(no name)'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  {ev.techName && (
+                    <span style={{ 
+                      background: techColor + '20', 
+                      color: techColor, 
+                      fontSize: 10, 
+                      fontWeight: 700, 
+                      padding: '2px 6px', 
+                      borderRadius: 4 
+                    }}>
+                      {ev.techName}
+                    </span>
+                  )}
+                  <span style={{ fontWeight: 600, fontSize: 15, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {name || '(no name)'}
+                  </span>
                 </div>
                 <div style={{ fontSize: 12, color: '#9ca3af' }}>
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}

@@ -33,7 +33,7 @@ const TASK_CALENDARS = [
 ];
 
 // Tags that mean task is DONE — exclude from board
-const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]'];
+const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
 
 // Tags that mean task is BLOCKED — show in Blocked column
 const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]'];
@@ -893,6 +893,75 @@ export default function BoardView({ accessToken, onBack }) {
                   style={{ background: '#22c55e', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
                 >
                   ✓ Mark Complete
+                </button>
+                <button
+                  onClick={async () => {
+                    setUpdating(true);
+                    try {
+                      const newTitle = `[NEEDS PARTS] ${item.title}`;
+                      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ summary: newTitle })
+                      });
+                      if (!res.ok) throw new Error('Failed to update');
+                      await loadAll();
+                      setSelectedItem(null);
+                    } catch (e) {
+                      alert(`Error: ${e.message}`);
+                    }
+                    setUpdating(false);
+                  }}
+                  disabled={updating}
+                  style={{ background: '#ef4444', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  🚫 Mark as Blocked (Needs Parts)
+                </button>
+                <button
+                  onClick={async () => {
+                    setUpdating(true);
+                    try {
+                      // Copy event to Service Queue calendar, then mark original as [MOVED]
+                      const queueCalId = CALENDARS.TENTATIVELY_SCHEDULED;
+                      
+                      // Create new event on queue
+                      const today = new Date().toISOString().split('T')[0];
+                      const newEvent = {
+                        summary: item.title,
+                        description: item.description || '',
+                        location: item.location || '',
+                        start: { date: today },
+                        end: { date: today },
+                      };
+                      
+                      const createRes = await fetch(`${GCAL}/calendars/${encodeURIComponent(queueCalId)}/events`, {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newEvent)
+                      });
+                      
+                      if (!createRes.ok) throw new Error('Failed to create queue event');
+                      
+                      // Mark original as moved
+                      const newTitle = `[MOVED TO QUEUE] ${item.title}`;
+                      await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ summary: newTitle })
+                      });
+                      
+                      await loadAll();
+                      setSelectedItem(null);
+                      alert('✅ Moved to Ready to Schedule queue');
+                    } catch (e) {
+                      alert(`Error: ${e.message}`);
+                    }
+                    setUpdating(false);
+                  }}
+                  disabled={updating}
+                  style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  📋 Move to Ready to Schedule
                 </button>
               </div>
             </>

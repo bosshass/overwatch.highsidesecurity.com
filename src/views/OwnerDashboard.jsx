@@ -464,6 +464,14 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
     readyToSchedule: 0,
     toBill: 0,
     needsNotes: 0,
+    // Estimate pipeline
+    needsEstimate: 0,
+    estimatesSent: 0,
+    estimatesWon: 0,
+    pipelineValue: 0,
+    // Projects with $ value
+    projectsValue: 0,
+    projectsList: [],
   });
   const [loading, setLoading] = useState(true);
 
@@ -560,16 +568,42 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
         return TO_BILL_TAGS.some(tag => title.includes(tag));
       });
 
-      // Approved estimates from Supabase
+      // Approved estimates from Supabase (for Projects column)
       let estimateCount = 0;
+      let acceptedEstimates = [];
       try {
-        const { count } = await supabase
+        const { data: accepted } = await supabase
           .from('jobs')
-          .select('*', { count: 'exact', head: true })
+          .select('*')
           .eq('qbo_estimate_status', 'Accepted')
           .is('calendar_event_id', null);
-        estimateCount = count || 0;
+        acceptedEstimates = accepted || [];
+        estimateCount = acceptedEstimates.length;
       } catch (e) { /* ignore */ }
+
+      // Estimate Pipeline from Supabase
+      let needsEstimate = 0;
+      let estimatesSent = 0;
+      let pipelineValue = 0;
+      try {
+        // Needs Estimate
+        const { count: needsEst } = await supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .or('status.eq.needs_estimate,status.eq.estimate_needed');
+        needsEstimate = needsEst || 0;
+
+        // Estimates Sent (Pending)
+        const { data: pending } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('qbo_estimate_status', 'Pending');
+        estimatesSent = (pending || []).length;
+        pipelineValue = (pending || []).reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0);
+      } catch (e) { /* ignore */ }
+
+      // Projects value (sum of accepted estimates)
+      const projectsValue = acceptedEstimates.reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0);
 
       // Categorize ready items
       const projects = readyItems.filter(e => (e.summary || '').toLowerCase().includes('install')).length + estimateCount;
@@ -588,6 +622,14 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
         readyToSchedule: readyItems.length + estimateCount,
         toBill: toBillItems.length,
         needsNotes: needsNotesItems.length,
+        // Estimate pipeline
+        needsEstimate,
+        estimatesSent,
+        estimatesWon: estimateCount,
+        pipelineValue,
+        // Projects with $ value
+        projectsValue,
+        projectsList: acceptedEstimates.slice(0, 5), // Top 5 for display
       };
       setCalendarStats(stats);
       
@@ -732,6 +774,61 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
           })}
         </div>
       </div>
+
+      {/* Estimate Pipeline */}
+      <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginTop: '8px', border: '1px solid #334155' }}>
+        <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.05em' }}>
+          📊 Estimate Pipeline
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+          <div style={{ color: '#22c55e', fontSize: '28px', fontWeight: '800' }}>
+            ${calendarStats.pipelineValue.toLocaleString()}
+          </div>
+          <div style={{ color: '#64748b', fontSize: '12px' }}>
+            {calendarStats.estimatesSent} estimates out
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <span style={{ background: '#f59e0b20', color: '#f59e0b', fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '20px' }}>
+            {calendarStats.needsEstimate} Need Est.
+          </span>
+          <span style={{ background: '#06b6d420', color: '#06b6d4', fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '20px' }}>
+            {calendarStats.estimatesSent} Sent
+          </span>
+          <span style={{ background: '#22c55e20', color: '#22c55e', fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '20px' }}>
+            {calendarStats.estimatesWon} Won
+          </span>
+        </div>
+      </div>
+
+      {/* Active Projects with $ */}
+      {calendarStats.projectsValue > 0 && (
+        <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginTop: '8px', border: '1px solid #22c55e40' }}>
+          <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.05em' }}>
+            💰 Active Projects
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+            <div style={{ color: '#22c55e', fontSize: '28px', fontWeight: '800' }}>
+              ${calendarStats.projectsValue.toLocaleString()}
+            </div>
+            <div style={{ color: '#64748b', fontSize: '12px' }}>
+              {calendarStats.estimatesWon} projects to schedule
+            </div>
+          </div>
+          {calendarStats.projectsList.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {calendarStats.projectsList.map((proj, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #334155' }}>
+                  <span style={{ color: '#e2e8f0', fontSize: '13px' }}>{proj.customer_name}</span>
+                  <span style={{ color: '#22c55e', fontSize: '13px', fontWeight: '600' }}>
+                    ${(parseFloat(proj.estimate_amount) || 0).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -960,46 +1057,6 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
 
       {/* CALENDAR STATS - Source of truth */}
       <CalendarStatsWidget accessToken={accessToken} />
-
-      {/* PIPELINE CARD */}
-      <div
-        onClick={() => setView('pipeline')}
-        style={{
-          background: '#1e293b', borderRadius: '12px', padding: '16px', marginBottom: '16px',
-          border: '1px solid #334155', cursor: 'pointer'
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            📊 Estimate Pipeline
-          </div>
-          <span style={{ color: '#475569', fontSize: '14px' }}>→</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <div style={{ color: '#22c55e', fontSize: '28px', fontWeight: '800' }}>
-            ${stats.pipelineValue.toLocaleString()}
-          </div>
-          <div style={{ color: '#64748b', fontSize: '12px' }}>
-            {stats.estimatesPending} estimates out
-          </div>
-        </div>
-        {/* Pipeline stage pills */}
-        <div style={{ display: 'flex', gap: '6px', marginTop: '10px', flexWrap: 'wrap' }}>
-          {[
-            { label: 'Need Est.', count: stats.billingJobs.filter(j => j.status === JOB_STATUS.NEEDS_ESTIMATE).length, color: '#f59e0b' },
-            { label: 'Sent', count: stats.estimatesPending, color: '#06b6d4' },
-            { label: 'Won', count: stats.billingJobs.filter(j => j.status === JOB_STATUS.WON).length, color: '#22c55e' },
-          ].map(pill => (
-            <span key={pill.label} style={{
-              background: pill.color + '20', color: pill.color,
-              fontSize: '11px', fontWeight: '700', padding: '3px 10px',
-              borderRadius: '20px'
-            }}>
-              {pill.count} {pill.label}
-            </span>
-          ))}
-        </div>
-      </div>
 
       {/* GAP REPORT WIDGET — Money sitting unscheduled or unbilled */}
       <GapReportWidget onDrilldown={(jobs) => { setDrilldown({ label: 'Revenue Gap', jobs }); setView('drilldown'); }} />

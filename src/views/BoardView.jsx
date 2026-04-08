@@ -338,6 +338,36 @@ export default function BoardView({ accessToken, onBack }) {
     setUpdating(false);
   };
 
+  // Mark item as a Project (adds [PROJECT] tag)
+  const markAsProject = async (item) => {
+    setUpdating(true);
+    try {
+      // Strip existing tags and add [PROJECT]
+      let cleanTitle = (item.title || '').replace(/^\[[^\]]+\]\s*/g, '');
+      // Keep stripping until no more leading tags
+      while (cleanTitle.match(/^\[[^\]]+\]\s*/)) {
+        cleanTitle = cleanTitle.replace(/^\[[^\]]+\]\s*/, '');
+      }
+      const newTitle = `[PROJECT] ${cleanTitle}`;
+      
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: newTitle })
+      });
+      
+      if (!res.ok) throw new Error('Failed to update event');
+      
+      // Refresh all data
+      await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks()]);
+      setSelectedItem(null);
+    } catch (e) {
+      console.error('Mark as project error:', e);
+      alert(`Error: ${e.message}`);
+    }
+    setUpdating(false);
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LOAD DATA
   // ═══════════════════════════════════════════════════════════════════════════
@@ -903,6 +933,13 @@ export default function BoardView({ accessToken, onBack }) {
                 >
                   📝 Needs Notes
                 </button>
+                <button
+                  onClick={() => markAsProject(item)}
+                  disabled={updating}
+                  style={{ background: '#22c55e30', border: '2px solid #22c55e', color: '#22c55e', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  🔨 Mark as Project
+                </button>
                 <a
                   href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}
                   target="_blank"
@@ -966,6 +1003,13 @@ export default function BoardView({ accessToken, onBack }) {
                 >
                   View in Calendar
                 </a>
+                <button
+                  onClick={() => markAsProject(item)}
+                  disabled={updating}
+                  style={{ background: '#22c55e30', border: '2px solid #22c55e', color: '#22c55e', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  🔨 Mark as Project
+                </button>
               </div>
               
               {/* Matching Events Results */}
@@ -1041,6 +1085,13 @@ export default function BoardView({ accessToken, onBack }) {
                   style={{ background: '#22c55e', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
                 >
                   ✓ Mark Complete
+                </button>
+                <button
+                  onClick={() => markAsProject(item)}
+                  disabled={updating}
+                  style={{ background: '#22c55e30', border: '2px solid #22c55e', color: '#22c55e', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  🔨 Mark as Project
                 </button>
                 <button
                   onClick={async () => {
@@ -1221,7 +1272,8 @@ export default function BoardView({ accessToken, onBack }) {
   // Split Ready to Schedule into 3 categories
   const projectsToSchedule = readyToSchedule.filter(item => {
     const title = (item.title || '').toLowerCase();
-    return title.includes('install') || item.type === 'estimate';
+    const upperTitle = (item.title || '').toUpperCase();
+    return title.includes('install') || upperTitle.includes('[PROJECT]') || item.type === 'estimate';
   });
   
   const returnsToSchedule = readyToSchedule.filter(item => {
@@ -1232,9 +1284,22 @@ export default function BoardView({ accessToken, onBack }) {
   const serviceCallsToSchedule = readyToSchedule.filter(item => {
     const title = (item.title || '').toLowerCase();
     const upperTitle = (item.title || '').toUpperCase();
-    const isProject = title.includes('install') || item.type === 'estimate';
+    const isProject = title.includes('install') || upperTitle.includes('[PROJECT]') || item.type === 'estimate';
     const isReturn = upperTitle.includes('[RETURN NEEDED]') || upperTitle.includes('RETURN') || item.calendarName === 'Returns';
     return !isProject && !isReturn;
+  });
+  
+  // Separate blocked items into Projects vs Other
+  const blockedProjects = blockedItems.filter(item => {
+    const title = (item.title || '').toLowerCase();
+    const upperTitle = (item.title || '').toUpperCase();
+    return title.includes('install') || upperTitle.includes('[PROJECT]') || item.type === 'estimate';
+  });
+  
+  const blockedOther = blockedItems.filter(item => {
+    const title = (item.title || '').toLowerCase();
+    const upperTitle = (item.title || '').toUpperCase();
+    return !(title.includes('install') || upperTitle.includes('[PROJECT]') || item.type === 'estimate');
   });
 
   return (

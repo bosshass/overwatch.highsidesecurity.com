@@ -38,10 +38,10 @@ const PRIORITIES = {
   P4: { label: 'Low', color: '#22c55e', icon: '🟢', order: 4 },
 };
 
-// Tech info
+// Tech info with weekly availability
 const TECHS = [
-  { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6' },
-  { id: 'jr', name: 'JR', calendarId: CALENDARS.JR, color: '#22c55e' },
+  { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6', hoursPerWeek: 32 },
+  { id: 'jr', name: 'JR', calendarId: CALENDARS.JR, color: '#22c55e', hoursPerWeek: 20 },
 ];
 
 // Tags to exclude from ready queue
@@ -198,19 +198,13 @@ export default function Scheduler({ accessToken, onBack }) {
   // Calculate tech availability
   const getTechAvailability = (techId) => {
     const schedule = techSchedules[techId] || [];
+    const tech = TECHS.find(t => t.id === techId);
     const now = new Date();
     const twoWeeksOut = new Date(now);
     twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
 
-    // Calculate total working hours (8 hrs/day, 5 days/week)
-    let workDays = 0;
-    const curr = new Date(now);
-    while (curr < twoWeeksOut) {
-      const day = curr.getDay();
-      if (day !== 0 && day !== 6) workDays++;
-      curr.setDate(curr.getDate() + 1);
-    }
-    const totalCapacity = workDays * 8;
+    // Use actual weekly hours (2 weeks)
+    const totalCapacity = (tech?.hoursPerWeek || 40) * 2;
 
     // Calculate scheduled hours
     const scheduledHours = schedule.reduce((sum, e) => sum + (e.hours || 0), 0);

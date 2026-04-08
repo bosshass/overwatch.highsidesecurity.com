@@ -1,5 +1,5 @@
 // ============================================
-// JUC-E V4 - QuickGuide (Visual Walkthrough)
+// Overwatch - QuickGuide (Visual Walkthrough)
 // ============================================
 // Product tour with illustrated UI mockups.
 // Minimal text, visual callouts pointing at stuff.
@@ -42,7 +42,7 @@ function MockHeader({ callout }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid #1e293b', position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
         <span style={{ fontSize: '12px' }}>🛡️</span>
-        <span style={{ color: '#00c8e8', fontSize: '10px', fontWeight: '700' }}>JUC-E</span>
+        <span style={{ color: '#00c8e8', fontSize: '10px', fontWeight: '700' }}>Overwatch</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '5px', position: 'relative' }}>
         <span style={{ color: '#94a3b8', fontSize: '9px' }}>Sara</span>
@@ -91,17 +91,17 @@ function MiniCard({ name, status, sColor, age, glow }) {
 const PAGES = [
   // 1 — Welcome
   {
-    title: 'Welcome to JUC-E',
+    title: 'Welcome to Overwatch',
     render: () => (
       <div style={{ textAlign: 'center', padding: '10px 0' }}>
         <div style={{ fontSize: '52px', marginBottom: '8px' }}>🛡️</div>
-        <div style={{ color: '#00c8e8', fontSize: '26px', fontWeight: '800' }}>JUC-E V4</div>
-        <div style={{ color: '#475569', fontSize: '12px', marginBottom: '20px' }}>60-second tour</div>
+        <div style={{ color: '#00c8e8', fontSize: '26px', fontWeight: '800' }}>Overwatch</div>
+        <div style={{ color: '#475569', fontSize: '12px', marginBottom: '20px' }}>DRH Security Operations</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left', padding: '0 20px' }}>
           {[
             ['📅', 'Calendar', 'your schedule'],
-            ['📋', 'Tasks', 'your jobs'],
-            ['🏢', 'Office', 'the board'],
+            ['🔧', 'Work Today', 'today\'s jobs'],
+            ['📋', 'Board', 'job pipeline'],
             ['📊', 'Dashboard', 'the numbers'],
             ['💬', 'HelpBot', 'ask anything'],
           ].map(([icon, label, sub], i) => (
@@ -367,9 +367,9 @@ const PAGES = [
     render: () => (
       <div style={{ padding: '0 2px' }}>
         {[
-          { icon: '👑', role: 'Operator', who: 'Sara', color: TECH_COLORS.Sara, tags: ['Everything', 'Archive', 'No PIN'], pin: null },
-          { icon: '🔧', role: 'Tech', who: 'JR · Shana', color: TECH_COLORS.JR, tags: ['Cal', 'Tasks', 'Office', 'Dashboard'], pin: 'Set own PIN' },
-          { icon: '🚐', role: 'Field', who: 'Trevor · Austin', color: TECH_COLORS.Austin, tags: ['Cal', 'Own tasks only'], pin: 'PIN: 56174' },
+          { icon: '👑', role: 'Owner', who: 'JR', color: TECH_COLORS.JR, tags: ['Everything', 'Dashboard', 'P&L', 'Scheduler'], pin: null },
+          { icon: '📋', role: 'Operator', who: 'Sara / info@', color: '#00c8e8', tags: ['Everything', 'Board', 'Billing', 'Schedule'], pin: null },
+          { icon: '🔧', role: 'Tech', who: 'Austin', color: TECH_COLORS.Austin, tags: ['Calendar', 'Work Today', 'Own jobs'], pin: null },
         ].map((r, i) => (
           <div key={i} style={{ background: '#1e293b', borderRadius: '8px', padding: '8px 10px', marginBottom: '6px', borderLeft: `3px solid ${r.color}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>

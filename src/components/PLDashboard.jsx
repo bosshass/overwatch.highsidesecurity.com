@@ -1,5 +1,6 @@
 // ============================================
 // P&L Dashboard - Self-contained with Supabase
+// Shows Month/YTD/Weeks views with PY comparison
 // ============================================
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase.js';
@@ -39,15 +40,17 @@ export default function PLDashboard({ userEmail }) {
 
   const formatCurrency = (val, compact = false) => {
     if (val === null || val === undefined) return '-';
-    if (compact && Math.abs(val) >= 1000) {
-      const k = val / 1000;
-      return val < 0 ? `($${Math.abs(k).toFixed(1)}k)` : `$${k.toFixed(1)}k`;
+    const absVal = Math.abs(val);
+    if (compact && absVal >= 1000) {
+      const k = absVal / 1000;
+      return val < 0 ? `($${k.toFixed(1)}k)` : `$${k.toFixed(1)}k`;
     }
-    return val < 0 ? `($${Math.abs(val).toLocaleString()})` : `$${val.toLocaleString()}`;
+    return val < 0 ? `($${absVal.toLocaleString()})` : `$${val.toLocaleString()}`;
   };
 
   const formatDiff = (current, prior) => {
-    if (!prior || prior === 0) return '-';
+    if (prior === null || prior === undefined || prior === 0) return '-';
+    if (current === null || current === undefined) return '-';
     const diff = current - prior;
     const pct = ((diff / Math.abs(prior)) * 100).toFixed(0);
     const sign = diff >= 0 ? '+' : '';
@@ -58,40 +61,53 @@ export default function PLDashboard({ userEmail }) {
   // Build view data
   const getViewData = () => {
     const currentYearData = data.filter(d => d.year === selectedYear);
-    const priorYearData = data.filter(d => d.year === selectedYear - 1);
 
     if (view === 'month') {
       // This month by week
       return currentYearData
         .filter(d => d.month === selectedMonth && d.period_type === 'week')
-        .map(d => {
-          const py = priorYearData.find(p => 
-            p.month === d.month && p.week_number === d.week_number && p.period_type === 'week'
-          );
-          return { ...d, py };
-        });
+        .sort((a, b) => new Date(a.period_start) - new Date(b.period_start));
     }
     
     if (view === 'ytd-month') {
-      // YTD by month
-      return currentYearData
-        .filter(d => d.period_type === 'month')
-        .map(d => {
-          const py = priorYearData.find(p => p.month === d.month && p.period_type === 'month');
-          return { ...d, py };
-        });
+      // YTD by month - aggregate weeks into months if needed
+      const monthData = currentYearData.filter(d => d.period_type === 'month');
+      if (monthData.length > 0) {
+        return monthData.sort((a, b) => a.month - b.month);
+      }
+      // Fallback: aggregate weekly data by month
+      const byMonth = {};
+      currentYearData.filter(d => d.period_type === 'week').forEach(w => {
+        if (!byMonth[w.month]) {
+          byMonth[w.month] = {
+            period_label: `${MONTHS[w.month]} ${w.year}`,
+            month: w.month,
+            year: w.year,
+            total_revenue: 0,
+            total_expense: 0,
+            net_amount: 0,
+            py_total_revenue: null,
+            py_net_amount: null
+          };
+        }
+        byMonth[w.month].total_revenue += w.total_revenue || 0;
+        byMonth[w.month].total_expense += w.total_expense || 0;
+        byMonth[w.month].net_amount += w.net_amount || 0;
+        if (w.py_total_revenue !== null) {
+          byMonth[w.month].py_total_revenue = (byMonth[w.month].py_total_revenue || 0) + w.py_total_revenue;
+        }
+        if (w.py_net_amount !== null) {
+          byMonth[w.month].py_net_amount = (byMonth[w.month].py_net_amount || 0) + w.py_net_amount;
+        }
+      });
+      return Object.values(byMonth).sort((a, b) => a.month - b.month);
     }
     
     if (view === 'ytd-week') {
       // YTD by week
       return currentYearData
         .filter(d => d.period_type === 'week')
-        .map(d => {
-          const py = priorYearData.find(p => 
-            p.week_number === d.week_number && p.period_type === 'week'
-          );
-          return { ...d, py };
-        });
+        .sort((a, b) => new Date(a.period_start) - new Date(b.period_start));
     }
     
     return [];
@@ -104,13 +120,17 @@ export default function PLDashboard({ userEmail }) {
     total_revenue: acc.total_revenue + (row.total_revenue || 0),
     total_expense: acc.total_expense + (row.total_expense || 0),
     net_amount: acc.net_amount + (row.net_amount || 0),
-    py_total_revenue: acc.py_total_revenue + (row.py?.total_revenue || 0),
-    py_total_expense: acc.py_total_expense + (row.py?.total_expense || 0),
-    py_net_amount: acc.py_net_amount + (row.py?.net_amount || 0),
+    py_total_revenue: row.py_total_revenue !== null 
+      ? (acc.py_total_revenue || 0) + (row.py_total_revenue || 0) : acc.py_total_revenue,
+    py_net_amount: row.py_net_amount !== null 
+      ? (acc.py_net_amount || 0) + (row.py_net_amount || 0) : acc.py_net_amount,
   }), {
     total_revenue: 0, total_expense: 0, net_amount: 0,
-    py_total_revenue: 0, py_total_expense: 0, py_net_amount: 0
+    py_total_revenue: null, py_net_amount: null
   });
+
+  // Check if any row has PY data
+  const hasPY = viewData.some(d => d.py_total_revenue !== null || d.py_net_amount !== null);
 
   const viewTitles = {
     'month': `${MONTHS[selectedMonth]} ${selectedYear} by Week`,
@@ -192,7 +212,7 @@ export default function PLDashboard({ userEmail }) {
               display: 'flex', alignItems: 'center', gap: '4px'
             }}
           >
-            {showUpload ? '✕' : '📁 Change File'}
+            {showUpload ? '✕' : '📁 Upload'}
           </button>
         </div>
       </div>
@@ -217,7 +237,7 @@ export default function PLDashboard({ userEmail }) {
         <div style={{ padding: '20px', color: '#64748b', textAlign: 'center' }}>Loading...</div>
       ) : viewData.length === 0 ? (
         <div style={{ padding: '20px', color: '#64748b', textAlign: 'center' }}>
-          No data. Upload a QBO P&L report to get started.
+          No data for this period. Upload a QBO P&L report.
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -226,10 +246,10 @@ export default function PLDashboard({ userEmail }) {
               <tr style={{ background: '#1e293b' }}>
                 <th style={{ padding: '10px 16px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Period</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Revenue</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>vs PY</th>
+                {hasPY && <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>vs PY</th>}
                 <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Expenses</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Net</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>vs PY</th>
+                {hasPY && <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>vs PY</th>}
               </tr>
             </thead>
             <tbody>
@@ -239,18 +259,22 @@ export default function PLDashboard({ userEmail }) {
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: '#4ade80' }}>
                     {formatCurrency(row.total_revenue, true)}
                   </td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                    {formatDiff(row.total_revenue, row.py?.total_revenue)}
-                  </td>
+                  {hasPY && (
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                      {formatDiff(row.total_revenue, row.py_total_revenue)}
+                    </td>
+                  )}
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: '#f87171' }}>
                     {formatCurrency(row.total_expense, true)}
                   </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: row.net_amount >= 0 ? '#4ade80' : '#f87171', fontWeight: '600' }}>
                     {formatCurrency(row.net_amount, true)}
                   </td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                    {formatDiff(row.net_amount, row.py?.net_amount)}
-                  </td>
+                  {hasPY && (
+                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                      {formatDiff(row.net_amount, row.py_net_amount)}
+                    </td>
+                  )}
                 </tr>
               ))}
               {/* Totals row */}
@@ -259,18 +283,22 @@ export default function PLDashboard({ userEmail }) {
                 <td style={{ padding: '10px 12px', textAlign: 'right', color: '#4ade80' }}>
                   {formatCurrency(totals.total_revenue, true)}
                 </td>
-                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                  {formatDiff(totals.total_revenue, totals.py_total_revenue)}
-                </td>
+                {hasPY && (
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    {formatDiff(totals.total_revenue, totals.py_total_revenue)}
+                  </td>
+                )}
                 <td style={{ padding: '10px 12px', textAlign: 'right', color: '#f87171' }}>
                   {formatCurrency(totals.total_expense, true)}
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', color: totals.net_amount >= 0 ? '#4ade80' : '#f87171' }}>
                   {formatCurrency(totals.net_amount, true)}
                 </td>
-                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                  {formatDiff(totals.net_amount, totals.py_net_amount)}
-                </td>
+                {hasPY && (
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    {formatDiff(totals.net_amount, totals.py_net_amount)}
+                  </td>
+                )}
               </tr>
             </tbody>
           </table>

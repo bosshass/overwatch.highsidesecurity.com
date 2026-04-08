@@ -693,6 +693,7 @@ export default function BoardView({ accessToken, onBack }) {
     
     const isTask = selectedItem.type === 'task';
     const isReady = selectedItem.type === 'ready';
+    const isReadyEstimate = selectedItem.type === 'readyEstimate';
     const isBlocked = selectedItem.type === 'blocked';
     const item = selectedItem.data;
     
@@ -701,17 +702,130 @@ export default function BoardView({ accessToken, onBack }) {
         <div style={{ background: '#1e293b', borderRadius: 12, width: '100%', maxWidth: 500, maxHeight: '80vh', overflow: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 12, color: isBlocked ? '#ef4444' : ((isTask || isReady) ? item.calendarColor : '#22c55e'), marginBottom: 4 }}>
-                {isBlocked ? item.blockReason : ((isTask || isReady) ? item.calendarName : (item.qbo_estimate_status || 'Estimate'))}
+              <div style={{ fontSize: 12, color: isBlocked ? '#ef4444' : (isReadyEstimate ? '#22c55e' : ((isTask || isReady) ? item.calendarColor : '#22c55e')), marginBottom: 4 }}>
+                {isBlocked ? item.blockReason : (isReadyEstimate ? 'Estimate Won' : ((isTask || isReady) ? item.calendarName : (item.qbo_estimate_status || 'Estimate')))}
               </div>
               <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>
-                {(isTask || isReady) ? (item.customerName || item.title) : item.customer_name}
+                {isReadyEstimate ? item.customerName : ((isTask || isReady) ? (item.customerName || item.title) : item.customer_name)}
               </h3>
             </div>
             <button onClick={() => { setSelectedItem(null); setSearchQuery(''); setShowMatches(false); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
           
-          {isBlocked ? (
+          {isReadyEstimate ? (
+            <>
+              <div style={{ color: '#22c55e', fontSize: 20, fontWeight: 600, marginBottom: 12 }}>{formatMoney(item.estimateAmount)}</div>
+              {item.qbo_estimate_ref && <div style={{ color: '#64748b', fontSize: 13, marginBottom: 8 }}>Est# {item.qbo_estimate_ref}</div>}
+              {item.customer_address && <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📍 {item.customer_address}</div>}
+              {item.customer_phone && <div style={{ color: '#94a3b8', fontSize: 14, marginBottom: 8 }}>📞 {item.customer_phone}</div>}
+              {(item.issue || item.notes || item.description) && (
+                <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginTop: 12 }}>
+                  <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Notes</div>
+                  <div style={{ color: '#fff', fontSize: 14, whiteSpace: 'pre-wrap' }}>{item.issue || item.notes || item.description}</div>
+                </div>
+              )}
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  onClick={() => { setSelectedItem(null); openScheduler(item); }}
+                  style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  📅 Schedule Now
+                </button>
+                
+                {/* Editable search field */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    value={searchQuery || item.customerName || ''}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => { if (!searchQuery) setSearchQuery(item.customerName || ''); }}
+                    placeholder="Search name..."
+                    style={{ 
+                      flex: 1, 
+                      background: '#0f172a', 
+                      border: '1px solid #334155', 
+                      borderRadius: 8, 
+                      padding: '10px 12px', 
+                      color: '#fff', 
+                      fontSize: 14 
+                    }}
+                  />
+                  <button
+                    onClick={() => findMatchingEvents(searchQuery || item.customerName || '')}
+                    disabled={searching}
+                    style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    {searching ? '...' : '🔍 Find'}
+                  </button>
+                </div>
+                
+                <button
+                  onClick={async () => {
+                    setUpdating(true);
+                    try {
+                      // Update estimate status to indicate billing needed
+                      const { error } = await supabase
+                        .from('jobs')
+                        .update({ qbo_estimate_status: 'To Bill' })
+                        .eq('id', item.id);
+                      if (error) throw error;
+                      await loadAll();
+                      setSelectedItem(null);
+                      alert('✅ Sent to billing');
+                    } catch (e) {
+                      alert(`Error: ${e.message}`);
+                    }
+                    setUpdating(false);
+                  }}
+                  disabled={updating}
+                  style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  💵 Send to Billing
+                </button>
+              </div>
+              
+              {/* Matching Events Results */}
+              {showMatches && (
+                <div style={{ marginTop: 16, background: '#0f172a', borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>Matching Events ({matchingEvents.length})</span>
+                    <button onClick={() => setShowMatches(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>✕</button>
+                  </div>
+                  {searching ? (
+                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: 8 }}>Searching...</div>
+                  ) : matchingEvents.length === 0 ? (
+                    <div style={{ color: '#94a3b8', textAlign: 'center', padding: 8 }}>No matching events found</div>
+                  ) : (
+                    <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                      {matchingEvents.map(ev => (
+                        <a
+                          key={`${ev.calendarId}-${ev.id}`}
+                          href={`https://www.google.com/calendar/event?eid=${btoa(ev.id + ' ' + ev.calendarId)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'block',
+                            background: '#1e293b',
+                            borderRadius: 6,
+                            padding: 8,
+                            marginBottom: 6,
+                            borderLeft: `3px solid ${ev.calendarColor}`,
+                            textDecoration: 'none',
+                            color: ev.isPast ? '#64748b' : '#fff',
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>{ev.title}</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            {ev.calendarName} • {formatDate(ev.start)}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : isBlocked ? (
             <>
               <div style={{ background: '#ef444420', borderRadius: 8, padding: 12, marginBottom: 12 }}>
                 <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 4 }}>🚫 {item.blockReason}</div>
@@ -1142,7 +1256,7 @@ export default function BoardView({ accessToken, onBack }) {
               readyToSchedule.map(item => (
                 <div
                   key={`${item.type}-${item.id}`}
-                  onClick={() => item.type === 'estimate' ? openScheduler(item) : setSelectedItem({ type: 'ready', data: item })}
+                  onClick={() => setSelectedItem({ type: item.type === 'estimate' ? 'readyEstimate' : 'ready', data: item })}
                   style={{
                     background: '#1e293b',
                     borderRadius: 8,

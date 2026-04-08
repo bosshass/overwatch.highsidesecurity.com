@@ -1226,9 +1226,14 @@ export default function BoardView({ accessToken, onBack }) {
           <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>← Home</button>
           <h2 style={{ margin: 0 }}>📋 Board</h2>
         </div>
-        <button onClick={loadAll} disabled={loading} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>
-          {loading ? '...' : '↻ Refresh'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => window.location.href = '/scheduler'} style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+            📅 Scheduler
+          </button>
+          <button onClick={loadAll} disabled={loading} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>
+            {loading ? '...' : '↻ Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Summary Bar */}

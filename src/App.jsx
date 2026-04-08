@@ -16,6 +16,7 @@ import Billing from './views/Billing.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
 import BoardView from './views/BoardView.jsx';
+import Scheduler from './views/Scheduler.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import CompletionModal from './components/CompletionModal.jsx';
 import HelpBot from './components/HelpBot.jsx';
@@ -532,6 +533,7 @@ export default function App() {
         <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />

@@ -36,7 +36,7 @@ const TASK_CALENDARS = [
 const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
 
 // Tags that mean task is BLOCKED — show in Blocked column
-const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]'];
+const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]'];
 
 // Extract customer name from title
 const extractCustomerName = (title) => {
@@ -868,6 +868,35 @@ export default function BoardView({ accessToken, onBack }) {
                   style={{ background: '#22c55e', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
                 >
                   ✓ Unblock — Ready to Schedule
+                </button>
+                <button
+                  onClick={async () => {
+                    setUpdating(true);
+                    try {
+                      // Change blocked tag to [NEEDS NOTES]
+                      let newTitle = item.title;
+                      for (const tag of BLOCKED_TAGS) {
+                        newTitle = newTitle.replace(new RegExp(tag.replace(/[[\]]/g, '\\$&'), 'gi'), '');
+                      }
+                      newTitle = `[NEEDS NOTES] ${newTitle.replace(/\s+/g, ' ').trim()}`;
+                      
+                      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ summary: newTitle })
+                      });
+                      if (!res.ok) throw new Error('Failed to update');
+                      await loadAll();
+                      setSelectedItem(null);
+                    } catch (e) {
+                      alert(`Error: ${e.message}`);
+                    }
+                    setUpdating(false);
+                  }}
+                  disabled={updating}
+                  style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  📝 Needs Notes
                 </button>
                 <a
                   href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}

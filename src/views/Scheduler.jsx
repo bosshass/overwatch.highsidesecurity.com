@@ -58,9 +58,11 @@ export default function Scheduler({ accessToken, onBack }) {
   const [saving, setSaving] = useState(false);
   const [showForecast, setShowForecast] = useState(false);
   const [forecastData, setForecastData] = useState({
-    pendingEstimates: { count: 0, hours: 0, value: 0 },
-    blockedItems: { count: 0, hours: 0 },
-    serviceCallReturns: { count: 0, hours: 0 },
+    projects: { count: 0, hours: 0 },       // 🔨 Projects - needs scheduling
+    serviceCalls: { count: 0, hours: 0 },   // 🔧 Service Calls - needs scheduling  
+    returns: { count: 0, hours: 0 },        // 🔄 Returns - needs scheduling
+    blocked: { count: 0, hours: 0 },        // 🚫 Blocked - waiting
+    openTasks: { count: 0, hours: 0 },      // 📋 Open Tasks - ALREADY scheduled
   });
 
   // Fetch calendar events
@@ -184,49 +186,89 @@ export default function Scheduler({ accessToken, onBack }) {
         console.warn('Estimates fetch error:', e);
       }
 
-      // ========== FORECAST DATA ==========
-      let forecastPending = { count: 0, hours: 0, value: 0 };
-      let forecastBlocked = { count: 0, hours: 0 };
-      let forecastReturns = { count: 0, hours: 0 };
+      // ========== FORECAST DATA (Match Board Columns) ==========
+      // Fetch tech calendar events for Open Tasks
+      const [austinEvents, jrEvents, installEvents] = await Promise.all([
+        fetchCalendarEvents(CALENDARS.AUSTIN, twoWeeksAgo, twoWeeksOut),
+        fetchCalendarEvents(CALENDARS.JR, twoWeeksAgo, twoWeeksOut),
+        fetchCalendarEvents(CALENDARS.JR, twoWeeksAgo, twoWeeksOut), // placeholder - will fix
+      ]);
 
-      // 1. Pending Estimates (if all were won)
+      // All events from all calendars
+      const allQueueReturn = [...queueEvents, ...returnEvents];
+      const allTechEvents = [...austinEvents, ...jrEvents];
+
+      // Filter ready items (no done/blocked tags) from Queue/Returns
+      const readyItems = allQueueReturn.filter(e => {
+        const title = (e.summary || '').toUpperCase();
+        return !DONE_TAGS.some(tag => title.includes(tag)) && !BLOCKED_TAGS.some(tag => title.includes(tag));
+      });
+
+      // 🔨 PROJECTS - items with "install" or [PROJECT] tag or won estimates
+      const projectItems = readyItems.filter(e => {
+        const title = (e.summary || '').toLowerCase();
+        const upperTitle = (e.summary || '').toUpperCase();
+        return title.includes('install') || upperTitle.includes('[PROJECT]');
+      });
+      // Add won estimates from Supabase not yet scheduled
+      let wonEstimatesCount = 0;
       try {
-        const { data: pending } = await supabase
+        const { data: won } = await supabase
           .from('jobs')
-          .select('*')
-          .eq('qbo_estimate_status', 'Pending');
-        if (pending) {
-          forecastPending = {
-            count: pending.length,
-            hours: pending.length * 8, // Assume 8h per install
-            value: pending.reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0),
-          };
-        }
+          .select('id')
+          .eq('qbo_estimate_status', 'Accepted')
+          .is('calendar_event_id', null);
+        wonEstimatesCount = (won || []).length;
       } catch (e) { /* ignore */ }
+      
+      const projectsCount = projectItems.length + wonEstimatesCount;
+      const projectsHours = (projectItems.length * 8) + (wonEstimatesCount * 8); // 8h per project
 
-      // 2. Blocked Items (if all became unblocked)
-      const blockedFromQueue = [...queueEvents, ...returnEvents].filter(e => {
+      // 🔄 RETURNS - items with [RETURN NEEDED] or on Returns calendar
+      const returnItems = readyItems.filter(e => {
+        const title = (e.summary || '').toUpperCase();
+        return title.includes('[RETURN') || title.includes('RETURN');
+      });
+      const returnsHours = returnItems.length * 4; // 4h per return
+
+      // 🔧 SERVICE CALLS - everything else in ready queue
+      const serviceItems = readyItems.filter(e => {
+        const title = (e.summary || '').toLowerCase();
+        const upperTitle = (e.summary || '').toUpperCase();
+        const isProject = title.includes('install') || upperTitle.includes('[PROJECT]');
+        const isReturn = upperTitle.includes('[RETURN') || upperTitle.includes('RETURN');
+        return !isProject && !isReturn;
+      });
+      const serviceHours = serviceItems.length * 2; // 2h per service call
+
+      // 🚫 BLOCKED - all calendars with blocked tags
+      const allCalendarEvents = [...allQueueReturn, ...allTechEvents];
+      const blockedItems = allCalendarEvents.filter(e => {
         const title = (e.summary || '').toUpperCase();
         return BLOCKED_TAGS.some(tag => title.includes(tag));
       });
-      forecastBlocked = {
-        count: blockedFromQueue.length,
-        hours: blockedFromQueue.length * 2, // Assume 2h service call avg
-      };
+      const blockedHours = blockedItems.length * 2; // 2h avg when unblocked
 
-      // 3. Service Calls that might need returns
-      const serviceCalls = allBacklog.filter(item => 
-        item.jobType === 'SVC' || item.jobType === 'TRB'
-      );
-      forecastReturns = {
-        count: serviceCalls.length,
-        hours: serviceCalls.length * 4, // RTN = 4h each
-      };
+      // 📋 OPEN TASKS - items on tech calendars (already scheduled)
+      const openTaskItems = allTechEvents.filter(e => {
+        const title = (e.summary || '').toUpperCase();
+        return !DONE_TAGS.some(tag => title.includes(tag)) && !BLOCKED_TAGS.some(tag => title.includes(tag));
+      });
+      // Calculate actual hours from event duration
+      let openTasksHours = 0;
+      openTaskItems.forEach(e => {
+        const start = new Date(e.start?.dateTime || e.start?.date);
+        const end = new Date(e.end?.dateTime || e.end?.date);
+        const hours = (end - start) / (1000 * 60 * 60);
+        if (hours > 0 && hours < 24) openTasksHours += hours;
+      });
 
       setForecastData({
-        pendingEstimates: forecastPending,
-        blockedItems: forecastBlocked,
-        serviceCallReturns: forecastReturns,
+        projects: { count: projectsCount, hours: projectsHours },
+        serviceCalls: { count: serviceItems.length, hours: serviceHours },
+        returns: { count: returnItems.length, hours: returnsHours },
+        blocked: { count: blockedItems.length, hours: blockedHours },
+        openTasks: { count: openTaskItems.length, hours: Math.round(openTasksHours) },
       });
 
       // Sort by priority
@@ -589,114 +631,97 @@ export default function Scheduler({ accessToken, onBack }) {
       {showForecast && (
         <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 20, border: '1px solid #8b5cf640' }}>
           <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>
-            📊 Capacity Impact Scenarios (2-week window)
+            📊 Board Status → Capacity Impact (2-week window)
           </div>
           
           {/* Current Capacity */}
           <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Current Available Capacity</span>
+              <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Total Available Capacity</span>
               <span style={{ color: '#22c55e', fontSize: 15, fontWeight: 700 }}>{austinAvail.availableHours + jrAvail.availableHours}h</span>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#64748b' }}>
               <span>Austin: {austinAvail.availableHours}h</span>
               <span>JR: {jrAvail.availableHours}h</span>
             </div>
-            <div style={{ marginTop: 8 }}>
-              <div style={{ background: '#334155', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                <div style={{ 
-                  width: `${Math.min(100, (totalBacklogHours / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%`,
-                  height: '100%',
-                  background: totalBacklogHours > (austinAvail.availableHours + jrAvail.availableHours) ? '#ef4444' : '#22c55e',
-                }} />
-              </div>
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
-                Current backlog: {totalBacklogHours}h ({Math.round((totalBacklogHours / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}% of capacity)
-              </div>
-            </div>
           </div>
 
-          {/* Scenario Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            {/* Scenario 1: All Pending Estimates Won */}
-            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #f59e0b' }}>
-              <div style={{ color: '#f59e0b', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                If All Pending Estimates Won
-              </div>
-              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
-                {forecastData.pendingEstimates.count} estimates • ${forecastData.pendingEstimates.value.toLocaleString()}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>+{forecastData.pendingEstimates.hours}h</span>
-                <span style={{ color: '#64748b', fontSize: 11 }}>work added</span>
-              </div>
-              <div style={{ marginTop: 8, padding: '4px 8px', background: '#f59e0b20', borderRadius: 4, fontSize: 11 }}>
-                <span style={{ color: '#f59e0b' }}>
-                  Total: {totalBacklogHours + forecastData.pendingEstimates.hours}h 
-                  ({Math.round(((totalBacklogHours + forecastData.pendingEstimates.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%)
-                </span>
-              </div>
+          {/* Board Columns - Needs Scheduling */}
+          <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+            Needs Scheduling
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
+            {/* Projects */}
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #22c55e' }}>
+              <div style={{ color: '#22c55e', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🔨 Projects</div>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.projects.count} items</div>
+              <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.projects.hours}h</div>
             </div>
 
-            {/* Scenario 2: All Blocked Items Unblocked */}
-            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #ef4444' }}>
-              <div style={{ color: '#ef4444', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                If All Blocked Items Ready
-              </div>
-              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
-                {forecastData.blockedItems.count} blocked items
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>+{forecastData.blockedItems.hours}h</span>
-                <span style={{ color: '#64748b', fontSize: 11 }}>work added</span>
-              </div>
-              <div style={{ marginTop: 8, padding: '4px 8px', background: '#ef444420', borderRadius: 4, fontSize: 11 }}>
-                <span style={{ color: '#ef4444' }}>
-                  Total: {totalBacklogHours + forecastData.blockedItems.hours}h 
-                  ({Math.round(((totalBacklogHours + forecastData.blockedItems.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%)
-                </span>
-              </div>
+            {/* Service Calls */}
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #8b5cf6' }}>
+              <div style={{ color: '#8b5cf6', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🔧 Service Calls</div>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.serviceCalls.count} items</div>
+              <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.serviceCalls.hours}h</div>
             </div>
 
-            {/* Scenario 3: All Service Calls Need Returns */}
+            {/* Returns */}
             <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #06b6d4' }}>
-              <div style={{ color: '#06b6d4', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                If All Service Calls Need Returns
-              </div>
-              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
-                {forecastData.serviceCallReturns.count} service calls
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>+{forecastData.serviceCallReturns.hours}h</span>
-                <span style={{ color: '#64748b', fontSize: 11 }}>return visits</span>
-              </div>
-              <div style={{ marginTop: 8, padding: '4px 8px', background: '#06b6d420', borderRadius: 4, fontSize: 11 }}>
-                <span style={{ color: '#06b6d4' }}>
-                  Total: {totalBacklogHours + forecastData.serviceCallReturns.hours}h 
-                  ({Math.round(((totalBacklogHours + forecastData.serviceCallReturns.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}%)
-                </span>
-              </div>
+              <div style={{ color: '#06b6d4', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🔄 Returns</div>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.returns.count} items</div>
+              <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.returns.hours}h</div>
+            </div>
+
+            {/* Blocked */}
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #ef4444' }}>
+              <div style={{ color: '#ef4444', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🚫 Blocked</div>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.blocked.count} items waiting</div>
+              <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.blocked.hours}h</div>
+              <div style={{ color: '#64748b', fontSize: 9 }}>when unblocked</div>
             </div>
           </div>
 
-          {/* Worst Case Scenario */}
-          <div style={{ background: '#7f1d1d20', borderRadius: 8, padding: 12, marginTop: 12, border: '1px solid #ef444440' }}>
+          {/* Already Scheduled */}
+          <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+            Already Scheduled
+          </div>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 12, borderLeft: '3px solid #3b82f6' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ color: '#ef4444', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
-                  ⚠️ Worst Case (All Scenarios)
-                </div>
-                <div style={{ color: '#64748b', fontSize: 11 }}>
-                  Everything hits at once
-                </div>
+                <div style={{ color: '#3b82f6', fontSize: 11, fontWeight: 600, marginBottom: 2 }}>📋 Open Tasks (on tech calendars)</div>
+                <div style={{ color: '#64748b', fontSize: 10 }}>{forecastData.openTasks.count} items already scheduled</div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ color: '#ef4444', fontSize: 22, fontWeight: 700 }}>
-                  {totalBacklogHours + forecastData.pendingEstimates.hours + forecastData.blockedItems.hours + forecastData.serviceCallReturns.hours}h
-                </div>
-                <div style={{ color: '#ef4444', fontSize: 11 }}>
-                  {Math.round(((totalBacklogHours + forecastData.pendingEstimates.hours + forecastData.blockedItems.hours + forecastData.serviceCallReturns.hours) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}% of capacity
-                </div>
+              <div style={{ color: '#3b82f6', fontSize: 22, fontWeight: 700 }}>{forecastData.openTasks.hours}h</div>
+            </div>
+          </div>
+
+          {/* Summary Bar */}
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, border: '1px solid #334155' }}>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600 }}>Total Work Needed</span>
+                <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>
+                  {forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours}h
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#94a3b8', fontSize: 11 }}>+ If blocked unblocks</span>
+                <span style={{ color: '#ef4444', fontSize: 11 }}>+{forecastData.blocked.hours}h</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#94a3b8', fontSize: 11 }}>+ If all SVC need returns</span>
+                <span style={{ color: '#06b6d4', fontSize: 11 }}>+{forecastData.serviceCalls.count * 4}h</span>
+              </div>
+            </div>
+            <div style={{ borderTop: '1px solid #334155', paddingTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#f59e0b', fontSize: 12, fontWeight: 600 }}>⚠️ Worst Case Total</span>
+                <span style={{ color: '#f59e0b', fontSize: 18, fontWeight: 700 }}>
+                  {forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours + forecastData.blocked.hours + (forecastData.serviceCalls.count * 4)}h
+                </span>
+              </div>
+              <div style={{ color: '#64748b', fontSize: 10, textAlign: 'right' }}>
+                {Math.round(((forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours + forecastData.blocked.hours + (forecastData.serviceCalls.count * 4)) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}% of 2-week capacity
               </div>
             </div>
           </div>

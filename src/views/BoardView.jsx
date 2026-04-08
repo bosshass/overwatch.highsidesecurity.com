@@ -74,6 +74,73 @@ export default function BoardView({ accessToken, onBack }) {
   const [endTime, setEndTime] = useState('17:00');
   const [scheduling, setScheduling] = useState(false);
   const [scheduleNotes, setScheduleNotes] = useState('');
+  const [techAvailability, setTechAvailability] = useState([]); // Busy blocks for selected tech+date
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+
+  // Fetch tech availability for a specific date
+  const fetchTechAvailability = async (techId, date) => {
+    if (!accessToken || !techId || !date) {
+      setTechAvailability([]);
+      return;
+    }
+    
+    setLoadingAvailability(true);
+    try {
+      const dayStart = new Date(`${date}T00:00:00`);
+      const dayEnd = new Date(`${date}T23:59:59`);
+      
+      const params = new URLSearchParams({
+        timeMin: dayStart.toISOString(),
+        timeMax: dayEnd.toISOString(),
+        singleEvents: 'true',
+        orderBy: 'startTime',
+        maxResults: '50'
+      });
+      
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(techId)}/events?${params}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      
+      if (!res.ok) {
+        setTechAvailability([]);
+        return;
+      }
+      
+      const data = await res.json();
+      const blocks = (data.items || [])
+        .filter(ev => ev.status !== 'cancelled')
+        .map(ev => {
+          const start = new Date(ev.start?.dateTime || ev.start?.date);
+          const end = new Date(ev.end?.dateTime || ev.end?.date);
+          return {
+            id: ev.id,
+            title: ev.summary || '(busy)',
+            startHour: start.getHours() + start.getMinutes() / 60,
+            endHour: end.getHours() + end.getMinutes() / 60,
+            start,
+            end,
+          };
+        });
+      
+      setTechAvailability(blocks);
+    } catch (e) {
+      console.error('Availability fetch error:', e);
+      setTechAvailability([]);
+    }
+    setLoadingAvailability(false);
+  };
+
+  // Check if an hour slot is busy
+  const isSlotBusy = (hour) => {
+    return techAvailability.some(block => {
+      return hour >= block.startHour && hour < block.endHour;
+    });
+  };
+
+  // Get busy block info for a slot
+  const getBusyBlockInfo = (hour) => {
+    return techAvailability.find(block => hour >= block.startHour && hour < block.endHour);
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SCHEDULE ESTIMATE TO CALENDAR
@@ -85,6 +152,7 @@ export default function BoardView({ accessToken, onBack }) {
     setSelectedDate('');
     setStartTime('09:00');
     setEndTime('17:00');
+    setTechAvailability([]); // Reset availability
     // Pre-fill notes with existing description
     const existingNotes = [
       estimate.issue || '',
@@ -111,6 +179,7 @@ export default function BoardView({ accessToken, onBack }) {
     setSelectedDate('');
     setStartTime('09:00');
     setEndTime('17:00');
+    setTechAvailability([]); // Reset availability
     setScheduleNotes(item.description || '');
     setShowScheduler(true);
   };
@@ -1536,7 +1605,10 @@ export default function BoardView({ accessToken, onBack }) {
                 {TECH_CALS.map(tech => (
                   <button
                     key={tech.id}
-                    onClick={() => setSelectedTech(tech)}
+                    onClick={() => {
+                      setSelectedTech(tech);
+                      if (selectedDate) fetchTechAvailability(tech.id, selectedDate);
+                    }}
                     style={{
                       flex: 1,
                       padding: 12,
@@ -1560,7 +1632,10 @@ export default function BoardView({ accessToken, onBack }) {
               <input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  if (selectedTech) fetchTechAvailability(selectedTech.id, e.target.value);
+                }}
                 style={{
                   width: '100%',
                   padding: 12,
@@ -1572,6 +1647,81 @@ export default function BoardView({ accessToken, onBack }) {
                 }}
               />
             </div>
+            
+            {/* Availability Grid - shows when tech + date selected */}
+            {selectedTech && selectedDate && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8 }}>
+                  {loadingAvailability ? '⏳ Loading availability...' : `${selectedTech.name}'s Schedule`}
+                </label>
+                {!loadingAvailability && (
+                  <div style={{ background: '#0f172a', borderRadius: 8, padding: 8 }}>
+                    {/* Hour grid 7am - 6pm */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4 }}>
+                      {[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map(hour => {
+                        const busy = isSlotBusy(hour);
+                        const busyInfo = busy ? getBusyBlockInfo(hour) : null;
+                        const hourLabel = hour > 12 ? `${hour - 12}p` : hour === 12 ? '12p' : `${hour}a`;
+                        
+                        return (
+                          <button
+                            key={hour}
+                            onClick={() => {
+                              if (!busy) {
+                                const h = hour.toString().padStart(2, '0');
+                                setStartTime(`${h}:00`);
+                                // Auto-set end time to 2 hours later
+                                const endH = Math.min(hour + 2, 18).toString().padStart(2, '0');
+                                setEndTime(`${endH}:00`);
+                              }
+                            }}
+                            title={busy ? busyInfo?.title : `Click to schedule at ${hourLabel}`}
+                            style={{
+                              padding: '8px 4px',
+                              borderRadius: 4,
+                              border: 'none',
+                              background: busy ? '#ef444440' : '#22c55e30',
+                              color: busy ? '#fca5a5' : '#86efac',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: busy ? 'not-allowed' : 'pointer',
+                              opacity: busy ? 0.7 : 1,
+                            }}
+                          >
+                            {hourLabel}
+                            {busy && <div style={{ fontSize: 8, marginTop: 2 }}>●</div>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Legend */}
+                    <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: '#64748b' }}>
+                      <span><span style={{ color: '#86efac' }}>■</span> Free</span>
+                      <span><span style={{ color: '#fca5a5' }}>■</span> Busy</span>
+                    </div>
+                    {/* Busy block details */}
+                    {techAvailability.length > 0 && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+                        {techAvailability.slice(0, 3).map((block, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <span style={{ color: '#ef4444' }}>●</span>
+                            <span>
+                              {block.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {block.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                            <span style={{ color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>
+                              {block.title}
+                            </span>
+                          </div>
+                        ))}
+                        {techAvailability.length > 3 && (
+                          <div style={{ color: '#64748b', marginTop: 4 }}>+{techAvailability.length - 3} more</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             
             {/* Time Selection */}
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>

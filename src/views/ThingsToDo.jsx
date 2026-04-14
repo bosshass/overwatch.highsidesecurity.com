@@ -41,11 +41,38 @@ const formatAdded = (iso) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+
+const getElapsedMs = (item, nowTs = Date.now()) => {
+  const base = Number(item.elapsedMs || 0);
+  if (item.timeStartedAt) {
+    const started = new Date(item.timeStartedAt).getTime();
+    if (!Number.isNaN(started)) return base + Math.max(0, nowTs - started);
+  }
+  return base;
+};
+
+const formatDuration = (ms) => {
+  if (!ms || ms < 60000) return '< 1m';
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours && minutes) return `${hours}h ${minutes}m`;
+  if (hours) return `${hours}h`;
+  return `${minutes}m`;
+};
+
+const formatTime = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
 export default function ThingsToDo({ accessToken, userEmail, onBack }) {
   const [items, setItems] = useState([]);
   const [techs, setTechs] = useState([]);
   const [working, setWorking] = useState(null); // item id being actioned
   const [assignPicker, setAssignPicker] = useState(null); // item id showing assign picker
+  const [nowTick, setNowTick] = useState(Date.now());
 
   const load = useCallback(() => {
     try {
@@ -61,6 +88,10 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { techsApi.getAll().then(setTechs).catch(() => {}); }, []);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   // Assign to tech → delete from Google Calendar if not already deleted
   const assignItem = async (item, techName) => {
@@ -78,20 +109,30 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
       } catch (e) { console.warn('Delete from GCal failed:', e); }
     }
 
-    const updated = items.map(i =>
-      i.id === item.id
-        ? { ...i, assignedTo: techName, deletedFromCal, status: 'inprogress' }
-        : i
-    );
+    const updated = items.map(i => {
+      if (i.id !== item.id) return i;
+      const alreadyRunning = Boolean(i.timeStartedAt);
+      return {
+        ...i,
+        assignedTo: techName,
+        deletedFromCal,
+        status: 'inprogress',
+        timeStartedAt: alreadyRunning ? i.timeStartedAt : new Date().toISOString(),
+        elapsedMs: Number(i.elapsedMs || 0),
+      };
+    });
     save(updated);
     setWorking(null);
   };
 
   // Unassign → does NOT restore to calendar
   const unassignItem = (item) => {
-    const updated = items.map(i =>
-      i.id === item.id ? { ...i, assignedTo: null, status: 'todo' } : i
-    );
+    const now = Date.now();
+    const updated = items.map(i => {
+      if (i.id !== item.id) return i;
+      const elapsedMs = getElapsedMs(i, now);
+      return { ...i, assignedTo: null, status: 'todo', timeStartedAt: null, elapsedMs };
+    });
     save(updated);
   };
 
@@ -104,6 +145,18 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
           ? new Date(item.date).toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0];
 
+        const finalElapsedMs = getElapsedMs(item);
+        const timeBlock = finalElapsedMs
+          ? `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏱ THINGS TO DO TIME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Started: ${formatTime(item.timeStartedAt) || 'N/A'}
+Total Time: ${formatDuration(finalElapsedMs)}
+`
+          : '';
+
         await fetch(
           `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events`,
           {
@@ -112,7 +165,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
             body: JSON.stringify({
               summary: item.title,
               location: item.location || '',
-              description: item.description || '',
+              description: `${item.description || ''}${timeBlock}`,
               start: item.date?.includes('T')
                 ? { dateTime: item.date, timeZone: 'America/Denver' }
                 : { date: startDate },
@@ -151,6 +204,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
     const overdue = isOverdue(item);
     const isWorking = working === item.id;
     const showPicker = assignPicker === item.id;
+    const elapsedMs = getElapsedMs(item, nowTick);
 
     return (
       <div style={{
@@ -198,6 +252,12 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
           {item.calendarName && (
             <div style={{ color: '#475569', fontSize: 11 }}>From: {item.calendarName}</div>
           )}
+          {elapsedMs > 0 && (
+            <div style={{ color: '#22c55e', fontSize: 11, fontWeight: 700 }}>
+              ⏱ Total Time: {formatDuration(elapsedMs)}
+              {item.timeStartedAt ? ` • In: ${formatTime(item.timeStartedAt)}` : ''}
+            </div>
+          )}
           <div style={{ color: '#334155', fontSize: 10 }}>Added {formatAdded(item.created_at)}</div>
         </div>
 
@@ -230,7 +290,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
             <button onClick={() => unassignItem(item)} style={{
               padding: '8px 10px', background: '#1e293b', border: '1px solid #334155',
               borderRadius: 8, color: '#64748b', fontSize: 11, cursor: 'pointer'
-            }}>✕ Unassign</button>
+            }}>⏸ Pause</button>
           )}
           <button onClick={() => markReady(item)} disabled={isWorking} style={{
             flex: 1, padding: '8px', background: '#22c55e20', border: '1px solid #22c55e40',

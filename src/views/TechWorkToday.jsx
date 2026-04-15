@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -14,6 +14,27 @@ const TECH_CAL_MAP = {
 };
 
 const HARD_SKIP = ['[BILLED]', '[IGNORED]', '[IGNORE]'];
+
+function looksLikeProject(title, description, start, end) {
+  const hay = `${title || ''} ${description || ''}`.toLowerCase();
+  const durationMs = (start && end) ? (new Date(end) - new Date(start)) : 0;
+  const durationHours = durationMs / 36e5;
+  return /(install|project|phase|access control|keypad|wire|rough[- ]?in|finish[- ]?out|camera install|door install)/i.test(hay) || durationHours >= 3;
+}
+
+function formatElapsed(ms) {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes}m`;
+}
+
+function currentClockTime() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 function cleanTitle(title) {
   return (title || '').replace(/\s*\[.*?\]/g, '').trim();
@@ -46,6 +67,9 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [selected, setSelected] = useState(null);
   const [notes, setNotes]       = useState('');
   const [acting, setActing]     = useState(false);
+  const [timeStartedAt, setTimeStartedAt] = useState(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [tick, setTick] = useState(0);
 
   // Single tech calendar OR all techs for operators
   const techCalId = TECH_CAL_MAP[userEmail?.toLowerCase()] || TECH_CAL_MAP[userName] || CALENDARS.AUSTIN;
@@ -118,13 +142,37 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   const events = allEvents.filter(e => e.tab === activeTab);
 
-  const openDetail = (ev) => { setSelected(ev); setNotes(''); };
-  const closeSheet = ()   => { setSelected(null); setNotes(''); setActing(false); };
+  const openDetail = (ev) => { setSelected(ev); setNotes(''); setTimeStartedAt(null); setElapsedMs(0); };
+  const closeSheet = ()   => { setSelected(null); setNotes(''); setActing(false); setTimeStartedAt(null); setElapsedMs(0); };
+
+  useEffect(() => {
+    if (!timeStartedAt) return;
+    const id = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(id);
+  }, [timeStartedAt]);
+
+  const totalElapsedMs = useMemo(() => timeStartedAt ? elapsedMs + (Date.now() - timeStartedAt) : elapsedMs, [elapsedMs, timeStartedAt, tick]);
+
+  const startTimer = () => {
+    if (!timeStartedAt) setTimeStartedAt(Date.now());
+  };
+
+  const pauseTimer = () => {
+    if (!timeStartedAt) return;
+    setElapsedMs(prev => prev + (Date.now() - timeStartedAt));
+    setTimeStartedAt(null);
+  };
+
+  const resetTimer = () => {
+    setTimeStartedAt(null);
+    setElapsedMs(0);
+  };
 
   const patchEvent = async (ev, newTitle, appendDesc) => {
     const ts = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
     const noteBlock = notes.trim() ? '\nNotes: ' + notes.trim() : '';
-    const newDesc = [ev.description, appendDesc + noteBlock + ' — ' + ts].filter(Boolean).join('\n\n');
+    const timeBlock = totalElapsedMs > 0 ? `\n⏱ Time Spent: ${formatElapsed(totalElapsedMs)}${timeStartedAt ? ` (started ${currentClockTime()})` : ''}` : '';
+    const newDesc = [ev.description, appendDesc + noteBlock + timeBlock + ' — ' + ts].filter(Boolean).join('\n\n');
     await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -172,11 +220,23 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     closeSheet();
   };
 
+  const handleProgressToday = async () => {
+    if (!selected || acting) return;
+    setActing(true);
+    const name = cleanTitle(selected.title);
+    const newDesc = await patchEvent(selected, name + ' [IN PROGRESS]', '🛠️ DONE FOR TODAY — KEEP IN PROGRESS');
+    await createEvent(CALENDARS.TENTATIVELY_SCHEDULED, name + ' [IN PROGRESS]', newDesc, selected.location);
+    setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [IN PROGRESS]', tab: 'new' } : e));
+    closeSheet();
+  };
+
   const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   const extractPhone = (desc) => {
     const m = (desc || '').match(/(?:Phone|Ph|Tel|Call)?:?\s*(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/i);
     return m ? m[1] : null;
   };
+
+  const isProjectJob = selected ? looksLikeProject(selected.title, selected.description, selected.start, selected.end) : false;
 
   const tabCounts   = {};
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
@@ -353,29 +413,51 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               </div>
             )}
 
+            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1B2A4A' }}>⏱ Time: {formatElapsed(totalElapsedMs)}</div>
+                {timeStartedAt && <div style={{ fontSize: 12, color: '#6b7280' }}>Running</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={startTimer} style={{ flex: 1, padding: '10px', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 10, color: '#155e75', fontSize: 13, fontWeight: 700 }}>▶ Start</button>
+                <button onClick={pauseTimer} style={{ flex: 1, padding: '10px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 10, color: '#475569', fontSize: 13, fontWeight: 700 }}>⏸ Pause</button>
+                <button onClick={resetTimer} style={{ flex: 1, padding: '10px', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 10, color: '#9a3412', fontSize: 13, fontWeight: 700 }}>↺ Reset</button>
+              </div>
+            </div>
+
             <textarea value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="Add notes (what was done, what's needed...)"
               style={{ width: '100%', padding: '12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 80, marginBottom: 14, boxSizing: 'border-box', fontFamily: 'inherit' }} />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {isProjectJob && (
+                <button onClick={handleProgressToday} disabled={acting}
+                  style={{ padding: '15px', background: '#eff6ff', border: '1.5px solid #93c5fd', borderRadius: 12, color: '#1d4ed8', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                  {acting ? 'Saving...' : '🛠️ Done for Today — Keep In Progress'}
+                </button>
+              )}
+
               {selected.tab !== 'billit' && (
                 <button onClick={handleBillIt} disabled={acting}
                   style={{ padding: '15px', background: '#1B2A4A', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
                   {acting ? 'Saving...' : '✅ Done — Bill It'}
                 </button>
               )}
-              {selected.tab === 'new' && (
-                <>
-                  <button onClick={handleReturn} disabled={acting}
-                    style={{ padding: '15px', background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, color: '#92400e', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
-                    🔄 Needs Return Visit
-                  </button>
-                  <button onClick={handleEstimate} disabled={acting}
-                    style={{ padding: '15px', background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, color: '#5b21b6', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
-                    💰 Needs Estimate
-                  </button>
-                </>
+
+              {selected.tab !== 'billit' && (
+                <button onClick={handleReturn} disabled={acting}
+                  style={{ padding: '15px', background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, color: '#92400e', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                  🔄 Needs Return Visit
+                </button>
               )}
+
+              {!isProjectJob && selected.tab === 'new' && (
+                <button onClick={handleEstimate} disabled={acting}
+                  style={{ padding: '15px', background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, color: '#5b21b6', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                  💰 Needs Estimate
+                </button>
+              )}
+
               <button onClick={closeSheet}
                 style={{ padding: '13px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 12, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
                 Cancel

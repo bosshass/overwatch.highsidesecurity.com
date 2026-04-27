@@ -9,6 +9,7 @@ export const CALENDARS = {
   ADMIN_NOTES:           'fff001b042126a6179ac3abe30b1b7928a6f6170227a290d5f24fd0ec2ffa0c9@group.calendar.google.com',
   AUSTIN:                'drhservicetech1@gmail.com',
   JR:                    'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com',
+  TECH3:                 'c_a1f0d82804a6c67b6373fa1311eef3933dc600a66617eef2b1e42dbb0670b625@group.calendar.google.com',
   SALES_ACCOUNTING:      'c_aa764bfa5d492c689c26e3ed589df2804a04ee175db1b68d48217bd18883d178@group.calendar.google.com',
   COMPLETED:             'c_a095f8a75a8e3fb1bb4b0f3a2232962af3ab55f05a49ced1e4338abcc865d3e9@group.calendar.google.com',
   INSTALLATIONS:         'c_c84c0a24e2a7386cb519b21569fbb4b17a19214ce33744a63e06394f8c57339f@group.calendar.google.com',
@@ -26,6 +27,7 @@ const OPERATOR_EMAILS = [
 
 const AUSTIN_EMAILS  = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com'];
 const JR_EMAILS      = ['jr@drhsecurityservices.com'];
+const BRIAN_EMAILS   = ['brian@drhsecurityservices.com'];
 const SHANA_EMAILS   = ['shanaparks@drhsecurityservices.com'];
 const TREVOR_EMAILS  = ['trevor@drhsecurityservices.com'];
 
@@ -36,12 +38,13 @@ export const SYNC_CALENDARS = [
     name: 'Tentatively Scheduled',
     type: 'queue',
     // All techs + operators see the queue
-    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS],
+    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS],
   },
   {
     id: CALENDARS.AUSTIN,
     name: 'Austin',
     type: 'tech',
+    // Austin sees his own + Brian's per the work-view rule
     visibleTo: AUSTIN_EMAILS,
   },
   {
@@ -49,6 +52,13 @@ export const SYNC_CALENDARS = [
     name: 'JR',
     type: 'tech',
     visibleTo: JR_EMAILS,
+  },
+  {
+    id: CALENDARS.TECH3,
+    name: 'Brian',
+    type: 'tech',
+    // Brian sees his own; Austin also sees Brian's per request
+    visibleTo: [...BRIAN_EMAILS, ...AUSTIN_EMAILS],
   },
   {
     id: CALENDARS.SHANA,
@@ -73,7 +83,7 @@ export const SYNC_CALENDARS = [
     name: 'Completed',
     type: 'completed',
     // Everyone sees completed
-    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS],
+    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS],
   },
 ];
 
@@ -89,12 +99,51 @@ export function getVisibleCalendars(email) {
   );
 }
 
+// ── Work-view calendar list ──────────────────────────────────────────────────
+// Returns an ordered list of { id, name } pairs to fetch in TechWorkToday's
+// "today's work" view for a given user. This is the SOURCE OF TRUTH for which
+// tech calendars appear in the Work To Do view per user.
+//
+// Rules (per product spec):
+//   - Operators (info@, Sara, admin)  → Austin + JR + Brian (Tech3)
+//   - Austin (restricted)             → Austin + Brian (Tech3)
+//   - Brian (restricted)              → Brian (Tech3) only
+//   - JR (restricted)                 → JR only
+//   - Trevor (restricted)             → Installations only
+//   - Shana (operator role)           → Austin + JR + Brian (same as operators)
+//   - Anyone else                     → empty (caller should fall back to default)
+export function getWorkViewCalendars(email) {
+  if (!email) return [];
+  const e = email.toLowerCase();
+  const ALL_TECHS = [
+    { id: CALENDARS.AUSTIN, name: 'Austin' },
+    { id: CALENDARS.JR,     name: 'JR' },
+    { id: CALENDARS.TECH3,  name: 'Brian' },
+  ];
+
+  if (OPERATOR_EMAILS.includes(e)) return ALL_TECHS;
+  if (SHANA_EMAILS.includes(e))    return ALL_TECHS;
+
+  if (AUSTIN_EMAILS.includes(e)) {
+    return [
+      { id: CALENDARS.AUSTIN, name: 'Austin' },
+      { id: CALENDARS.TECH3,  name: 'Brian' },
+    ];
+  }
+  if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
+  if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
+  if (TREVOR_EMAILS.includes(e)) return [{ id: CALENDARS.INSTALLATIONS, name: 'Installations' }];
+
+  return [];
+}
+
 // ── Write-target map ─────────────────────────────────────────────────────────
 // Maps logged-in user email → their personal calendar (for creating events)
 export const TECH_CALENDAR_MAP = {
   'drhservicetech1@gmail.com':          CALENDARS.AUSTIN,
   'austin@drhsecurityservices.com':     CALENDARS.AUSTIN,
   'jr@drhsecurityservices.com':         CALENDARS.JR,
+  'brian@drhsecurityservices.com':      CALENDARS.TECH3,
   'info@drhsecurityservices.com':       CALENDARS.SALES_ACCOUNTING,
   'sara@jnbllc.com':                    CALENDARS.SALES_ACCOUNTING,
   'admin@jnbservice.com':               CALENDARS.SALES_ACCOUNTING,
@@ -116,6 +165,7 @@ export function getTechCalendarId(techOrEmail) {
 export const TECH_COLORS = {
   'Austin':               '#F4511E',
   'JR':                   '#0B8043',
+  'Brian':                '#3F51B5',
   'Shana':                '#F6BF26',
   'Trevor':               '#8E24AA',
   'Sales & Accounting':   '#039BE5',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CALENDARS } from '../config/calendars.js';
+import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from '../components/TimeEntryBlock.jsx';
 import CustomerLookup from '../components/CustomerLookup.jsx';
 import { timeEntriesApi, returnCardsApi } from '../services/supabase.js';
@@ -12,6 +12,8 @@ const TECH_CAL_MAP = {
   'austin@drhsecurityservices.com': CALENDARS.AUSTIN,
   'JR':  CALENDARS.JR, 'jr':  CALENDARS.JR,
   'jr@drhsecurityservices.com':     CALENDARS.JR,
+  'Brian': CALENDARS.TECH3, 'brian': CALENDARS.TECH3,
+  'brian@drhsecurityservices.com':  CALENDARS.TECH3,
   'Shana': CALENDARS.SHANA, 'shana': CALENDARS.SHANA,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
 };
@@ -89,21 +91,25 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       singleEvents: 'true', orderBy: 'startTime', maxResults: '100'
     });
 
-    // If showAllTechs, pull Austin + JR; otherwise just the tech's calendar
-    const techCalendars = showAllTechs 
-      ? [CALENDARS.AUSTIN, CALENDARS.JR]
-      : [techCalId];
-    
-    // Only tech calendars - no queue or admin calendars
-    const calIds = techCalendars;
+    // Per-user list: which tech calendars show up in this user's Work view.
+    // Operators see Austin + JR + Brian. Austin sees his own + Brian's.
+    // JR sees JR. Brian sees Brian. (Defined in config/calendars.js)
+    const workCals = getWorkViewCalendars(userEmail);
+    // Fallback: if no rule matched (unknown user), show their own tech calendar
+    const techCalendars = workCals.length > 0
+      ? workCals
+      : [{ id: techCalId, name: null }];
+
+    const calIds = techCalendars.map(c => c.id);
+    const calNameById = Object.fromEntries(techCalendars.map(c => [c.id, c.name]));
     const fetches = calIds.map(calId =>
       fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       }).then(r => r.json())
-        .then(data => (data.items || []).map(ev => ({ 
-          ...ev, 
+        .then(data => (data.items || []).map(ev => ({
+          ...ev,
           _calId: calId,
-          _techName: calId === CALENDARS.AUSTIN ? 'Austin' : calId === CALENDARS.JR ? 'JR' : null
+          _techName: calNameById[calId] || null
         })))
         .catch(() => [])
     );
@@ -132,7 +138,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
     setAll(items);
     setLoading(false);
-  }, [accessToken, techCalId, offset, showAllTechs]);
+  }, [accessToken, userEmail, techCalId, offset, showAllTechs]);
 
   useEffect(() => { load(); }, [load]);
 

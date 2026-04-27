@@ -31,6 +31,7 @@ const USER_CONFIG = {
   'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
   'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
+  'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: null },
   'info@drhsecurityservices.com':     { name: null,     role: 'operator', defaultCalendar: null, defaultView: null, needsIdentity: true },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
@@ -50,6 +51,7 @@ const CALENDAR_OPTIONS = [
   { key: null, label: 'All Calendars' },
   { key: 'Austin', label: 'Austin' },
   { key: 'JR', label: 'JR' },
+  { key: 'Brian', label: 'Brian' },
   { key: 'Sara', label: 'Sara' },
   { key: 'Shana', label: 'Shana' },
   { key: 'Service Queue', label: 'Service Queue' },
@@ -392,7 +394,7 @@ export default function App() {
   }, [isSignedIn, silentRefresh, handleSignOut]);
 
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
-  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
+  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
   const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
   const isOperator = getUserConfig(userEmail).role === 'operator';
 

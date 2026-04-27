@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
+import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from '../components/TimeEntryBlock.jsx';
+import CustomerLookup from '../components/CustomerLookup.jsx';
+import { timeEntriesApi, returnCardsApi } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -39,41 +42,6 @@ function isProjectLike(title = '', description = '') {
   ].some(k => t.includes(k));
 }
 
-function formatElapsed(ms) {
-  const totalMinutes = Math.max(0, Math.round(ms / 60000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}h ${minutes}m`;
-}
-
-function parseTimeInput(v) {
-  if (!v) return null;
-  const s = String(v).trim().toLowerCase();
-  let m = s.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?)?$/);
-  if (m) return Math.round(parseFloat(m[1]) * 60 * 60 * 1000);
-  m = s.match(/^(\d+(?:\.\d+)?)$/);
-  if (m) return Math.round(parseFloat(m[1]) * 60 * 60 * 1000);
-  m = s.match(/^(\d+)\s*m(?:in(?:utes?)?)?$/);
-  if (m) return parseInt(m[1], 10) * 60 * 1000;
-  m = s.match(/^(\d+)\s*h\s*(\d+)\s*m$/);
-  if (m) return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) * 60 * 1000;
-  return null;
-}
-
-function parseClockOnDate(clock, baseDate) {
-  if (!clock) return null;
-  const m = String(clock).trim().match(/^(\d{1,2}):(\d{2})(?:\s*([AaPp][Mm]))?$/);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = (m[3] || '').toLowerCase();
-  if (ap === 'pm' && h !== 12) h += 12;
-  if (ap === 'am' && h === 12) h = 0;
-  const d = new Date(baseDate);
-  d.setHours(h, min, 0, 0);
-  return d;
-}
-
 const TABS = [
   { key: 'new',      label: 'New',      emoji: '🆕', color: '#1a8a8a' },
   { key: 'return',   label: 'Return',   emoji: '🔄', color: '#d97706' },
@@ -90,11 +58,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [selected, setSelected] = useState(null);
   const [notes, setNotes]       = useState('');
   const [acting, setActing]     = useState(false);
-  const [timeStartedAt, setTimeStartedAt] = useState(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
-  const [manualHours, setManualHours] = useState('');
-  const [timeIn, setTimeIn] = useState('');
-  const [timeOut, setTimeOut] = useState('');
+
+  // NEW: time entry widget state
+  const [timeEntry, setTimeEntry] = useState(emptyTimeEntry());
+  // NEW: linked customer for the currently selected event
+  const [linkedCustomer, setLinkedCustomer] = useState(null);
+  // NEW: return-reason input (required when disposition is "return")
+  const [returnReason, setReturnReason] = useState('');
 
 
   // Single tech calendar OR all techs for operators
@@ -168,119 +138,138 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   const events = allEvents.filter(e => e.tab === activeTab);
 
-  const openDetail = (ev) => { setSelected(ev); setNotes(''); };
-  const closeSheet = ()   => {
+  const openDetail = (ev) => {
+    setSelected(ev);
+    setNotes('');
+    setTimeEntry(emptyTimeEntry());
+    setLinkedCustomer(null);
+    setReturnReason('');
+  };
+  const closeSheet = () => {
     setSelected(null);
     setNotes('');
     setActing(false);
-    setTimeStartedAt(null);
-    setElapsedMs(0);
-    setManualHours('');
-    setTimeIn('');
-    setTimeOut('');
+    setTimeEntry(emptyTimeEntry());
+    setLinkedCustomer(null);
+    setReturnReason('');
   };
 
-  const startTimer = () => {
-    if (!timeStartedAt) setTimeStartedAt(Date.now());
-  };
-
-  const pauseTimer = () => {
-    if (timeStartedAt) {
-      setElapsedMs(prev => prev + (Date.now() - timeStartedAt));
-      setTimeStartedAt(null);
-    }
-  };
-
-  const resetTimer = () => {
-    setTimeStartedAt(null);
-    setElapsedMs(0);
-    setManualHours('');
-    setTimeIn('');
-    setTimeOut('');
-  };
-
-  const computedTimerMs = timeStartedAt ? elapsedMs + (Date.now() - timeStartedAt) : elapsedMs;
   const selectedDate = selected?.start || new Date();
-  const timeInDate = parseClockOnDate(timeIn, selectedDate);
-  const timeOutDate = parseClockOnDate(timeOut, selectedDate);
-  let inOutMs = null;
-  if (timeInDate && timeOutDate) {
-    let diff = timeOutDate - timeInDate;
-    if (diff < 0) diff += 24 * 60 * 60 * 1000;
-    inOutMs = diff;
-  }
-  const manualMs = parseTimeInput(manualHours);
-  const effectiveTimeMs = manualMs ?? inOutMs ?? computedTimerMs;
+  const timeValid = isValidTimeEntry(timeEntry, selectedDate);
+  const hasLinkedCustomer = !!linkedCustomer?.id;
+  // Every finish action requires a time entry AND a linked customer.
+  const canFinish = timeValid && hasLinkedCustomer && !acting;
 
-
-  const patchEvent = async (ev, newTitle, appendDesc) => {
-    const ts = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
-    const timeLines = [];
-    if (manualHours.trim()) timeLines.push(`Manual Time: ${manualHours.trim()}`);
-    if (timeIn.trim()) timeLines.push(`Time In: ${timeIn.trim()}`);
-    if (timeOut.trim()) timeLines.push(`Time Out: ${timeOut.trim()}`);
-    if (effectiveTimeMs > 0) timeLines.push(`Total Time: ${formatElapsed(effectiveTimeMs)}`);
-    const noteBlock = notes.trim() ? '
-Notes: ' + notes.trim() : '';
-    const timeBlock = timeLines.length ? '
-' + timeLines.join(' • ') : '';
-    const newDesc = [ev.description, appendDesc + noteBlock + timeBlock + ' — ' + ts].filter(Boolean).join('
-
-');
+  // Calendar PATCH — title only. Description is owned by CustomerLookup (CUSTOMER_ID tag).
+  const patchEventTitle = async (ev, newTitle) => {
     await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: newTitle, description: newDesc }),
-    });
-    return newDesc;
-  };
-
-  const createEvent = async (calId, title, desc, location) => {
-    const d = new Date().toISOString().split('T')[0];
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: title, description: desc, location, start: { date: d }, end: { date: d } }),
+      body: JSON.stringify({ summary: newTitle }),
     });
   };
 
+  // Single Supabase write that every finish action routes through.
+  const writeTimeEntry = async (disposition) => {
+    const tPayload = timeEntryToPayload(timeEntry, selectedDate);
+    return timeEntriesApi.create({
+      customer_id: linkedCustomer?.id || null,
+      customer_name_raw: linkedCustomer?.name || cleanTitle(selected.title) || null,
+      calendar_event_id: selected.id,
+      calendar_id: selected.calendarId,
+      event_title: selected.title,
+      event_start: selected.start?.toISOString?.() || null,
+      tech_email: userEmail || null,
+      tech_name: selected.techName || userName || null,
+      time_in: tPayload.time_in,
+      time_out: tPayload.time_out,
+      total_minutes: tPayload.total_minutes,
+      entry_method: tPayload.entry_method,
+      disposition,
+      notes: notes.trim() || null,
+    });
+  };
+
+  // ── BILL IT ─── closes job. No calendar duplication. Row in time_entries drives billing queue.
   const handleBillIt = async () => {
-    if (!selected || acting) return;
+    if (!canFinish || !selected) return;
     setActing(true);
-    const name = cleanTitle(selected.title);
-    const newDesc = await patchEvent(selected, name + ' [COMPLETED]', '✅ COMPLETED');
-    await createEvent(CALENDARS.SALES_ACCOUNTING, name + ' [TO BILL]', newDesc, selected.location);
-    setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [COMPLETED]', tab: 'billit' } : e));
-    closeSheet();
+    try {
+      const name = cleanTitle(selected.title);
+      await patchEventTitle(selected, name + ' [COMPLETED]');
+      await writeTimeEntry('bill_it');
+      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [COMPLETED]', tab: 'billit' } : e));
+      closeSheet();
+    } catch (e) {
+      console.error('Bill It failed:', e);
+      alert('Failed to save: ' + (e.message || 'unknown error'));
+      setActing(false);
+    }
   };
 
+  // ── RETURN ─── spawns a return_card (no sibling calendar event).
   const handleReturn = async () => {
-    if (!selected || acting) return;
+    if (!canFinish || !selected) return;
+    if (!returnReason.trim()) { alert('Please add a reason for the return visit.'); return; }
     setActing(true);
-    const name = cleanTitle(selected.title);
-    const newDesc = await patchEvent(selected, name + ' [RETURN NEEDED]', '🔄 NEEDS RETURN');
-    await createEvent(CALENDARS.TENTATIVELY_SCHEDULED, name + ' [RETURN NEEDED]', newDesc, selected.location);
-    setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [RETURN NEEDED]', tab: 'return' } : e));
-    closeSheet();
+    try {
+      const name = cleanTitle(selected.title);
+      await patchEventTitle(selected, name + ' [RETURN NEEDED]');
+      const entry = await writeTimeEntry('return');
+      await returnCardsApi.create({
+        customer_id: linkedCustomer?.id || null,
+        customer_name_raw: linkedCustomer?.name || name || null,
+        original_event_id: selected.id,
+        original_calendar_id: selected.calendarId,
+        original_event_title: selected.title,
+        original_location: selected.location || null,
+        flagged_by_email: userEmail || null,
+        flagged_by_name: selected.techName || userName || null,
+        reason: returnReason.trim(),
+        time_entry_id: entry?.id || null,
+      });
+      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [RETURN NEEDED]', tab: 'return' } : e));
+      closeSheet();
+    } catch (e) {
+      console.error('Return failed:', e);
+      alert('Failed to save: ' + (e.message || 'unknown error'));
+      setActing(false);
+    }
   };
 
+  // ── IN PROGRESS ─── project stays open, logs today's time entry.
   const handleProjectProgress = async () => {
-    if (!selected || acting) return;
+    if (!canFinish || !selected) return;
     setActing(true);
-    const name = cleanTitle(selected.title);
-    await patchEvent(selected, name + ' [IN PROGRESS]', '🛠️ IN PROGRESS');
-    setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [IN PROGRESS]', tab: 'new' } : e));
-    closeSheet();
+    try {
+      const name = cleanTitle(selected.title);
+      await patchEventTitle(selected, name + ' [IN PROGRESS]');
+      await writeTimeEntry('in_progress');
+      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [IN PROGRESS]', tab: 'new' } : e));
+      closeSheet();
+    } catch (e) {
+      console.error('In Progress failed:', e);
+      alert('Failed to save: ' + (e.message || 'unknown error'));
+      setActing(false);
+    }
   };
 
+  // ── ESTIMATE NEEDED ─── flag for sales. Still TBD: also push to bill-it + create sales task.
+  // For now: just marks the event and writes the time entry.
   const handleEstimate = async () => {
-    if (!selected || acting) return;
+    if (!canFinish || !selected) return;
     setActing(true);
-    const name = cleanTitle(selected.title);
-    const newDesc = await patchEvent(selected, name + ' [ESTIMATE NEEDED]', '💰 ESTIMATE NEEDED');
-    await createEvent(CALENDARS.SALES_ACCOUNTING, name + ' [ESTIMATE NEEDED]', newDesc, selected.location);
-    setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [ESTIMATE NEEDED]', tab: 'estimate' } : e));
-    closeSheet();
+    try {
+      const name = cleanTitle(selected.title);
+      await patchEventTitle(selected, name + ' [ESTIMATE NEEDED]');
+      await writeTimeEntry('estimate');
+      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [ESTIMATE NEEDED]', tab: 'estimate' } : e));
+      closeSheet();
+    } catch (e) {
+      console.error('Estimate failed:', e);
+      alert('Failed to save: ' + (e.message || 'unknown error'));
+      setActing(false);
+    }
   };
 
   const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -448,72 +437,78 @@ Notes: ' + notes.trim() : '';
               </div>
             )}
 
-            {selected.location && (
-              <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px', marginBottom: 12 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 4 }}>Address</div>
-                <div style={{ fontSize: 14, color: '#374151' }}>{selected.location}</div>
+            <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px', marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 4 }}>Address</div>
+              <div style={{ fontSize: 14, color: '#374151' }}>
+                {linkedCustomer?.address || selected.location || <span style={{ color: '#9ca3af' }}>(link a customer to auto-fill)</span>}
               </div>
-            )}
+            </div>
 
             {selected.description && (
               <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 4 }}>Job Details</div>
                 <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                  {selected.description.replace(/📱.*|Open in JUC-E.*/g, '').trim()}
+                  {selected.description
+                    .replace(/📱.*|Open in JUC-E.*/g, '')
+                    .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
+                    .trim()}
                 </div>
               </div>
             )}
 
-            <div style={{ background: '#f9fafb', borderRadius: 10, padding: '12px', marginBottom: 14, border: '1px solid #e5e7eb' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Time Entry</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#1B2A4A' }}>⏱ {formatElapsed(effectiveTimeMs)}</div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
-                <input value={manualHours} onChange={e => setManualHours(e.target.value)}
-                  placeholder="Total hrs (e.g. 1.5)"
-                  style={{ padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
-                <input value={timeIn} onChange={e => setTimeIn(e.target.value)}
-                  placeholder="Time in 11:30"
-                  style={{ padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
-                <input value={timeOut} onChange={e => setTimeOut(e.target.value)}
-                  placeholder="Time out 1:15"
-                  style={{ padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={startTimer}
-                  style={{ padding: '10px 12px', background: '#ecfeff', border: '1px solid #67e8f9', borderRadius: 8, color: '#155e75', fontWeight: 700, cursor: 'pointer' }}>Start</button>
-                <button onClick={pauseTimer}
-                  style={{ padding: '10px 12px', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, color: '#9a3412', fontWeight: 700, cursor: 'pointer' }}>Pause</button>
-                <button onClick={resetTimer}
-                  style={{ padding: '10px 12px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 8, color: '#4b5563', fontWeight: 700, cursor: 'pointer' }}>Reset</button>
-              </div>
-            </div>
+            {/* Customer link (required) */}
+            <CustomerLookup
+              event={selected}
+              accessToken={accessToken}
+              value={linkedCustomer}
+              onChange={setLinkedCustomer}
+            />
+
+            {/* Time entry (required) */}
+            <TimeEntryBlock
+              value={timeEntry}
+              onChange={setTimeEntry}
+              eventDate={selectedDate}
+              required
+            />
 
             <textarea value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="Add notes (what was done, what's needed...)"
               style={{ width: '100%', padding: '12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 80, marginBottom: 14, boxSizing: 'border-box', fontFamily: 'inherit' }} />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* Gate hint */}
+              {!canFinish && (
+                <div style={{
+                  padding: '10px 12px', background: '#fffbeb', border: '1px solid #fcd34d',
+                  borderRadius: 10, fontSize: 12, color: '#92400e', textAlign: 'center',
+                }}>
+                  {!hasLinkedCustomer && !timeValid && 'Link a customer and add time to finish.'}
+                  {!hasLinkedCustomer && timeValid && 'Link a customer to finish.'}
+                  {hasLinkedCustomer && !timeValid && 'Add a time entry to finish.'}
+                </div>
+              )}
+
               {selected.tab !== 'billit' && !isProjectLike(selected.title, selected.description) && (
-                <button onClick={handleBillIt} disabled={acting}
-                  style={{ padding: '15px', background: '#1B2A4A', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                <button onClick={handleBillIt} disabled={!canFinish}
+                  style={{ padding: '15px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                   {acting ? 'Saving...' : '✅ Done — Bill It'}
                 </button>
               )}
 
               {selected.tab === 'new' && isProjectLike(selected.title, selected.description) && (
                 <>
-                  <button onClick={handleProjectProgress} disabled={acting}
-                    style={{ padding: '15px', background: '#ecfeff', border: '1.5px solid #67e8f9', borderRadius: 12, color: '#155e75', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                  <button onClick={handleProjectProgress} disabled={!canFinish}
+                    style={{ padding: '15px', background: canFinish ? '#ecfeff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 12, color: canFinish ? '#155e75' : '#94a3b8', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     🛠️ Done for Today — Keep In Progress
                   </button>
-                  <button onClick={handleReturn} disabled={acting}
-                    style={{ padding: '15px', background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, color: '#92400e', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
-                    🔄 Needs Return Visit
-                  </button>
-                  <button onClick={handleBillIt} disabled={acting}
-                    style={{ padding: '15px', background: '#1B2A4A', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                  <ReturnButtonWithReason
+                    canFinish={canFinish} acting={acting}
+                    reason={returnReason} setReason={setReturnReason}
+                    onConfirm={handleReturn}
+                  />
+                  <button onClick={handleBillIt} disabled={!canFinish}
+                    style={{ padding: '15px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     {acting ? 'Saving...' : '✅ Done — Bill It'}
                   </button>
                 </>
@@ -521,12 +516,13 @@ Notes: ' + notes.trim() : '';
 
               {selected.tab === 'new' && !isProjectLike(selected.title, selected.description) && (
                 <>
-                  <button onClick={handleReturn} disabled={acting}
-                    style={{ padding: '15px', background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, color: '#92400e', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
-                    🔄 Needs Return Visit
-                  </button>
-                  <button onClick={handleEstimate} disabled={acting}
-                    style={{ padding: '15px', background: '#f5f3ff', border: '1.5px solid #c4b5fd', borderRadius: 12, color: '#5b21b6', fontSize: 15, fontWeight: 700, cursor: acting ? 'not-allowed' : 'pointer' }}>
+                  <ReturnButtonWithReason
+                    canFinish={canFinish} acting={acting}
+                    reason={returnReason} setReason={setReturnReason}
+                    onConfirm={handleReturn}
+                  />
+                  <button onClick={handleEstimate} disabled={!canFinish}
+                    style={{ padding: '15px', background: canFinish ? '#f5f3ff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 12, color: canFinish ? '#5b21b6' : '#94a3b8', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     💰 Needs Estimate
                   </button>
                 </>
@@ -539,6 +535,69 @@ Notes: ' + notes.trim() : '';
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── ReturnButtonWithReason ─────────────────────────────────────
+// Inline-expands a reason field before firing onConfirm, since
+// every return_card needs a reason to be useful in the Scheduler view.
+function ReturnButtonWithReason({ canFinish, acting, reason, setReason, onConfirm }) {
+  const [expanded, setExpanded] = useState(false);
+  const ready = canFinish && reason.trim().length > 0;
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => canFinish && setExpanded(true)}
+        disabled={!canFinish}
+        style={{
+          padding: '15px',
+          background: canFinish ? '#fffbeb' : '#f1f5f9',
+          border: `1.5px solid ${canFinish ? '#fbbf24' : '#cbd5e1'}`,
+          borderRadius: 12,
+          color: canFinish ? '#92400e' : '#94a3b8',
+          fontSize: 15, fontWeight: 700,
+          cursor: canFinish ? 'pointer' : 'not-allowed',
+        }}>
+        🔄 Needs Return Visit
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>
+        Return reason (required)
+      </div>
+      <textarea
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        placeholder="e.g. needs battery, customer not home, waiting on part..."
+        autoFocus
+        rows={2}
+        style={{
+          padding: 10, border: '1px solid #fcd34d', borderRadius: 8,
+          fontSize: 13, resize: 'none', fontFamily: 'inherit', background: '#fff',
+        }}
+      />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => { setExpanded(false); setReason(''); }}
+          style={{ flex: 1, padding: 10, background: '#fff', border: '1px solid #fcd34d', borderRadius: 8, color: '#92400e', fontSize: 13, cursor: 'pointer' }}>
+          Cancel
+        </button>
+        <button onClick={onConfirm} disabled={!ready || acting}
+          style={{
+            flex: 2, padding: 10,
+            background: ready ? '#d97706' : '#e5e7eb',
+            color: ready ? '#fff' : '#9ca3af',
+            border: 'none', borderRadius: 8,
+            fontSize: 13, fontWeight: 700,
+            cursor: ready && !acting ? 'pointer' : 'not-allowed',
+          }}>
+          {acting ? 'Saving...' : 'Confirm Return'}
+        </button>
+      </div>
     </div>
   );
 }

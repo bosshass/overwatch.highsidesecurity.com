@@ -629,6 +629,190 @@ export const queries = {
 };
 
 // ============================================
+// TIME ENTRIES API
+// ============================================
+// Every tech "finish" action writes one row. This feeds:
+//   - Billing queue: disposition='bill_it' AND billed=false
+//   - Project queue: disposition='in_progress'
+//   - Customer history: ORDER BY created_at DESC WHERE customer_id=x
+
+export const timeEntriesApi = {
+  // Create a time entry from a finish action
+  async create(entry) {
+    const payload = {
+      customer_id: entry.customer_id || null,
+      customer_name_raw: entry.customer_name_raw || null,
+      calendar_event_id: entry.calendar_event_id,
+      calendar_id: entry.calendar_id,
+      event_title: entry.event_title || null,
+      event_start: entry.event_start || null,
+      tech_email: entry.tech_email || null,
+      tech_name: entry.tech_name || null,
+      time_in: entry.time_in || null,
+      time_out: entry.time_out || null,
+      total_minutes: entry.total_minutes || 0,
+      entry_method: entry.entry_method || 'manual',
+      disposition: entry.disposition,
+      notes: entry.notes || null,
+    };
+    const { data, error } = await supabase.from('time_entries').insert([payload]).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  // Recent entries for a customer (for "prior visits" display)
+  async getForCustomer(customerId, limit = 5) {
+    const { data, error } = await supabase
+      .from('time_entries')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Entries for a specific calendar event (usually 1, but supports multi-day projects)
+  async getForEvent(calendarEventId) {
+    const { data, error } = await supabase
+      .from('time_entries')
+      .select('*')
+      .eq('calendar_event_id', calendarEventId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  // "Needs to Bill" queue — drives Billing view
+  async getBillingQueue() {
+    const { data, error } = await supabase
+      .from('time_entries')
+      .select('*, customers(name, phone, address, drh_id)')
+      .eq('disposition', 'bill_it')
+      .eq('billed', false)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Project queue — drives the (future) project view
+  async getProjectQueue() {
+    const { data, error } = await supabase
+      .from('time_entries')
+      .select('*, customers(name, phone, address, drh_id)')
+      .eq('disposition', 'in_progress')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Mark billed
+  async markBilled(id, invoiceRef) {
+    const { data, error } = await supabase
+      .from('time_entries')
+      .update({ billed: true, billed_at: new Date().toISOString(), invoice_ref: invoiceRef || null })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async update(id, updates) {
+    const { data, error } = await supabase.from('time_entries').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
+  },
+};
+
+// ============================================
+// RETURN CARDS API
+// ============================================
+// Created when tech flags "Return Needed". Feeds the Scheduler view.
+
+export const returnCardsApi = {
+  async create(card) {
+    const payload = {
+      customer_id: card.customer_id || null,
+      customer_name_raw: card.customer_name_raw || null,
+      original_event_id: card.original_event_id,
+      original_calendar_id: card.original_calendar_id,
+      original_event_title: card.original_event_title || null,
+      original_location: card.original_location || null,
+      flagged_by_email: card.flagged_by_email || null,
+      flagged_by_name: card.flagged_by_name || null,
+      reason: card.reason || null,
+      time_entry_id: card.time_entry_id || null,
+      status: 'pending_schedule',
+    };
+    const { data, error } = await supabase.from('return_cards').insert([payload]).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  // Pending returns — drives Scheduler's returns tab
+  async getPending() {
+    const { data, error } = await supabase
+      .from('return_cards')
+      .select('*, customers(name, phone, address, drh_id)')
+      .eq('status', 'pending_schedule')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async markScheduled(id, newEventId, newCalendarId, scheduledAt) {
+    const { data, error } = await supabase
+      .from('return_cards')
+      .update({
+        status: 'scheduled',
+        new_event_id: newEventId,
+        new_calendar_id: newCalendarId,
+        scheduled_at: scheduledAt || new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async cancel(id) {
+    const { data, error } = await supabase
+      .from('return_cards')
+      .update({ status: 'cancelled' })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+};
+
+// ============================================
+// CUSTOMERS — LOOSE CREATE
+// ============================================
+// Extend the existing customersApi with a name-only create path.
+// Phone, address, email, cms_account_id all optional.
+
+customersApi.createLoose = async function(partial) {
+  if (!partial?.name || !partial.name.trim()) {
+    throw new Error('Customer name is required');
+  }
+  const payload = {
+    name: partial.name.trim(),
+    phone: partial.phone?.trim() || null,
+    address: partial.address?.trim() || null,
+    email: partial.email?.trim() || null,
+    cms_account_id: partial.cms_account_id?.trim() || null,
+    is_active: true,
+  };
+  const { data, error } = await supabase.from('customers').insert([payload]).select().single();
+  if (error) throw error;
+  return data;
+};
+
+// ============================================
 // REALTIME
 // ============================================
 

@@ -67,6 +67,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [linkedCustomer, setLinkedCustomer] = useState(null);
   // NEW: return-reason input (required when disposition is "return")
   const [returnReason, setReturnReason] = useState('');
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
 
   // Single tech calendar OR all techs for operators
@@ -150,6 +151,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     setTimeEntry(emptyTimeEntry());
     setLinkedCustomer(null);
     setReturnReason('');
+    setDetailsExpanded(false);
   };
   const closeSheet = () => {
     setSelected(null);
@@ -420,53 +422,67 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         <div onClick={closeSheet}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px', width: '100%', maxWidth: 480, maxHeight: '88vh', maxHeight: '88dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '14px 14px 24px', width: '100%', maxWidth: 480, maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
-            <div style={{ width: 36, height: 4, background: '#e5e7eb', borderRadius: 2, margin: '0 auto 18px' }} />
+            <div style={{ width: 36, height: 4, background: '#e5e7eb', borderRadius: 2, margin: '0 auto 10px' }} />
 
-            <div style={{ fontWeight: 700, fontSize: 20, color: '#1B2A4A', marginBottom: 4 }}>
+            <div style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', marginBottom: 2 }}>
               {cleanTitle(selected.title)}
             </div>
-            <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 18 }}>
+            <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 10 }}>
               {selected.isAllDay ? 'All day' : fmtTime(selected.start) + ' – ' + fmtTime(selected.end)}
             </div>
 
             {(selected.location || extractPhone(selected.description)) && (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 {selected.location && (
                   <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
                     target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#2563eb', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#2563eb', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
                     🗺️ Navigate
                   </a>
                 )}
                 {extractPhone(selected.description) && (
                   <a href={'tel:' + (extractPhone(selected.description) || '').replace(/\D/g, '')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, color: '#16a34a', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, color: '#16a34a', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
                     📞 Call
                   </a>
                 )}
               </div>
             )}
 
-            <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px', marginBottom: 12 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 4 }}>Address</div>
-              <div style={{ fontSize: 14, color: '#374151' }}>
-                {linkedCustomer?.address || selected.location || <span style={{ color: '#9ca3af' }}>(link a customer to auto-fill)</span>}
-              </div>
-            </div>
-
-            {selected.description && (
-              <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: 4 }}>Job Details</div>
-                <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                  {selected.description
-                    .replace(/📱.*|Open in JUC-E.*/g, '')
-                    .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
-                    .trim()}
-                </div>
+            {/* Address block — only when it's NOT the same as the Navigate button's location */}
+            {linkedCustomer?.address && linkedCustomer.address !== selected.location && (
+              <div style={{ background: '#f9fafb', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>Address</div>
+                <div style={{ fontSize: 13, color: '#374151' }}>{linkedCustomer.address}</div>
               </div>
             )}
+
+            {/* Job Details — collapsed by default, "more" reveals the rest */}
+            {selected.description && (() => {
+              const cleaned = selected.description
+                .replace(/📱.*|Open in JUC-E.*/g, '')
+                .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
+                .trim();
+              if (!cleaned) return null;
+              const long = cleaned.length > 140;
+              const display = !long || detailsExpanded ? cleaned : cleaned.slice(0, 140).trimEnd() + '…';
+              return (
+                <div style={{ background: '#f9fafb', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Job Details</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                    {display}
+                  </div>
+                  {long && (
+                    <button onClick={() => setDetailsExpanded(v => !v)}
+                      style={{ marginTop: 4, padding: 0, background: 'none', border: 'none', color: '#2563eb', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      {detailsExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Customer link (required) */}
             <CustomerLookup
@@ -485,15 +501,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             />
 
             <textarea value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Add notes (what was done, what's needed...)"
-              style={{ width: '100%', padding: '12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 80, marginBottom: 14, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              placeholder="Notes (what was done, what's needed...)"
+              style={{ width: '100%', padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60, marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit' }} />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {/* Gate hint */}
               {!canFinish && (
                 <div style={{
-                  padding: '10px 12px', background: '#fffbeb', border: '1px solid #fcd34d',
-                  borderRadius: 10, fontSize: 12, color: '#92400e', textAlign: 'center',
+                  padding: '8px 10px', background: '#fffbeb', border: '1px solid #fcd34d',
+                  borderRadius: 10, fontSize: 11, color: '#92400e', textAlign: 'center',
                 }}>
                   {!hasLinkedCustomer && !timeValid && 'Link a customer and add time to finish.'}
                   {!hasLinkedCustomer && timeValid && 'Link a customer to finish.'}
@@ -503,7 +519,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
               {selected.tab !== 'billit' && !isProjectLike(selected.title, selected.description) && (
                 <button onClick={handleBillIt} disabled={!canFinish}
-                  style={{ padding: '15px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
+                  style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                   {acting ? 'Saving...' : '✅ Done — Bill It'}
                 </button>
               )}
@@ -511,7 +527,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               {selected.tab === 'new' && isProjectLike(selected.title, selected.description) && (
                 <>
                   <button onClick={handleProjectProgress} disabled={!canFinish}
-                    style={{ padding: '15px', background: canFinish ? '#ecfeff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 12, color: canFinish ? '#155e75' : '#94a3b8', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
+                    style={{ padding: '12px', background: canFinish ? '#ecfeff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 10, color: canFinish ? '#155e75' : '#94a3b8', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     🛠️ Done for Today — Keep In Progress
                   </button>
                   <ReturnButtonWithReason
@@ -520,7 +536,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     onConfirm={handleReturn}
                   />
                   <button onClick={handleBillIt} disabled={!canFinish}
-                    style={{ padding: '15px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 12, color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
+                    style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     {acting ? 'Saving...' : '✅ Done — Bill It'}
                   </button>
                 </>
@@ -534,13 +550,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     onConfirm={handleReturn}
                   />
                   <button onClick={handleEstimate} disabled={!canFinish}
-                    style={{ padding: '15px', background: canFinish ? '#f5f3ff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 12, color: canFinish ? '#5b21b6' : '#94a3b8', fontSize: 15, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
+                    style={{ padding: '12px', background: canFinish ? '#f5f3ff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 10, color: canFinish ? '#5b21b6' : '#94a3b8', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     💰 Needs Estimate
                   </button>
                 </>
               )}
               <button onClick={closeSheet}
-                style={{ padding: '13px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 12, color: '#9ca3af', fontSize: 14, cursor: 'pointer' }}>
+                style={{ padding: '10px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 10, color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>
@@ -565,12 +581,12 @@ function ReturnButtonWithReason({ canFinish, acting, reason, setReason, onConfir
         onClick={() => canFinish && setExpanded(true)}
         disabled={!canFinish}
         style={{
-          padding: '15px',
+          padding: '12px',
           background: canFinish ? '#fffbeb' : '#f1f5f9',
           border: `1.5px solid ${canFinish ? '#fbbf24' : '#cbd5e1'}`,
-          borderRadius: 12,
+          borderRadius: 10,
           color: canFinish ? '#92400e' : '#94a3b8',
-          fontSize: 15, fontWeight: 700,
+          fontSize: 14, fontWeight: 700,
           cursor: canFinish ? 'pointer' : 'not-allowed',
         }}>
         🔄 Needs Return Visit

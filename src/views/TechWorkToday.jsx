@@ -298,8 +298,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR)" : `${userName}'s Jobs`;
 
   return (
-    <div style={{ minHeight: '100vh', minHeight: '100dvh', background: '#0f1729', display: 'flex', justifyContent: 'center' }}>
-      <div style={{ width: '100%', maxWidth: 500, minHeight: '100vh', minHeight: '100dvh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif", boxShadow: '0 0 24px rgba(0,0,0,0.15)' }}>
+    <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
 
       {/* Header */}
       <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>
@@ -563,7 +562,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           </div>
         </div>
       )}
-      </div>
     </div>
   );
 }

@@ -23,7 +23,7 @@ import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 
-const APP_VERSION = '6.1.0';
+const APP_VERSION = '6.8.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -470,7 +470,7 @@ export default function App() {
         }}>← Home</button>
         <span style={{ fontSize: 18 }}>🛡️</span>
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
-        <span style={{ color: '#475569', fontSize: 11 }}>V6</span>
+        <span style={{ color: '#475569', fontSize: 11 }}>V6.8</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
           {isOperator && (
@@ -664,7 +664,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 22 }}>🛡️</span>
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
-          <span style={{ color: '#475569', fontSize: 11 }}>V6</span>
+          <span style={{ color: '#475569', fontSize: 11 }}>V6.8</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>

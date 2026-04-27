@@ -114,11 +114,27 @@ export const customersApi = {
   },
 
   async search(query) {
+    if (!query || !query.trim()) return [];
+    // PostgREST .or() uses commas as separators, parens as grouping, and
+    // also chokes on  *  (  )  characters in ilike patterns.
+    // Sanitize the query and pick the longest meaningful word to search on.
+    const cleaned = String(query)
+      .replace(/[,()*]/g, ' ')      // strip PostgREST-special chars
+      .replace(/\s+/g, ' ')          // collapse whitespace
+      .trim();
+    if (!cleaned) return [];
+    // Split into words, drop short ones, search the longest fragment.
+    // (Picking the longest word usually gets the most distinctive token —
+    // e.g. "Estimates Needed- Huang Rupert Greeley Crops" → "Estimates")
+    const words = cleaned.split(' ').filter(w => w.length >= 3);
+    const term = (words.sort((a, b) => b.length - a.length)[0] || cleaned).slice(0, 60);
+    // Also strip any % chars from term (would break the ilike pattern)
+    const safe = term.replace(/[%]/g, '');
     const { data, error } = await supabase
       .from('customers')
       .select('*')
       .eq('is_active', true)
-      .or(`name.ilike.%${query}%,phone.ilike.%${query}%,address.ilike.%${query}%,cms_account_id.ilike.%${query}%`)
+      .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,address.ilike.%${safe}%,cms_account_id.ilike.%${safe}%`)
       .order('name')
       .limit(50);
     if (error) throw error;

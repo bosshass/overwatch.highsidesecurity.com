@@ -336,18 +336,18 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               style={{
                 background: 'none', border: 'none',
                 borderBottom: activeTab === tab.key ? '3px solid ' + tab.color : '3px solid transparent',
-                padding: '10px 4px 8px', cursor: 'pointer', textAlign: 'center',
+                padding: '12px 4px 10px', cursor: 'pointer', textAlign: 'center',
                 color: activeTab === tab.key ? tab.color : '#9ca3af',
-                fontWeight: activeTab === tab.key ? 700 : 400, fontSize: 12,
+                fontWeight: activeTab === tab.key ? 700 : 500, fontSize: 14,
               }}>
-              <div style={{ fontSize: 16, marginBottom: 2 }}>{tab.emoji}</div>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>{tab.emoji}</div>
               <div>{tab.label}</div>
               {tabCounts[tab.key] > 0 && (
                 <div style={{
-                  display: 'inline-block', marginTop: 2,
+                  display: 'inline-block', marginTop: 3,
                   background: activeTab === tab.key ? tab.color : '#e5e7eb',
                   color: activeTab === tab.key ? '#fff' : '#6b7280',
-                  borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 6px',
+                  borderRadius: 10, fontSize: 11, fontWeight: 700, padding: '2px 8px',
                 }}>{tabCounts[tab.key]}</div>
               )}
             </button>
@@ -380,37 +380,37 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               style={{
                 background: '#ffffff',
                 borderRadius: i === 0 && events.length === 1 ? 12 : i === 0 ? '12px 12px 0 0' : i === events.length - 1 ? '0 0 12px 12px' : 0,
-                padding: '14px 16px', cursor: 'pointer',
+                padding: '16px 16px', cursor: 'pointer',
                 borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
-                borderLeft: '3px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
+                borderLeft: '4px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                {isNow && <div style={{ color: '#1a8a8a', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>In Progress</div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                {isNow && <div style={{ color: '#1a8a8a', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>In Progress</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   {ev.techName && (
                     <span style={{ 
                       background: techColor + '20', 
                       color: techColor, 
-                      fontSize: 10, 
+                      fontSize: 11, 
                       fontWeight: 700, 
-                      padding: '2px 6px', 
+                      padding: '3px 8px', 
                       borderRadius: 4 
                     }}>
                       {ev.techName}
                     </span>
                   )}
-                  <span style={{ fontWeight: 600, fontSize: 15, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontWeight: 600, fontSize: 16, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name || '(no name)'}
                   </span>
                 </div>
-                <div style={{ fontSize: 12, color: '#9ca3af' }}>
+                <div style={{ fontSize: 13, color: '#9ca3af' }}>
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                   {ev.location && ' · ' + ev.location.split(',')[0]}
                 </div>
-                {phone && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>📞 {phone}</div>}
+                {phone && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>📞 {phone}</div>}
               </div>
-              <div style={{ color: '#d1d5db', fontSize: 18, marginLeft: 8 }}>›</div>
+              <div style={{ color: '#d1d5db', fontSize: 22, marginLeft: 8 }}>›</div>
             </div>
           );
         })}

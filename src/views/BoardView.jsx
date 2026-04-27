@@ -1615,11 +1615,12 @@ export default function BoardView({ accessToken, onBack }) {
 
       {/* Scheduler Modal */}
       {showScheduler && scheduleEstimate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#1e293b', borderRadius: 12, width: '100%', maxWidth: 400, padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div style={{ background: '#1e293b', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 520, padding: '20px 20px 32px', maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div style={{ width: 36, height: 4, background: '#334155', borderRadius: 2, margin: '0 auto 12px' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>📅 Schedule Install</h3>
-              <button onClick={() => setShowScheduler(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setShowScheduler(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer', minWidth: 44, minHeight: 44 }}>✕</button>
             </div>
             
             <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16 }}>

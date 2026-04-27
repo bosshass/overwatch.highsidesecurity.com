@@ -23,7 +23,7 @@ import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 
-const APP_VERSION = '6.8.0';
+const APP_VERSION = '6.9.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -414,22 +414,26 @@ export default function App() {
   if (!isSignedIn) {
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)', padding: '20px'
+        minHeight: '100vh', minHeight: '100dvh',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'flex-start',
+        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)',
+        padding: '15vh 24px 24px',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <img src="/overwatch-icon.png" alt="Overwatch" style={{ width: '80px', height: '80px', marginBottom: '20px' }} />
-          <h1 style={{ fontSize: '28px', marginBottom: '8px', color: '#fff' }}>DRH Security</h1>
-          <p style={{ fontSize: '16px', color: '#00c8e8' }}>Overwatch</p>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <img src="/overwatch-icon.png" alt="Overwatch" style={{ width: 120, height: 120, marginBottom: 20 }} />
+          <h1 style={{ fontSize: 32, marginBottom: 6, color: '#fff', fontWeight: 700 }}>DRH Security</h1>
+          <p style={{ fontSize: 18, color: '#00c8e8', margin: 0 }}>Overwatch</p>
         </div>
         <button onClick={handleSignIn} style={{
-          display: 'flex', alignItems: 'center', gap: '12px',
-          padding: '16px 32px', fontSize: '16px', fontWeight: '600',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+          padding: '16px 24px', fontSize: 16, fontWeight: 600,
           background: 'white', color: '#333', border: 'none',
-          borderRadius: '12px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+          borderRadius: 12, cursor: 'pointer',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+          width: '100%', maxWidth: 360, minHeight: 56,
         }}>
-          <svg width="20" height="20" viewBox="0 0 24 24">
+          <svg width="22" height="22" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -437,7 +441,7 @@ export default function App() {
           </svg>
           Sign in with Google
         </button>
-        <p style={{ marginTop: '24px', color: '#666', fontSize: '12px' }}>v{APP_VERSION}</p>
+        <p style={{ marginTop: 20, color: '#475569', fontSize: 12 }}>v{APP_VERSION}</p>
       </div>
     );
   }
@@ -470,7 +474,7 @@ export default function App() {
         }}>← Home</button>
         <span style={{ fontSize: 18 }}>🛡️</span>
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
-        <span style={{ color: '#475569', fontSize: 11 }}>V6.8</span>
+        <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
           {isOperator && (
@@ -664,7 +668,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 22 }}>🛡️</span>
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
-          <span style={{ color: '#475569', fontSize: 11 }}>V6.8</span>
+          <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>

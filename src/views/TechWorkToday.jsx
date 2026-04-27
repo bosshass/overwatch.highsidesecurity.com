@@ -158,6 +158,11 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     setTimeEntry(emptyTimeEntry());
     setLinkedCustomer(null);
     setReturnReason('');
+    // Scroll the page back up so the user sees the refreshed list,
+    // not the whitespace where the just-finished item used to be.
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const selectedDate = selected?.start || new Date();
@@ -291,7 +296,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR)" : `${userName}'s Jobs`;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
+    <div style={{ minHeight: '100vh', minHeight: '100dvh', background: '#0f1729', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 500, minHeight: '100vh', minHeight: '100dvh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif", boxShadow: '0 0 24px rgba(0,0,0,0.15)' }}>
 
       {/* Header */}
       <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>
@@ -414,7 +420,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         <div onClick={closeSheet}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto' }}>
+            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px', width: '100%', maxWidth: 480, maxHeight: '88vh', maxHeight: '88dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
             <div style={{ width: 36, height: 4, background: '#e5e7eb', borderRadius: 2, margin: '0 auto 18px' }} />
 
@@ -541,6 +547,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

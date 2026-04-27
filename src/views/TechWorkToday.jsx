@@ -372,7 +372,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           const phone = extractPhone(ev.description);
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
-          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : null;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : null;
 
           return (
             <div key={ev.id} onClick={() => openDetail(ev)}

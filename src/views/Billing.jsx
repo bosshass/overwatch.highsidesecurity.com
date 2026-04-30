@@ -1,18 +1,22 @@
 // ============================================
-// JUC-E V6 — Billing (Calendar-First Redesign)
+// Overwatch — Billing (Unified Inbox)
 // ============================================
-// Only Billing.jsx touched. Queue untouched.
-// Pulls from 5 calendars, parses [TAG] prefixes,
-// sorts into Triage / Return / Estimate / Bill It.
-// Bill It: enter $ amount → archive to Completed.
+// Everything flows here. Calendar events + Supabase time_entries.
+// Billing team decides: Billed / Return / Estimate / Archive.
+//
+// Data sources:
+//   Calendar scan → triage (untagged), return, estimate items
+//   Supabase time_entries → enriched items with tech time data
+//   Both sources merge. When a time_entry exists for a calendar event,
+//   the item shows enriched data (tech, hours, notes, customer link).
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase } from '../services/supabase.js';
+import { supabase, timeEntriesApi } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
-// ── Calendars ───────────────────────────────────────────────
+// ── Calendars to scan ────────────────────────────────────────
 const BILLING_SOURCES = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service Queue', color: '#ef4444', daysBack: 90 },
   { id: CALENDARS.ADMIN_NOTES,           name: 'Admin Notes',   color: '#ec4899', daysBack: 7 },
@@ -22,7 +26,7 @@ const BILLING_SOURCES = [
                                            name: 'Shana',        color: '#a855f7', daysBack: 90 },
 ];
 
-// ── Tag parsing ─────────────────────────────────────────────
+// ── Tag parsing ──────────────────────────────────────────────
 const TAG_MAP = [
   { re: /^\[(COMPLETE|COMPLETED|TO BILL)\]/i,                                    bucket: 'bill_it' },
   { re: /^\[(NO CHARGE|NC|NO-CHARGE)\]/i,                                       bucket: 'bill_it', nc: true },
@@ -32,22 +36,20 @@ const TAG_MAP = [
   { re: /^\[(SCHEDULED)\]/i,                                                     bucket: 'skip' },
   { re: /^\[(INSTALL|INSTALLATION)\]/i,                                          bucket: 'bill_it' },
   { re: /^\[(SERVICE|QUEUE|NEEDS PARTS)\]/i,                                     bucket: 'triage' },
+  { re: /^\[(IN PROGRESS)\]/i,                                                   bucket: 'skip' },
 ];
 
 function parseEvent(ev, cal) {
   const summary = ev.summary || '(no title)';
-  
-  // Match the FIRST tag for bucket routing
   const firstTagMatch = summary.match(/^\[([^\]]+)\]\s*/);
   const rawTag = firstTagMatch ? firstTagMatch[1].toUpperCase() : null;
-  
-  // Strip ALL leading tags to get clean customer name
+
   let cleanName = summary;
   while (cleanName.match(/^\[([^\]]+)\]\s*/)) {
     cleanName = cleanName.replace(/^\[([^\]]+)\]\s*/, '');
   }
   const name = cleanName.split(' - ')[0].trim() || '(no title)';
-  
+
   const eventDate = new Date(ev.start?.dateTime || ev.start?.date);
   const daysAgo = Math.floor((Date.now() - eventDate) / 86400000);
   const isAdmin = cal.name === 'Admin Notes';
@@ -71,10 +73,13 @@ function parseEvent(ev, cal) {
     end: ev.end?.dateTime || ev.end?.date,
     description: ev.description || '',
     daysAgo,
+    _supabase: false,
+    _timeEntry: null,
+    _allTimeEntries: null,
   };
 }
 
-// ── Supabase lookup ─────────────────────────────────────────
+// ── Supabase customer lookup (for calendar-only items) ───────
 async function lookupCustomers(names) {
   if (!names.length) return {};
   try {
@@ -92,7 +97,7 @@ async function lookupCustomers(names) {
   } catch { return {}; }
 }
 
-// ── Buckets ─────────────────────────────────────────────────
+// ── Buckets ──────────────────────────────────────────────────
 const BUCKETS = [
   { key: 'triage',   label: 'Triage',   emoji: '🔍', color: '#ef4444' },
   { key: 'return',   label: 'Return',   emoji: '🔄', color: '#f59e0b' },
@@ -100,7 +105,32 @@ const BUCKETS = [
   { key: 'bill_it',  label: 'Bill It',  emoji: '✅', color: '#22c55e' },
 ];
 
-// ── Component ───────────────────────────────────────────────
+// ── Format helpers ───────────────────────────────────────────
+function fmtDate(d) {
+  if (!d) return '';
+  const date = new Date(d);
+  const diff = Math.floor((new Date().setHours(0,0,0,0) - new Date(date).setHours(0,0,0,0)) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff === -1) return 'Tomorrow';
+  if (diff > 1 && diff <= 7) return `${diff}d ago`;
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function fmtTime(d) { return d ? new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''; }
+function fmtMinutes(min) {
+  if (!min) return '0m';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+function fmtClock(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// ── Component ────────────────────────────────────────────────
 export default function Billing({ accessToken, onBack }) {
   const [allItems, setAllItems] = useState([]);
   const [customers, setCustomers] = useState({});
@@ -121,8 +151,9 @@ export default function Billing({ accessToken, onBack }) {
   const load = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
-    const results = [];
 
+    // ── 1. Calendar scan ──────────────────────────────────────
+    const calResults = [];
     await Promise.all(BILLING_SOURCES.map(async (cal) => {
       try {
         const tMin = new Date(); tMin.setDate(tMin.getDate() - cal.daysBack);
@@ -138,22 +169,96 @@ export default function Billing({ accessToken, onBack }) {
         (data.items || []).forEach(ev => {
           if (ev.status === 'cancelled' || !ev.start) return;
           const parsed = parseEvent(ev, cal);
-          if (parsed.bucket !== 'skip') results.push(parsed);
+          if (parsed.bucket !== 'skip') calResults.push(parsed);
         });
       } catch (e) { console.warn(`Billing cal error ${cal.name}:`, e.message); }
     }));
 
-    setAllItems(results);
+    // ── 2. Supabase time_entries (all unbilled) ───────────────
+    let timeEntries = [];
+    try {
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select('*, customers(id, name, phone, address, drh_id)')
+        .eq('billed', false)
+        .order('created_at', { ascending: false });
+      if (!error && data) timeEntries = data;
+    } catch (e) { console.warn('Supabase time_entries error:', e.message); }
+
+    // ── 3. Merge ──────────────────────────────────────────────
+    // Group time_entries by calendar_event_id
+    const teByEventId = {};
+    for (const te of timeEntries) {
+      if (te.calendar_event_id) {
+        if (!teByEventId[te.calendar_event_id]) teByEventId[te.calendar_event_id] = [];
+        teByEventId[te.calendar_event_id].push(te);
+      }
+    }
+
+    // Enrich calendar items with matching time entries
+    const enrichedCalItems = calResults.map(item => {
+      const entries = teByEventId[item.id] || [];
+      if (entries.length > 0) {
+        const latest = entries[0];
+        return {
+          ...item,
+          _supabase: true,
+          _timeEntry: latest,
+          _allTimeEntries: entries,
+          // Supabase disposition overrides calendar tag bucket
+          bucket: dispositionToBucket(latest.disposition),
+        };
+      }
+      return item;
+    });
+
+    // Find orphan time_entries (event not in calendar scan window)
+    const calEventIds = new Set(calResults.map(r => r.id));
+    const orphanEntries = timeEntries.filter(te =>
+      te.calendar_event_id && !calEventIds.has(te.calendar_event_id)
+    );
+
+    const orphanItems = orphanEntries.map(te => ({
+      id: te.id,
+      calendarId: te.calendar_id || '',
+      calendarName: te.tech_name || 'Tech',
+      calendarColor: techColor(te.tech_name),
+      summary: te.event_title || te.customer_name_raw || '(unknown)',
+      customerName: te.customers?.name || te.customer_name_raw || '(unknown)',
+      rawTag: null,
+      bucket: dispositionToBucket(te.disposition),
+      isNC: false,
+      location: te.customers?.address || '',
+      start: te.event_start || te.created_at,
+      end: null,
+      description: te.notes || '',
+      daysAgo: Math.floor((Date.now() - new Date(te.event_start || te.created_at)) / 86400000),
+      _supabase: true,
+      _timeEntry: te,
+      _allTimeEntries: [te],
+      _isOrphan: true,
+    }));
+
+    // Deduplicate
+    const enrichedTeIds = new Set(
+      enrichedCalItems.filter(i => i._timeEntry).map(i => i._timeEntry.id)
+    );
+    const dedupedOrphans = orphanItems.filter(o => !enrichedTeIds.has(o._timeEntry.id));
+
+    setAllItems([...enrichedCalItems, ...dedupedOrphans]);
+
+    // Calendar filter chips
     const filters = {};
     BILLING_SOURCES.forEach(c => { filters[c.name] = true; });
+    filters['Time Entries'] = true;
     setCalFilters(prev => {
       const m = { ...filters };
       Object.keys(prev).forEach(k => { if (k in m) m[k] = prev[k]; });
       return m;
     });
 
-    const names = [...new Set(results.map(r => r.customerName).filter(Boolean))];
-    setCustomers(await lookupCustomers(names));
+    const calOnlyNames = enrichedCalItems.filter(i => !i._supabase).map(r => r.customerName).filter(Boolean);
+    setCustomers(await lookupCustomers([...new Set(calOnlyNames)]));
     setLoading(false);
   }, [accessToken]);
 
@@ -161,25 +266,52 @@ export default function Billing({ accessToken, onBack }) {
 
   const items = useMemo(() => {
     return allItems
-      .filter(i => i.bucket === bucket && calFilters[i.calendarName] !== false)
+      .filter(i => {
+        if (i.bucket !== bucket) return false;
+        if (i._isOrphan) return calFilters['Time Entries'] !== false;
+        if (i.calendarName && calFilters[i.calendarName] === false) return false;
+        return true;
+      })
       .sort((a, b) => sortDir === 'newest' ? new Date(b.start) - new Date(a.start) : new Date(a.start) - new Date(b.start));
   }, [allItems, bucket, calFilters, sortDir]);
 
   const counts = useMemo(() => {
     const c = {};
-    BUCKETS.forEach(b => { c[b.key] = allItems.filter(i => i.bucket === b.key && calFilters[i.calendarName] !== false).length; });
+    BUCKETS.forEach(b => {
+      c[b.key] = allItems.filter(i => {
+        if (i.bucket !== b.key) return false;
+        if (i._isOrphan) return calFilters['Time Entries'] !== false;
+        if (i.calendarName && calFilters[i.calendarName] === false) return false;
+        return true;
+      }).length;
+    });
     return c;
   }, [allItems, calFilters]);
 
-  // ── Actions ─────────────────────────────────────────────
+  // ── Actions ────────────────────────────────────────────────
   const patchTag = async (item, newTag) => {
     setActing(item.id);
-    const newTitle = newTag ? `[${newTag}] ${item.customerName}` : item.customerName;
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: newTitle }),
-    });
+    const calId = item.calendarId;
+    const evId = item._timeEntry?.calendar_event_id || item.id;
+    // Patch calendar title
+    if (calId && evId && !item._isOrphan) {
+      const newTitle = newTag ? `[${newTag}] ${item.customerName}` : item.customerName;
+      try {
+        await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${evId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ summary: newTitle }),
+        });
+      } catch (e) { console.warn('Calendar patch failed:', e.message); }
+    }
+    // Update Supabase disposition
+    if (item._timeEntry) {
+      const newDisp = tagToDisposition(newTag);
+      if (newDisp) {
+        try { await timeEntriesApi.update(item._timeEntry.id, { disposition: newDisp }); }
+        catch (e) { console.warn('Supabase update failed:', e.message); }
+      }
+    }
     await load();
     setActing(null); setExpanded(null);
   };
@@ -189,23 +321,36 @@ export default function Billing({ accessToken, onBack }) {
     setActing(billItem.id);
     const ts = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
     const amtNote = billAmount ? ` — $${parseFloat(billAmount).toFixed(2)}` : '';
-    const appendDesc = `\n\n💰 BILLED — Invoice #${billInvoice}${amtNote} — ${ts}`;
+    const ref = billInvoice.trim();
 
-    // Title: [INVOICE ####] Customer Name [COMPLETED]
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(billItem.calendarId)}/events/${billItem.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        summary: `[INVOICE ${billInvoice}] ${billItem.customerName} [COMPLETED]`,
-        description: (billItem.description || '') + appendDesc,
-      }),
-    });
+    // Mark ALL time entries for this event as billed
+    if (billItem._allTimeEntries?.length) {
+      for (const te of billItem._allTimeEntries) {
+        try { await timeEntriesApi.markBilled(te.id, ref); } catch {}
+      }
+    } else if (billItem._timeEntry) {
+      try { await timeEntriesApi.markBilled(billItem._timeEntry.id, ref); } catch {}
+    }
 
-    // Move to completed
-    try {
-      await fetch(`${GCAL}/calendars/${encodeURIComponent(billItem.calendarId)}/events/${billItem.id}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
-        { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
-    } catch {}
+    // Patch + move calendar event
+    const calId = billItem.calendarId;
+    const evId = billItem._timeEntry?.calendar_event_id || billItem.id;
+    if (calId && evId) {
+      try {
+        await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${evId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            summary: `[INVOICE ${ref}] ${billItem.customerName} [COMPLETED]`,
+            description: (billItem.description || '') + `\n\n💰 BILLED — Invoice #${ref}${amtNote} — ${ts}`,
+          }),
+        });
+      } catch {}
+      try {
+        await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${evId}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
+          { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      } catch {}
+    }
 
     setBillItem(null); setBillAmount(''); setBillInvoice('');
     await load();
@@ -214,10 +359,17 @@ export default function Billing({ accessToken, onBack }) {
 
   const archive = async (item) => {
     setActing(item.id);
-    try {
-      await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
-        { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
-    } catch {}
+    if (item._timeEntry) {
+      try { await timeEntriesApi.markBilled(item._timeEntry.id, 'NC-ARCHIVED'); } catch {}
+    }
+    const calId = item.calendarId;
+    const evId = item._timeEntry?.calendar_event_id || item.id;
+    if (calId && evId && !item._isOrphan) {
+      try {
+        await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${evId}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
+          { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      } catch {}
+    }
     await load();
     setActing(null); setExpanded(null);
   };
@@ -226,30 +378,28 @@ export default function Billing({ accessToken, onBack }) {
     if (!noteText.trim()) return;
     setSavingNote(true);
     const ts = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
-    const newDesc = (item.description ? item.description + '\n\n' : '') + `📝 ${ts}: ${noteText.trim()}`;
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: newDesc }),
-    });
-    setAllItems(prev => prev.map(i => i.id === item.id ? { ...i, description: newDesc } : i));
+    const append = `\n\n📝 ${ts}: ${noteText.trim()}`;
+    const calId = item.calendarId;
+    const evId = item._timeEntry?.calendar_event_id || item.id;
+    if (calId && evId && !item._isOrphan) {
+      const newDesc = (item.description || '') + append;
+      try {
+        await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${evId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: newDesc }),
+        });
+        setAllItems(prev => prev.map(i => i.id === item.id ? { ...i, description: newDesc } : i));
+      } catch {}
+    }
+    if (item._timeEntry) {
+      const newNotes = (item._timeEntry.notes || '') + `\n${ts}: ${noteText.trim()}`;
+      try { await timeEntriesApi.update(item._timeEntry.id, { notes: newNotes }); } catch {}
+    }
     setNoteText(''); setSavingNote(false);
   };
 
-  // ── Helpers ─────────────────────────────────────────────
-  const fmtDate = (d) => {
-    if (!d) return '';
-    const date = new Date(d);
-    const diff = Math.floor((new Date().setHours(0,0,0,0) - new Date(date).setHours(0,0,0,0)) / 86400000);
-    if (diff === 0) return 'Today';
-    if (diff === 1) return 'Yesterday';
-    if (diff === -1) return 'Tomorrow';
-    if (diff > 1 && diff <= 7) return `${diff}d ago`;
-    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  };
-  const fmtTime = (d) => d ? new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
-
-  // ── Render ──────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
 
@@ -258,7 +408,7 @@ export default function Billing({ accessToken, onBack }) {
         <button onClick={onBack} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>← Home</button>
         <div>
           <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 16 }}>💰 Billing</div>
-          <div style={{ color: '#475569', fontSize: 11 }}>{loading ? 'Loading...' : `${allItems.filter(i => i.bucket !== 'skip').length} items across ${BILLING_SOURCES.length} calendars`}</div>
+          <div style={{ color: '#475569', fontSize: 11 }}>{loading ? 'Loading...' : `${allItems.length} items · Calendar + Supabase`}</div>
         </div>
         <button onClick={load} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>↻</button>
       </div>
@@ -279,9 +429,9 @@ export default function Billing({ accessToken, onBack }) {
         ))}
       </div>
 
-      {/* Calendar filters + sort */}
+      {/* Filters + sort */}
       <div style={{ display: 'flex', gap: 6, padding: '8px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
-        {BILLING_SOURCES.map(cal => (
+        {[...BILLING_SOURCES, { name: 'Time Entries', color: '#3b82f6' }].map(cal => (
           <button key={cal.name}
             onClick={() => setCalFilters(p => ({ ...p, [cal.name]: !p[cal.name] }))}
             style={{
@@ -303,7 +453,7 @@ export default function Billing({ accessToken, onBack }) {
 
       {/* Items */}
       <div style={{ padding: '8px 16px 100px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {loading && <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading from calendars...</div>}
+        {loading && <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading calendars + time entries...</div>}
 
         {!loading && items.length === 0 && (
           <div style={{ textAlign: 'center', padding: 60 }}>
@@ -318,10 +468,12 @@ export default function Billing({ accessToken, onBack }) {
         {items.map(item => {
           const isOpen = expanded === item.id;
           const cust = customers[item.customerName];
-          const isInJuce = !!cust;
+          const te = item._timeEntry;
+          const hasTimeData = !!te;
           const isActing = acting === item.id;
-          const cleanDesc = item.description.replace(/\n\nScheduled.*|📱.*|Open in JUC-E.*/g, '').trim();
+          const cleanDesc = item.description.replace(/\n\nScheduled.*|📱.*|Open in JUC-E.*|CUSTOMER_ID:\s*[A-Za-z0-9\-_]+/g, '').trim();
           const lastNote = cleanDesc.split('\n').filter(Boolean).pop();
+          const custData = te?.customers || cust;
 
           return (
             <div key={`${item.calendarId}_${item.id}`} style={{
@@ -329,18 +481,23 @@ export default function Billing({ accessToken, onBack }) {
               borderLeft: `3px solid ${item.calendarColor}`,
               overflow: 'hidden', opacity: isActing ? 0.5 : 1,
             }}>
-              {/* Tap to expand */}
+              {/* Card header — tap to expand */}
               <div onClick={() => { setExpanded(isOpen ? null : item.id); setNoteText(''); }}
                 style={{ padding: '12px 14px', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
-                  <span style={{ background: item.calendarColor + '25', color: item.calendarColor, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                  <span style={{ background: item.calendarColor + '25', color: item.calendarColor, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, whiteSpace: 'nowrap' }}>
                     {item.calendarName}
                   </span>
                   {item.rawTag && (
                     <span style={{ background: '#334155', color: '#94a3b8', fontSize: 10, padding: '2px 6px', borderRadius: 4 }}>[{item.rawTag}]</span>
                   )}
-                  {!isInJuce && (
-                    <span style={{ background: '#7f1d1d33', color: '#fca5a5', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4 }}>NOT IN JUC-E</span>
+                  {hasTimeData && (
+                    <span style={{ background: '#1e40af33', color: '#60a5fa', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4 }}>
+                      ⏱ {fmtMinutes(te.total_minutes)} · {te.tech_name || 'Tech'}
+                    </span>
+                  )}
+                  {!hasTimeData && (
+                    <span style={{ background: '#7f1d1d33', color: '#fca5a5', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4 }}>NO TIME ENTRY</span>
                   )}
                   {item.isNC && (
                     <span style={{ background: '#374151', color: '#9ca3af', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4 }}>NO CHARGE</span>
@@ -348,9 +505,18 @@ export default function Billing({ accessToken, onBack }) {
                   <span style={{ marginLeft: 'auto', color: '#334155', fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
                 </div>
                 <div style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{item.customerName}</div>
-                <div style={{ color: '#64748b', fontSize: 11 }}>{fmtDate(item.start)} · {fmtTime(item.start)}</div>
+                <div style={{ color: '#64748b', fontSize: 11 }}>
+                  {fmtDate(item.start)} · {fmtTime(item.start)}
+                  {hasTimeData && te.disposition && (
+                    <span style={{ marginLeft: 8, color: dispositionColor(te.disposition), fontWeight: 600 }}>
+                      {dispositionLabel(te.disposition)}
+                    </span>
+                  )}
+                </div>
                 {item.location && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📍 {item.location}</div>}
-                {cust?.customer_phone && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📞 {cust.customer_phone}</div>}
+                {(custData?.phone || custData?.customer_phone) && (
+                  <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>📞 {custData.phone || custData.customer_phone}</div>
+                )}
                 {!isOpen && lastNote && (
                   <div style={{ color: '#475569', fontSize: 11, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6, fontStyle: 'italic' }}>
                     {lastNote.slice(0, 100)}
@@ -358,23 +524,78 @@ export default function Billing({ accessToken, onBack }) {
                 )}
               </div>
 
-              {/* Expanded */}
+              {/* Expanded detail */}
               {isOpen && (
                 <div style={{ padding: '0 14px 14px' }}>
 
-                  {/* Supabase match */}
-                  {cust && (
-                    <div style={{ background: '#0f1729', borderRadius: 8, padding: 10, marginBottom: 10, border: '1px solid #1e293b' }}>
-                      <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginBottom: 6 }}>JUC-E — {cust.job_number || 'No job #'}</div>
-                      {cust.customer_phone && <div onClick={() => window.location.href = `tel:${cust.customer_phone}`} style={{ fontSize: 12, color: '#3b82f6', cursor: 'pointer', marginBottom: 3 }}>📞 {cust.customer_phone}</div>}
-                      {cust.customer_address && <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 3 }}>📍 {cust.customer_address}</div>}
-                      {cust.gate_code && <div style={{ fontSize: 12, color: '#94a3b8' }}>🚪 Gate: <strong>{cust.gate_code}</strong></div>}
-                      {cust.panel_password && <div style={{ fontSize: 12, color: '#94a3b8' }}>🔐 Panel: <strong>{cust.panel_password}</strong></div>}
-                      {cust.invoice_number && <div style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>Invoice: #{cust.invoice_number}</div>}
+                  {/* Time entry block */}
+                  {hasTimeData && (
+                    <div style={{ background: '#0c1a3d', borderRadius: 8, padding: 10, marginBottom: 10, border: '1px solid #1e3a5f' }}>
+                      <div style={{ fontSize: 10, color: '#60a5fa', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        Time Entry — {te.tech_name || te.tech_email || 'Tech'}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontSize: 9, color: '#475569', textTransform: 'uppercase' }}>In</div>
+                          <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>{fmtClock(te.time_in) || '—'}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: '#475569', textTransform: 'uppercase' }}>Out</div>
+                          <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>{fmtClock(te.time_out) || '—'}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: '#475569', textTransform: 'uppercase' }}>Total</div>
+                          <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 700 }}>{fmtMinutes(te.total_minutes)}</div>
+                        </div>
+                      </div>
+                      {te.notes && (
+                        <div style={{ fontSize: 12, color: '#94a3b8', borderTop: '1px solid #1e3a5f', paddingTop: 6, whiteSpace: 'pre-wrap' }}>
+                          {te.notes}
+                        </div>
+                      )}
+                      {te.entry_method && (
+                        <div style={{ fontSize: 9, color: '#475569', marginTop: 4 }}>
+                          Entry: {te.entry_method} · Disposition: {te.disposition} · {new Date(te.created_at).toLocaleDateString()}
+                        </div>
+                      )}
+                      {item._allTimeEntries?.length > 1 && (
+                        <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1e3a5f' }}>
+                          <div style={{ fontSize: 9, color: '#f59e0b', fontWeight: 700, marginBottom: 4 }}>
+                            {item._allTimeEntries.length} TIME ENTRIES
+                          </div>
+                          {item._allTimeEntries.map((entry, idx) => (
+                            <div key={entry.id} style={{ fontSize: 11, color: '#94a3b8', padding: '2px 0' }}>
+                              {entry.tech_name || 'Tech'} · {fmtMinutes(entry.total_minutes)} · {entry.disposition}
+                              {idx === 0 && <span style={{ color: '#475569' }}> (latest)</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* Notes */}
+                  {/* Customer data (from Supabase customers join or legacy jobs lookup) */}
+                  {custData && (
+                    <div style={{ background: '#0f1729', borderRadius: 8, padding: 10, marginBottom: 10, border: '1px solid #1e293b' }}>
+                      <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginBottom: 6 }}>
+                        Customer {custData.drh_id ? `· ${custData.drh_id}` : ''} {custData.job_number ? `· Job #${custData.job_number}` : ''}
+                      </div>
+                      {(custData.phone || custData.customer_phone) && (
+                        <div onClick={() => window.location.href = `tel:${custData.phone || custData.customer_phone}`}
+                          style={{ fontSize: 12, color: '#3b82f6', cursor: 'pointer', marginBottom: 3 }}>
+                          📞 {custData.phone || custData.customer_phone}
+                        </div>
+                      )}
+                      {(custData.address || custData.customer_address) && (
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 3 }}>📍 {custData.address || custData.customer_address}</div>
+                      )}
+                      {custData.gate_code && <div style={{ fontSize: 12, color: '#94a3b8' }}>🚪 Gate: <strong>{custData.gate_code}</strong></div>}
+                      {custData.panel_password && <div style={{ fontSize: 12, color: '#94a3b8' }}>🔐 Panel: <strong>{custData.panel_password}</strong></div>}
+                      {custData.invoice_number && <div style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>Prior Invoice: #{custData.invoice_number}</div>}
+                    </div>
+                  )}
+
+                  {/* Event description / notes */}
                   {cleanDesc && (
                     <div style={{ background: '#0f1729', borderRadius: 8, padding: 10, marginBottom: 10, border: '1px solid #1e293b', fontSize: 12, color: '#94a3b8', whiteSpace: 'pre-wrap', maxHeight: 150, overflowY: 'auto' }}>
                       {cleanDesc}
@@ -402,13 +623,14 @@ export default function Billing({ accessToken, onBack }) {
 
                     {bucket === 'bill_it' && (<>
                       <Btn color="#a78bfa" disabled={isActing} onClick={() => { setBillItem(item); setBillAmount(''); setBillInvoice(''); }}>💰 Enter Invoice & Bill</Btn>
-                      <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate Needed</Btn>
+                      <Btn color="#f59e0b" disabled={isActing} onClick={() => patchTag(item, 'RETURN NEEDED')}>🔄 Return</Btn>
+                      <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>✓ NC / Archive</Btn>
                     </>)}
 
                     {bucket === 'return' && (<>
                       <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETE')}>✅ Bill It</Btn>
-                      <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate Needed</Btn>
+                      <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>✓ Done</Btn>
                     </>)}
 
@@ -429,7 +651,7 @@ export default function Billing({ accessToken, onBack }) {
         })}
       </div>
 
-      {/* Bill modal — enter amount */}
+      {/* Bill modal */}
       {billItem && (
         <div style={{ position: 'fixed', inset: 0, background: '#000000aa', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setBillItem(null)}>
@@ -439,6 +661,27 @@ export default function Billing({ accessToken, onBack }) {
               <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{billItem.customerName}</div>
               <div style={{ color: '#64748b', fontSize: 12 }}>{fmtDate(billItem.start)} · {billItem.calendarName}</div>
             </div>
+
+            {/* Time entry summary in bill modal */}
+            {billItem._timeEntry && (
+              <div style={{ margin: '12px 20px 0', background: '#0c1a3d', borderRadius: 8, padding: 10, border: '1px solid #1e3a5f' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>
+                  <span>Tech: <strong style={{ color: '#e2e8f0' }}>{billItem._timeEntry.tech_name || '—'}</strong></span>
+                  <span>Time: <strong style={{ color: '#60a5fa' }}>{fmtMinutes(billItem._timeEntry.total_minutes)}</strong></span>
+                </div>
+                {billItem._timeEntry.time_in && (
+                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                    {fmtClock(billItem._timeEntry.time_in)} → {fmtClock(billItem._timeEntry.time_out)}
+                  </div>
+                )}
+                {billItem._timeEntry.notes && (
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, borderTop: '1px solid #1e3a5f', paddingTop: 4 }}>
+                    {billItem._timeEntry.notes}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ padding: 20 }}>
               <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 6 }}>Invoice Number *</label>
               <input
@@ -451,7 +694,7 @@ export default function Billing({ accessToken, onBack }) {
                   width: '100%', padding: '14px',
                   background: '#0f1729', border: '2px solid #a78bfa',
                   borderRadius: 10, color: '#e2e8f0', fontSize: 18, fontWeight: 700,
-                  outline: 'none', marginBottom: 12,
+                  outline: 'none', marginBottom: 12, boxSizing: 'border-box',
                 }}
               />
               <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 6 }}>Amount (optional)</label>
@@ -468,7 +711,7 @@ export default function Billing({ accessToken, onBack }) {
                     width: '100%', padding: '14px 14px 14px 32px',
                     background: '#0f1729', border: '1px solid #334155',
                     borderRadius: 10, color: '#e2e8f0', fontSize: 18, fontWeight: 700,
-                    outline: 'none',
+                    outline: 'none', boxSizing: 'border-box',
                   }}
                 />
               </div>
@@ -515,6 +758,8 @@ export default function Billing({ accessToken, onBack }) {
   );
 }
 
+// ── Helpers ──────────────────────────────────────────────────
+
 function Btn({ color, disabled, onClick, children }) {
   return (
     <button onClick={onClick} disabled={disabled} style={{
@@ -525,4 +770,54 @@ function Btn({ color, disabled, onClick, children }) {
       {children}
     </button>
   );
+}
+
+function dispositionToBucket(disposition) {
+  switch (disposition) {
+    case 'bill_it':     return 'bill_it';
+    case 'return':      return 'return';
+    case 'estimate':    return 'estimate';
+    case 'in_progress': return 'triage';
+    default:            return 'triage';
+  }
+}
+
+function tagToDisposition(tag) {
+  if (!tag) return null;
+  const t = tag.toUpperCase();
+  if (t.includes('COMPLETE') || t.includes('TO BILL'))     return 'bill_it';
+  if (t.includes('RETURN'))                                 return 'return';
+  if (t.includes('ESTIMATE'))                               return 'estimate';
+  return null;
+}
+
+function dispositionLabel(d) {
+  switch (d) {
+    case 'bill_it':     return 'Bill It';
+    case 'return':      return 'Return';
+    case 'estimate':    return 'Estimate';
+    case 'in_progress': return 'In Progress';
+    default:            return d;
+  }
+}
+
+function dispositionColor(d) {
+  switch (d) {
+    case 'bill_it':     return '#22c55e';
+    case 'return':      return '#f59e0b';
+    case 'estimate':    return '#06b6d4';
+    case 'in_progress': return '#818cf8';
+    default:            return '#64748b';
+  }
+}
+
+function techColor(name) {
+  if (!name) return '#64748b';
+  const n = name.toLowerCase();
+  if (n.includes('austin'))  return '#f97316';
+  if (n.includes('jr'))      return '#22c55e';
+  if (n.includes('brian'))   return '#3F51B5';
+  if (n.includes('shana'))   return '#a855f7';
+  if (n.includes('trevor'))  return '#8E24AA';
+  return '#64748b';
 }

@@ -16,10 +16,6 @@ html, body {
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overscroll-behavior: none;
-  /* Prevent any wide child element from blowing out mobile viewport */
-  overflow-x: hidden;
-  max-width: 100vw;
   width: 100%;
 }
 

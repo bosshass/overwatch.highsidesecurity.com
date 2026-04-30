@@ -745,17 +745,16 @@ export default function Scheduler({ accessToken, onBack }) {
             <div>No items in backlog!</div>
           </div>
         ) : (
-          <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+          <div>
             {backlogItems.map((item, idx) => (
               <div
                 key={item.id}
                 style={{
                   padding: '12px 16px',
                   borderBottom: idx < backlogItems.length - 1 ? '1px solid #334155' : 'none',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto auto auto',
-                  gap: 12,
-                  alignItems: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
                 }}
               >
                 {/* Title & Source */}
@@ -770,6 +769,8 @@ export default function Scheduler({ accessToken, onBack }) {
                   </div>
                 </div>
 
+                {/* Controls row */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 {/* Priority Selector */}
                 <select
                   value={item.priority}
@@ -783,7 +784,7 @@ export default function Scheduler({ accessToken, onBack }) {
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: 'pointer',
-                    minWidth: 90,
+                    flex: '1 1 80px',
                   }}
                 >
                   {Object.entries(PRIORITIES).map(([key, val]) => (
@@ -804,7 +805,7 @@ export default function Scheduler({ accessToken, onBack }) {
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: 'pointer',
-                    minWidth: 120,
+                    flex: '1 1 110px',
                   }}
                 >
                   {Object.entries(JOB_TYPES).map(([key, val]) => (
@@ -813,8 +814,9 @@ export default function Scheduler({ accessToken, onBack }) {
                 </select>
 
                 {/* Hours */}
-                <div style={{ color: '#64748b', fontSize: 12, textAlign: 'right', minWidth: 40 }}>
+                <div style={{ color: '#64748b', fontSize: 12, fontWeight: 600 }}>
                   {item.estimatedHours}h
+                </div>
                 </div>
               </div>
             ))}

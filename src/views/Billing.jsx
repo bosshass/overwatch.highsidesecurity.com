@@ -401,20 +401,22 @@ export default function Billing({ accessToken, onBack }) {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', overflowX: 'hidden' }}>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid #1e293b', position: 'sticky', top: 0, background: '#0f1729', zIndex: 20 }}>
-        <button onClick={onBack} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>← Home</button>
-        <div>
-          <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 16 }}>💰 Billing</div>
-          <div style={{ color: '#475569', fontSize: 11 }}>{loading ? 'Loading...' : `${allItems.length} items · Calendar + Supabase`}</div>
+      {/* Sticky header + tabs */}
+      <div style={{ position: 'sticky', top: 0, background: '#0f1729', zIndex: 20 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid #1e293b' }}>
+          <button onClick={onBack} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>← Home</button>
+          <div>
+            <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 16 }}>💰 Billing</div>
+            <div style={{ color: '#475569', fontSize: 11 }}>{loading ? 'Loading...' : `${allItems.length} items · Calendar + Supabase`}</div>
+          </div>
+          <button onClick={load} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>↻</button>
         </div>
-        <button onClick={load} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>↻</button>
-      </div>
 
-      {/* Bucket tabs */}
-      <div style={{ display: 'flex', gap: 6, padding: '10px 16px', overflowX: 'auto', borderBottom: '1px solid #1e293b', position: 'sticky', top: 52, background: '#0f1729', zIndex: 15 }}>
+        {/* Bucket tabs */}
+        <div style={{ display: 'flex', gap: 6, padding: '10px 16px', overflowX: 'auto', borderBottom: '1px solid #1e293b' }}>
         {BUCKETS.map(b => (
           <button key={b.key} onClick={() => { setBucket(b.key); setExpanded(null); }}
             style={{
@@ -428,6 +430,7 @@ export default function Billing({ accessToken, onBack }) {
           </button>
         ))}
       </div>
+      </div>{/* end sticky header+tabs wrapper */}
 
       {/* Filters + sort */}
       <div style={{ display: 'flex', gap: 6, padding: '8px 16px', flexWrap: 'wrap', alignItems: 'center' }}>

@@ -654,13 +654,17 @@ export default function App() {
 
 // ── HOME SCREEN ───────────────────────────────────────────────────────────
 function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill }) {
-  const allButtons = [
-    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a', techVisible: true },
-    { path: '/board',   emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706', techVisible: false },
-    { path: '/billing', emoji: '💰', label: 'Billing',         sub: 'Ready to invoice',                    color: '#a78bfa', dark: '#1e0a3c', border: '#7c3aed', techVisible: false },
-    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2', techVisible: true },
+  const techButtons = [
+    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a' },
+    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
   ];
-  const buttons = isRestricted ? allButtons.filter(b => b.techVisible) : allButtons;
+  const operatorButtons = [
+    { path: '/work',      emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
+    { path: '/board',     emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
+    { path: '/calendar',  emoji: '📅', label: 'Calendar',        sub: 'Tech schedules · week view',             color: '#38bdf8', dark: '#0c1a2e', border: '#0ea5e9' },
+    { path: '/dashboard', emoji: '📊', label: 'Dashboard',       sub: 'Metrics · workload · pipeline',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+  ];
+  const buttons = isRestricted ? techButtons : operatorButtons;
   return (
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{
@@ -708,10 +712,12 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         ))}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {[
+          {(isRestricted ? [
             { path: '/calendar', label: '📅 Calendar' },
-            ...(isOperator ? [{ path: '/dashboard', label: '📊 Dashboard' }] : []),
-          ].map(({ path, label }) => (
+          ] : [
+            { path: '/billing', label: '💰 Billing' },
+            { path: '/newjob',  label: '➕ New Job' },
+          ]).map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{
               flex: 1, background: '#1e293b', border: '1px solid #334155',
               borderRadius: 10, padding: '10px 8px', color: '#475569',

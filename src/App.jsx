@@ -661,8 +661,8 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
   const operatorButtons = [
     { path: '/work',      emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/board',     emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
-    { path: '/calendar',  emoji: '📅', label: 'Calendar',        sub: 'Tech schedules · week view',             color: '#38bdf8', dark: '#0c1a2e', border: '#0ea5e9' },
-    { path: '/dashboard', emoji: '📊', label: 'Dashboard',       sub: 'Metrics · workload · pipeline',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+    { path: '/calendar',  emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
+    { path: '/dashboard', emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
   ];
   const buttons = isRestricted ? techButtons : operatorButtons;
   return (

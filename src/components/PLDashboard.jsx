@@ -119,15 +119,23 @@ export default function PLDashboard({ userEmail }) {
   const totals = viewData.reduce((acc, row) => ({
     total_revenue: acc.total_revenue + (row.total_revenue || 0),
     total_expense: acc.total_expense + (row.total_expense || 0),
+    materials_expense: acc.materials_expense + (row.materials_expense || 0),
+    labor_expense: acc.labor_expense + (row.labor_expense || 0),
     net_amount: acc.net_amount + (row.net_amount || 0),
     py_total_revenue: row.py_total_revenue !== null 
       ? (acc.py_total_revenue || 0) + (row.py_total_revenue || 0) : acc.py_total_revenue,
     py_net_amount: row.py_net_amount !== null 
       ? (acc.py_net_amount || 0) + (row.py_net_amount || 0) : acc.py_net_amount,
   }), {
-    total_revenue: 0, total_expense: 0, net_amount: 0,
+    total_revenue: 0, total_expense: 0, materials_expense: 0, labor_expense: 0, net_amount: 0,
     py_total_revenue: null, py_net_amount: null
   });
+
+  const formatMargin = (net, rev) => {
+    if (!rev) return '-';
+    const pct = (net / rev) * 100;
+    return `${pct >= 0 ? '' : ''}${pct.toFixed(0)}%`;
+  };
 
   // Check if any row has PY data
   const hasPY = viewData.some(d => d.py_total_revenue !== null || d.py_net_amount !== null);
@@ -247,9 +255,11 @@ export default function PLDashboard({ userEmail }) {
                 <th style={{ padding: '10px 16px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Period</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Revenue</th>
                 {hasPY && <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>vs PY</th>}
-                <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Expenses</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>COGS</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Labor/OH</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Net</th>
                 {hasPY && <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>vs PY</th>}
+                <th style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Margin</th>
               </tr>
             </thead>
             <tbody>
@@ -264,8 +274,11 @@ export default function PLDashboard({ userEmail }) {
                       {formatDiff(row.total_revenue, row.py_total_revenue)}
                     </td>
                   )}
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#fb923c' }}>
+                    {formatCurrency(row.materials_expense, true)}
+                  </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: '#f87171' }}>
-                    {formatCurrency(row.total_expense, true)}
+                    {formatCurrency(row.labor_expense, true)}
                   </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: row.net_amount >= 0 ? '#4ade80' : '#f87171', fontWeight: '600' }}>
                     {formatCurrency(row.net_amount, true)}
@@ -275,6 +288,9 @@ export default function PLDashboard({ userEmail }) {
                       {formatDiff(row.net_amount, row.py_net_amount)}
                     </td>
                   )}
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: row.net_amount >= 0 ? '#4ade80' : '#f87171', fontWeight: '600' }}>
+                    {formatMargin(row.net_amount, row.total_revenue)}
+                  </td>
                 </tr>
               ))}
               {/* Totals row */}
@@ -288,8 +304,11 @@ export default function PLDashboard({ userEmail }) {
                     {formatDiff(totals.total_revenue, totals.py_total_revenue)}
                   </td>
                 )}
+                <td style={{ padding: '10px 12px', textAlign: 'right', color: '#fb923c' }}>
+                  {formatCurrency(totals.materials_expense, true)}
+                </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', color: '#f87171' }}>
-                  {formatCurrency(totals.total_expense, true)}
+                  {formatCurrency(totals.labor_expense, true)}
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', color: totals.net_amount >= 0 ? '#4ade80' : '#f87171' }}>
                   {formatCurrency(totals.net_amount, true)}
@@ -299,6 +318,9 @@ export default function PLDashboard({ userEmail }) {
                     {formatDiff(totals.net_amount, totals.py_net_amount)}
                   </td>
                 )}
+                <td style={{ padding: '10px 12px', textAlign: 'right', color: totals.net_amount >= 0 ? '#4ade80' : '#f87171' }}>
+                  {formatMargin(totals.net_amount, totals.total_revenue)}
+                </td>
               </tr>
             </tbody>
           </table>

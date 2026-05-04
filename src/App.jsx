@@ -37,6 +37,7 @@ const USER_CONFIG = {
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
+  'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: null },
   'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'billing' },
 };
 
@@ -54,6 +55,7 @@ const CALENDAR_OPTIONS = [
   { key: 'Brian', label: 'Brian' },
   { key: 'Sara', label: 'Sara' },
   { key: 'Shana', label: 'Shana' },
+  { key: 'Subs', label: 'Subs' },
   { key: 'Service Queue', label: 'Service Queue' },
   { key: 'Installations', label: 'Installations' },
 ];
@@ -394,7 +396,7 @@ export default function App() {
   }, [isSignedIn, silentRefresh, handleSignOut]);
 
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
-  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
+  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
   const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
   const isOperator = getUserConfig(userEmail).role === 'operator';
 

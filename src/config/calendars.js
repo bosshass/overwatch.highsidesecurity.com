@@ -14,6 +14,7 @@ export const CALENDARS = {
   COMPLETED:             'c_a095f8a75a8e3fb1bb4b0f3a2232962af3ab55f05a49ced1e4338abcc865d3e9@group.calendar.google.com',
   INSTALLATIONS:         'c_c84c0a24e2a7386cb519b21569fbb4b17a19214ce33744a63e06394f8c57339f@group.calendar.google.com',
   SHANA:                 'shanaparks@drhsecurityservices.com',
+  SUBS:                  'c_ef1cf02ebba19919b78be38a9c5d2603ef52a838ac4bb37253fd69d718cdcb5c@group.calendar.google.com',
 };
 
 // ── Visibility ───────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ const JR_EMAILS      = ['jr@drhsecurityservices.com'];
 const BRIAN_EMAILS   = ['brian@drhsecurityservices.com'];
 const SHANA_EMAILS   = ['shanaparks@drhsecurityservices.com'];
 const TREVOR_EMAILS  = ['trevor@drhsecurityservices.com'];
+const SUBS_EMAILS    = ['subs@drhsecurityservices.com'];
 
 // All calendars — order determines display order in filter chips
 export const SYNC_CALENDARS = [
@@ -38,13 +40,13 @@ export const SYNC_CALENDARS = [
     name: 'Tentatively Scheduled',
     type: 'queue',
     // All techs + operators see the queue
-    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS],
+    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS, ...SUBS_EMAILS],
   },
   {
     id: CALENDARS.AUSTIN,
     name: 'Austin',
     type: 'tech',
-    // Austin sees his own + Brian's per the work-view rule
+    // Austin sees his own + Brian's + Subs per the work-view rule
     visibleTo: AUSTIN_EMAILS,
   },
   {
@@ -67,6 +69,13 @@ export const SYNC_CALENDARS = [
     visibleTo: SHANA_EMAILS,
   },
   {
+    id: CALENDARS.SUBS,
+    name: 'Subs',
+    type: 'tech',
+    // Subs sees own; Austin also sees Subs
+    visibleTo: [...SUBS_EMAILS, ...AUSTIN_EMAILS],
+  },
+  {
     id: CALENDARS.INSTALLATIONS,
     name: 'Installations',
     type: 'installations',
@@ -83,7 +92,7 @@ export const SYNC_CALENDARS = [
     name: 'Completed',
     type: 'completed',
     // Everyone sees completed
-    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS],
+    visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS, ...SUBS_EMAILS],
   },
 ];
 
@@ -106,10 +115,11 @@ export function getVisibleCalendars(email) {
 //
 // Rules (per product spec):
 //   - Operators (info@, Sara, admin)  → Austin + JR + Brian (Tech3)
-//   - Austin (restricted)             → Austin + Brian (Tech3)
+//   - Austin (restricted)             → Austin + Brian (Tech3) + Subs
 //   - Brian (restricted)              → Brian (Tech3) only
 //   - JR (restricted)                 → JR only
 //   - Trevor (restricted)             → Installations only
+//   - Subs (restricted)               → Subs only
 //   - Shana (operator role)           → Austin + JR + Brian (same as operators)
 //   - Anyone else                     → empty (caller should fall back to default)
 export function getWorkViewCalendars(email) {
@@ -128,11 +138,13 @@ export function getWorkViewCalendars(email) {
     return [
       { id: CALENDARS.AUSTIN, name: 'Austin' },
       { id: CALENDARS.TECH3,  name: 'Brian' },
+      { id: CALENDARS.SUBS,   name: 'Subs' },
     ];
   }
   if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
   if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
   if (TREVOR_EMAILS.includes(e)) return [{ id: CALENDARS.INSTALLATIONS, name: 'Installations' }];
+  if (SUBS_EMAILS.includes(e))   return [{ id: CALENDARS.SUBS, name: 'Subs' }];
 
   return [];
 }
@@ -149,6 +161,7 @@ export const TECH_CALENDAR_MAP = {
   'admin@jnbservice.com':               CALENDARS.SALES_ACCOUNTING,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
   'trevor@drhsecurityservices.com':     CALENDARS.INSTALLATIONS,
+  'subs@drhsecurityservices.com':       CALENDARS.SUBS,
 };
 
 export function getTechCalendarId(techOrEmail) {
@@ -168,5 +181,6 @@ export const TECH_COLORS = {
   'Brian':                '#3F51B5',
   'Shana':                '#F6BF26',
   'Trevor':               '#8E24AA',
+  'Subs':                 '#EC4899',
   'Sales & Accounting':   '#039BE5',
 };

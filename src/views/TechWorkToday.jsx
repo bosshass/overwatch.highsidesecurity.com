@@ -16,6 +16,8 @@ const TECH_CAL_MAP = {
   'brian@drhsecurityservices.com':  CALENDARS.TECH3,
   'Shana': CALENDARS.SHANA, 'shana': CALENDARS.SHANA,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
+  'Subs': CALENDARS.SUBS, 'subs': CALENDARS.SUBS,
+  'subs@drhsecurityservices.com':      CALENDARS.SUBS,
 };
 
 const HARD_SKIP = ['[BILLED]', '[IGNORED]', '[IGNORE]'];
@@ -295,7 +297,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
-  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR)" : `${userName}'s Jobs`;
+  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Subs)" : `${userName}'s Jobs`;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
@@ -373,7 +375,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           const phone = extractPhone(ev.description);
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
-          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : null;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : null;
 
           return (
             <div key={ev.id} onClick={() => openDetail(ev)}

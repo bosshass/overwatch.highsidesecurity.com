@@ -19,12 +19,9 @@ const GCAL = 'https://www.googleapis.com/calendar/v3';
 // ── Calendars to scan ────────────────────────────────────────
 const BILLING_SOURCES = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service Queue',  color: '#ef4444', daysBack: 90 },
-  { id: CALENDARS.ADMIN_NOTES,           name: 'Admin Notes',    color: '#ec4899', daysBack: 7  },
   { id: CALENDARS.AUSTIN,                name: 'Austin',         color: '#f97316', daysBack: 90 },
   { id: CALENDARS.JR,                    name: 'JR',             color: '#22c55e', daysBack: 90 },
   { id: CALENDARS.INSTALLATIONS,         name: 'Installations',  color: '#3b82f6', daysBack: 90 },
-  { id: 'c_1d703bd2dcba573a392e52a5c1f5073e481db374f09c6cbd91bc423da6645e73@group.calendar.google.com',
-                                           name: 'Shana',        color: '#a855f7', daysBack: 90 },
 ];
 
 // ── Tag parsing ──────────────────────────────────────────────

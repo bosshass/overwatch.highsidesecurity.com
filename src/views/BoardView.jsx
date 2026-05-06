@@ -25,11 +25,9 @@ const SCHEDULE_SOURCE_CALENDARS = [
 
 // Calendars to pull open tasks from (already scheduled on tech calendars)
 const TASK_CALENDARS = [
-  { id: CALENDARS.AUSTIN, name: 'Austin', color: '#f97316' },
-  { id: CALENDARS.JR, name: 'JR', color: '#22c55e' },
+  { id: CALENDARS.AUSTIN,        name: 'Austin',        color: '#f97316' },
+  { id: CALENDARS.JR,            name: 'JR',            color: '#22c55e' },
   { id: CALENDARS.INSTALLATIONS, name: 'Installations', color: '#3b82f6' },
-  { id: CALENDARS.ADMIN_NOTES, name: 'Admin Notes', color: '#ec4899' },
-  { id: CALENDARS.SALES_ACCOUNTING, name: 'Sales/Acct', color: '#8b5cf6' },
 ];
 
 // Tags that mean task is DONE — exclude from board

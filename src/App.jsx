@@ -23,6 +23,7 @@ import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
+import QuickNotes from './views/QuickNotes.jsx';
 
 const APP_VERSION = '7.2.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -548,6 +549,7 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
@@ -666,10 +668,11 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
     { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
   ];
   const operatorButtons = [
-    { path: '/work',      emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/board',     emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
-    { path: '/calendar',  emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
-    { path: '/dashboard', emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
+    { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
+    { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
+    { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+    { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
+    { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
   ];
   const buttons = isRestricted ? techButtons : operatorButtons;
   return (

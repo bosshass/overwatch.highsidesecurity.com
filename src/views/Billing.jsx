@@ -106,6 +106,12 @@ const BUCKETS = [
   { key: 'bill_it',  label: 'Bill It',  emoji: '✅', color: '#22c55e' },
 ];
 
+// ── Project ref helpers ──────────────────────────────────────
+function extractCalProjectRef(title) {
+  const m = (title || '').match(/\[PROJ-(\d+)\]/i);
+  return m ? `PROJ-${m[1]}` : null;
+}
+
 // ── Format helpers ───────────────────────────────────────────
 function fmtDate(d) {
   if (!d) return '';
@@ -508,7 +514,17 @@ export default function Billing({ accessToken, onBack }) {
                   )}
                   <span style={{ marginLeft: 'auto', color: '#334155', fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
                 </div>
-                <div style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{item.customerName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                  <span style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700 }}>{item.customerName}</span>
+                  {(() => {
+                    const ref = (hasTimeData && te.project_ref) || extractCalProjectRef(item.summary);
+                    return ref ? (
+                      <span style={{ background: '#1e3a5f', color: '#60a5fa', border: '1px solid #3b82f640', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                        🏷️ {ref}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
                 <div style={{ color: '#64748b', fontSize: 11 }}>
                   {fmtDate(item.start)} · {fmtTime(item.start)}
                   {hasTimeData && te.disposition && (
@@ -552,6 +568,11 @@ export default function Billing({ accessToken, onBack }) {
                           <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 700 }}>{fmtMinutes(te.total_minutes)}</div>
                         </div>
                       </div>
+                      {te.materials && (
+                        <div style={{ fontSize: 12, color: '#f59e0b', borderTop: '1px solid #1e3a5f', paddingTop: 6, whiteSpace: 'pre-wrap' }}>
+                          🔧 {te.materials}
+                        </div>
+                      )}
                       {te.notes && (
                         <div style={{ fontSize: 12, color: '#94a3b8', borderTop: '1px solid #1e3a5f', paddingTop: 6, whiteSpace: 'pre-wrap' }}>
                           {te.notes}

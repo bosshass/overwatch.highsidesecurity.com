@@ -670,6 +670,7 @@ export const timeEntriesApi = {
       entry_method: entry.entry_method || 'manual',
       disposition: entry.disposition,
       notes: entry.notes || null,
+      materials: entry.materials || null,
     };
     const { data, error } = await supabase.from('time_entries').insert([payload]).select().single();
     if (error) throw error;

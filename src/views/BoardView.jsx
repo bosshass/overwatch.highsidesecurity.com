@@ -1157,6 +1157,33 @@ export default function BoardView({ accessToken, onBack }) {
                   📝 Needs Notes
                 </button>
                 <button
+                  onClick={async () => {
+                    setUpdating(true);
+                    try {
+                      let newTitle = item.title;
+                      for (const tag of BLOCKED_TAGS) {
+                        newTitle = newTitle.replace(new RegExp(tag.replace(/[[\]]/g, '\\$&'), 'gi'), '');
+                      }
+                      newTitle = `[TO BILL] ${newTitle.replace(/\s+/g, ' ').trim()}`;
+                      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ summary: newTitle }),
+                      });
+                      if (!res.ok) throw new Error('Failed to update');
+                      await loadAll();
+                      setSelectedItem(null);
+                    } catch (e) {
+                      alert(`Error: ${e.message}`);
+                    }
+                    setUpdating(false);
+                  }}
+                  disabled={updating}
+                  style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  💵 Bill It
+                </button>
+                <button
                   onClick={() => markAsProject(item)}
                   disabled={updating}
                   style={{ background: '#22c55e30', border: '2px solid #22c55e', color: '#22c55e', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}

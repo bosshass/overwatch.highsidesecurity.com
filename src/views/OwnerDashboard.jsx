@@ -447,7 +447,8 @@ const CALENDARS = {
 
 const TECHS = [
   { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6', hoursPerWeek: 32 },
-  { id: 'jr', name: 'JR', calendarId: CALENDARS.JR, color: '#22c55e', hoursPerWeek: 20 },
+  { id: 'jr',     name: 'JR',     calendarId: CALENDARS.JR,     color: '#22c55e', hoursPerWeek: 20 },
+  { id: 'brian',  name: 'Brian',  calendarId: CALENDARS.TECH3,  color: '#3F51B5', hoursPerWeek: 32 },
 ];
 
 const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
@@ -529,11 +530,12 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       setTechData(techResults);
 
       // Fetch all calendars (matching BoardView sources)
-      const [queueEvents, returnEvents, austinEvents, jrEvents, installEvents, completedEvents, adminEvents, salesEvents] = await Promise.all([
+      const [queueEvents, returnEvents, austinEvents, jrEvents, brianEvents, installEvents, completedEvents, adminEvents, salesEvents] = await Promise.all([
         fetchCalendarEvents(CALENDARS.TENTATIVELY_SCHEDULED, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.RETURN_VISITS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.AUSTIN, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.JR, ninetyDaysBack, sixtyDaysOut),
+        fetchCalendarEvents(CALENDARS.TECH3, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.INSTALLATIONS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.COMPLETED, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.ADMIN_NOTES, ninetyDaysBack, sixtyDaysOut),
@@ -547,13 +549,13 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       });
 
       // Open Tasks (Tech calendars, no done/blocked tags)
-      const openTaskItems = [...austinEvents, ...jrEvents, ...installEvents].filter(e => {
+      const openTaskItems = [...austinEvents, ...jrEvents, ...brianEvents, ...installEvents].filter(e => {
         const title = (e.summary || '').toUpperCase();
         return !DONE_TAGS.some(tag => title.includes(tag)) && !BLOCKED_TAGS.some(tag => title.includes(tag));
       });
 
       // Blocked (all calendars with blocked tags - matching BoardView)
-      const allEvents = [...queueEvents, ...returnEvents, ...austinEvents, ...jrEvents, ...installEvents, ...adminEvents, ...salesEvents];
+      const allEvents = [...queueEvents, ...returnEvents, ...austinEvents, ...jrEvents, ...brianEvents, ...installEvents, ...adminEvents, ...salesEvents];
       const blockedItems = allEvents.filter(e => {
         const title = (e.summary || '').toUpperCase();
         return BLOCKED_TAGS.some(tag => title.includes(tag));
@@ -566,7 +568,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       });
 
       // To Bill (Completed calendar with [TO BILL] tag OR tech calendars with [TO BILL])
-      const toBillItems = [...completedEvents, ...austinEvents, ...jrEvents, ...installEvents].filter(e => {
+      const toBillItems = [...completedEvents, ...austinEvents, ...jrEvents, ...brianEvents, ...installEvents].filter(e => {
         const title = (e.summary || '').toUpperCase();
         return TO_BILL_TAGS.some(tag => title.includes(tag));
       });

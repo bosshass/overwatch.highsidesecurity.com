@@ -46,6 +46,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
   const [techs, setTechs] = useState([]);
   const [working, setWorking] = useState(null); // item id being actioned
   const [assignPicker, setAssignPicker] = useState(null); // item id showing assign picker
+  const [editingMaterials, setEditingMaterials] = useState(null); // item id with materials field open
 
   const load = useCallback(() => {
     try {
@@ -85,6 +86,23 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
     );
     save(updated);
     setWorking(null);
+  };
+
+  // Mark In Progress without assigning a tech
+  const markInProgress = (item) => {
+    const updated = items.map(i =>
+      i.id === item.id ? { ...i, status: 'inprogress' } : i
+    );
+    save(updated);
+  };
+
+  // Save materials notes
+  const saveMaterials = (item, text) => {
+    const updated = items.map(i =>
+      i.id === item.id ? { ...i, materials: text } : i
+    );
+    save(updated);
+    setEditingMaterials(null);
   };
 
   // Unassign → does NOT restore to calendar
@@ -137,8 +155,8 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
 
   // Sort into columns
   const overdue    = items.filter(i => isOverdue(i));
-  const inProgress = items.filter(i => !isOverdue(i) && i.assignedTo);
-  const needToDo   = items.filter(i => !isOverdue(i) && !i.assignedTo);
+  const inProgress = items.filter(i => !isOverdue(i) && (i.assignedTo || i.status === 'inprogress'));
+  const needToDo   = items.filter(i => !isOverdue(i) && !i.assignedTo && i.status !== 'inprogress');
 
   const COLS = [
     { key: 'todo',       label: '📋 Need to Do',  color: '#3b82f6', items: needToDo   },
@@ -151,6 +169,8 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
     const overdue = isOverdue(item);
     const isWorking = working === item.id;
     const showPicker = assignPicker === item.id;
+    const showMaterials = editingMaterials === item.id;
+    const [materialsText, setMaterialsText] = useState(item.materials || '');
 
     return (
       <div style={{
@@ -218,8 +238,52 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
           </div>
         )}
 
+        {/* Materials field */}
+        {(item.materials || showMaterials) && !showMaterials && (
+          <div
+            onClick={() => { setMaterialsText(item.materials || ''); setEditingMaterials(item.id); }}
+            style={{ background: '#1a2744', border: '1px solid #2d4a7a', borderRadius: 8, padding: '7px 10px', marginBottom: 10, cursor: 'pointer' }}
+          >
+            <div style={{ color: '#f59e0b', fontSize: 10, fontWeight: 700, marginBottom: 2 }}>🔧 MATERIALS</div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, whiteSpace: 'pre-wrap' }}>{item.materials}</div>
+          </div>
+        )}
+        {showMaterials && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ color: '#f59e0b', fontSize: 10, fontWeight: 700, marginBottom: 4 }}>🔧 MATERIALS NEEDED</div>
+            <textarea
+              autoFocus
+              value={materialsText}
+              onChange={e => setMaterialsText(e.target.value)}
+              placeholder="List materials, parts, supplies…"
+              rows={3}
+              style={{
+                width: '100%', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #f59e0b60',
+                borderRadius: 8, color: '#e2e8f0', fontSize: 12, padding: '8px', resize: 'vertical',
+                fontFamily: 'inherit', outline: 'none'
+              }}
+            />
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button onClick={() => saveMaterials(item, materialsText)} style={{
+                flex: 1, padding: '7px', background: '#f59e0b20', border: '1px solid #f59e0b60',
+                borderRadius: 8, color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer'
+              }}>Save</button>
+              <button onClick={() => setEditingMaterials(null)} style={{
+                padding: '7px 12px', background: 'none', border: '1px solid #334155',
+                borderRadius: 8, color: '#475569', fontSize: 11, cursor: 'pointer'
+              }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {!item.assignedTo && item.status !== 'inprogress' && (
+            <button onClick={() => markInProgress(item)} style={{
+              flex: 1, padding: '8px', background: '#78350f30', border: '1px solid #f59e0b50',
+              borderRadius: 8, color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer'
+            }}>⚡ In Progress</button>
+          )}
           {!item.assignedTo && (
             <button onClick={() => setAssignPicker(showPicker ? null : item.id)} style={{
               flex: 1, padding: '8px', background: '#1e3a5f', border: '1px solid #3b82f660',
@@ -232,6 +296,10 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
               borderRadius: 8, color: '#64748b', fontSize: 11, cursor: 'pointer'
             }}>✕ Unassign</button>
           )}
+          <button onClick={() => { setMaterialsText(item.materials || ''); setEditingMaterials(showMaterials ? null : item.id); }} style={{
+            padding: '8px 10px', background: '#1a2744', border: '1px solid #2d4a7a',
+            borderRadius: 8, color: '#60a5fa', fontSize: 11, cursor: 'pointer'
+          }}>🔧</button>
           <button onClick={() => markReady(item)} disabled={isWorking} style={{
             flex: 1, padding: '8px', background: '#22c55e20', border: '1px solid #22c55e40',
             borderRadius: 8, color: '#22c55e', fontSize: 11, fontWeight: 700, cursor: 'pointer'

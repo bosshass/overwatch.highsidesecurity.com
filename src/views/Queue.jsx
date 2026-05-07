@@ -9,7 +9,6 @@ import { customersApi, jobsApi, JOB_STATUS, STATUS_INFO } from '../services/supa
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 const SKIP_PREFIXES = ['[BILLED]','[TO BILL]','[COMPLETED]','[IGNORE]','[IGNORED]','[IGNORE] JR OFF','[ESTIMATE SENT]','[SCHEDULED]'];
 const QUEUE_SOURCES = [
-  { id: CALENDARS.ADMIN_NOTES,           name: 'Admin Notes',    color: '#ec4899' },
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service/Urgent', color: '#f59e0b' },
   { id: CALENDARS.AUSTIN,                name: 'Austin',         color: '#f97316' },
   { id: CALENDARS.JR,                    name: 'JR',             color: '#22c55e' },

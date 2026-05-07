@@ -22,6 +22,8 @@ import CompletionModal from './components/CompletionModal.jsx';
 import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
+import GlobalSearch from './components/GlobalSearch.jsx';
+import QuickNotes from './views/QuickNotes.jsx';
 
 const APP_VERSION = '7.2.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -81,6 +83,7 @@ export default function App() {
   const [backfillLog, setBackfillLog] = useState([]);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -504,7 +507,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={
-          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} />
+          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
@@ -546,6 +549,7 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
@@ -553,6 +557,11 @@ export default function App() {
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      {/* Global Search */}
+      {showSearch && (
+        <GlobalSearch onClose={() => setShowSearch(false)} onNavigate={navigate} />
+      )}
 
       {/* Modals (render on top of any route) */}
       {showIdentityPicker && (
@@ -653,16 +662,17 @@ export default function App() {
 }
 
 // ── HOME SCREEN ───────────────────────────────────────────────────────────
-function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill }) {
+function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill, onSearch }) {
   const techButtons = [
     { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
   ];
   const operatorButtons = [
-    { path: '/work',      emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/board',     emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
-    { path: '/calendar',  emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
-    { path: '/dashboard', emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
+    { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
+    { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
+    { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+    { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
+    { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
   ];
   const buttons = isRestricted ? techButtons : operatorButtons;
   return (
@@ -689,9 +699,20 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         </div>
       </div>
 
-      <div style={{ padding: '32px 20px 16px', textAlign: 'center' }}>
+      <div style={{ padding: '20px 20px 8px', textAlign: 'center' }}>
         <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
         <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
+      </div>
+
+      <div style={{ padding: '0 20px 12px' }}>
+        <button onClick={onSearch} style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+          background: '#1e293b', border: '1px solid #334155', borderRadius: 12,
+          padding: '12px 16px', cursor: 'pointer', textAlign: 'left'
+        }}>
+          <span style={{ fontSize: 16 }}>🔍</span>
+          <span style={{ color: '#475569', fontSize: 14 }}>Search customers, jobs, materials…</span>
+        </button>
       </div>
 
       <div style={{ padding: '8px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>

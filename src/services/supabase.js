@@ -10,6 +10,12 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIU
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Extract [PROJ-NNN] tag from a calendar event title
+function extractProjectRef(title) {
+  const m = (title || '').match(/\[PROJ-(\d+)\]/i);
+  return m ? `PROJ-${m[1]}` : null;
+}
+
 // ============================================
 // JOB STATUSES
 // ============================================
@@ -670,6 +676,8 @@ export const timeEntriesApi = {
       entry_method: entry.entry_method || 'manual',
       disposition: entry.disposition,
       notes: entry.notes || null,
+      materials: entry.materials || null,
+      project_ref: entry.project_ref || extractProjectRef(entry.event_title) || null,
     };
     const { data, error } = await supabase.from('time_entries').insert([payload]).select().single();
     if (error) throw error;

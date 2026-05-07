@@ -25,11 +25,9 @@ const SCHEDULE_SOURCE_CALENDARS = [
 
 // Calendars to pull open tasks from (already scheduled on tech calendars)
 const TASK_CALENDARS = [
-  { id: CALENDARS.AUSTIN, name: 'Austin', color: '#f97316' },
-  { id: CALENDARS.JR, name: 'JR', color: '#22c55e' },
+  { id: CALENDARS.AUSTIN,        name: 'Austin',        color: '#f97316' },
+  { id: CALENDARS.JR,            name: 'JR',            color: '#22c55e' },
   { id: CALENDARS.INSTALLATIONS, name: 'Installations', color: '#3b82f6' },
-  { id: CALENDARS.ADMIN_NOTES, name: 'Admin Notes', color: '#ec4899' },
-  { id: CALENDARS.SALES_ACCOUNTING, name: 'Sales/Acct', color: '#8b5cf6' },
 ];
 
 // Tags that mean task is DONE — exclude from board
@@ -432,6 +430,37 @@ export default function BoardView({ accessToken, onBack }) {
       setSelectedItem(null);
     } catch (e) {
       console.error('Send to billing error:', e);
+      alert(`Error: ${e.message}`);
+    }
+    setUpdating(false);
+  };
+
+  // ── Project tagging (Option A multi-resource / multi-day) ──────────────
+  const extractProjectRef = (title) => {
+    const m = (title || '').match(/\[PROJ-(\d+)\]/i);
+    return m ? `PROJ-${m[1]}` : null;
+  };
+
+  const nextProjectNum = () => {
+    const n = parseInt(localStorage.getItem('juce_proj_counter') || '0') + 1;
+    localStorage.setItem('juce_proj_counter', String(n));
+    return String(n).padStart(3, '0');
+  };
+
+  const assignProjectTag = async (item, projRef) => {
+    setUpdating(true);
+    try {
+      const cleanTitle = (item.title || '').replace(/\s*\[PROJ-\d+\]/gi, '').trim();
+      const newTitle = `[${projRef}] ${cleanTitle}`;
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: newTitle }),
+      });
+      if (!res.ok) throw new Error('Failed to tag event');
+      await loadOpenTasks();
+      setSelectedItem(prev => prev ? { ...prev, title: newTitle } : null);
+    } catch (e) {
       alert(`Error: ${e.message}`);
     }
     setUpdating(false);
@@ -1162,6 +1191,51 @@ export default function BoardView({ accessToken, onBack }) {
                   <div style={{ color: '#fff', fontSize: 14, whiteSpace: 'pre-wrap' }}>{item.description}</div>
                 </div>
               )}
+
+              {/* Project Tag — multi-resource / multi-day linking */}
+              {(() => {
+                const projRef = extractProjectRef(item.title);
+                return (
+                  <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginTop: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Project Tag</div>
+                    {projRef ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ background: '#1e3a5f', color: '#60a5fa', border: '1px solid #3b82f640', borderRadius: 8, padding: '6px 14px', fontWeight: 800, fontSize: 15 }}>
+                          🏷️ {projRef}
+                        </span>
+                        <button
+                          onClick={() => navigator.clipboard?.writeText(projRef).catch(()=>{})}
+                          style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#475569', padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                        >Copy</button>
+                        <button
+                          onClick={() => {
+                            const num = window.prompt('Change project number (e.g. 007):', projRef.replace('PROJ-', ''));
+                            if (num?.trim()) assignProjectTag(item, `PROJ-${num.trim().padStart(3, '0')}`);
+                          }}
+                          style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#475569', padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                        >Change</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => assignProjectTag(item, `PROJ-${nextProjectNum()}`)}
+                          disabled={updating}
+                          style={{ flex: 1, padding: '9px', background: '#1e3a5f', border: '1px solid #3b82f640', borderRadius: 8, color: '#60a5fa', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                        >🏷️ New Project</button>
+                        <button
+                          onClick={() => {
+                            const ref = window.prompt('Link to existing project number (e.g. 003):');
+                            if (ref?.trim()) assignProjectTag(item, `PROJ-${ref.trim().padStart(3, '0')}`);
+                          }}
+                          disabled={updating}
+                          style={{ flex: 1, padding: '9px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#64748b', fontSize: 13, cursor: 'pointer' }}
+                        >🔗 Link Existing</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <a
                   href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}

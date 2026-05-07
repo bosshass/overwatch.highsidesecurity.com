@@ -18,12 +18,10 @@ const GCAL = 'https://www.googleapis.com/calendar/v3';
 
 // ── Calendars to scan ────────────────────────────────────────
 const BILLING_SOURCES = [
-  { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service Queue', color: '#ef4444', daysBack: 90 },
-  { id: CALENDARS.ADMIN_NOTES,           name: 'Admin Notes',   color: '#ec4899', daysBack: 7 },
-  { id: CALENDARS.AUSTIN,                name: 'Austin',        color: '#f97316', daysBack: 90 },
-  { id: CALENDARS.JR,                    name: 'JR',            color: '#22c55e', daysBack: 90 },
-  { id: 'c_1d703bd2dcba573a392e52a5c1f5073e481db374f09c6cbd91bc423da6645e73@group.calendar.google.com',
-                                           name: 'Shana',        color: '#a855f7', daysBack: 90 },
+  { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service Queue',  color: '#ef4444', daysBack: 90 },
+  { id: CALENDARS.AUSTIN,                name: 'Austin',         color: '#f97316', daysBack: 90 },
+  { id: CALENDARS.JR,                    name: 'JR',             color: '#22c55e', daysBack: 90 },
+  { id: CALENDARS.INSTALLATIONS,         name: 'Installations',  color: '#3b82f6', daysBack: 90 },
 ];
 
 // ── Tag parsing ──────────────────────────────────────────────
@@ -104,6 +102,12 @@ const BUCKETS = [
   { key: 'estimate', label: 'Estimate', emoji: '💰', color: '#06b6d4' },
   { key: 'bill_it',  label: 'Bill It',  emoji: '✅', color: '#22c55e' },
 ];
+
+// ── Project ref helpers ──────────────────────────────────────
+function extractCalProjectRef(title) {
+  const m = (title || '').match(/\[PROJ-(\d+)\]/i);
+  return m ? `PROJ-${m[1]}` : null;
+}
 
 // ── Format helpers ───────────────────────────────────────────
 function fmtDate(d) {
@@ -507,7 +511,17 @@ export default function Billing({ accessToken, onBack }) {
                   )}
                   <span style={{ marginLeft: 'auto', color: '#334155', fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
                 </div>
-                <div style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{item.customerName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                  <span style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700 }}>{item.customerName}</span>
+                  {(() => {
+                    const ref = (hasTimeData && te.project_ref) || extractCalProjectRef(item.summary);
+                    return ref ? (
+                      <span style={{ background: '#1e3a5f', color: '#60a5fa', border: '1px solid #3b82f640', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                        🏷️ {ref}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
                 <div style={{ color: '#64748b', fontSize: 11 }}>
                   {fmtDate(item.start)} · {fmtTime(item.start)}
                   {hasTimeData && te.disposition && (
@@ -551,6 +565,11 @@ export default function Billing({ accessToken, onBack }) {
                           <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 700 }}>{fmtMinutes(te.total_minutes)}</div>
                         </div>
                       </div>
+                      {te.materials && (
+                        <div style={{ fontSize: 12, color: '#f59e0b', borderTop: '1px solid #1e3a5f', paddingTop: 6, whiteSpace: 'pre-wrap' }}>
+                          🔧 {te.materials}
+                        </div>
+                      )}
                       {te.notes && (
                         <div style={{ fontSize: 12, color: '#94a3b8', borderTop: '1px solid #1e3a5f', paddingTop: 6, whiteSpace: 'pre-wrap' }}>
                           {te.notes}

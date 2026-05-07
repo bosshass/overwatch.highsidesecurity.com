@@ -61,6 +61,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [notes, setNotes]       = useState('');
+  const [materials, setMaterials] = useState('');
   const [acting, setActing]     = useState(false);
 
   // NEW: time entry widget state
@@ -150,6 +151,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const openDetail = (ev) => {
     setSelected(ev);
     setNotes('');
+    setMaterials('');
     setTimeEntry(emptyTimeEntry());
     setLinkedCustomer(null);
     setReturnReason('');
@@ -158,6 +160,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const closeSheet = () => {
     setSelected(null);
     setNotes('');
+    setMaterials('');
     setActing(false);
     setTimeEntry(emptyTimeEntry());
     setLinkedCustomer(null);
@@ -202,6 +205,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       entry_method: tPayload.entry_method,
       disposition,
       notes: notes.trim() || null,
+      materials: materials.trim() || null,
     });
   };
 
@@ -503,7 +507,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
             <textarea value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="Notes (what was done, what's needed...)"
-              style={{ width: '100%', padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60, marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              style={{ width: '100%', padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60, marginBottom: 8, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>🔧 Materials</div>
+            <textarea value={materials} onChange={e => setMaterials(e.target.value)}
+              placeholder="Parts, supplies, equipment used or needed..."
+              style={{ width: '100%', padding: '10px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60, marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit' }} />
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {/* Gate hint */}
@@ -518,33 +527,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                 </div>
               )}
 
-              {selected.tab !== 'billit' && !isProjectLike(selected.title, selected.description) && (
-                <button onClick={handleBillIt} disabled={!canFinish}
-                  style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                  {acting ? 'Saving...' : '✅ Done — Bill It'}
-                </button>
-              )}
-
-              {selected.tab === 'new' && isProjectLike(selected.title, selected.description) && (
+              {selected.tab === 'new' && (
                 <>
                   <button onClick={handleProjectProgress} disabled={!canFinish}
                     style={{ padding: '12px', background: canFinish ? '#ecfeff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 10, color: canFinish ? '#155e75' : '#94a3b8', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                    🛠️ Done for Today — Keep In Progress
+                    🛠️ In Progress
                   </button>
-                  <ReturnButtonWithReason
-                    canFinish={canFinish} acting={acting}
-                    reason={returnReason} setReason={setReturnReason}
-                    onConfirm={handleReturn}
-                  />
-                  <button onClick={handleBillIt} disabled={!canFinish}
-                    style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                    {acting ? 'Saving...' : '✅ Done — Bill It'}
-                  </button>
-                </>
-              )}
-
-              {selected.tab === 'new' && !isProjectLike(selected.title, selected.description) && (
-                <>
                   <ReturnButtonWithReason
                     canFinish={canFinish} acting={acting}
                     reason={returnReason} setReason={setReturnReason}
@@ -554,7 +542,18 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     style={{ padding: '12px', background: canFinish ? '#f5f3ff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 10, color: canFinish ? '#5b21b6' : '#94a3b8', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
                     💰 Needs Estimate
                   </button>
+                  <button onClick={handleBillIt} disabled={!canFinish}
+                    style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
+                    {acting ? 'Saving...' : '✅ Done — Bill It'}
+                  </button>
                 </>
+              )}
+
+              {selected.tab !== 'new' && selected.tab !== 'billit' && (
+                <button onClick={handleBillIt} disabled={!canFinish}
+                  style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
+                  {acting ? 'Saving...' : '✅ Done — Bill It'}
+                </button>
               )}
               <button onClick={closeSheet}
                 style={{ padding: '10px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 10, color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>

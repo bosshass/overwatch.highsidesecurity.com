@@ -12,11 +12,9 @@ import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
-// The three source calendars this view monitors
+// Source calendar for scheduling dispatch
 const SOURCE_CALS = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Tentatively Scheduled', color: '#ef4444' },
-  { id: CALENDARS.SALES_ACCOUNTING,      name: 'Sales & Accounting',     color: '#ec4899' },
-  { id: 'info@drhsecurityservices.com',  name: 'Admin Notes',            color: '#00c8e8' },
 ];
 
 // Tech calendars available for scheduling

@@ -8,7 +8,6 @@ import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OfficeHub from './views/OfficeHub.jsx';
 import ThingsToDo from './views/ThingsToDo.jsx';
-import JobStatus from './views/JobStatus.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
 import Queue from './views/Queue.jsx';
@@ -18,7 +17,7 @@ import AdminGap from './views/AdminGap.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
-import CompletionModal from './components/CompletionModal.jsx';
+import JobFinishSheet from './components/JobFinishSheet.jsx';
 import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
@@ -464,14 +463,15 @@ export default function App() {
     );
   }
 
-  // ── DEEP LINK: ?cal=X&job=Y → Completion Modal ─────────────────────────
+  // ── DEEP LINK: ?cal=X&job=Y → JobFinishSheet ─────────────────────────
   if (deepLinkCal && deepLinkJob) {
     return (
-      <CompletionModal
+      <DeepLinkFinish
         calendarId={deepLinkCal}
         eventId={deepLinkJob}
         accessToken={accessToken}
         userEmail={userEmail}
+        userName={getUserConfig(userEmail).name}
         onDone={() => navigate('/')}
       />
     );
@@ -538,7 +538,6 @@ export default function App() {
         <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/billing" element={<Billing accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
-        <Route path="/jobs" element={<JobStatus onBack={() => navigate('/')} />} />
 
         <Route path="/newjob" element={
           <div style={{ minHeight: '100vh', background: '#0f1729' }}>
@@ -770,5 +769,68 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         </div>
       </div>
     </div>
+  );
+}
+
+// ── DEEP LINK FINISH ────────────────────────────────────────────────
+// Tech opens "📱 Open in Overwatch" link from a calendar event description.
+// We fetch the event from Google Calendar and hand it to JobFinishSheet.
+// JobFinishSheet writes the time entry, return card if needed, and patches the title.
+function DeepLinkFinish({ calendarId, eventId, accessToken, userEmail, userName, onDone }) {
+  const [event, setEvent] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!calendarId || !eventId || !accessToken) return;
+    fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(data => {
+        setEvent({
+          id: data.id,
+          title: data.summary || '(no title)',
+          calendarId,
+          start: data.start?.dateTime || data.start?.date,
+          end: data.end?.dateTime || data.end?.date,
+          description: data.description || '',
+          location: data.location || '',
+        });
+      })
+      .catch(e => setError(e.message || 'Could not load job'));
+  }, [calendarId, eventId, accessToken]);
+
+  if (error) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24 }}>
+        <div style={{ fontSize: 48 }}>⚠️</div>
+        <div style={{ color: '#e2e8f0', fontSize: 16 }}>Could not load this job.</div>
+        <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center' }}>{error}</div>
+        <button onClick={onDone} style={{ marginTop: 12, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '10px 20px', cursor: 'pointer' }}>
+          Back to home
+        </button>
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#64748b', fontSize: 14 }}>Loading job…</div>
+      </div>
+    );
+  }
+
+  return (
+    <JobFinishSheet
+      event={event}
+      accessToken={accessToken}
+      userEmail={userEmail}
+      userName={userName}
+      mode="full"
+      onFinished={onDone}
+      onCancel={onDone}
+    />
   );
 }

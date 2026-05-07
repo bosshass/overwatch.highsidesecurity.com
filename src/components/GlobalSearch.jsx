@@ -156,7 +156,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         {results.jobs.length > 0 && (
           <Section label={`Customers / Jobs (${results.jobs.length})`}>
             {results.jobs.map(j => (
-              <ResultCard key={j.id} onClick={() => { onNavigate('/jobs'); onClose(); }}>
+              <ResultCard key={j.id} onClick={() => { onNavigate('/board'); onClose(); }}>
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{j.customer_name}</div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   {j.job_number && <Chip color="#3b82f6">{j.job_number}</Chip>}

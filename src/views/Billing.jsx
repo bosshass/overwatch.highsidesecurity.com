@@ -25,8 +25,11 @@ const BILLING_SOURCES = [
 ];
 
 // ── Tag parsing ──────────────────────────────────────────────
+// Accept canonical tags ([BILL IT] / [RETURN] / [IN PROGRESS] / [ESTIMATE]) as well as
+// legacy synonyms ([COMPLETED], [TO BILL], [RETURN NEEDED], etc.) so existing calendar
+// events from before the tag-cleanup still parse correctly.
 const TAG_MAP = [
-  { re: /^\[(COMPLETE|COMPLETED|TO BILL)\]/i,                                    bucket: 'bill_it' },
+  { re: /^\[(BILL IT|COMPLETE|COMPLETED|TO BILL)\]/i,                            bucket: 'bill_it' },
   { re: /^\[(NO CHARGE|NC|NO-CHARGE)\]/i,                                       bucket: 'bill_it', nc: true },
   { re: /^\[(RETURN NEEDED|RETURN|RETURN TRIP)\]/i,                              bucket: 'return' },
   { re: /^\[(ESTIMATE NEEDED|ESTIMATE|ESTIMATE SENT|NEEDS ESTIMATE|SALES)\]/i,  bucket: 'estimate' },

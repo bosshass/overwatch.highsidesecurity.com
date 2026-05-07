@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
-import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from '../components/TimeEntryBlock.jsx';
-import CustomerLookup from '../components/CustomerLookup.jsx';
-import { timeEntriesApi, returnCardsApi } from '../services/supabase.js';
+import JobFinishSheet from '../components/JobFinishSheet.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -28,7 +26,8 @@ function cleanTitle(title) {
 
 function getTab(title) {
   const t = (title || '').toUpperCase();
-  if (t.includes('[COMPLETED]') || t.includes('[TO BILL]')) return 'billit';
+  // Bill-it bucket — accept new canonical [BILL IT] plus legacy [COMPLETED] / [TO BILL]
+  if (t.includes('[BILL IT]') || t.includes('[COMPLETED]') || t.includes('[TO BILL]')) return 'billit';
   if (t.includes('[RETURN') || t.includes('NEEDS RETURN'))  return 'return';
   if (t.includes('[ESTIMATE') || t.includes('ESTIMATE NEEDED') || t.includes('[SALES]')) return 'estimate';
   return 'new';
@@ -60,16 +59,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [loading, setLoading]   = useState(true);
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
-  const [notes, setNotes]       = useState('');
-  const [materials, setMaterials] = useState('');
-  const [acting, setActing]     = useState(false);
-
-  // NEW: time entry widget state
-  const [timeEntry, setTimeEntry] = useState(emptyTimeEntry());
-  // NEW: linked customer for the currently selected event
-  const [linkedCustomer, setLinkedCustomer] = useState(null);
-  // NEW: return-reason input (required when disposition is "return")
-  const [returnReason, setReturnReason] = useState('');
   const [detailsExpanded, setDetailsExpanded] = useState(false);
 
 
@@ -150,146 +139,35 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   const openDetail = (ev) => {
     setSelected(ev);
-    setNotes('');
-    setMaterials('');
-    setTimeEntry(emptyTimeEntry());
-    setLinkedCustomer(null);
-    setReturnReason('');
     setDetailsExpanded(false);
   };
   const closeSheet = () => {
     setSelected(null);
-    setNotes('');
-    setMaterials('');
-    setActing(false);
-    setTimeEntry(emptyTimeEntry());
-    setLinkedCustomer(null);
-    setReturnReason('');
-    // Scroll the page back up so the user sees the refreshed list,
-    // not the whitespace where the just-finished item used to be.
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
-  const selectedDate = selected?.start || new Date();
-  const timeValid = isValidTimeEntry(timeEntry, selectedDate);
-  const hasLinkedCustomer = !!linkedCustomer?.id;
-  // Every finish action requires a time entry AND a linked customer.
-  const canFinish = timeValid && hasLinkedCustomer && !acting;
-
-  // Calendar PATCH — title only. Description is owned by CustomerLookup (CUSTOMER_ID tag).
-  const patchEventTitle = async (ev, newTitle) => {
-    await fetch(`${GCAL}/calendars/${encodeURIComponent(ev.calendarId)}/events/${ev.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: newTitle }),
-    });
+  // Called by JobFinishSheet after a successful disposition.
+  // Optimistically updates the local list so the just-finished item flips
+  // tabs immediately, then closes the sheet.
+  const onFinished = (disposition, newTitle) => {
+    const newTab =
+      disposition === 'bill_it'     ? 'billit' :
+      disposition === 'return'      ? 'return' :
+      disposition === 'estimate'    ? 'estimate' :
+      'new'; // in_progress stays in 'new' tab
+    setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, title: newTitle, tab: newTab } : e));
+    closeSheet();
   };
 
-  // Single Supabase write that every finish action routes through.
-  const writeTimeEntry = async (disposition) => {
-    const tPayload = timeEntryToPayload(timeEntry, selectedDate);
-    return timeEntriesApi.create({
-      customer_id: linkedCustomer?.id || null,
-      customer_name_raw: linkedCustomer?.name || cleanTitle(selected.title) || null,
-      calendar_event_id: selected.id,
-      calendar_id: selected.calendarId,
-      event_title: selected.title,
-      event_start: selected.start?.toISOString?.() || null,
-      tech_email: userEmail || null,
-      tech_name: selected.techName || userName || null,
-      time_in: tPayload.time_in,
-      time_out: tPayload.time_out,
-      total_minutes: tPayload.total_minutes,
-      entry_method: tPayload.entry_method,
-      disposition,
-      notes: notes.trim() || null,
-      materials: materials.trim() || null,
-    });
-  };
+  // Customer link is rendered inside the rich detail header AND fed to JobFinishSheet
+  // (via prefillCustomer) so the tech doesn't have to link twice.
 
-  // ── BILL IT ─── closes job. No calendar duplication. Row in time_entries drives billing queue.
-  const handleBillIt = async () => {
-    if (!canFinish || !selected) return;
-    setActing(true);
-    try {
-      const name = cleanTitle(selected.title);
-      await patchEventTitle(selected, name + ' [COMPLETED]');
-      await writeTimeEntry('bill_it');
-      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [COMPLETED]', tab: 'billit' } : e));
-      closeSheet();
-    } catch (e) {
-      console.error('Bill It failed:', e);
-      alert('Failed to save: ' + (e.message || 'unknown error'));
-      setActing(false);
-    }
-  };
-
-  // ── RETURN ─── spawns a return_card (no sibling calendar event).
-  const handleReturn = async () => {
-    if (!canFinish || !selected) return;
-    if (!returnReason.trim()) { alert('Please add a reason for the return visit.'); return; }
-    setActing(true);
-    try {
-      const name = cleanTitle(selected.title);
-      await patchEventTitle(selected, name + ' [RETURN NEEDED]');
-      const entry = await writeTimeEntry('return');
-      await returnCardsApi.create({
-        customer_id: linkedCustomer?.id || null,
-        customer_name_raw: linkedCustomer?.name || name || null,
-        original_event_id: selected.id,
-        original_calendar_id: selected.calendarId,
-        original_event_title: selected.title,
-        original_location: selected.location || null,
-        flagged_by_email: userEmail || null,
-        flagged_by_name: selected.techName || userName || null,
-        reason: returnReason.trim(),
-        time_entry_id: entry?.id || null,
-      });
-      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [RETURN NEEDED]', tab: 'return' } : e));
-      closeSheet();
-    } catch (e) {
-      console.error('Return failed:', e);
-      alert('Failed to save: ' + (e.message || 'unknown error'));
-      setActing(false);
-    }
-  };
-
-  // ── IN PROGRESS ─── project stays open, logs today's time entry.
-  const handleProjectProgress = async () => {
-    if (!canFinish || !selected) return;
-    setActing(true);
-    try {
-      const name = cleanTitle(selected.title);
-      await patchEventTitle(selected, name + ' [IN PROGRESS]');
-      await writeTimeEntry('in_progress');
-      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [IN PROGRESS]', tab: 'new' } : e));
-      closeSheet();
-    } catch (e) {
-      console.error('In Progress failed:', e);
-      alert('Failed to save: ' + (e.message || 'unknown error'));
-      setActing(false);
-    }
-  };
-
-  // ── ESTIMATE NEEDED ─── flag for sales. Still TBD: also push to bill-it + create sales task.
-  // For now: just marks the event and writes the time entry.
-  const handleEstimate = async () => {
-    if (!canFinish || !selected) return;
-    setActing(true);
-    try {
-      const name = cleanTitle(selected.title);
-      await patchEventTitle(selected, name + ' [ESTIMATE NEEDED]');
-      await writeTimeEntry('estimate');
-      setAll(prev => prev.map(e => e.id === selected.id ? { ...e, title: name + ' [ESTIMATE NEEDED]', tab: 'estimate' } : e));
-      closeSheet();
-    } catch (e) {
-      console.error('Estimate failed:', e);
-      alert('Failed to save: ' + (e.message || 'unknown error'));
-      setActing(false);
-    }
-  };
+  // ── DISPOSITION HANDLERS — now live in JobFinishSheet (../components/JobFinishSheet.jsx)
+  // Removed in the consolidation cleanup. JobFinishSheet writes time_entries +
+  // return_cards and patches the calendar title with canonical [BILL IT] / [RETURN] /
+  // [IN PROGRESS] / [ESTIMATE] tags.
 
   const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   const extractPhone = (desc) => {
@@ -456,14 +334,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               </div>
             )}
 
-            {/* Address block — only when it's NOT the same as the Navigate button's location */}
-            {linkedCustomer?.address && linkedCustomer.address !== selected.location && (
-              <div style={{ background: '#f9fafb', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>Address</div>
-                <div style={{ fontSize: 13, color: '#374151' }}>{linkedCustomer.address}</div>
-              </div>
-            )}
-
             {/* Job Details — collapsed by default, "more" reveals the rest */}
             {selected.description && (() => {
               const cleaned = selected.description
@@ -489,143 +359,31 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               );
             })()}
 
-            {/* Customer link (required) */}
-            <CustomerLookup
-              event={selected}
+            {/* Finish form — customer link, time entry, notes, materials, disposition buttons.
+                Lives in src/components/JobFinishSheet.jsx and is the SINGLE canonical
+                "tech finishes a job" UI used everywhere in the app. */}
+            <JobFinishSheet
+              inline
+              event={{
+                id: selected.id,
+                title: selected.title,
+                calendarId: selected.calendarId,
+                start: selected.start,
+                end: selected.end,
+                description: selected.description,
+                location: selected.location,
+                techName: selected.techName,
+              }}
               accessToken={accessToken}
-              value={linkedCustomer}
-              onChange={setLinkedCustomer}
+              userEmail={userEmail}
+              userName={userName}
+              mode={selected.tab === 'new' ? 'full' : 'bill-only'}
+              onFinished={onFinished}
+              onCancel={closeSheet}
             />
-
-            {/* Time entry (required) */}
-            <TimeEntryBlock
-              value={timeEntry}
-              onChange={setTimeEntry}
-              eventDate={selectedDate}
-              required
-            />
-
-            <textarea value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Notes (what was done, what's needed...)"
-              style={{ width: '100%', padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60, marginBottom: 8, boxSizing: 'border-box', fontFamily: 'inherit' }} />
-
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>🔧 Materials</div>
-            <textarea value={materials} onChange={e => setMaterials(e.target.value)}
-              placeholder="Parts, supplies, equipment used or needed..."
-              style={{ width: '100%', padding: '10px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60, marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit' }} />
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {/* Gate hint */}
-              {!canFinish && (
-                <div style={{
-                  padding: '8px 10px', background: '#fffbeb', border: '1px solid #fcd34d',
-                  borderRadius: 10, fontSize: 11, color: '#92400e', textAlign: 'center',
-                }}>
-                  {!hasLinkedCustomer && !timeValid && 'Link a customer and add time to finish.'}
-                  {!hasLinkedCustomer && timeValid && 'Link a customer to finish.'}
-                  {hasLinkedCustomer && !timeValid && 'Add a time entry to finish.'}
-                </div>
-              )}
-
-              {selected.tab === 'new' && (
-                <>
-                  <button onClick={handleProjectProgress} disabled={!canFinish}
-                    style={{ padding: '12px', background: canFinish ? '#ecfeff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 10, color: canFinish ? '#155e75' : '#94a3b8', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                    🛠️ In Progress
-                  </button>
-                  <ReturnButtonWithReason
-                    canFinish={canFinish} acting={acting}
-                    reason={returnReason} setReason={setReturnReason}
-                    onConfirm={handleReturn}
-                  />
-                  <button onClick={handleEstimate} disabled={!canFinish}
-                    style={{ padding: '12px', background: canFinish ? '#f5f3ff' : '#f1f5f9', border: `1.5px solid ${canFinish ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 10, color: canFinish ? '#5b21b6' : '#94a3b8', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                    💰 Needs Estimate
-                  </button>
-                  <button onClick={handleBillIt} disabled={!canFinish}
-                    style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                    {acting ? 'Saving...' : '✅ Done — Bill It'}
-                  </button>
-                </>
-              )}
-
-              {selected.tab !== 'new' && selected.tab !== 'billit' && (
-                <button onClick={handleBillIt} disabled={!canFinish}
-                  style={{ padding: '12px', background: canFinish ? '#1B2A4A' : '#cbd5e1', border: 'none', borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: canFinish ? 'pointer' : 'not-allowed' }}>
-                  {acting ? 'Saving...' : '✅ Done — Bill It'}
-                </button>
-              )}
-              <button onClick={closeSheet}
-                style={{ padding: '10px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 10, color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>
-                Cancel
-              </button>
-            </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── ReturnButtonWithReason ─────────────────────────────────────
-// Inline-expands a reason field before firing onConfirm, since
-// every return_card needs a reason to be useful in the Scheduler view.
-function ReturnButtonWithReason({ canFinish, acting, reason, setReason, onConfirm }) {
-  const [expanded, setExpanded] = useState(false);
-  const ready = canFinish && reason.trim().length > 0;
-
-  if (!expanded) {
-    return (
-      <button
-        onClick={() => canFinish && setExpanded(true)}
-        disabled={!canFinish}
-        style={{
-          padding: '12px',
-          background: canFinish ? '#fffbeb' : '#f1f5f9',
-          border: `1.5px solid ${canFinish ? '#fbbf24' : '#cbd5e1'}`,
-          borderRadius: 10,
-          color: canFinish ? '#92400e' : '#94a3b8',
-          fontSize: 14, fontWeight: 700,
-          cursor: canFinish ? 'pointer' : 'not-allowed',
-        }}>
-        🔄 Needs Return Visit
-      </button>
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>
-        Return reason (required)
-      </div>
-      <textarea
-        value={reason}
-        onChange={e => setReason(e.target.value)}
-        placeholder="e.g. needs battery, customer not home, waiting on part..."
-        autoFocus
-        rows={2}
-        style={{
-          padding: 10, border: '1px solid #fcd34d', borderRadius: 8,
-          fontSize: 13, resize: 'none', fontFamily: 'inherit', background: '#fff',
-        }}
-      />
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => { setExpanded(false); setReason(''); }}
-          style={{ flex: 1, padding: 10, background: '#fff', border: '1px solid #fcd34d', borderRadius: 8, color: '#92400e', fontSize: 13, cursor: 'pointer' }}>
-          Cancel
-        </button>
-        <button onClick={onConfirm} disabled={!ready || acting}
-          style={{
-            flex: 2, padding: 10,
-            background: ready ? '#d97706' : '#e5e7eb',
-            color: ready ? '#fff' : '#9ca3af',
-            border: 'none', borderRadius: 8,
-            fontSize: 13, fontWeight: 700,
-            cursor: ready && !acting ? 'pointer' : 'not-allowed',
-          }}>
-          {acting ? 'Saving...' : 'Confirm Return'}
-        </button>
-      </div>
     </div>
   );
 }

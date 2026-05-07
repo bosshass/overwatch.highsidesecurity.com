@@ -44,8 +44,8 @@ const TECHS = [
   { id: 'jr', name: 'JR', calendarId: CALENDARS.JR, color: '#22c55e', hoursPerWeek: 20 },
 ];
 
-// Tags to exclude from ready queue
-const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]', '[COMPLETE]'];
+// Tags to exclude from ready queue — accepts canonical [BILL IT] and legacy synonyms.
+const DONE_TAGS = ['[BILLED]', '[BILL IT]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]', '[COMPLETE]'];
 const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]'];
 
 export default function Scheduler({ accessToken, onBack }) {

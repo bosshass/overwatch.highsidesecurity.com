@@ -17,7 +17,6 @@ import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
 import ScheduleModal from './ScheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
-import TimeCaptureModal from './TimeCaptureModal.jsx';
 
 export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userEmail, userRole }) {
   const [job, setJob] = useState(null);
@@ -283,16 +282,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       const activeAssignment = assignments.find(a => !a.is_complete);
       if (activeAssignment) {
         await assignmentsApi.markComplete(
-          activeAssignment.id, timeIn, timeOut, notes || null, null,
-          completionData?.officeNotified ?? null
+          activeAssignment.id, timeIn, timeOut, notes || null, null, null
         );
       }
-      let sNote = notes || null;
-      if (completionData?.overrunData?.isOverrun) {
-        const overrunPrefix = `⚠️ OVERRUN: Job ran ${completionData.overrunData.overrunHours}h over standard. ${completionData.officeNotified ? 'Office notified.' : ''}`;
-        sNote = overrunPrefix + (notes ? `\n\n${notes}` : '');
-      }
-      await jobsApi.changeStatus(job.id, pendingAction.toStatus, userEmail, sNote);
+      await jobsApi.changeStatus(job.id, pendingAction.toStatus, userEmail, notes || null);
       if (pendingAction.toStatus === JOB_STATUS.COMPLETED || pendingAction.toStatus === JOB_STATUS.ARCHIVED) {
         const techName = activeAssignment?.tech?.name || 'Tech';
         notifyJobComplete(techName, job.customer_name);
@@ -574,10 +567,19 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const renderModals = () => (
     <>
       {showTimeCapture && pendingAction && (
-        <TimeCaptureModal job={job} pendingAction={pendingAction}
+        <InlineTimeGate
+          job={job}
+          pendingAction={pendingAction}
+          timeArrived={timeArrived}
+          setTimeArrived={setTimeArrived}
+          timeDeparted={timeDeparted}
+          setTimeDeparted={setTimeDeparted}
+          completionNotes={completionNotes}
+          setCompletionNotes={setCompletionNotes}
           onSubmit={submitCompletion}
           onCancel={() => { setShowTimeCapture(false); setPendingAction(null); }}
-          isSubmitting={actionInProgress !== null} />
+          isSubmitting={actionInProgress !== null}
+        />
       )}
       {showScheduleModal && job && (
         <ScheduleModal job={job} onClose={() => setShowScheduleModal(false)}
@@ -1061,3 +1063,123 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     </div>
   );
 }
+
+// ── InlineTimeGate ────────────────────────────────────────────────
+// Simple time-arrived / time-departed / completion-notes modal that
+// gates a status change on the Supabase jobs table. Replaces the deleted
+// TimeCaptureModal as part of the cleanup that consolidated all
+// "tech finishes a job" flows into JobFinishSheet.jsx for the
+// calendar-driven path. JobDetail still handles the Supabase-jobs status
+// machine path; that is intentional and a separate architecture.
+//
+// Overrun detection was removed in this cleanup — it shipped but nobody
+// actually used it, and its presence forced two separate flows to coexist.
+function InlineTimeGate({
+  job,
+  pendingAction,
+  timeArrived,
+  setTimeArrived,
+  timeDeparted,
+  setTimeDeparted,
+  completionNotes,
+  setCompletionNotes,
+  onSubmit,
+  onCancel,
+  isSubmitting,
+}) {
+  // Pre-fill departed time with current time if empty
+  useEffect(() => {
+    if (!timeDeparted) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      setTimeDeparted(`${hh}:${mm}`);
+    }
+  }, []);
+
+  const submit = () => {
+    if (isSubmitting) return;
+    onSubmit({ timeArrived, timeDeparted, completionNotes });
+  };
+
+  return (
+    <div onClick={onCancel} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500,
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#1e293b', borderRadius: '20px 20px 0 0',
+        padding: '24px 20px 32px', width: '100%', maxWidth: 480, maxHeight: '92vh',
+        overflowY: 'auto',
+      }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>
+            {pendingAction?.label || 'Complete Job'}
+          </div>
+          <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
+            {job?.customer_name} {job?.job_number ? `· ${job.job_number}` : ''}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <div style={{ flex: 1 }}>
+            <label style={timeLabelStyle}>Time arrived</label>
+            <input
+              type="time"
+              value={timeArrived}
+              onChange={e => setTimeArrived(e.target.value)}
+              style={timeInputStyle}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={timeLabelStyle}>Time departed</label>
+            <input
+              type="time"
+              value={timeDeparted}
+              onChange={e => setTimeDeparted(e.target.value)}
+              style={timeInputStyle}
+            />
+          </div>
+        </div>
+
+        <label style={timeLabelStyle}>Notes (optional)</label>
+        <textarea
+          value={completionNotes}
+          onChange={e => setCompletionNotes(e.target.value)}
+          placeholder="What was done, anything noteworthy…"
+          rows={3}
+          style={{
+            width: '100%', padding: 10, background: '#0f1729',
+            border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0',
+            fontSize: 13, fontFamily: 'inherit', resize: 'none',
+            boxSizing: 'border-box', marginBottom: 16,
+          }}
+        />
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onCancel} disabled={isSubmitting} style={{
+            flex: 1, padding: 12, background: 'none', border: '1px solid #334155',
+            borderRadius: 10, color: '#94a3b8', fontSize: 13, cursor: 'pointer',
+          }}>Cancel</button>
+          <button onClick={submit} disabled={isSubmitting} style={{
+            flex: 2, padding: 12, background: isSubmitting ? '#334155' : '#22c55e',
+            border: 'none', borderRadius: 10, color: '#000',
+            fontSize: 14, fontWeight: 700, cursor: isSubmitting ? 'not-allowed' : 'pointer',
+          }}>
+            {isSubmitting ? 'Saving…' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const timeLabelStyle = {
+  color: '#94a3b8', fontSize: 11, fontWeight: 600, display: 'block',
+  marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5,
+};
+const timeInputStyle = {
+  width: '100%', padding: 10, background: '#0f1729',
+  border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0',
+  fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box',
+};

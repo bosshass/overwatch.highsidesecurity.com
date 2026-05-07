@@ -14,7 +14,7 @@ import usePullToRefresh from '../utils/usePullToRefresh.jsx';
 import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
 import NewJobModal from '../components/NewJobModal.jsx';
-import JobCompleteModal from '../components/JobCompleteModal.jsx';
+import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import InboxBar from '../components/InboxBar.jsx';
 
 const CALENDAR_COLORS = {
@@ -1224,15 +1224,26 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       )}
 
       {showCompleteModal && eventPreview && (
-        <JobCompleteModal
-          event={eventPreview}
+        <JobFinishSheet
+          event={{
+            id: eventPreview.id,
+            title: eventPreview.summary,
+            calendarId: eventPreview.calendarId,
+            start: eventPreview.start,
+            end: eventPreview.end,
+            description: eventPreview.description || '',
+            location: eventPreview.location || '',
+          }}
           accessToken={accessToken}
-          onClose={() => setShowCompleteModal(false)}
-          onSaved={(status) => {
+          userEmail={userEmail}
+          userName={userName}
+          mode="full"
+          onFinished={() => {
             setShowCompleteModal(false);
             setEventPreview(null);
             fetchCalendarEvents();
           }}
+          onCancel={() => setShowCompleteModal(false)}
         />
       )}
 

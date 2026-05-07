@@ -7,7 +7,8 @@ import { CALENDARS } from '../config/calendars.js';
 import { customersApi, jobsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
-const SKIP_PREFIXES = ['[BILLED]','[TO BILL]','[COMPLETED]','[IGNORE]','[IGNORED]','[IGNORE] JR OFF','[ESTIMATE SENT]','[SCHEDULED]'];
+// Accept canonical [BILL IT] and legacy [COMPLETED] / [TO BILL] equivalently.
+const SKIP_PREFIXES = ['[BILLED]','[BILL IT]','[TO BILL]','[COMPLETED]','[IGNORE]','[IGNORED]','[IGNORE] JR OFF','[ESTIMATE SENT]','[SCHEDULED]'];
 const QUEUE_SOURCES = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service/Urgent', color: '#f59e0b' },
   { id: CALENDARS.AUSTIN,                name: 'Austin',         color: '#f97316' },
@@ -23,7 +24,7 @@ const TECHS = [
 // Tag patterns
 const RETURN_TAGS = ['[RETURN]', '[RETURN NEEDED]', '[RETURN PENDING]'];
 const PARTS_TAGS = ['[NEEDS PARTS]', '[PARTS]', '[WAITING PARTS]'];
-const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE'];
+const DONE_TAGS = ['[BILLED]', '[BILL IT]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE'];
 
 // Helper: strip tags from title to get customer name
 const extractCustomerName = (title) => {

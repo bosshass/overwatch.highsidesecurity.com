@@ -8,8 +8,9 @@
 import { createClient } from '@supabase/supabase-js';
 
 // ── Supabase ────────────────────────────────────────────────────────────────
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://wolhqelloeypafmmvapn.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxODUsImV4cCI6MjA4NDg2MDE4NX0.wQZ14FMQ03A8cBYXBMS1-pII4lKhTL7VNPl9zBCs-EM';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+if (!supabaseUrl || !supabaseKey) throw new Error('Supabase env vars not configured');
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ── Calendar IDs ────────────────────────────────────────────────────────────
@@ -570,10 +571,15 @@ async function handleTool(name, args) {
 // ── MCP Protocol Handler ────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS — restrict to trusted origins only
+  const allowed = ['https://overwatch.highsidesecurity.com', 'https://www.overwatch.highsidesecurity.com'];
+  const origin = req.headers.origin || '';
+  if (allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end();

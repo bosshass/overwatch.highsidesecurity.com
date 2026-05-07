@@ -3,11 +3,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = 'https://wolhqelloeypafmmvapn.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4MDEwNTMsImV4cCI6MjA1OTM3NzA1M30.BGPjPXH5fOSKGPOeMPH6z5OJvX8aTitGrwe1_Atgkp8';
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import { supabase } from '../services/supabase.js';
 
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 

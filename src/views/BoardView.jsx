@@ -63,7 +63,8 @@ export default function BoardView({ accessToken, onBack }) {
 
   // Supabase return cards — operator links these to P-/S- jobs
   const [supabaseReturns, setSupabaseReturns] = useState([]);
-  const [linkingCard, setLinkingCard] = useState(null); // return_card being linked
+  const [linkingCard, setLinkingCard] = useState(null);         // return_card being linked
+  const [linkingCalendarItem, setLinkingCalendarItem] = useState(null); // calendar event being project-linked
 
   // Which sub-menu is expanded in the detail modal
   const [modalSubMenu, setModalSubMenu] = useState(null); // null | 'blocked' | 'estimate'
@@ -446,22 +447,26 @@ export default function BoardView({ accessToken, onBack }) {
     setUpdating(false);
   };
 
-  // ── Project tagging (Option A multi-resource / multi-day) ──────────────
+  // ── Project tagging ─────────────────────────────────────────
   const extractProjectRef = (title) => {
-    const m = (title || '').match(/\[PROJ-(\d+)\]/i);
-    return m ? `PROJ-${m[1]}` : null;
-  };
-
-  const nextProjectNum = () => {
-    const n = parseInt(localStorage.getItem('juce_proj_counter') || '0') + 1;
-    localStorage.setItem('juce_proj_counter', String(n));
-    return String(n).padStart(3, '0');
+    const mP = (title || '').match(/\[P-(\d+)\]/i);
+    if (mP) return `P-${mP[1]}`;
+    const mS = (title || '').match(/\[S-(\d+)\]/i);
+    if (mS) return `S-${mS[1]}`;
+    const mProj = (title || '').match(/\[PROJ-(\d+)\]/i);
+    return mProj ? `PROJ-${mProj[1]}` : null;
   };
 
   const assignProjectTag = async (item, projRef) => {
     setUpdating(true);
     try {
-      const cleanTitle = (item.title || '').replace(/\s*\[PROJ-\d+\]/gi, '').trim();
+      const cleanTitle = (item.title || '')
+        .replace(/\s*\[PROJ-\d+\]/gi, '')
+        .replace(/\s*\[P-\d+\]/gi, '')
+        .replace(/\s*\[S-\d+\]/gi, '')
+        .replace(/\s*\[PROJECT\]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
       const newTitle = `[${projRef}] ${cleanTitle}`;
       const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
         method: 'PATCH',
@@ -477,34 +482,11 @@ export default function BoardView({ accessToken, onBack }) {
     setUpdating(false);
   };
 
-  // Mark item as a Project (adds [PROJECT] tag)
-  const markAsProject = async (item) => {
-    setUpdating(true);
-    try {
-      // Strip existing tags and add [PROJECT]
-      let cleanTitle = (item.title || '').replace(/^\[[^\]]+\]\s*/g, '');
-      // Keep stripping until no more leading tags
-      while (cleanTitle.match(/^\[[^\]]+\]\s*/)) {
-        cleanTitle = cleanTitle.replace(/^\[[^\]]+\]\s*/, '');
-      }
-      const newTitle = `[PROJECT] ${cleanTitle}`;
-      
-      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summary: newTitle })
-      });
-      
-      if (!res.ok) throw new Error('Failed to update event');
-      
-      // Refresh all data
-      await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks()]);
-      setSelectedItem(null);
-    } catch (e) {
-      console.error('Mark as project error:', e);
-      alert(`Error: ${e.message}`);
-    }
-    setUpdating(false);
+  // Mark item as a Project — opens job search modal so operator links to existing P-number
+  // or creates a new one. Never blindly creates a duplicate.
+  const markAsProject = (item) => {
+    setSelectedItem(null);
+    setLinkingCalendarItem(item);
   };
 
   // Patch a GCal event title: strips all leading [TAGS] then prepends the new one.
@@ -1671,6 +1653,15 @@ export default function BoardView({ accessToken, onBack }) {
     setLinkingCard(null);
   };
 
+  // Called when operator picks/creates a job from "Mark as Project" modal.
+  // Tags the calendar event with the P-/S-number and refreshes the board.
+  const handleCalendarJobLinked = async (jobId, jobLabel) => {
+    const item = linkingCalendarItem;
+    setLinkingCalendarItem(null);
+    if (!item || !jobLabel) return;
+    await assignProjectTag(item, jobLabel);
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#fff', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -2274,6 +2265,16 @@ export default function BoardView({ accessToken, onBack }) {
           returnCard={linkingCard}
           onLink={handleJobLinked}
           onClose={() => setLinkingCard(null)}
+        />
+      )}
+
+      {/* Job Search Modal — Mark as Project: find existing P-number or create new */}
+      {linkingCalendarItem && (
+        <JobSearchModal
+          returnCard={{ customer_name_raw: linkingCalendarItem.customerName || linkingCalendarItem.title }}
+          skipDbLink
+          onLink={handleCalendarJobLinked}
+          onClose={() => setLinkingCalendarItem(null)}
         />
       )}
 

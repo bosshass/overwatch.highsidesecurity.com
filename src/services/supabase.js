@@ -903,6 +903,26 @@ export const jobLinkingApi = {
     return data; // returns the s_number string
   },
 
+  // Create a new job and assign the next P-number via the DB trigger.
+  // INSERT with status 'new', then UPDATE to 'estimate_sent' so the trigger fires.
+  async createProjectJob(customerName) {
+    const { data: job, error: insertErr } = await supabase
+      .from('jobs')
+      .insert([{ customer_name: customerName, status: 'new', job_type: 'project' }])
+      .select()
+      .single();
+    if (insertErr) throw insertErr;
+
+    const { data: updated, error: updateErr } = await supabase
+      .from('jobs')
+      .update({ status: 'estimate_sent' })
+      .eq('id', job.id)
+      .select('id, customer_name, p_number, s_number, status, job_type')
+      .single();
+    if (updateErr) throw updateErr;
+    return updated; // p_number is now set by trigger
+  },
+
   // Get pending return cards (with job link if set).
   async getPendingReturnCards() {
     const { data, error } = await supabase

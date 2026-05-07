@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { jobLinkingApi } from '../services/supabase.js';
 
+// Props:
+//   returnCard   — return_card being linked (pass null when linking a calendar event)
+//   skipDbLink   — if true, skip the linkReturnCard DB call (caller handles persistence)
+//   onCreateNew  — optional callback(customerName) shown as "Create New Project" at bottom
+//   onLink(jobId, jobLabel) — called on confirm
+//   onClose()
+
+
 const STATUS_LABELS = {
   estimate_sent: 'Estimate Out',
   won:           'Won',
@@ -30,7 +38,7 @@ const STATUS_COLORS = {
 //   returnCard  — the return_card object being linked
 //   onLink(jobId, jobLabel) — called when operator confirms selection
 //   onClose() — called to dismiss without linking
-export default function JobSearchModal({ returnCard, onLink, onClose }) {
+export default function JobSearchModal({ returnCard, skipDbLink, onCreateNew, onLink, onClose }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -68,11 +76,29 @@ export default function JobSearchModal({ returnCard, onLink, onClose }) {
     setLinking(true);
     setError(null);
     try {
-      await jobLinkingApi.linkReturnCard(returnCard.id, selected.id);
+      if (!skipDbLink && returnCard?.id) {
+        await jobLinkingApi.linkReturnCard(returnCard.id, selected.id);
+      }
       const label = selected.p_number || selected.s_number;
       onLink(selected.id, label);
     } catch (e) {
       setError('Link failed: ' + e.message);
+      setLinking(false);
+    }
+  };
+
+  const handleCreateNew = async () => {
+    const name = query.trim() || returnCard?.customer_name_raw || 'New Project';
+    setLinking(true);
+    setError(null);
+    try {
+      const job = await jobLinkingApi.createProjectJob(name);
+      if (!skipDbLink && returnCard?.id) {
+        await jobLinkingApi.linkReturnCard(returnCard.id, job.id);
+      }
+      onLink(job.id, job.p_number);
+    } catch (e) {
+      setError('Create failed: ' + e.message);
       setLinking(false);
     }
   };
@@ -158,29 +184,44 @@ export default function JobSearchModal({ returnCard, onLink, onClose }) {
         )}
 
         {/* Footer */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={onClose}
+              style={{
+                flex: 1, padding: '10px 0', background: '#334155', border: 'none',
+                borderRadius: 8, color: '#fff', fontSize: 14, cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={!selected || linking}
+              style={{
+                flex: 2, padding: '10px 0',
+                background: selected ? '#3b82f6' : '#1e3a5f',
+                border: 'none', borderRadius: 8, color: '#fff',
+                fontSize: 14, fontWeight: 600,
+                cursor: selected ? 'pointer' : 'not-allowed',
+                opacity: linking ? 0.7 : 1,
+              }}
+            >
+              {linking ? 'Linking…' : selected ? `Link to ${selected.p_number || selected.s_number}` : 'Select a job'}
+            </button>
+          </div>
           <button
-            onClick={onClose}
+            onClick={handleCreateNew}
+            disabled={linking}
             style={{
-              flex: 1, padding: '10px 0', background: '#334155', border: 'none',
-              borderRadius: 8, color: '#fff', fontSize: 14, cursor: 'pointer',
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!selected || linking}
-            style={{
-              flex: 2, padding: '10px 0',
-              background: selected ? '#3b82f6' : '#1e3a5f',
-              border: 'none', borderRadius: 8, color: '#fff',
-              fontSize: 14, fontWeight: 600,
-              cursor: selected ? 'pointer' : 'not-allowed',
+              width: '100%', padding: '10px 0',
+              background: 'none', border: '1px dashed #3b82f6',
+              borderRadius: 8, color: '#60a5fa',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer',
               opacity: linking ? 0.7 : 1,
             }}
           >
-            {linking ? 'Linking…' : selected ? `Link to ${selected.p_number || selected.s_number}` : 'Select a job'}
+            {linking ? 'Creating…' : `+ Create new project${query.trim() ? ` — "${query.trim()}"` : ''}`}
           </button>
         </div>
       </div>

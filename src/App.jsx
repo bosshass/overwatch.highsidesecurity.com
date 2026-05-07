@@ -24,6 +24,8 @@ import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
+import { StuckAlertGate } from './components/StuckAlerts.jsx';
+import { shouldShowGate } from './utils/alertEngine.js';
 
 const APP_VERSION = '7.2.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -84,6 +86,7 @@ export default function App() {
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showAlertGate, setShowAlertGate] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -355,6 +358,16 @@ export default function App() {
     });
   }, [userEmail]);
 
+  // ── ALERT GATE: show for JR every 6 hours ──────────────────────────────
+  useEffect(() => {
+    if (!isSignedIn || !userEmail) return;
+    if (userEmail.toLowerCase() === 'jr@drhsecurityservices.com') {
+      if (shouldShowGate(userEmail)) {
+        setShowAlertGate(true);
+      }
+    }
+  }, [isSignedIn, userEmail]);
+
   // ── AUTH: Session expiry check (36hr) ───────────────────────────────────
   useEffect(() => {
     if (!isSignedIn) return;
@@ -561,6 +574,15 @@ export default function App() {
       {/* Global Search */}
       {showSearch && (
         <GlobalSearch onClose={() => setShowSearch(false)} onNavigate={navigate} />
+      )}
+
+      {/* JR Alert Gate */}
+      {showAlertGate && (
+        <StuckAlertGate
+          accessToken={accessToken}
+          userEmail={userEmail}
+          onDismiss={() => setShowAlertGate(false)}
+        />
       )}
 
       {/* Modals (render on top of any route) */}

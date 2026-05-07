@@ -13,6 +13,7 @@ import usePullToRefresh from '../utils/usePullToRefresh.jsx';
 import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
 import PLDashboard from '../components/PLDashboard.jsx';
+import { StuckAlertsPanel } from '../components/StuckAlerts.jsx';
 
 // ============================================
 // HELPERS
@@ -1025,6 +1026,9 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
           DRH Security — Owner View
         </div>
       </div>
+
+      {/* STUCK ALERTS — real-time flags from GCal + Supabase */}
+      <StuckAlertsPanel accessToken={accessToken} />
 
       {/* ALERTS — top priority */}
       {alerts.length > 0 && (

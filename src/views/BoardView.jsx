@@ -38,7 +38,7 @@ const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORE
 const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]', '[QUICK TASK]'];
 
 // Tags that mean task is a pending estimate — show in Pending Estimates column
-const ESTIMATE_TAGS = ['[ESTIMATE NOT SENT]', '[ESTIMATE SENT]'];
+const ESTIMATE_TAGS = ['[ESTIMATE NOT SENT]', '[ESTIMATE SENT]', '[ESTIMATE WON]', '[ESTIMATE LOST]'];
 
 // Extract customer name from title
 const extractCustomerName = (title) => {
@@ -799,14 +799,17 @@ export default function BoardView({ accessToken, onBack }) {
             const title = (ev.summary || '').toUpperCase();
             const matchedTag = ESTIMATE_TAGS.find(tag => title.includes(tag.toUpperCase()));
             if (!matchedTag) return;
-            const isSent = matchedTag === '[ESTIMATE SENT]';
+            const estimateStatus =
+              matchedTag === '[ESTIMATE SENT]' ? 'Sent' :
+              matchedTag === '[ESTIMATE WON]'  ? 'Won' :
+              matchedTag === '[ESTIMATE LOST]' ? 'Lost' : 'Not Sent';
             calEstimates.push({
               id: ev.id,
               _source: 'calendar',
               calendarId: cal.id,
               calendarName: cal.name,
               customer_name: extractCustomerName(ev.summary || ''),
-              qbo_estimate_status: isSent ? 'Sent' : 'Not Sent',
+              qbo_estimate_status: estimateStatus,
               created_at: ev.start?.dateTime || ev.start?.date,
               issue: ev.description || '',
               customer_address: ev.location || '',
@@ -893,31 +896,51 @@ export default function BoardView({ accessToken, onBack }) {
     </div>
   );
 
-  const EstimateCard = ({ estimate, isApproved }) => (
-    <div
-      onClick={() => setSelectedItem({ type: 'estimate', data: estimate })}
-      style={{
-        background: '#1e293b',
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 8,
-        borderLeft: `3px solid ${isApproved ? '#22c55e' : '#f59e0b'}`,
-        cursor: 'pointer',
-      }}
-    >
-      <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{estimate.customer_name || 'Unknown'}</div>
-      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>{estimate.calendar_summary || estimate.issue || 'No description'}</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: isApproved ? '#22c55e' : '#f59e0b' }}>
-          {formatMoney(estimate.estimate_amount)}
-        </span>
-        <span style={{ fontSize: 11, color: '#64748b' }}>{formatDate(estimate.created_at)}</span>
+  const EstimateCard = ({ estimate, isApproved }) => {
+    const statusColor =
+      estimate.qbo_estimate_status === 'Won'     ? '#22c55e' :
+      estimate.qbo_estimate_status === 'Lost'    ? '#475569' :
+      estimate.qbo_estimate_status === 'Sent'    ? '#3b82f6' :
+      isApproved                                 ? '#22c55e' : '#f59e0b';
+    const statusLabel =
+      estimate.qbo_estimate_status === 'Won'     ? 'Won' :
+      estimate.qbo_estimate_status === 'Lost'    ? 'Lost' :
+      estimate.qbo_estimate_status === 'Sent'    ? 'Sent' :
+      estimate.qbo_estimate_status === 'Not Sent'? 'Not Sent' : null;
+    return (
+      <div
+        onClick={() => setSelectedItem({ type: 'estimate', data: estimate })}
+        style={{
+          background: '#1e293b',
+          borderRadius: 8,
+          padding: 12,
+          marginBottom: 8,
+          borderLeft: `3px solid ${statusColor}`,
+          cursor: 'pointer',
+          opacity: estimate.qbo_estimate_status === 'Lost' ? 0.6 : 1,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: '#fff' }}>{estimate.customer_name || 'Unknown'}</div>
+          {statusLabel && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: statusColor, background: statusColor + '22', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', marginLeft: 8 }}>
+              {statusLabel}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>{estimate.calendar_summary || estimate.issue || 'No description'}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: statusColor }}>
+            {formatMoney(estimate.estimate_amount)}
+          </span>
+          <span style={{ fontSize: 11, color: '#64748b' }}>{formatDate(estimate.created_at)}</span>
+        </div>
+        {estimate.qbo_estimate_ref && (
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Est# {estimate.qbo_estimate_ref}</div>
+        )}
       </div>
-      {estimate.qbo_estimate_ref && (
-        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Est# {estimate.qbo_estimate_ref}</div>
-      )}
-    </div>
-  );
+    );
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // DETAIL MODAL
@@ -1338,7 +1361,7 @@ export default function BoardView({ accessToken, onBack }) {
                 >
                   🔨 Mark as Project
                 </button>
-                {/* Pending Estimate — expands to NOT SENT / SENT */}
+                {/* Pending Estimate — expands to NOT SENT / SENT / WON / LOST */}
                 {modalSubMenu === 'estimate' ? (
                   <div style={{ border: '1px solid #f59e0b', borderRadius: 8, overflow: 'hidden' }}>
                     <div style={{ background: '#f59e0b22', padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#f59e0b', display: 'flex', justifyContent: 'space-between' }}>
@@ -1349,16 +1372,30 @@ export default function BoardView({ accessToken, onBack }) {
                       <button
                         onClick={() => patchCalendarTag(item, 'ESTIMATE NOT SENT')}
                         disabled={updating}
-                        style={{ flex: 1, padding: '11px 0', background: '#1e293b', border: 'none', color: '#f59e0b', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#f59e0b', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                       >
                         NOT SENT
                       </button>
                       <button
                         onClick={() => patchCalendarTag(item, 'ESTIMATE SENT')}
                         disabled={updating}
-                        style={{ flex: 1, padding: '11px 0', background: '#1e293b', border: 'none', color: '#22c55e', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#22c55e', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                       >
                         SENT
+                      </button>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'ESTIMATE WON')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#3b82f6', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        WON
+                      </button>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'ESTIMATE LOST')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#64748b', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        LOST
                       </button>
                     </div>
                   </div>

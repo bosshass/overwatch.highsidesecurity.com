@@ -837,6 +837,86 @@ customersApi.createLoose = async function(partial) {
 };
 
 // ============================================
+// JOB LINKING API
+// ============================================
+// Operators use this to associate return cards (and their time entries)
+// with a P- or S- numbered job. Techs never interact with this directly.
+
+export const jobLinkingApi = {
+
+  // Search jobs that have a P- or S-number, by customer name or number.
+  // Returns jobs with their identifier so operators can pick the right one.
+  async search(query) {
+    const q = (query || '').trim();
+    let req = supabase
+      .from('jobs')
+      .select('id, customer_name, customer_address, p_number, s_number, status, job_type, issue, created_at')
+      .or('p_number.not.is.null,s_number.not.is.null')
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (q) {
+      const safe = q.replace(/[%*()]/g, '');
+      req = supabase
+        .from('jobs')
+        .select('id, customer_name, customer_address, p_number, s_number, status, job_type, issue, created_at')
+        .or(`p_number.not.is.null,s_number.not.is.null`)
+        .or(`customer_name.ilike.%${safe}%,p_number.ilike.%${safe}%,s_number.ilike.%${safe}%,issue.ilike.%${safe}%`)
+        .order('created_at', { ascending: false })
+        .limit(30);
+    }
+
+    const { data, error } = await req;
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Link a return card to a job. The DB trigger propagates job_id to
+  // the associated time_entry automatically.
+  async linkReturnCard(returnCardId, jobId) {
+    const { data, error } = await supabase
+      .from('return_cards')
+      .update({ job_id: jobId })
+      .eq('id', returnCardId)
+      .select('id, job_id')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  // Remove a job link from a return card.
+  async unlinkReturnCard(returnCardId) {
+    const { data, error } = await supabase
+      .from('return_cards')
+      .update({ job_id: null })
+      .eq('id', returnCardId)
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  // Assign an S-number to a job (called when board detects a tech calendar event).
+  async assignSNumber(jobId) {
+    const { data, error } = await supabase.rpc('assign_s_number', { target_job_id: jobId });
+    if (error) throw error;
+    return data; // returns the s_number string
+  },
+
+  // Get pending return cards (with job link if set).
+  async getPendingReturnCards() {
+    const { data, error } = await supabase
+      .from('return_cards')
+      .select('*, job:jobs(id, customer_name, p_number, s_number, status, job_type)')
+      .eq('status', 'pending_schedule')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+};
+
+
+// ============================================
 // REALTIME
 // ============================================
 

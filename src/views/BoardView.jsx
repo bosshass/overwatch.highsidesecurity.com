@@ -7,7 +7,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase } from '../services/supabase.js';
+import { supabase, jobLinkingApi } from '../services/supabase.js';
+import JobSearchModal from '../components/JobSearchModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -56,6 +57,10 @@ export default function BoardView({ accessToken, onBack }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [activeColumn, setActiveColumn] = useState('ready'); // For mobile view
   const [updating, setUpdating] = useState(false);
+
+  // Supabase return cards — operator links these to P-/S- jobs
+  const [supabaseReturns, setSupabaseReturns] = useState([]);
+  const [linkingCard, setLinkingCard] = useState(null); // return_card being linked
   
   // Search / Find matching event state
   const [searching, setSearching] = useState(false);
@@ -760,11 +765,20 @@ export default function BoardView({ accessToken, onBack }) {
     }
   }, []);
 
+  const loadReturnCards = useCallback(async () => {
+    try {
+      const cards = await jobLinkingApi.getPendingReturnCards();
+      setSupabaseReturns(cards);
+    } catch (e) {
+      console.warn('Return cards load error:', e.message);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks(), loadEstimates()]);
+    await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks(), loadEstimates(), loadReturnCards()]);
     setLoading(false);
-  }, [loadReadyToSchedule, loadBlockedItems, loadOpenTasks, loadEstimates]);
+  }, [loadReadyToSchedule, loadBlockedItems, loadOpenTasks, loadEstimates, loadReturnCards]);
 
   useEffect(() => {
     loadAll();
@@ -1442,6 +1456,22 @@ export default function BoardView({ accessToken, onBack }) {
   const readyEstimateValue = readyToSchedule.filter(i => i.type === 'estimate').reduce((sum, e) => sum + (e.estimateAmount || 0), 0);
   const pendingValue = pendingEstimates.reduce((sum, e) => sum + (e.estimate_amount || 0), 0);
 
+  // Group Supabase return cards: cards with the same job_id collapse into one group.
+  // Unlinked cards (job_id = null) each appear individually.
+  const groupedSupabaseReturns = (() => {
+    const linked = {};
+    const unlinked = [];
+    supabaseReturns.forEach(card => {
+      if (card.job_id) {
+        if (!linked[card.job_id]) linked[card.job_id] = [];
+        linked[card.job_id].push(card);
+      } else {
+        unlinked.push([card]);
+      }
+    });
+    return [...Object.values(linked), ...unlinked];
+  })();
+
   // Split Ready to Schedule into 3 categories
   const projectsToSchedule = readyToSchedule.filter(item => {
     const title = (item.title || '').toLowerCase();
@@ -1474,6 +1504,15 @@ export default function BoardView({ accessToken, onBack }) {
     const upperTitle = (item.title || '').toUpperCase();
     return !(title.includes('install') || upperTitle.includes('[PROJECT]') || item.type === 'estimate');
   });
+
+  const handleJobLinked = (jobId, jobLabel) => {
+    setSupabaseReturns(prev => prev.map(c =>
+      c.id === linkingCard?.id
+        ? { ...c, job_id: jobId, job: { ...c.job, id: jobId, p_number: jobLabel?.startsWith('P-') ? jobLabel : null, s_number: jobLabel?.startsWith('S-') ? jobLabel : null } }
+        : c
+    ));
+    setLinkingCard(null);
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#fff', display: 'flex', flexDirection: 'column' }}>
@@ -1587,28 +1626,101 @@ export default function BoardView({ accessToken, onBack }) {
           </Column>
 
           {/* Returns Column */}
-          <Column title="🔄 Returns" count={returnsToSchedule.length} color="#06b6d4" columnKey="returns">
-            {returnsToSchedule.length === 0 ? (
-              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No returns</div>
-            ) : (
-              returnsToSchedule.map(item => (
-                <div
-                  key={`${item.type}-${item.id}`}
-                  onClick={() => setSelectedItem({ type: 'ready', data: item })}
-                  style={{
-                    background: '#1e293b',
-                    borderRadius: 8,
-                    padding: 12,
-                    marginBottom: 8,
-                    borderLeft: '3px solid #06b6d4',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{item.customerName || item.title}</div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
+          <Column title="🔄 Returns" count={returnsToSchedule.length + groupedSupabaseReturns.length} color="#06b6d4" columnKey="returns">
+            {/* Calendar-based returns (from Queue/Returns calendars) */}
+            {returnsToSchedule.map(item => (
+              <div
+                key={`${item.type}-${item.id}`}
+                onClick={() => setSelectedItem({ type: 'ready', data: item })}
+                style={{
+                  background: '#1e293b',
+                  borderRadius: 8,
+                  padding: 12,
+                  marginBottom: 8,
+                  borderLeft: '3px solid #06b6d4',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', marginBottom: 4 }}>{item.customerName || item.title}</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.calendarName}</div>
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>{formatDate(item.start)}</div>
+              </div>
+            ))}
+
+            {/* Supabase return cards from techs — grouped by job_id */}
+            {groupedSupabaseReturns.length > 0 && (
+              <>
+                {returnsToSchedule.length > 0 && (
+                  <div style={{ borderTop: '1px solid #334155', margin: '8px 0 10px' }} />
+                )}
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                  From Techs
                 </div>
-              ))
+                {groupedSupabaseReturns.map(group => {
+                  const lead = group[0];
+                  const jobNum = lead.job?.p_number || lead.job?.s_number;
+                  const isLinked = !!lead.job_id;
+                  return (
+                    <div
+                      key={`src-${lead.id}`}
+                      style={{
+                        background: '#1e293b',
+                        borderRadius: 8,
+                        padding: 12,
+                        marginBottom: 8,
+                        borderLeft: `3px solid ${isLinked ? '#22c55e' : '#f59e0b'}`,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: '#fff', flex: 1 }}>
+                          {lead.customer_name_raw || lead.original_event_title || 'Unknown'}
+                        </div>
+                        {group.length > 1 && (
+                          <span style={{ background: '#334155', color: '#94a3b8', fontSize: 10, padding: '2px 6px', borderRadius: 4, marginLeft: 6, whiteSpace: 'nowrap' }}>
+                            {group.length} techs
+                          </span>
+                        )}
+                      </div>
+                      {lead.reason && (
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>{lead.reason}</div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                        {isLinked ? (
+                          <span style={{ background: '#14532d', color: '#4ade80', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4 }}>
+                            {jobNum}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, color: '#64748b' }}>No job linked</span>
+                        )}
+                        <button
+                          onClick={() => setLinkingCard(lead)}
+                          style={{
+                            background: isLinked ? '#1e3a5f' : '#1d4ed8',
+                            border: 'none', borderRadius: 6,
+                            color: '#fff', fontSize: 11, fontWeight: 600,
+                            padding: '4px 10px', cursor: 'pointer',
+                          }}
+                        >
+                          {isLinked ? 'Re-link' : 'Link to Job'}
+                        </button>
+                      </div>
+                      {group.length > 1 && (
+                        <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {group.map(c => (
+                            <span key={c.id} style={{ fontSize: 10, color: '#94a3b8', background: '#0f172a', padding: '2px 6px', borderRadius: 4 }}>
+                              {c.flagged_by_name || c.flagged_by_email?.split('@')[0] || '?'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {returnsToSchedule.length === 0 && groupedSupabaseReturns.length === 0 && (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No returns</div>
             )}
           </Column>
 
@@ -1975,6 +2087,15 @@ export default function BoardView({ accessToken, onBack }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Job Search Modal — operator links a return card to a P- or S- job */}
+      {linkingCard && (
+        <JobSearchModal
+          returnCard={linkingCard}
+          onLink={handleJobLinked}
+          onClose={() => setLinkingCard(null)}
+        />
       )}
 
       {/* Mobile-only styles */}

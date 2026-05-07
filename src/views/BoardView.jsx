@@ -35,7 +35,10 @@ const TASK_CALENDARS = [
 const DONE_TAGS = ['[BILLED]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
 
 // Tags that mean task is BLOCKED — show in Blocked column
-const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]'];
+const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]', '[QUICK TASK]'];
+
+// Tags that mean task is a pending estimate — show in Pending Estimates column
+const ESTIMATE_TAGS = ['[ESTIMATE NOT SENT]', '[ESTIMATE SENT]'];
 
 // Extract customer name from title
 const extractCustomerName = (title) => {
@@ -61,6 +64,9 @@ export default function BoardView({ accessToken, onBack }) {
   // Supabase return cards — operator links these to P-/S- jobs
   const [supabaseReturns, setSupabaseReturns] = useState([]);
   const [linkingCard, setLinkingCard] = useState(null); // return_card being linked
+
+  // Which sub-menu is expanded in the detail modal
+  const [modalSubMenu, setModalSubMenu] = useState(null); // null | 'blocked' | 'estimate'
   
   // Search / Find matching event state
   const [searching, setSearching] = useState(false);
@@ -501,6 +507,28 @@ export default function BoardView({ accessToken, onBack }) {
     setUpdating(false);
   };
 
+  // Patch a GCal event title: strips all leading [TAGS] then prepends the new one.
+  const patchCalendarTag = async (item, tag) => {
+    setUpdating(true);
+    setModalSubMenu(null);
+    try {
+      let clean = (item.title || '').replace(/^\[[^\]]+\]\s*/g, '');
+      while (clean.match(/^\[[^\]]+\]\s*/)) clean = clean.replace(/^\[[^\]]+\]\s*/, '');
+      const newTitle = tag ? `[${tag}] ${clean}` : clean;
+      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: newTitle }),
+      });
+      if (!res.ok) throw new Error('Failed to update event');
+      await loadAll();
+      setSelectedItem(null);
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    }
+    setUpdating(false);
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LOAD DATA
   // ═══════════════════════════════════════════════════════════════════════════
@@ -538,10 +566,11 @@ export default function BoardView({ accessToken, onBack }) {
           if (ev.status === 'cancelled') return;
           const title = (ev.summary || '').toUpperCase();
           
-          // Skip if done or blocked
+          // Skip if done, blocked, or estimate-tagged
           if (DONE_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
           if (BLOCKED_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
-          
+          if (ESTIMATE_TAGS.some(tag => title.includes(tag.toUpperCase()))) return;
+
           items.push({
             id: ev.id,
             type: 'calendar',
@@ -639,14 +668,13 @@ export default function BoardView({ accessToken, onBack }) {
           
           // Extract the blocking reason from the tag
           let blockReason = 'Blocked';
-          let blockColor = '#ef4444'; // default red
+          let blockColor = '#ef4444';
           for (const tag of BLOCKED_TAGS) {
             if (title.includes(tag.toUpperCase())) {
               blockReason = tag.replace(/[\[\]]/g, '');
-              // Orange for NEEDS NOTES
-              if (tag === '[NEEDS NOTES]') {
-                blockColor = '#f59e0b';
-              }
+              if (tag === '[NEEDS NOTES]') blockColor = '#eab308';
+              else if (tag === '[QUICK TASK]') blockColor = '#a78bfa';
+              else if (tag === '[NEEDS PARTS]' || tag === '[PENDING PARTS]') blockColor = '#f97316';
               break;
             }
           }
@@ -743,27 +771,57 @@ export default function BoardView({ accessToken, onBack }) {
         .is('calendar_event_id', null)
         .order('created_at', { ascending: false })
         .limit(100);
-      
       if (approvedErr) throw approvedErr;
       setApprovedEstimates(approved || []);
-      
-      // Pending estimates
+
+      // Supabase pending estimates
       const { data: pending, error: pendingErr } = await supabase
         .from('jobs')
         .select('*')
         .eq('qbo_estimate_status', 'Pending')
         .order('created_at', { ascending: false })
         .limit(100);
-      
       if (pendingErr) throw pendingErr;
-      setPendingEstimates(pending || []);
-      
+
+      // Calendar-based pending estimates (tagged [ESTIMATE NOT SENT] or [ESTIMATE SENT])
+      if (!accessToken) { setPendingEstimates(pending || []); return; }
+      const calEstimates = [];
+      const tMin = new Date(); tMin.setDate(tMin.getDate() - 90);
+      const tMax = new Date(); tMax.setDate(tMax.getDate() + 60);
+      await Promise.all(TASK_CALENDARS.map(async (cal) => {
+        try {
+          const params = new URLSearchParams({ timeMin: tMin.toISOString(), timeMax: tMax.toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
+          const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!res.ok) return;
+          const data = await res.json();
+          (data.items || []).forEach(ev => {
+            if (ev.status === 'cancelled') return;
+            const title = (ev.summary || '').toUpperCase();
+            const matchedTag = ESTIMATE_TAGS.find(tag => title.includes(tag.toUpperCase()));
+            if (!matchedTag) return;
+            const isSent = matchedTag === '[ESTIMATE SENT]';
+            calEstimates.push({
+              id: ev.id,
+              _source: 'calendar',
+              calendarId: cal.id,
+              calendarName: cal.name,
+              customer_name: extractCustomerName(ev.summary || ''),
+              qbo_estimate_status: isSent ? 'Sent' : 'Not Sent',
+              created_at: ev.start?.dateTime || ev.start?.date,
+              issue: ev.description || '',
+              customer_address: ev.location || '',
+            });
+          });
+        } catch {}
+      }));
+
+      setPendingEstimates([...(pending || []), ...calEstimates]);
     } catch (e) {
       console.error('Estimates load error:', e);
       setApprovedEstimates([]);
       setPendingEstimates([]);
     }
-  }, []);
+  }, [accessToken]);
 
   const loadReturnCards = useCallback(async () => {
     try {
@@ -886,7 +944,7 @@ export default function BoardView({ accessToken, onBack }) {
                 {isReadyEstimate ? item.customerName : ((isTask || isReady) ? (item.customerName || item.title) : item.customer_name)}
               </h3>
             </div>
-            <button onClick={() => { setSelectedItem(null); setSearchQuery(''); setShowMatches(false); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
+            <button onClick={() => { setSelectedItem(null); setSearchQuery(''); setShowMatches(false); setModalSubMenu(null); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
           
           {isReadyEstimate ? (
@@ -1280,65 +1338,100 @@ export default function BoardView({ accessToken, onBack }) {
                 >
                   🔨 Mark as Project
                 </button>
+                {/* Pending Estimate — expands to NOT SENT / SENT */}
+                {modalSubMenu === 'estimate' ? (
+                  <div style={{ border: '1px solid #f59e0b', borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ background: '#f59e0b22', padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#f59e0b', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>📋 Pending Estimate — choose tag</span>
+                      <button onClick={() => setModalSubMenu(null)} style={{ background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 1, background: '#334155' }}>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'ESTIMATE NOT SENT')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 0', background: '#1e293b', border: 'none', color: '#f59e0b', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        NOT SENT
+                      </button>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'ESTIMATE SENT')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 0', background: '#1e293b', border: 'none', color: '#22c55e', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        SENT
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setModalSubMenu('estimate')}
+                    disabled={updating}
+                    style={{ background: '#f59e0b22', border: '1px solid #f59e0b', color: '#f59e0b', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    📋 Pending Estimate
+                  </button>
+                )}
+
+                {/* Mark as Blocked — expands to Needs Parts / Needs Notes / Quick Task */}
+                {modalSubMenu === 'blocked' ? (
+                  <div style={{ border: '1px solid #ef4444', borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ background: '#ef444422', padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#ef4444', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>🚫 Mark as Blocked — choose reason</span>
+                      <button onClick={() => setModalSubMenu(null)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 1, background: '#334155' }}>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'NEEDS PARTS')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#f97316', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Needs Parts
+                      </button>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'NEEDS NOTES')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#eab308', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Needs Notes
+                      </button>
+                      <button
+                        onClick={() => patchCalendarTag(item, 'QUICK TASK')}
+                        disabled={updating}
+                        style={{ flex: 1, padding: '11px 4px', background: '#1e293b', border: 'none', color: '#a78bfa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Quick Task
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setModalSubMenu('blocked')}
+                    disabled={updating}
+                    style={{ background: '#ef4444', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    🚫 Mark as Blocked
+                  </button>
+                )}
+
                 <button
                   onClick={async () => {
                     setUpdating(true);
                     try {
-                      const newTitle = `[NEEDS PARTS] ${item.title}`;
-                      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
-                        method: 'PATCH',
-                        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ summary: newTitle })
-                      });
-                      if (!res.ok) throw new Error('Failed to update');
-                      await loadAll();
-                      setSelectedItem(null);
-                    } catch (e) {
-                      alert(`Error: ${e.message}`);
-                    }
-                    setUpdating(false);
-                  }}
-                  disabled={updating}
-                  style={{ background: '#ef4444', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  🚫 Mark as Blocked (Needs Parts)
-                </button>
-                <button
-                  onClick={async () => {
-                    setUpdating(true);
-                    try {
-                      // Copy event to Service Queue calendar, then mark original as [MOVED]
                       const queueCalId = CALENDARS.TENTATIVELY_SCHEDULED;
-                      
-                      // Create new event on queue
                       const today = new Date().toISOString().split('T')[0];
-                      const newEvent = {
-                        summary: item.title,
-                        description: item.description || '',
-                        location: item.location || '',
-                        start: { date: today },
-                        end: { date: today },
-                      };
-                      
                       const createRes = await fetch(`${GCAL}/calendars/${encodeURIComponent(queueCalId)}/events`, {
                         method: 'POST',
                         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify(newEvent)
+                        body: JSON.stringify({ summary: item.title, description: item.description || '', location: item.location || '', start: { date: today }, end: { date: today } }),
                       });
-                      
                       if (!createRes.ok) throw new Error('Failed to create queue event');
-                      
-                      // Mark original as moved
-                      const newTitle = `[MOVED TO QUEUE] ${item.title}`;
                       await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
                         method: 'PATCH',
                         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ summary: newTitle })
+                        body: JSON.stringify({ summary: `[MOVED TO QUEUE] ${item.title}` }),
                       });
-                      
                       await loadAll();
                       setSelectedItem(null);
-                      alert('✅ Moved to Ready to Schedule queue');
                     } catch (e) {
                       alert(`Error: ${e.message}`);
                     }

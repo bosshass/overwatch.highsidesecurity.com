@@ -65,6 +65,7 @@ export default function BoardView({ accessToken, onBack }) {
   const [supabaseReturns, setSupabaseReturns] = useState([]);
   const [linkingCard, setLinkingCard] = useState(null);         // return_card being linked
   const [linkingCalendarItem, setLinkingCalendarItem] = useState(null); // calendar event being project-linked
+  const [expandedReturnId, setExpandedReturnId] = useState(null); // which return card group is expanded
 
   // Which sub-menu is expanded in the detail modal
   const [modalSubMenu, setModalSubMenu] = useState(null); // null | 'blocked' | 'estimate'
@@ -1805,7 +1806,6 @@ export default function BoardView({ accessToken, onBack }) {
                   From Techs
                 </div>
                 {groupedSupabaseReturns.map(group => {
-                  // Oldest card = primary anchor; all notes sorted newest-first
                   const sorted = [...group].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                   const lead = sorted[0];
                   const jobNum = lead.job?.p_number || lead.job?.s_number;
@@ -1814,75 +1814,108 @@ export default function BoardView({ accessToken, onBack }) {
                   const notesSorted = [...group]
                     .filter(c => c.reason)
                     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                  const isExpanded = expandedReturnId === lead.id;
+                  const jobStatus = lead.job?.status;
+                  const jobStatusMap = {
+                    estimate_sent: { label: 'Pending Estimate', color: '#f59e0b' },
+                    won:               { label: 'Ready to Schedule', color: '#22c55e' },
+                    ready_to_schedule: { label: 'Ready to Schedule', color: '#22c55e' },
+                    scheduled:         { label: 'Scheduled', color: '#3b82f6' },
+                    needs_parts:       { label: 'Blocked: Parts', color: '#f97316' },
+                    pending_materials: { label: 'Blocked: Materials', color: '#f97316' },
+                    pending_decision:  { label: 'Blocked: Decision', color: '#a855f7' },
+                    to_bill:           { label: 'To Bill', color: '#8b5cf6' },
+                    complete:          { label: 'Complete', color: '#10b981' },
+                  };
+                  const statusInfo = jobStatus ? jobStatusMap[jobStatus] : null;
+
                   return (
                     <div
                       key={`src-${lead.id}`}
                       style={{
                         background: '#1e293b',
                         borderRadius: 8,
-                        padding: 12,
                         marginBottom: 8,
                         borderLeft: `3px solid ${isLinked ? '#22c55e' : '#f59e0b'}`,
+                        overflow: 'hidden',
                       }}
                     >
-                      {/* Header row */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1 }}>
-                          {customerName}
+                      {/* Clickable header row */}
+                      <div
+                        onClick={() => setExpandedReturnId(isExpanded ? null : lead.id)}
+                        style={{ padding: 12, cursor: 'pointer' }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: notesSorted.length ? 6 : 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1 }}>
+                            {customerName}
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 6 }}>
+                            {group.length > 1 && (
+                              <span style={{ background: '#334155', color: '#94a3b8', fontSize: 10, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                {group.length} techs
+                              </span>
+                            )}
+                            {isLinked && jobNum && (
+                              <span style={{ background: '#14532d', color: '#4ade80', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                {jobNum}
+                              </span>
+                            )}
+                            <span style={{ color: '#475569', fontSize: 12 }}>{isExpanded ? '▲' : '▼'}</span>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 6 }}>
-                          {group.length > 1 && (
-                            <span style={{ background: '#334155', color: '#94a3b8', fontSize: 10, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                              {group.length} techs
+
+                        {/* Notes always visible */}
+                        {notesSorted.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {notesSorted.map(c => (
+                              <div key={c.id} style={{ fontSize: 12 }}>
+                                <span style={{ color: '#64748b' }}>
+                                  {c.flagged_by_name || c.flagged_by_email?.split('@')[0] || 'Tech'}
+                                  {c.created_at && <span style={{ marginLeft: 4, fontSize: 10 }}>{new Date(c.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>}
+                                  {' — '}
+                                </span>
+                                <span style={{ color: '#cbd5e1' }}>{c.reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Job status pill */}
+                        {statusInfo && (
+                          <div style={{ marginTop: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: statusInfo.color, background: statusInfo.color + '22', padding: '2px 7px', borderRadius: 4 }}>
+                              → {statusInfo.label}
                             </span>
-                          )}
-                          {isLinked && (
-                            <span style={{ background: '#14532d', color: '#4ade80', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                              {jobNum}
-                            </span>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
 
-                      {/* Notes — all cards, newest first */}
-                      {notesSorted.length > 0 && (
-                        <div style={{ borderTop: '1px solid #334155', marginBottom: 6, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {notesSorted.map(c => (
-                            <div key={c.id} style={{ fontSize: 12 }}>
-                              <span style={{ color: '#64748b', marginRight: 4 }}>
-                                {c.flagged_by_name || c.flagged_by_email?.split('@')[0] || 'Tech'}
-                                {c.created_at && (
-                                  <span style={{ marginLeft: 4, fontSize: 10 }}>
-                                    {new Date(c.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
-                                  </span>
-                                )}
-                                {' —'}
-                              </span>
-                              <span style={{ color: '#cbd5e1' }}>{c.reason}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Footer — link button */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                        {!isLinked && (
-                          <span style={{ fontSize: 11, color: '#64748b' }}>No job linked</span>
-                        )}
-                        <div style={{ marginLeft: 'auto' }}>
+                      {/* Expanded actions */}
+                      {isExpanded && (
+                        <div style={{ borderTop: '1px solid #334155', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <button
-                            onClick={() => setLinkingCard(lead)}
-                            style={{
-                              background: isLinked ? '#1e3a5f' : '#1d4ed8',
-                              border: 'none', borderRadius: 6,
-                              color: '#fff', fontSize: 11, fontWeight: 600,
-                              padding: '4px 10px', cursor: 'pointer',
-                            }}
+                            onClick={(e) => { e.stopPropagation(); setLinkingCard(lead); setExpandedReturnId(null); }}
+                            style={{ padding: '8px 12px', background: isLinked ? '#1e3a5f' : '#1d4ed8', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
                           >
-                            {isLinked ? 'Re-link' : 'Link to Job'}
+                            🔗 {isLinked ? `Re-link (${jobNum})` : 'Link to Project / Job'}
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                await jobLinkingApi.markAsQuickNote(group.map(c => c.id));
+                                setSupabaseReturns(prev => prev.filter(c => !group.find(g => g.id === c.id)));
+                                setExpandedReturnId(null);
+                              } catch (err) {
+                                alert('Error: ' + err.message);
+                              }
+                            }}
+                            style={{ padding: '8px 12px', background: '#334155', border: 'none', borderRadius: 6, color: '#94a3b8', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
+                          >
+                            📝 Mark as Quick Note (dismiss)
                           </button>
                         </div>
-                      </div>
+                      )}
                     </div>
                   );
                 })}

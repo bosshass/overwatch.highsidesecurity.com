@@ -923,12 +923,21 @@ export const jobLinkingApi = {
     return updated; // p_number is now set by trigger
   },
 
-  // Get pending return cards (with job link if set).
+  // Mark all return cards in a group as 'quick_note' — removes them from the board queue.
+  async markAsQuickNote(cardIds) {
+    const { error } = await supabase
+      .from('return_cards')
+      .update({ status: 'quick_note' })
+      .in('id', cardIds);
+    if (error) throw error;
+  },
+
+  // Get pending return cards (with job link if set). Excludes quick_note.
   async getPendingReturnCards() {
     const { data, error } = await supabase
       .from('return_cards')
       .select('*, job:jobs(id, customer_name, p_number, s_number, status, job_type)')
-      .eq('status', 'pending_schedule')
+      .in('status', ['pending_schedule'])
       .order('created_at', { ascending: true });
     if (error) throw error;
     return data || [];

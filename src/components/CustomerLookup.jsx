@@ -287,9 +287,9 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
                 >
                   <div style={{ fontWeight: 600, color: '#1B2A4A' }}>{c.name}</div>
                   <div style={{ fontSize: 11, color: '#6b7280' }}>
-                    {c.drh_id && <span>{c.drh_id}</span>}
-                    {c.phone && <span> · {c.phone}</span>}
-                    {c.address && <span> · {c.address.split(',')[0]}</span>}
+                    {c.phone && <span>{c.phone}</span>}
+                    {c.phone && c.address && <span> · </span>}
+                    {c.address && <span>{c.address.split(',')[0]}</span>}
                   </div>
                 </button>
               ))}

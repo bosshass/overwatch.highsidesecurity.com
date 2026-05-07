@@ -301,7 +301,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
-  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Subs)" : `${userName}'s Jobs`;
+  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>

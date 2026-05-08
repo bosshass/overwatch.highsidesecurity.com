@@ -377,7 +377,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               accessToken={accessToken}
               userEmail={userEmail}
               userName={userName}
-              mode={selected.tab === 'new' ? 'full' : 'bill-only'}
+              mode="full"
               onFinished={onFinished}
               onCancel={closeSheet}
             />

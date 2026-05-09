@@ -7,6 +7,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { feedbackApi, queries, JOB_STATUS, customersApi, jobsApi, notesApi, assignmentsApi } from '../services/supabase.js';
 
+// WARNING: VITE_ env vars are bundled into client JS and visible in DevTools.
+// If set, rotate this key immediately after any public deployment and move
+// the Claude call to a Vercel API route (/api/helpbot) that reads a
+// server-only env var (no VITE_ prefix) instead.
 const CLAUDE_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || '';
 
 // ============================================

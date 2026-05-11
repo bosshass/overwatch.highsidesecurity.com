@@ -360,18 +360,18 @@ export const jobsApi = {
     const family = await this.getJobWithFamily(jobId);
     if (!family) return 0;
     
-    let total = parseFloat(family.job.estimate_amount || 0) + parseFloat(family.job.invoice_amount || 0);
-    
+    let total = parseFloat(family.job.estimate_amount || 0) + parseFloat(family.job.invoiced_amount || 0);
+
     if (family.parent) {
-      total += parseFloat(family.parent.estimate_amount || 0) + parseFloat(family.parent.invoice_amount || 0);
+      total += parseFloat(family.parent.estimate_amount || 0) + parseFloat(family.parent.invoiced_amount || 0);
     }
-    
+
     for (const child of family.children) {
-      total += parseFloat(child.estimate_amount || 0) + parseFloat(child.invoice_amount || 0);
+      total += parseFloat(child.estimate_amount || 0) + parseFloat(child.invoiced_amount || 0);
     }
-    
+
     for (const sib of family.siblings) {
-      total += parseFloat(sib.estimate_amount || 0) + parseFloat(sib.invoice_amount || 0);
+      total += parseFloat(sib.estimate_amount || 0) + parseFloat(sib.invoiced_amount || 0);
     }
     
     return total;

@@ -27,7 +27,7 @@ export default function Projects({ onBack }) {
     try {
       const { data: jobs, error: jobsErr } = await supabase
         .from('jobs')
-        .select('id, p_number, s_number, customer_name, customer_address, status, qbo_estimate_status, estimate_amount, invoice_amount, remaining_amount, created_at')
+        .select('id, p_number, s_number, customer_name, customer_address, status, qbo_estimate_status, estimate_amount, invoiced_amount, remaining_amount, created_at')
         .not('p_number', 'is', null)
         .order('p_number', { ascending: false });
       if (jobsErr) throw jobsErr;

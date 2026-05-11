@@ -1337,20 +1337,8 @@ export default function BoardView({ accessToken, onBack }) {
                         >Change</button>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          onClick={() => assignProjectTag(item, `PROJ-${nextProjectNum()}`)}
-                          disabled={updating}
-                          style={{ flex: 1, padding: '9px', background: '#1e3a5f', border: '1px solid #3b82f640', borderRadius: 8, color: '#60a5fa', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
-                        >🏷️ New Project</button>
-                        <button
-                          onClick={() => {
-                            const ref = window.prompt('Link to existing project number (e.g. 003):');
-                            if (ref?.trim()) assignProjectTag(item, `PROJ-${ref.trim().padStart(3, '0')}`);
-                          }}
-                          disabled={updating}
-                          style={{ flex: 1, padding: '9px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#64748b', fontSize: 13, cursor: 'pointer' }}
-                        >🔗 Link Existing</button>
+                      <div style={{ background: '#0a1226', border: '1px dashed #334155', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#64748b' }}>
+                        Not tagged as a project yet. Use the <strong style={{ color: '#22c55e' }}>🔨 Mark as Project</strong> button below to either link this task to an existing P-number or create a new project — that path also creates the database record for tracking.
                       </div>
                     )}
                   </div>

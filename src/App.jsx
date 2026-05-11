@@ -16,6 +16,7 @@ import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
+import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
 import HelpBot from './components/HelpBot.jsx';
@@ -561,6 +562,7 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/projects" element={<OperatorOnly><ViewShell><Projects onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
@@ -691,6 +693,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
   const operatorButtons = [
     { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
+    { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
     { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
     { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },

@@ -226,6 +226,10 @@ export default function GlobalSearch({ onClose, onNavigate }) {
 }
 
 function extractProjRef(title) {
-  const m = (title || '').match(/\[PROJ-(\d+)\]/i);
-  return m ? `PROJ-${m[1]}` : null;
+  const mP = (title || '').match(/\[P-(\d+)\]/i);
+  if (mP) return `P-${mP[1]}`;
+  const mS = (title || '').match(/\[S-(\d+)\]/i);
+  if (mS) return `S-${mS[1]}`;
+  const mProj = (title || '').match(/\[PROJ-(\d+)\]/i);
+  return mProj ? `PROJ-${mProj[1]}` : null;
 }

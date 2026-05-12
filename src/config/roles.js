@@ -17,8 +17,8 @@ export const USER_ROLES = {
   'info@drhsecurityservices.com': ROLES.ADMIN,
   'sara@jnbllc.com': ROLES.ADMIN,
   'shanaparks@drhsecurityservices.com': ROLES.ADMIN,
-  'drhservicetech1@gmail.com': ROLES.TECH,
-  'austin@drhsecurityservices.com': ROLES.TECH,
+  'drhservicetech1@gmail.com': ROLES.ADMIN,
+  'austin@drhsecurityservices.com': ROLES.ADMIN,
 };
 
 export const DISPLAY_NAMES = {

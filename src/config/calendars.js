@@ -24,6 +24,8 @@ const OPERATOR_EMAILS = [
   'info@drhsecurityservices.com',
   'sara@jnbllc.com',
   'admin@jnbservice.com',
+  'drhservicetech1@gmail.com',
+  'austin@drhsecurityservices.com',
 ];
 
 const AUSTIN_EMAILS  = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com'];

@@ -32,8 +32,8 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
 const USER_CONFIG = {
-  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
-  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
+  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'operator', defaultCalendar: 'Austin', defaultView: null },
+  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'operator', defaultCalendar: 'Austin', defaultView: null },
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: null },
   'info@drhsecurityservices.com':     { name: null,     role: 'operator', defaultCalendar: null, defaultView: null, needsIdentity: true },
@@ -412,7 +412,7 @@ export default function App() {
   }, [isSignedIn, silentRefresh, handleSignOut]);
 
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
-  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
+  const RESTRICTED_EMAILS = ['brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
   const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
   const isOperator = getUserConfig(userEmail).role === 'operator';
 

@@ -8,6 +8,7 @@ import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OfficeHub from './views/OfficeHub.jsx';
 import ThingsToDo from './views/ThingsToDo.jsx';
+import JobStatus from './views/JobStatus.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
 import Queue from './views/Queue.jsx';
@@ -16,16 +17,11 @@ import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
-import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
-import JobFinishSheet from './components/JobFinishSheet.jsx';
+import CompletionModal from './components/CompletionModal.jsx';
 import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
-import GlobalSearch from './components/GlobalSearch.jsx';
-import QuickNotes from './views/QuickNotes.jsx';
-import { StuckAlertGate } from './components/StuckAlerts.jsx';
-import { shouldShowGate } from './utils/alertEngine.js';
 
 const APP_VERSION = '7.2.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -85,8 +81,6 @@ export default function App() {
   const [backfillLog, setBackfillLog] = useState([]);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [showAlertGate, setShowAlertGate] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -358,16 +352,6 @@ export default function App() {
     });
   }, [userEmail]);
 
-  // ── ALERT GATE: show for JR every 6 hours ──────────────────────────────
-  useEffect(() => {
-    if (!isSignedIn || !userEmail) return;
-    if (userEmail.toLowerCase() === 'jr@drhsecurityservices.com') {
-      if (shouldShowGate(userEmail)) {
-        setShowAlertGate(true);
-      }
-    }
-  }, [isSignedIn, userEmail]);
-
   // ── AUTH: Session expiry check (36hr) ───────────────────────────────────
   useEffect(() => {
     if (!isSignedIn) return;
@@ -464,15 +448,14 @@ export default function App() {
     );
   }
 
-  // ── DEEP LINK: ?cal=X&job=Y → JobFinishSheet ─────────────────────────
+  // ── DEEP LINK: ?cal=X&job=Y → Completion Modal ─────────────────────────
   if (deepLinkCal && deepLinkJob) {
     return (
-      <DeepLinkFinish
+      <CompletionModal
         calendarId={deepLinkCal}
         eventId={deepLinkJob}
         accessToken={accessToken}
         userEmail={userEmail}
-        userName={getUserConfig(userEmail).name}
         onDone={() => navigate('/')}
       />
     );
@@ -521,7 +504,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={
-          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
+          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} />
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
@@ -539,6 +522,7 @@ export default function App() {
         <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/billing" element={<Billing accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
+        <Route path="/jobs" element={<JobStatus onBack={() => navigate('/')} />} />
 
         <Route path="/newjob" element={
           <div style={{ minHeight: '100vh', background: '#0f1729' }}>
@@ -562,8 +546,6 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
-        <Route path="/projects" element={<OperatorOnly><ViewShell><Projects onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
-        <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
@@ -571,20 +553,6 @@ export default function App() {
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-
-      {/* Global Search */}
-      {showSearch && (
-        <GlobalSearch onClose={() => setShowSearch(false)} onNavigate={navigate} />
-      )}
-
-      {/* JR Alert Gate */}
-      {showAlertGate && (
-        <StuckAlertGate
-          accessToken={accessToken}
-          userEmail={userEmail}
-          onDismiss={() => setShowAlertGate(false)}
-        />
-      )}
 
       {/* Modals (render on top of any route) */}
       {showIdentityPicker && (
@@ -685,20 +653,14 @@ export default function App() {
 }
 
 // ── HOME SCREEN ───────────────────────────────────────────────────────────
-function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill, onSearch }) {
-  const techButtons = [
-    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill }) {
+  const allButtons = [
+    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a', techVisible: true },
+    { path: '/board',   emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706', techVisible: false },
+    { path: '/billing', emoji: '💰', label: 'Billing',         sub: 'Ready to invoice',                    color: '#a78bfa', dark: '#1e0a3c', border: '#7c3aed', techVisible: false },
+    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2', techVisible: true },
   ];
-  const operatorButtons = [
-    { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
-    { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
-    { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
-    { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
-  ];
-  const buttons = isRestricted ? techButtons : operatorButtons;
+  const buttons = isRestricted ? allButtons.filter(b => b.techVisible) : allButtons;
   return (
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{
@@ -723,20 +685,9 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         </div>
       </div>
 
-      <div style={{ padding: '20px 20px 8px', textAlign: 'center' }}>
+      <div style={{ padding: '32px 20px 16px', textAlign: 'center' }}>
         <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
         <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
-      </div>
-
-      <div style={{ padding: '0 20px 12px' }}>
-        <button onClick={onSearch} style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-          background: '#1e293b', border: '1px solid #334155', borderRadius: 12,
-          padding: '12px 16px', cursor: 'pointer', textAlign: 'left'
-        }}>
-          <span style={{ fontSize: 16 }}>🔍</span>
-          <span style={{ color: '#475569', fontSize: 14 }}>Search customers, jobs, materials…</span>
-        </button>
       </div>
 
       <div style={{ padding: '8px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -757,12 +708,10 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         ))}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {(isRestricted ? [
+          {[
             { path: '/calendar', label: '📅 Calendar' },
-          ] : [
-            { path: '/billing', label: '💰 Billing' },
-            { path: '/newjob',  label: '➕ New Job' },
-          ]).map(({ path, label }) => (
+            ...(isOperator ? [{ path: '/dashboard', label: '📊 Dashboard' }] : []),
+          ].map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{
               flex: 1, background: '#1e293b', border: '1px solid #334155',
               borderRadius: 10, padding: '10px 8px', color: '#475569',
@@ -772,68 +721,5 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         </div>
       </div>
     </div>
-  );
-}
-
-// ── DEEP LINK FINISH ────────────────────────────────────────────────
-// Tech opens "📱 Open in Overwatch" link from a calendar event description.
-// We fetch the event from Google Calendar and hand it to JobFinishSheet.
-// JobFinishSheet writes the time entry, return card if needed, and patches the title.
-function DeepLinkFinish({ calendarId, eventId, accessToken, userEmail, userName, onDone }) {
-  const [event, setEvent] = useState(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!calendarId || !eventId || !accessToken) return;
-    fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    )
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then(data => {
-        setEvent({
-          id: data.id,
-          title: data.summary || '(no title)',
-          calendarId,
-          start: data.start?.dateTime || data.start?.date,
-          end: data.end?.dateTime || data.end?.date,
-          description: data.description || '',
-          location: data.location || '',
-        });
-      })
-      .catch(e => setError(e.message || 'Could not load job'));
-  }, [calendarId, eventId, accessToken]);
-
-  if (error) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24 }}>
-        <div style={{ fontSize: 48 }}>⚠️</div>
-        <div style={{ color: '#e2e8f0', fontSize: 16 }}>Could not load this job.</div>
-        <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center' }}>{error}</div>
-        <button onClick={onDone} style={{ marginTop: 12, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '10px 20px', cursor: 'pointer' }}>
-          Back to home
-        </button>
-      </div>
-    );
-  }
-
-  if (!event) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#64748b', fontSize: 14 }}>Loading job…</div>
-      </div>
-    );
-  }
-
-  return (
-    <JobFinishSheet
-      event={event}
-      accessToken={accessToken}
-      userEmail={userEmail}
-      userName={userName}
-      mode="full"
-      onFinished={onDone}
-      onCancel={onDone}
-    />
   );
 }

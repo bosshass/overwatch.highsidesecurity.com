@@ -75,12 +75,47 @@ export default function JobFinishSheet({
   const canFinish     = timeValid && hasCustomer && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
+  // Patches the title and, when the tech left notes/materials, APPENDS them to
+  // the event description so the worker's notes live on the calendar — not just
+  // in Overwatch. Append-only: never overwrites the existing description.
   const patchTitle = async (newTitle) => {
+    const body = { summary: newTitle };
+
+    const noteText = notes.trim();
+    const matText  = materials.trim();
+    if (noteText || matText) {
+      const stamp = new Date()
+        .toLocaleString('en-US', {
+          timeZone: 'America/Denver',
+          month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+        })
+        .replace(',', '').replace(' AM', 'a').replace(' PM', 'p');
+      const who = event.techName || userName || 'Tech';
+      const parts = [];
+      if (noteText) parts.push(noteText);
+      if (matText)  parts.push(`Materials: ${matText}`);
+      const line = `📝 [${stamp} ${who}] ${parts.join(' — ')}`;
+
+      // Read the event's CURRENT description straight from Google so we never
+      // clobber the customer-info block (which CustomerLookup owns) — append only.
+      let current = event.description || '';
+      try {
+        const getUrl = `${GCAL}/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`;
+        const getRes = await fetch(getUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (getRes.ok) {
+          const live = await getRes.json();
+          current = live.description || '';
+        }
+      } catch { /* fall back to the passed-in description */ }
+
+      body.description = current ? `${current}\n${line}` : line;
+    }
+
     const url = `${GCAL}/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`;
     const res = await fetch(url, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: newTitle }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Calendar patch failed: ${res.status}`);
   };

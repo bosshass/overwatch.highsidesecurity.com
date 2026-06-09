@@ -46,10 +46,8 @@ function isProjectLike(title = '', description = '') {
 }
 
 const TABS = [
-  { key: 'new',      label: 'New',      emoji: '🆕', color: '#1a8a8a' },
-  { key: 'return',   label: 'Return',   emoji: '🔄', color: '#d97706' },
-  { key: 'estimate', label: 'Estimate', emoji: '💰', color: '#7c3aed' },
-  { key: 'billit',   label: 'Bill It',  emoji: '✅', color: '#1B2A4A' },
+  { key: 'new',    label: 'Today',   emoji: '📋', color: '#1a8a8a' },
+  { key: 'billit', label: 'Bill It', emoji: '✅', color: '#1B2A4A' },
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
@@ -135,7 +133,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   useEffect(() => { load(); }, [load]);
 
-  const events = allEvents.filter(e => e.tab === activeTab);
+  // The first tab ("Today") shows the tech's WHOLE day — every scheduled job
+  // that isn't already billed/completed, including ones tagged [RETURN] or
+  // [ESTIMATE]. This is the safety fix: a scheduled appointment can never be
+  // hidden from the tech just because it carries a return/estimate tag.
+  // Return / Estimate / Bill It remain filtered views of the same day.
+  const events = activeTab === 'new'
+    ? allEvents.filter(e => e.tab !== 'billit')
+    : allEvents.filter(e => e.tab === activeTab);
 
   const openDetail = (ev) => {
     setSelected(ev);
@@ -177,6 +182,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   const tabCounts   = {};
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
+  // "Today" shows everything not yet billed, so its badge counts that.
+  tabCounts.new = allEvents.filter(e => e.tab !== 'billit').length;
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
@@ -215,7 +222,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         </div>
 
         {/* Four Tabs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderTop: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #e5e7eb' }}>
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setTab(tab.key)}
               style={{
@@ -248,7 +255,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           <div style={{ textAlign: 'center', padding: 60 }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>{activeTab === 'new' && offset === 0 ? '🎉' : '📭'}</div>
             <div style={{ color: '#6b7280', fontSize: 16, fontWeight: 600 }}>
-              {activeTab === 'new' && offset === 0 ? 'No new jobs today' : 'Nothing in ' + activeTabObj?.label}
+              {activeTab === 'new' && offset === 0 ? 'Nothing scheduled today' : activeTab === 'new' ? 'Nothing scheduled' : 'Nothing in ' + activeTabObj?.label}
             </div>
           </div>
         )}
@@ -284,6 +291,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     }}>
                       {ev.techName}
                     </span>
+                  )}
+                  {ev.tab === 'return' && (
+                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Return</span>
+                  )}
+                  {ev.tab === 'estimate' && (
+                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estimate</span>
                   )}
                   <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name || '(no name)'}

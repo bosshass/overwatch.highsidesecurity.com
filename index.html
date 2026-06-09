@@ -9,7 +9,7 @@
          reloads once — so nobody runs a stale bundle. -->
     <script>
       (function () {
-        var BUILD = '2026-06-09-1'; // ← bump this string each deploy to force all clients to refresh
+        var BUILD = '2026-06-09-3'; // ← bump this string each deploy to force all clients to refresh
         try {
           if (localStorage.getItem('ow_build') === BUILD) return;
           if (sessionStorage.getItem('ow_busting')) { localStorage.setItem('ow_build', BUILD); return; }
@@ -42,6 +42,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

@@ -9,7 +9,7 @@
          reloads once — so nobody runs a stale bundle. -->
     <script>
       (function () {
-        var BUILD = '2026-06-09-3'; // ← bump this string each deploy to force all clients to refresh
+        var BUILD = '2026-06-09-4'; // ← bump this string each deploy to force all clients to refresh
         try {
           if (localStorage.getItem('ow_build') === BUILD) return;
           if (sessionStorage.getItem('ow_busting')) { localStorage.setItem('ow_build', BUILD); return; }
@@ -33,7 +33,7 @@
         } catch (e) { /* never block app load on cache logic */ }
       })();
     </script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1729" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

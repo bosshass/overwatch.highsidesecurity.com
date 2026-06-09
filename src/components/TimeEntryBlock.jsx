@@ -130,52 +130,62 @@ export default function TimeEntryBlock({ value, onChange, eventDate, required = 
   // Below-minimum hint shows only when user has typed something but it's too short
   const belowMin = hasInput && totalMins < MIN_MINUTES;
 
+  // 16px font on inputs is deliberate — anything smaller makes iOS Safari
+  // zoom in on focus, which is the #1 reason mobile forms feel broken.
+  const inp = {
+    width: '100%', padding: '14px', boxSizing: 'border-box',
+    border: '1.5px solid #d1d5db', borderRadius: 12, background: '#fff',
+    fontSize: 16, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none',
+  };
+
   return (
     <div style={{
-      background: '#f9fafb',
-      borderRadius: 10,
-      padding: 12,
-      marginBottom: 12,
-      border: `1px solid ${required && !valid ? '#fbbf24' : '#e5e7eb'}`,
+      background: '#fff',
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 14,
+      border: `1.5px solid ${required && !valid ? '#fcd34d' : '#e5e7eb'}`,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Time {required && <span style={{ color: valid ? '#16a34a' : '#d97706', marginLeft: 4 }}>{valid ? '✓' : '· required'}</span>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: '#1B2A4A', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+          Time on job
+          {required && (
+            <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 700, color: valid ? '#16a34a' : '#d97706' }}>
+              {valid ? '✓ set' : 'required'}
+            </span>
+          )}
         </div>
         {hasInput && (
-          <div style={{ fontSize: 14, fontWeight: 700, color: belowMin ? '#b45309' : '#1B2A4A' }}>
+          <div style={{ fontSize: 19, fontWeight: 800, color: belowMin ? '#b45309' : '#1a8a8a' }}>
             ⏱ {formatElapsed(displayMs)}
           </div>
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 8 }}>
-        <input
-          inputMode="decimal"
-          value={v.manualHours}
-          onChange={e => set({ manualHours: e.target.value })}
-          placeholder="Hours (0.5)"
-          style={{ padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
-        />
-        <input
-          value={v.timeIn}
-          onChange={e => set({ timeIn: e.target.value })}
-          placeholder="In 11:30"
-          style={{ padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
-        />
-        <input
-          value={v.timeOut}
-          onChange={e => set({ timeOut: e.target.value })}
-          placeholder="Out 1:15"
-          style={{ padding: '10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
-        />
+      <input
+        inputMode="decimal"
+        value={v.manualHours}
+        onChange={e => set({ manualHours: e.target.value })}
+        placeholder="Hours worked — e.g. 1.5"
+        style={inp}
+      />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 2px' }}>
+        <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>or clock in / out</span>
+        <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <input value={v.timeIn}  onChange={e => set({ timeIn: e.target.value })}  placeholder="In · 9:30"   style={inp} />
+        <input value={v.timeOut} onChange={e => set({ timeOut: e.target.value })} placeholder="Out · 11:00" style={inp} />
       </div>
 
       {required && !valid && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#b45309' }}>
+        <div style={{ marginTop: 10, fontSize: 13, color: '#b45309' }}>
           {belowMin
-            ? 'Time must be more than 0.1 hours (6 minutes).'
-            : 'Enter hours (e.g. 0.5) or time in + time out.'}
+            ? 'Must be more than 6 minutes.'
+            : 'Enter hours worked, or a clock-in and clock-out time.'}
         </div>
       )}
     </div>

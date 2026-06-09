@@ -421,7 +421,7 @@ export default function App() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f1729' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🛡️</div>
+          <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 84, height: 84, marginBottom: 16, borderRadius: 16 }} />
           <div style={{ color: '#00c8e8', fontSize: '14px' }}>Loading...</div>
         </div>
       </div>
@@ -491,7 +491,7 @@ export default function App() {
           color: '#e2e8f0', fontSize: 14, fontWeight: 700,
           padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
         }}>← Home</button>
-        <span style={{ fontSize: 18 }}>🛡️</span>
+        <img src="/overwatch-logo.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
         <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -706,7 +706,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         padding: '14px 16px', borderBottom: '1px solid #1e293b'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 22 }}>🛡️</span>
+          <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
           <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         </div>

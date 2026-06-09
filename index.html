@@ -2,6 +2,37 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- ── Cache-bust bootstrap ──────────────────────────────────────────
+         Runs BEFORE the app bundle. Bump BUILD on any deploy you want to
+         force every client (including installed PWAs) to update. On a
+         change it clears all caches, unregisters service workers, and
+         reloads once — so nobody runs a stale bundle. -->
+    <script>
+      (function () {
+        var BUILD = '2026-06-08-1'; // ← bump this string each deploy to force all clients to refresh
+        try {
+          if (localStorage.getItem('ow_build') === BUILD) return;
+          if (sessionStorage.getItem('ow_busting')) { localStorage.setItem('ow_build', BUILD); return; }
+          sessionStorage.setItem('ow_busting', '1');
+          var finish = function () {
+            localStorage.setItem('ow_build', BUILD);
+            location.reload();
+          };
+          var jobs = [];
+          if (window.caches && caches.keys) {
+            jobs.push(caches.keys().then(function (keys) {
+              return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+            }));
+          }
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+              return Promise.all(regs.map(function (r) { return r.unregister(); }));
+            }));
+          }
+          Promise.all(jobs).then(finish, finish);
+        } catch (e) { /* never block app load on cache logic */ }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#0f1729" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

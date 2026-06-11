@@ -739,7 +739,7 @@ export default function Billing({ accessToken, onBack }) {
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {bucket === 'triage' && (<>
-                      <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETE')}>✅ Bill It</Btn>
+                      <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETED')}>✅ Bill It</Btn>
                       <Btn color="#f59e0b" disabled={isActing} onClick={() => patchTag(item, 'RETURN NEEDED')}>🔄 Return</Btn>
                       <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>💰 Estimate</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>✓ Done</Btn>
@@ -753,14 +753,14 @@ export default function Billing({ accessToken, onBack }) {
                     </>)}
 
                     {bucket === 'return' && (<>
-                      <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETE')}>✅ Bill It</Btn>
+                      <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETED')}>✅ Bill It</Btn>
                       <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE NEEDED')}>📝 Estimate</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>✓ Done</Btn>
                     </>)}
 
                     {bucket === 'estimate' && (<>
                       <Btn color="#06b6d4" disabled={isActing} onClick={() => patchTag(item, 'ESTIMATE SENT')}>📤 Sent</Btn>
-                      <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETE')}>🎉 Won</Btn>
+                      <Btn color="#22c55e" disabled={isActing} onClick={() => patchTag(item, 'COMPLETED')}>🎉 Won</Btn>
                       <Btn color="#6b7280" disabled={isActing} onClick={() => archive(item)}>❌ Lost</Btn>
                     </>)}
 

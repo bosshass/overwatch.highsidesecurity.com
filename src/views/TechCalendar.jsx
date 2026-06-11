@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { assignmentsApi, jobsApi, queries, JOB_STATUS, techsApi, supabase } from '../services/supabase.js';
 import { scanForOrphans, ignoreOrphan, ignoreAllOrphans, syncIgnoredOrphansFromSupabase } from '../services/calendarSync.js';
+import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 import { TECH_COLORS, getVisibleCalendars, CALENDARS } from '../config/calendars.js';
 import { JOB_TYPE_INFO, getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
 import usePullToRefresh from '../utils/usePullToRefresh.jsx';
@@ -140,12 +141,9 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
 
     await Promise.all(USER_CALENDARS.map(async (cal) => {
       try {
-        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?` +
-          `timeMin=${timeMin.toISOString()}&timeMax=${timeMax.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=250`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (!res.ok) return;
-        const data = await res.json();
-        (data.items || []).forEach(event => {
+        // Shared service (services/calendarApi.js)
+        const items = await gcalFetchEvents(accessToken, cal.id, timeMin, timeMax);
+        items.forEach(event => {
           if (event.status === 'cancelled') return;
           if (event.visibility === 'private') return; // hidden from JUC-E
           const start = event.start?.dateTime ? new Date(event.start.dateTime) : event.start?.date ? new Date(event.start.date + 'T00:00:00') : null;
@@ -302,12 +300,8 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
         const searchMax = new Date(); searchMax.setDate(searchMax.getDate() + 60);
         const searchPromises = USER_CALENDARS.map(async (cal) => {
           try {
-            const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?` +
-              `timeMin=${searchMin.toISOString()}&timeMax=${searchMax.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=50&q=${encodeURIComponent(query)}`;
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-            if (!res.ok) return [];
-            const data = await res.json();
-            return (data.items || []).filter(e => e.status !== 'cancelled').map(event => ({
+            const items = await gcalFetchEvents(accessToken, cal.id, searchMin, searchMax, { q: query, maxResults: 50 });
+            return items.filter(e => e.status !== 'cancelled').map(event => ({
               id: event.id, calendarId: cal.id, calendarName: cal.name, calendarType: cal.type,
               summary: event.summary || '(no title)', location: event.location || '',
               htmlLink: event.htmlLink || '',

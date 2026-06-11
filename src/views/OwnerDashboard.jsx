@@ -8,6 +8,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { queries, jobsApi, assignmentsApi, JOB_STATUS, STATUS_INFO, supabase } from '../services/supabase.js';
+import { CALENDARS } from '../config/calendars.js';
+import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 import { getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
 import usePullToRefresh from '../utils/usePullToRefresh.jsx';
 import JobCard from '../components/JobCard.jsx';
@@ -432,18 +434,7 @@ function TodaySchedule({ stats }) {
 // CALENDAR STATS WIDGET
 // ============================================
 // Pulls ALL data from Google Calendar - the source of truth
-
-const CALENDARS = {
-  TENTATIVELY_SCHEDULED: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
-  RETURN_VISITS: 'drhhsscalendar@gmail.com',
-  AUSTIN: 'drhservicetech1@gmail.com',
-  JR: 'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com',
-  INSTALLATIONS: 'd40cddebd7123740ee0eece402546f83806bce96424423535bb15f6ed5abb7c6@group.calendar.google.com',
-  ADMIN_NOTES: 'fff001b042126a6179ac3abe30b1b7928a6f6170227a290d5f24fd0ec2ffa0c9@group.calendar.google.com',
-  COMPLETED: 'c_a095f8a75a8e3fb1bb4b0f3a2232962af3ab55f05a49ced1e4338abcc865d3e9@group.calendar.google.com',
-  SALES_ACCOUNTING: 'c_aa764bfa5d492c689c26e3ed589df2804a04ee175db1b68d48217bd18883d178@group.calendar.google.com',
-  SHANA: 'shanaparks@drhsecurityservices.com',
-};
+// Calendar IDs come from config/calendars.js (single source of truth).
 
 const TECHS = [
   { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6', hoursPerWeek: 32 },
@@ -481,18 +472,9 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
   useEffect(() => {
     if (!accessToken) return;
 
-    const fetchCalendarEvents = async (calendarId, timeMin, timeMax) => {
-      const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`);
-      url.searchParams.set('timeMin', timeMin.toISOString());
-      url.searchParams.set('timeMax', timeMax.toISOString());
-      url.searchParams.set('singleEvents', 'true');
-      url.searchParams.set('maxResults', '250');
-      
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.items || [];
-    };
+    // Shared service (services/calendarApi.js); fail-soft to [] like before
+    const fetchCalendarEvents = (calendarId, timeMin, timeMax) =>
+      gcalFetchEvents(accessToken, calendarId, timeMin, timeMax).catch(() => []);
 
     const loadData = async () => {
       const now = new Date();

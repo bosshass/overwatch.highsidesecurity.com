@@ -16,6 +16,7 @@ import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
+import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
 import HelpBot from './components/HelpBot.jsx';
@@ -420,7 +421,7 @@ export default function App() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f1729' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🛡️</div>
+          <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 84, height: 84, marginBottom: 16, borderRadius: 16 }} />
           <div style={{ color: '#00c8e8', fontSize: '14px' }}>Loading...</div>
         </div>
       </div>
@@ -429,26 +430,69 @@ export default function App() {
 
   // ── LOGIN ───────────────────────────────────────────────────────────────
   if (!isSignedIn) {
+    const teal = '#2bb3b3';
+    const Reticle = ({ size, style }) => (
+      <svg width={size} height={size} viewBox="0 0 100 100" style={{ position: 'absolute', opacity: 0.28, pointerEvents: 'none', ...style }}>
+        <circle cx="50" cy="50" r="47" fill="none" stroke={teal} strokeWidth="0.7" strokeDasharray="1 3.2" />
+        <circle cx="50" cy="50" r="35" fill="none" stroke={teal} strokeWidth="0.6" />
+        <circle cx="50" cy="50" r="31" fill="none" stroke={teal} strokeWidth="0.5" strokeDasharray="2 5" />
+      </svg>
+    );
+
     return (
       <div style={{
         minHeight: '100vh', minHeight: '100dvh',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'flex-start',
-        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)',
-        padding: '15vh 24px 24px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        background: 'radial-gradient(120% 80% at 50% 0%, #0d1422 0%, #070a11 60%, #05070c 100%)',
+        padding: 'calc(56px + env(safe-area-inset-top)) 28px calc(28px + env(safe-area-inset-bottom))',
+        position: 'relative', overflow: 'hidden', textAlign: 'center',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <img src="/overwatch-icon.png" alt="Overwatch" style={{ width: 120, height: 120, marginBottom: 20 }} />
-          <h1 style={{ fontSize: 32, marginBottom: 6, color: '#fff', fontWeight: 700 }}>DRH Security</h1>
-          <p style={{ fontSize: 18, color: '#00c8e8', margin: 0 }}>Overwatch</p>
-        </div>
+        {/* ambient reticles */}
+        <Reticle size={210} style={{ top: 70, right: -60 }} />
+        <Reticle size={150} style={{ top: 230, right: 30 }} />
+        <Reticle size={190} style={{ bottom: 120, left: -70 }} />
+        <Reticle size={120} style={{ bottom: 30, left: 30 }} />
+
+        {/* logo */}
+        <img src="/overwatch-logo.png" alt="Overwatch" style={{
+          width: 190, height: 'auto', marginBottom: 26, zIndex: 1,
+          filter: 'drop-shadow(0 14px 34px rgba(0,0,0,0.5))',
+        }} />
+
+        {/* wordmark */}
+        <h1 style={{
+          fontFamily: "'Playfair Display', Georgia, serif",
+          fontSize: 46, fontWeight: 800, color: '#fff', letterSpacing: 4,
+          margin: 0, lineHeight: 1, zIndex: 1,
+        }}>OVERWATCH</h1>
+        <div style={{ width: 132, height: 3, background: teal, borderRadius: 2, margin: '18px 0 16px', zIndex: 1 }} />
+        <p style={{ fontSize: 15, color: '#8b97a6', letterSpacing: 3, fontWeight: 600, margin: 0, zIndex: 1 }}>
+          DRH SECURITY COMMAND CENTER
+        </p>
+
+        {/* shield */}
+        <svg width="58" height="58" viewBox="0 0 24 24" fill="none" style={{ margin: '48px 0 26px', zIndex: 1 }}>
+          <path d="M12 2.5l7 2.6v5.4c0 4.6-3 8.4-7 9.5-4-1.1-7-4.9-7-9.5V5.1l7-2.6z" stroke={teal} strokeWidth="1.4" strokeLinejoin="round" />
+          <path d="M8.8 12.2l2.2 2.2 4-4.4" stroke={teal} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+
+        <h2 style={{ fontSize: 24, fontWeight: 800, color: '#fff', margin: '0 0 14px', zIndex: 1 }}>
+          Smart Security. Real Clarity.
+        </h2>
+        <p style={{ fontSize: 16, color: '#aeb8c4', margin: 0, lineHeight: 1.55, maxWidth: 360, zIndex: 1 }}>
+          Always sign in with Google.<br />
+          One clean login for field, office, and owner visibility.
+        </p>
+
+        {/* push button toward the bottom */}
+        <div style={{ flex: 1, minHeight: 28 }} />
+
         <button onClick={handleSignIn} style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-          padding: '16px 24px', fontSize: 16, fontWeight: 600,
-          background: 'white', color: '#333', border: 'none',
-          borderRadius: 12, cursor: 'pointer',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-          width: '100%', maxWidth: 360, minHeight: 56,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
+          padding: '17px 24px', fontSize: 17, fontWeight: 700,
+          background: '#fff', color: '#1B2A4A', border: 'none', borderRadius: 14,
+          cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          width: '100%', maxWidth: 380, minHeight: 58, zIndex: 1,
         }}>
           <svg width="22" height="22" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
@@ -456,9 +500,13 @@ export default function App() {
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          Sign in with Google
+          Continue with Google
         </button>
-        <p style={{ marginTop: 20, color: '#475569', fontSize: 12 }}>v{APP_VERSION}</p>
+
+        <p style={{ marginTop: 22, color: '#6b7787', fontSize: 13, lineHeight: 1.5, zIndex: 1 }}>
+          By continuing, you agree to the<br />
+          <span style={{ color: teal }}>Terms of Service</span> and <span style={{ color: teal }}>Privacy Policy</span>.
+        </p>
       </div>
     );
   }
@@ -490,7 +538,7 @@ export default function App() {
           color: '#e2e8f0', fontSize: 14, fontWeight: 700,
           padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
         }}>← Home</button>
-        <span style={{ fontSize: 18 }}>🛡️</span>
+        <img src="/overwatch-logo.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
         <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -561,6 +609,7 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
@@ -691,6 +740,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
   const operatorButtons = [
     { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
+    { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
     { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
     { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
@@ -703,7 +753,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         padding: '14px 16px', borderBottom: '1px solid #1e293b'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 22 }}>🛡️</span>
+          <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
           <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         </div>

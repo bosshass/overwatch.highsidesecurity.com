@@ -19,8 +19,9 @@ const SOURCE_CALS = [
 
 // Tech calendars available for scheduling
 const TECH_CALS = [
-  { name: 'Austin', id: CALENDARS.AUSTIN,  color: '#F4511E' },
-  { name: 'JR',     id: CALENDARS.JR,      color: '#0B8043' },
+  { name: 'Austin', id: CALENDARS.AUSTIN, color: '#F4511E' },
+  { name: 'JR',     id: CALENDARS.JR,     color: '#0B8043' },
+  { name: 'Brian',  id: CALENDARS.TECH3,  color: '#3F51B5' },
 ];
 
 const TASK_TYPES = [

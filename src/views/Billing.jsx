@@ -107,9 +107,14 @@ const BUCKETS = [
 ];
 
 // ── Project ref helpers ──────────────────────────────────────
+// Accepts [P-NNN], [S-NNN], or [PROJ-NNN]. Returns canonical "PREFIX-NNN".
 function extractCalProjectRef(title) {
-  const m = (title || '').match(/\[PROJ-(\d+)\]/i);
-  return m ? `PROJ-${m[1]}` : null;
+  const mP = (title || '').match(/\[P-(\d+)\]/i);
+  if (mP) return `P-${mP[1]}`;
+  const mS = (title || '').match(/\[S-(\d+)\]/i);
+  if (mS) return `S-${mS[1]}`;
+  const mProj = (title || '').match(/\[PROJ-(\d+)\]/i);
+  return mProj ? `PROJ-${mProj[1]}` : null;
 }
 
 // ── Format helpers ───────────────────────────────────────────
@@ -154,6 +159,11 @@ export default function Billing({ accessToken, onBack }) {
   const [billItem, setBillItem] = useState(null);
   const [billAmount, setBillAmount] = useState('');
   const [billInvoice, setBillInvoice] = useState('');
+
+  // Project tagging
+  const [projectInput, setProjectInput] = useState('');
+  const [projectOptions, setProjectOptions] = useState([]);
+  const [savingProject, setSavingProject] = useState(false);
 
   const load = useCallback(async () => {
     if (!accessToken) return;
@@ -406,6 +416,63 @@ export default function Billing({ accessToken, onBack }) {
     setNoteText(''); setSavingNote(false);
   };
 
+  // ── Project tagging ────────────────────────────────────────
+  // Load the list of project refs already in use (jobs + time entries)
+  // so the input can suggest them via a datalist.
+  useEffect(() => { (async () => {
+    try {
+      const [{ data: jobRows }, { data: teRows }] = await Promise.all([
+        supabase.from('jobs').select('p_number').not('p_number', 'is', null),
+        supabase.from('time_entries').select('project_ref').not('project_ref', 'is', null),
+      ]);
+      const set = new Set();
+      for (const j of (jobRows || [])) if (j.p_number) set.add(j.p_number);
+      for (const t of (teRows || [])) if (t.project_ref) set.add(t.project_ref);
+      setProjectOptions([...set].sort());
+    } catch { /* options are a convenience; ignore failures */ }
+  })(); }, []);
+
+  // Normalize "7" → "P-007", "p-7" → "P-007", "PROJ-6" → "PROJ-006"; pass others through trimmed/upper.
+  const normalizeRef = (raw) => {
+    const v = (raw || '').trim().toUpperCase();
+    if (!v) return '';
+    if (/^\d+$/.test(v)) return `P-${v.padStart(3, '0')}`;
+    const m = v.match(/^(P|S|PROJ)-?(\d+)$/);
+    if (m) return `${m[1]}-${m[2].padStart(3, '0')}`;
+    return v;
+  };
+
+  const tagProject = async (item, rawRef) => {
+    const ref = normalizeRef(rawRef);
+    if (!ref) return;
+    setSavingProject(true);
+    // Write project_ref onto the stored time entry/entries
+    const ids = item._allTimeEntries?.length
+      ? item._allTimeEntries.map(te => te.id)
+      : (item._timeEntry ? [item._timeEntry.id] : []);
+    for (const id of ids) {
+      try { await timeEntriesApi.update(id, { project_ref: ref }); } catch (e) { console.warn('project_ref write failed:', e.message); }
+    }
+    // Also stamp the calendar title so scheduled events associate and future entries inherit the tag
+    const calId = item.calendarId;
+    const evId = item._timeEntry?.calendar_event_id || item.id;
+    if (calId && evId && !item._isOrphan) {
+      const stripped = (item.summary || '').replace(/\[(P|S|PROJ)-\d+\]\s*/gi, '').trim();
+      const newTitle = `[${ref}] ${stripped}`;
+      try {
+        await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${evId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ summary: newTitle }),
+        });
+      } catch (e) { console.warn('Calendar tag patch failed:', e.message); }
+    }
+    setProjectInput('');
+    setProjectOptions(prev => prev.includes(ref) ? prev : [...prev, ref].sort());
+    await load();
+    setSavingProject(false);
+  };
+
   // ── Render ─────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', overflowX: 'hidden' }}>
@@ -626,6 +693,38 @@ export default function Billing({ accessToken, onBack }) {
                       {cleanDesc}
                     </div>
                   )}
+
+                  {/* Tag to a project */}
+                  {(() => {
+                    const currentRef = (hasTimeData && te.project_ref) || extractCalProjectRef(item.summary) || '';
+                    return (
+                      <div style={{ background: '#0f1729', borderRadius: 8, padding: 10, marginBottom: 10, border: '1px solid #1e293b' }}>
+                        <div style={{ fontSize: 10, color: '#60a5fa', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          🏷️ Project {currentRef && <span style={{ color: '#94a3b8', fontWeight: 600 }}>· currently {currentRef}</span>}
+                        </div>
+                        {!hasTimeData && (
+                          <div style={{ fontSize: 10, color: '#64748b', marginBottom: 6 }}>No time entry yet — this tags the calendar event so logged time will roll up.</div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            list="ow-project-refs"
+                            value={isOpen ? projectInput : ''}
+                            onChange={e => setProjectInput(e.target.value)}
+                            placeholder={currentRef ? `Reassign (e.g. ${currentRef})` : 'P-007, S-004, PROJ-006…'}
+                            style={{ flex: 1, background: '#0f1729', border: '1px solid #334155', borderRadius: 8, padding: '8px 10px', color: '#e2e8f0', fontSize: 12 }} />
+                          <button
+                            onClick={() => tagProject(item, projectInput)}
+                            disabled={savingProject || !projectInput.trim()}
+                            style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: savingProject || !projectInput.trim() ? '#64748b' : '#fff', padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            {savingProject ? '…' : 'Tag'}
+                          </button>
+                        </div>
+                        <datalist id="ow-project-refs">
+                          {projectOptions.map(ref => <option key={ref} value={ref} />)}
+                        </datalist>
+                      </div>
+                    );
+                  })()}
 
                   {/* Add note */}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>

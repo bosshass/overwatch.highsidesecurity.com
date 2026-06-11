@@ -46,10 +46,8 @@ function isProjectLike(title = '', description = '') {
 }
 
 const TABS = [
-  { key: 'new',      label: 'New',      emoji: '🆕', color: '#1a8a8a' },
-  { key: 'return',   label: 'Return',   emoji: '🔄', color: '#d97706' },
-  { key: 'estimate', label: 'Estimate', emoji: '💰', color: '#7c3aed' },
-  { key: 'billit',   label: 'Bill It',  emoji: '✅', color: '#1B2A4A' },
+  { key: 'new',    label: 'Today',   emoji: '📋', color: '#1a8a8a' },
+  { key: 'billit', label: 'Bill It', emoji: '✅', color: '#1B2A4A' },
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
@@ -135,7 +133,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   useEffect(() => { load(); }, [load]);
 
-  const events = allEvents.filter(e => e.tab === activeTab);
+  // The first tab ("Today") shows the tech's WHOLE day — every scheduled job
+  // that isn't already billed/completed, including ones tagged [RETURN] or
+  // [ESTIMATE]. This is the safety fix: a scheduled appointment can never be
+  // hidden from the tech just because it carries a return/estimate tag.
+  // Return / Estimate / Bill It remain filtered views of the same day.
+  const events = activeTab === 'new'
+    ? allEvents.filter(e => e.tab !== 'billit')
+    : allEvents.filter(e => e.tab === activeTab);
 
   const openDetail = (ev) => {
     setSelected(ev);
@@ -177,6 +182,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   const tabCounts   = {};
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
+  // "Today" shows everything not yet billed, so its badge counts that.
+  tabCounts.new = allEvents.filter(e => e.tab !== 'billit').length;
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
@@ -191,7 +198,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
             ← Home
           </button>
-          <div style={{ fontWeight: 700, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
+          <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
+          <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
           <button onClick={load}
             style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
             ↻
@@ -201,20 +209,20 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         {/* Day nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px' }}>
           <button onClick={() => setOffset(o => o - 1)}
-            style={{ background: '#f3f4f6', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 18, cursor: 'pointer', color: '#374151' }}>‹</button>
+            style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#374151', minWidth: 52 }}>‹</button>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: offset === 0 ? '#1a8a8a' : '#1B2A4A' }}>{dayLabel()}</div>
-            <div style={{ fontSize: 11, color: '#9ca3af' }}>
+            <div style={{ fontWeight: 800, fontSize: 17, color: offset === 0 ? '#1a8a8a' : '#1B2A4A' }}>{dayLabel()}</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>
               {viewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
               {!loading && ' · ' + allEvents.length + ' total'}
             </div>
           </div>
           <button onClick={() => setOffset(o => o + 1)}
-            style={{ background: '#f3f4f6', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 18, cursor: 'pointer', color: '#374151' }}>›</button>
+            style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#374151', minWidth: 52 }}>›</button>
         </div>
 
         {/* Four Tabs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderTop: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #e5e7eb' }}>
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setTab(tab.key)}
               style={{
@@ -247,7 +255,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           <div style={{ textAlign: 'center', padding: 60 }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>{activeTab === 'new' && offset === 0 ? '🎉' : '📭'}</div>
             <div style={{ color: '#6b7280', fontSize: 16, fontWeight: 600 }}>
-              {activeTab === 'new' && offset === 0 ? 'No new jobs today' : 'Nothing in ' + activeTabObj?.label}
+              {activeTab === 'new' && offset === 0 ? 'Nothing scheduled today' : activeTab === 'new' ? 'Nothing scheduled' : 'Nothing in ' + activeTabObj?.label}
             </div>
           </div>
         )}
@@ -264,7 +272,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               style={{
                 background: '#ffffff',
                 borderRadius: i === 0 && events.length === 1 ? 12 : i === 0 ? '12px 12px 0 0' : i === events.length - 1 ? '0 0 12px 12px' : 0,
-                padding: '16px 16px', cursor: 'pointer',
+                padding: '18px 16px', cursor: 'pointer',
                 borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
                 borderLeft: '4px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -284,17 +292,23 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       {ev.techName}
                     </span>
                   )}
-                  <span style={{ fontWeight: 600, fontSize: 16, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ev.tab === 'return' && (
+                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Return</span>
+                  )}
+                  {ev.tab === 'estimate' && (
+                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estimate</span>
+                  )}
+                  <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name || '(no name)'}
                   </span>
                 </div>
-                <div style={{ fontSize: 13, color: '#9ca3af' }}>
+                <div style={{ fontSize: 14, color: '#6b7280' }}>
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                   {ev.location && ' · ' + ev.location.split(',')[0]}
                 </div>
                 {phone && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>📞 {phone}</div>}
               </div>
-              <div style={{ color: '#d1d5db', fontSize: 22, marginLeft: 8 }}>›</div>
+              <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>
             </div>
           );
         })}
@@ -305,29 +319,29 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         <div onClick={closeSheet}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '14px 14px 24px', width: '100%', maxWidth: 480, maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '16px 16px calc(24px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480, maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
-            <div style={{ width: 36, height: 4, background: '#e5e7eb', borderRadius: 2, margin: '0 auto 10px' }} />
+            <div style={{ width: 40, height: 5, background: '#e5e7eb', borderRadius: 3, margin: '0 auto 14px' }} />
 
-            <div style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', marginBottom: 2 }}>
+            <div style={{ fontWeight: 800, fontSize: 19, color: '#1B2A4A', marginBottom: 3 }}>
               {cleanTitle(selected.title)}
             </div>
-            <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 12 }}>
               {selected.isAllDay ? 'All day' : fmtTime(selected.start) + ' – ' + fmtTime(selected.end)}
             </div>
 
             {(selected.location || extractPhone(selected.description)) && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
                 {selected.location && (
                   <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
                     target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#2563eb', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, color: '#2563eb', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
                     🗺️ Navigate
                   </a>
                 )}
                 {extractPhone(selected.description) && (
                   <a href={'tel:' + (extractPhone(selected.description) || '').replace(/\D/g, '')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, color: '#16a34a', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, color: '#16a34a', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
                     📞 Call
                   </a>
                 )}

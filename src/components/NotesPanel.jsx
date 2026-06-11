@@ -6,8 +6,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { notesApi, STATUS_INFO } from '../services/supabase.js';
+import { appendNoteToJobEvents } from '../services/calendarSync.js';
 
-export default function NotesPanel({ jobId, userEmail, compact = false, maxNotes = null }) {
+export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null }) {
   const [notes, setNotes] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
@@ -36,6 +37,12 @@ export default function NotesPanel({ jobId, userEmail, compact = false, maxNotes
     setIsSaving(true);
     try {
       await notesApi.addNote(jobId, newNote.trim(), userEmail);
+      // Mirror the note onto the linked Google Calendar event(s). Non-fatal:
+      // the note is already saved; a calendar failure must not block the UI.
+      if (job && accessToken) {
+        try { await appendNoteToJobEvents(accessToken, job, newNote.trim(), userEmail); }
+        catch (e) { console.warn('Calendar note sync failed (non-fatal):', e); }
+      }
       setNewNote('');
       await loadNotes();
     } catch (e) {

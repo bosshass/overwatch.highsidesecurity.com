@@ -11,9 +11,16 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIU
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Extract [PROJ-NNN] tag from a calendar event title
+// Extract a project reference from a calendar event title.
+// Accepts [P-NNN] (DB-assigned p_number), [S-NNN] (DB-assigned s_number),
+// or [PROJ-NNN] (legacy manual tag). Returns the canonical "PREFIX-NNN" string.
 function extractProjectRef(title) {
-  const m = (title || '').match(/\[PROJ-(\d+)\]/i);
-  return m ? `PROJ-${m[1]}` : null;
+  const mP = (title || '').match(/\[P-(\d+)\]/i);
+  if (mP) return `P-${mP[1]}`;
+  const mS = (title || '').match(/\[S-(\d+)\]/i);
+  if (mS) return `S-${mS[1]}`;
+  const mProj = (title || '').match(/\[PROJ-(\d+)\]/i);
+  return mProj ? `PROJ-${mProj[1]}` : null;
 }
 
 // ============================================
@@ -382,18 +389,18 @@ export const jobsApi = {
     const family = await this.getJobWithFamily(jobId);
     if (!family) return 0;
     
-    let total = parseFloat(family.job.estimate_amount || 0) + parseFloat(family.job.invoice_amount || 0);
-    
+    let total = parseFloat(family.job.estimate_amount || 0) + parseFloat(family.job.invoiced_amount || 0);
+
     if (family.parent) {
-      total += parseFloat(family.parent.estimate_amount || 0) + parseFloat(family.parent.invoice_amount || 0);
+      total += parseFloat(family.parent.estimate_amount || 0) + parseFloat(family.parent.invoiced_amount || 0);
     }
-    
+
     for (const child of family.children) {
-      total += parseFloat(child.estimate_amount || 0) + parseFloat(child.invoice_amount || 0);
+      total += parseFloat(child.estimate_amount || 0) + parseFloat(child.invoiced_amount || 0);
     }
-    
+
     for (const sib of family.siblings) {
-      total += parseFloat(sib.estimate_amount || 0) + parseFloat(sib.invoice_amount || 0);
+      total += parseFloat(sib.estimate_amount || 0) + parseFloat(sib.invoiced_amount || 0);
     }
     
     return total;

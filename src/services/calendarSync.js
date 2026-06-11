@@ -29,6 +29,16 @@ async function apiGet(accessToken, calendarId, timeMin, timeMax) {
   return (await res.json()).items || [];
 }
 
+// Fetch a single event by id. Returns the event object, or null on 404/error.
+async function apiGetEvent(accessToken, calendarId, eventId) {
+  const res = await fetch(
+    `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) return null;
+  return await res.json();
+}
+
 async function apiCreate(accessToken, calendarId, event) {
   const res = await fetch(
     `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
@@ -138,6 +148,101 @@ export function buildEventDescription(job, latestNote) {
 export function getColorId(type) {
   const colors = { urgent: '11', high: '6', normal: '7', low: '10', complete: '10', return: '6', sales: '5', nc: '8' };
   return colors[type] || '7';
+}
+
+// ============================================
+// NOTE -> CALENDAR WRITE-BACK
+// ============================================
+// When a worker note is added to a job, mirror it onto the linked Google
+// Calendar event(s) by appending a timestamped line to the event description.
+// Notes are append-only on the calendar so the full thread stays visible.
+
+// Friendly author name from an email (mirrors NotesPanel's map).
+function resolveAuthorName(email) {
+  if (!email) return 'Office';
+  const names = {
+    'drhservicetech1@gmail.com': 'Austin',
+    'austin@drhsecurityservices.com': 'Austin',
+    'jr@drhsecurityservices.com': 'JR',
+    'brian@drhsecurityservices.com': 'Brian',
+    'trevor@drhsecurityservices.com': 'Trevor',
+    'subs@drhsecurityservices.com': 'Subs',
+    'info@drhsecurityservices.com': 'Sara',
+    'sara@jnbllc.com': 'Sara',
+    'admin@jnbservice.com': 'Sara',
+    'shanaparks@drhsecurityservices.com': 'Shana',
+  };
+  return names[email.toLowerCase()] || email.split('@')[0];
+}
+
+// Compact stamp like "6/8 2:45p" in Denver time.
+function noteStamp(date = new Date()) {
+  const s = date.toLocaleString('en-US', {
+    timeZone: 'America/Denver',
+    month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+  // "6/8, 2:45 PM" -> "6/8 2:45p"
+  return s.replace(',', '').replace(' AM', 'a').replace(' PM', 'p').replace(' ', ' ').replace(':', ':');
+}
+
+// Calendars an active (non-completed) job event could live on, in search order.
+function noteSearchCalendars() {
+  return [
+    CALENDARS.AUSTIN,
+    CALENDARS.JR,
+    CALENDARS.TECH3,
+    CALENDARS.SHANA,
+    CALENDARS.SUBS,
+    CALENDARS.INSTALLATIONS,
+    CALENDARS.TENTATIVELY_SCHEDULED,
+    CALENDARS.SALES_ACCOUNTING,
+    CALENDARS.COMPLETED,
+  ].filter(Boolean);
+}
+
+// Append a note line to every calendar event linked to this job's assignments.
+// Non-fatal: never throws — the note is already saved in Supabase. Returns a
+// small summary { patched, attempted } for optional logging.
+export async function appendNoteToJobEvents(accessToken, job, noteText, authorEmail) {
+  const summary = { patched: 0, attempted: 0 };
+  if (!accessToken || !job || !noteText?.trim()) return summary;
+
+  const assignments = job.assignments || [];
+  // Collect unique event ids, remembering the assigned tech's calendar as the
+  // preferred place to look first.
+  const targets = new Map(); // eventId -> preferredCalendarId | null
+  for (const a of assignments) {
+    if (!a?.calendar_event_id) continue;
+    if (!targets.has(a.calendar_event_id)) {
+      const pref = a.tech ? getTechCalendarId(a.tech) : null;
+      targets.set(a.calendar_event_id, pref);
+    }
+  }
+  if (targets.size === 0) return summary; // unscheduled job / internal task — nothing to write
+
+  const line = `📝 [${noteStamp()} ${resolveAuthorName(authorEmail)}] ${noteText.trim()}`;
+
+  for (const [eventId, preferredCal] of targets) {
+    summary.attempted++;
+    try {
+      const candidates = [preferredCal, ...noteSearchCalendars()].filter(Boolean);
+      const seen = new Set();
+      for (const calId of candidates) {
+        if (seen.has(calId)) continue;
+        seen.add(calId);
+        const ev = await apiGetEvent(accessToken, calId, eventId);
+        if (!ev) continue; // not on this calendar, keep looking
+        const current = ev.description || '';
+        const updated = current ? `${current}\n${line}` : line;
+        await apiPatch(accessToken, calId, eventId, { description: updated });
+        summary.patched++;
+        break; // found and patched — done with this event
+      }
+    } catch (e) {
+      console.warn('Note->calendar append failed (non-fatal):', e.message);
+    }
+  }
+  return summary;
 }
 
 // ============================================

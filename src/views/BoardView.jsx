@@ -458,6 +458,22 @@ export default function BoardView({ accessToken, onBack }) {
     return mProj ? `PROJ-${mProj[1]}` : null;
   };
 
+  // Compute the next available PROJ-NNN by scanning all currently-loaded
+  // events for [PROJ-NNN] tags, taking max + 1, padded to 3 digits.
+  // Used for the legacy free-form project tagging path on Open Tasks.
+  const nextProjectNum = () => {
+    const allItems = [...openTasks, ...readyToSchedule, ...blockedItems];
+    let max = 0;
+    for (const it of allItems) {
+      const m = (it.title || '').match(/\[PROJ-(\d+)\]/i);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > max) max = n;
+      }
+    }
+    return String(max + 1).padStart(3, '0');
+  };
+
   const assignProjectTag = async (item, projRef) => {
     setUpdating(true);
     try {
@@ -475,7 +491,7 @@ export default function BoardView({ accessToken, onBack }) {
         body: JSON.stringify({ summary: newTitle }),
       });
       if (!res.ok) throw new Error('Failed to tag event');
-      await loadOpenTasks();
+      await loadAll();
       setSelectedItem(prev => prev ? { ...prev, title: newTitle } : null);
     } catch (e) {
       alert(`Error: ${e.message}`);
@@ -1162,9 +1178,9 @@ export default function BoardView({ accessToken, onBack }) {
                     setUpdating(false);
                   }}
                   disabled={updating}
-                  style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
                 >
-                  💵 Bill It
+                  💵 Send to Billing
                 </button>
                 <button
                   onClick={() => markAsProject(item)}
@@ -1321,20 +1337,8 @@ export default function BoardView({ accessToken, onBack }) {
                         >Change</button>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          onClick={() => assignProjectTag(item, `PROJ-${nextProjectNum()}`)}
-                          disabled={updating}
-                          style={{ flex: 1, padding: '9px', background: '#1e3a5f', border: '1px solid #3b82f640', borderRadius: 8, color: '#60a5fa', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
-                        >🏷️ New Project</button>
-                        <button
-                          onClick={() => {
-                            const ref = window.prompt('Link to existing project number (e.g. 003):');
-                            if (ref?.trim()) assignProjectTag(item, `PROJ-${ref.trim().padStart(3, '0')}`);
-                          }}
-                          disabled={updating}
-                          style={{ flex: 1, padding: '9px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#64748b', fontSize: 13, cursor: 'pointer' }}
-                        >🔗 Link Existing</button>
+                      <div style={{ background: '#0a1226', border: '1px dashed #334155', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#64748b' }}>
+                        Not tagged as a project yet. Use the <strong style={{ color: '#22c55e' }}>🔨 Mark as Project</strong> button below to either link this task to an existing P-number or create a new project — that path also creates the database record for tracking.
                       </div>
                     )}
                   </div>
@@ -1346,9 +1350,9 @@ export default function BoardView({ accessToken, onBack }) {
                   href={`https://www.google.com/calendar/event?eid=${btoa(item.id + ' ' + item.calendarId)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ background: '#3b82f6', color: '#fff', padding: 12, borderRadius: 8, textAlign: 'center', textDecoration: 'none', fontWeight: 600 }}
+                  style={{ background: '#334155', color: '#fff', padding: 12, borderRadius: 8, textAlign: 'center', textDecoration: 'none', fontWeight: 600 }}
                 >
-                  📅 Open in Calendar
+                  View in Calendar
                 </a>
                 <button
                   onClick={() => sendTaskToBilling(item)}
@@ -1531,7 +1535,7 @@ export default function BoardView({ accessToken, onBack }) {
                     <button
                       onClick={() => openScheduler(item)}
                       disabled={updating}
-                      style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                      style={{ background: '#8b5cf6', border: 'none', color: '#fff', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
                     >
                       📅 Schedule Now
                     </button>
@@ -1818,12 +1822,14 @@ export default function BoardView({ accessToken, onBack }) {
                   return (
                     <div
                       key={`src-${lead.id}`}
+                      onClick={() => setLinkingCard(lead)}
                       style={{
                         background: '#1e293b',
                         borderRadius: 8,
                         padding: 12,
                         marginBottom: 8,
                         borderLeft: `3px solid ${isLinked ? '#22c55e' : '#f59e0b'}`,
+                        cursor: 'pointer',
                       }}
                     >
                       {/* Header row */}
@@ -1872,7 +1878,7 @@ export default function BoardView({ accessToken, onBack }) {
                         )}
                         <div style={{ marginLeft: 'auto' }}>
                           <button
-                            onClick={() => setLinkingCard(lead)}
+                            onClick={(e) => { e.stopPropagation(); setLinkingCard(lead); }}
                             style={{
                               background: isLinked ? '#1e3a5f' : '#1d4ed8',
                               border: 'none', borderRadius: 6,

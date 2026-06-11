@@ -782,7 +782,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </div>
 
           {/* Notes */}
-          <NotesPanel jobId={job.id} userEmail={userEmail} />
+          <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
 
           {/* Admin toggle */}
           {isOperator && (
@@ -1013,7 +1013,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
 
         {/* Notes */}
         <div style={{ marginBottom: '16px' }}>
-          <NotesPanel jobId={job.id} userEmail={userEmail} />
+          <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
         </div>
 
         {/* Quick actions */}

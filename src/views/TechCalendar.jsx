@@ -251,7 +251,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
         if (matchedJobs?.length > 0) { setSelectedJobId(matchedJobs[0].id); setEventLoading(false); return; }
       }
     } catch (e) { console.warn('Event match error:', e); }
+    // No matching job → open the finish sheet directly (same flow as Work To Do Today).
+    // The old preview modal (quick tags / Make JUC-E Job / Mark Private) is still
+    // reachable by closing the sheet with the X.
     setEventPreview(event);
+    setShowCompleteModal(true);
     setEventLoading(false);
   };
 
@@ -1122,8 +1126,8 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
         </div>
       )}
 
-      {/* Event preview — no matching job */}
-      {eventPreview && (
+      {/* Event preview — no matching job (fallback actions; shown only when the finish sheet is closed) */}
+      {eventPreview && !showCompleteModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '20px' }}
           onClick={() => setEventPreview(null)}>
           <div onClick={e => e.stopPropagation()} style={{

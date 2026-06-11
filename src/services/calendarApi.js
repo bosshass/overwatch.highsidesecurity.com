@@ -5,15 +5,17 @@ const API = 'https://www.googleapis.com/calendar/v3';
 
 /**
  * Fetch events from a single calendar
+ * opts: { q?: string, maxResults?: number } — optional text search + result cap
  */
-export async function fetchCalendarEvents(accessToken, calendarId, timeMin, timeMax) {
+export async function fetchCalendarEvents(accessToken, calendarId, timeMin, timeMax, opts = {}) {
   const params = new URLSearchParams({
     timeMin: timeMin.toISOString(),
     timeMax: timeMax.toISOString(),
     singleEvents: 'true',
     orderBy: 'startTime',
-    maxResults: '250',
+    maxResults: String(opts.maxResults ?? 250),
   });
+  if (opts.q) params.set('q', opts.q);
 
   const res = await fetch(
     `${API}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,

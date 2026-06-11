@@ -3,22 +3,10 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = 'https://wolhqelloeypafmmvapn.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4MDEwNTMsImV4cCI6MjA1OTM3NzA1M30.BGPjPXH5fOSKGPOeMPH6z5OJvX8aTitGrwe1_Atgkp8';
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import { CALENDARS } from '../config/calendars.js';
+import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
-
-// Calendar IDs
-const CALENDARS = {
-  TENTATIVELY_SCHEDULED: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
-  RETURN_VISITS: 'drhhsscalendar@gmail.com',
-  AUSTIN: 'drhservicetech1@gmail.com',
-  JR: 'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com',
-  TECH3: 'c_a1f0d82804a6c67b6373fa1311eef3933dc600a66617eef2b1e42dbb0670b625@group.calendar.google.com',
-};
 
 // Job Types with durations (hours)
 const JOB_TYPES = {
@@ -67,23 +55,11 @@ export default function Scheduler({ accessToken, onBack }) {
     openTasks: { count: 0, hours: 0 },      // 📋 Open Tasks - ALREADY scheduled
   });
 
-  // Fetch calendar events
+  // Fetch calendar events — shared service (services/calendarApi.js), fail-soft to []
   const fetchCalendarEvents = useCallback(async (calendarId, timeMin, timeMax) => {
     if (!accessToken) return [];
     try {
-      const params = new URLSearchParams({
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        singleEvents: 'true',
-        orderBy: 'startTime',
-        maxResults: '250',
-      });
-      const res = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events?${params}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.items || [];
+      return await gcalFetchEvents(accessToken, calendarId, timeMin, timeMax);
     } catch (err) {
       console.error('Calendar fetch error:', err);
       return [];

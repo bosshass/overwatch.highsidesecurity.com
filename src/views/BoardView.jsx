@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase, jobLinkingApi } from '../services/supabase.js';
+import { supabase, jobLinkingApi, returnCardsApi } from '../services/supabase.js';
 import JobSearchModal from '../components/JobSearchModal.jsx';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 
@@ -380,7 +380,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         // Tech-flagged return cards → mark every card in the group scheduled
         try {
           await Promise.all((est.returnIds || [est.id]).map(rid =>
-            jobLinkingApi.markScheduled(rid, newEvent.id, selectedTech.id, selectedDate)
+            returnCardsApi.markScheduled(rid, newEvent.id, selectedTech.id, selectedDate)
           ));
         } catch (e) {
           console.warn('Return card markScheduled warning:', e);
@@ -1949,7 +1949,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                               e.stopPropagation();
                               if (!confirm('Mark this return as already scheduled (handled outside the board)?')) return;
                               try {
-                                await Promise.all(group.map(c => jobLinkingApi.markScheduled(c.id, null, null, new Date().toISOString())));
+                                await Promise.all(group.map(c => returnCardsApi.markScheduled(c.id, null, null, new Date().toISOString())));
                                 await loadReturnCards();
                               } catch (err) { alert(`Error: ${err.message}`); }
                             }}

@@ -252,8 +252,6 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       }
     } catch (e) { console.warn('Event match error:', e); }
     // No matching job → open the finish sheet directly (same flow as Work To Do Today).
-    // The old preview modal (quick tags / Make JUC-E Job / Mark Private) is still
-    // reachable by closing the sheet with the X.
     setEventPreview(event);
     setShowCompleteModal(true);
     setEventLoading(false);
@@ -1241,7 +1239,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             setEventPreview(null);
             fetchCalendarEvents();
           }}
-          onCancel={() => setShowCompleteModal(false)}
+          onCancel={() => { setShowCompleteModal(false); setEventPreview(null); }}
         />
       )}
 

@@ -7,6 +7,7 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OfficeHub from './views/OfficeHub.jsx';
+import OpsHome from './views/OpsHome.jsx';
 import ThingsToDo from './views/ThingsToDo.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
@@ -568,7 +569,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={
-          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
+          <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />

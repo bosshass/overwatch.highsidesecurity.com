@@ -72,7 +72,8 @@ export default function JobFinishSheet({
   const eventDate     = event?.start ? new Date(event.start) : new Date();
   const timeValid     = isValidTimeEntry(timeEntry, eventDate);
   const hasCustomer   = !!linkedCustomer?.id;
-  const canFinish     = timeValid && hasCustomer && !acting;
+  const notesValid    = notes.trim().length >= 3;   // required: no blank completions
+  const canFinish     = timeValid && hasCustomer && notesValid && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
   // Patches the title and, when the tech left notes/materials, APPENDS them to
@@ -208,12 +209,15 @@ export default function JobFinishSheet({
         required
       />
 
-      {/* Notes */}
+      {/* Notes (required — blocks finish until filled) */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        📝 Notes — required {notesValid ? '✓' : ''}
+      </div>
       <textarea
         value={notes}
         onChange={e => setNotes(e.target.value)}
-        placeholder="Notes (what was done, what's needed...)"
-        style={textareaStyle}
+        placeholder="What was done / what's needed — required to finish"
+        style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
       {/* Materials */}
@@ -230,9 +234,11 @@ export default function JobFinishSheet({
       {/* Gate hint when not ready */}
       {!canFinish && !acting && (
         <div style={hintBox}>
-          {!hasCustomer && !timeValid && 'Link a customer and add time to finish.'}
-          {!hasCustomer && timeValid && 'Link a customer to finish.'}
-          {hasCustomer && !timeValid && 'Add a time entry to finish.'}
+          {`To finish, add: ${[
+            !hasCustomer && 'a linked customer',
+            !timeValid   && 'a time entry',
+            !notesValid  && 'notes',
+          ].filter(Boolean).join(', ')}.`}
         </div>
       )}
 

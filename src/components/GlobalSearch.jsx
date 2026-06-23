@@ -65,22 +65,33 @@ export default function GlobalSearch({ onClose, onNavigate }) {
   const doSearch = async (q) => {
     setLoading(true);
 
-    const [jobsResult, entriesResult] = await Promise.all([
-      supabase
-        .from('jobs')
-        .select('id, customer_name, customer_phone, job_number, status, customer_address')
-        .or(`customer_name.ilike.%${q}%,job_number.ilike.%${q}%,customer_phone.ilike.%${q}%,customer_address.ilike.%${q}%`)
-        .limit(8)
-        .catch(() => ({ data: [] })),
+    // PostgREST .or() throws on , ( ) % * ' " \ — strip them so search never 400s.
+    const safe = q.replace(/[,()%*'"\\]/g, ' ').replace(/\s+/g, ' ').trim();
 
-      supabase
-        .from('time_entries')
-        .select('id, customer_name_raw, event_title, tech_name, created_at, disposition, materials, notes, project_ref')
-        .or(`customer_name_raw.ilike.%${q}%,event_title.ilike.%${q}%,materials.ilike.%${q}%,notes.ilike.%${q}%`)
-        .order('created_at', { ascending: false })
-        .limit(8)
-        .catch(() => ({ data: [] })),
-    ]);
+    // NOTE: the Supabase query builder is a thenable, NOT a Promise — it has no
+    // .catch(). Await each query inside try/catch instead, or one bad query kills
+    // the whole search (this was the "search totally broke" bug).
+    let jobs = [], entries = [];
+    if (safe.length >= 2) {
+      try {
+        const { data } = await supabase
+          .from('jobs')
+          .select('id, customer_name, customer_phone, job_number, status, customer_address')
+          .or(`customer_name.ilike.%${safe}%,job_number.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
+          .limit(8);
+        jobs = data || [];
+      } catch (e) { console.warn('Job search failed:', e); }
+
+      try {
+        const { data } = await supabase
+          .from('time_entries')
+          .select('id, customer_name_raw, event_title, tech_name, created_at, disposition, materials, notes, project_ref')
+          .or(`customer_name_raw.ilike.%${safe}%,event_title.ilike.%${safe}%,materials.ilike.%${safe}%,notes.ilike.%${safe}%`)
+          .order('created_at', { ascending: false })
+          .limit(8);
+        entries = data || [];
+      } catch (e) { console.warn('Entry search failed:', e); }
+    }
 
     const ql = q.toLowerCase();
     let todos = [];
@@ -94,11 +105,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
       ).slice(0, 5);
     } catch { /**/ }
 
-    setResults({
-      jobs:    jobsResult.data  || [],
-      entries: entriesResult.data || [],
-      todos,
-    });
+    setResults({ jobs, entries, todos });
     setLoading(false);
   };
 

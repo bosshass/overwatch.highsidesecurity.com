@@ -20,9 +20,9 @@ import { jobsApi, JOB_STATUS } from '../services/supabase.js';
 import { ignoreAllOrphans, isOrphanIgnored, syncIgnoredOrphansFromSupabase } from '../services/calendarSync.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
-const CUTOFF = new Date('2026-05-01T00:00:00');          // "before May 1 2026"
-const SWEEP_FROM = new Date('2026-01-01T00:00:00');      // this year only — don't look before Jan 1 2026
-const COMPLETED_FROM = new Date('2026-01-01T00:00:00');  // "completed this year"
+const CUTOFF = new Date('2026-07-01T00:00:00');          // June only — nothing in July+
+const SWEEP_FROM = new Date('2026-06-01T00:00:00');      // June only — don't look before June 1 2026
+const COMPLETED_FROM = new Date('2026-06-01T00:00:00');  // June only
 
 // Calendars to sweep — Sara's list. Completed + Sales excluded.
 const SWEEP = [
@@ -73,6 +73,26 @@ async function moveToCompleted(accessToken, sourceCalId, eventId) {
   return res.ok;
 }
 
+// Stamp any event this PREVIEW build modifies — visible note + machine tag — so every
+// change is auditable and reversible. Search Google Calendar for "OW-PREVIEW" to find them all.
+async function stampEvent(accessToken, calId, evId, action, extra = {}) {
+  try {
+    const getRes = await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(evId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } });
+    const ev = await getRes.json();
+    const when = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'short', timeStyle: 'short' });
+    const note = `\n\n🔬 OW-PREVIEW ${when} — ${action} (preview build)`;
+    await fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(evId)}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: (ev.description || '') + note,
+        extendedProperties: { private: { ow_preview: 'true', ow_preview_action: action, ow_preview_ts: new Date().toISOString(), ...extra } },
+      }),
+    });
+  } catch (e) { console.warn('preview stamp failed', evId, e); }
+}
+
 async function fetchAllPages(accessToken, calId, timeMin, timeMax) {
   const out = [];
   let pageToken = null;
@@ -92,7 +112,7 @@ async function fetchAllPages(accessToken, calId, timeMin, timeMax) {
   return out;
 }
 
-export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFinish }) {
+export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFinish, onOpenPreview }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [done, setDone] = useState([]);       // looks-done candidates
@@ -156,14 +176,17 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
     if (!pickerRow) return;
     setBusy(true);
     try {
+      // Stamp the source event so the preview change is auditable.
+      try { await stampEvent(accessToken, pickerRow.calId, pickerRow.id, `set status: ${status}`, { ow_preview_origin: pickerRow.calId }); } catch {}
       // Create a tracked job from the calendar event with the chosen status — no hours.
+      // created_by carries a PREVIEW marker so every preview-made row is one query away.
       await jobsApi.create({
         customer_name: pickerRow.title.replace(/\s*\[.*?\]\s*$/, '').trim(),
         status,
         issue: pickerRow.notes || '',
         customer_address: pickerRow.location || '',
         calendar_event_id: pickerRow.id,
-      }, userEmail);
+      }, `${userEmail} · PREVIEW`);
       await ignoreAllOrphans([pickerRow.id]);   // off the reconcile list — it's tracked now
       setDone(d => d.filter(r => r.id !== pickerRow.id));
       setReview(d => d.filter(r => r.id !== pickerRow.id));
@@ -178,8 +201,9 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
     if (!confirm(`Mark ${rows.length} event(s) done?\n\nThey'll move onto the Completed calendar and stop showing as open. Nothing is deleted.`)) return;
     setBusy(true);
     try {
-      // Move each event onto Completed (best-effort), then write the ignore flag.
+      // Stamp (preview audit trail), then move each event onto Completed, then write the ignore flag.
       for (const r of rows) {
+        try { await stampEvent(accessToken, r.calId, r.id, 'moved to Completed', { ow_preview_origin: r.calId }); } catch {}
         try { await moveToCompleted(accessToken, r.calId, r.id); } catch (e) { console.warn('move failed', r.id, e); }
       }
       await ignoreAllOrphans(rows.map(r => r.id));
@@ -243,12 +267,13 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #1e293b', position: 'sticky', top: 0, background: '#0f1729', zIndex: 10 }}>
         <button onClick={onBack} style={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontWeight: 700, padding: '8px 14px', cursor: 'pointer' }}>← Home</button>
         <span style={{ fontWeight: 800, color: '#00c8e8', fontSize: 15 }}>🧹 Reconcile</span>
-        <button onClick={load} disabled={loading} style={{ marginLeft: 'auto', ...miniBtn }}>{loading ? 'Scanning…' : '↻ Rescan'}</button>
+        {onOpenPreview && <button onClick={onOpenPreview} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #00c8e8', borderRadius: 8, color: '#00c8e8', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🔬 Preview log</button>}
+        <button onClick={load} disabled={loading} style={{ marginLeft: onOpenPreview ? 8 : 'auto', ...miniBtn }}>{loading ? 'Scanning…' : '↻ Rescan'}</button>
       </div>
 
       <div style={{ padding: '16px 16px 8px' }}>
         <div style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5 }}>
-          This year's events (before May 1) not on Completed and not already cleared. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = it's finished → moves onto the Completed calendar and stops showing as open. <b style={{ color: '#00c8e8' }}>Set status →</b> = it's real but untagged → tag it like the board (Return needed, Estimate, Needs parts…), no hours. Nothing is deleted.
+          <b style={{ color: '#00c8e8' }}>June 2026 only · preview build.</b> Every change is stamped <b>OW-PREVIEW</b> on the event (search your calendar for it) and preview-made jobs are tagged in <code>created_by</code>. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = finished → moves to Completed. <b style={{ color: '#00c8e8' }}>Set status →</b> = real but untagged → tag it like the board, no hours. Nothing is deleted.
         </div>
       </div>
 

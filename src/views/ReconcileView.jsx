@@ -16,6 +16,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
+import { jobsApi, JOB_STATUS } from '../services/supabase.js';
 import { ignoreAllOrphans, isOrphanIgnored, syncIgnoredOrphansFromSupabase } from '../services/calendarSync.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -38,6 +39,16 @@ const SWEEP = [
 
 // A title with one of these = done, even if stranded off the Completed calendar.
 const DONE_TAGS = ['[BILL IT]', '[BILLED]', '[INVOICED]', '[INVOICE]', '[COMPLETE]', '[COMPLETED]', '[DONE]', '[PAID]', '[NC]', '[NO CHARGE]'];
+
+// Triage statuses for "Set status" — the board statuses, no hours required.
+const TRIAGE = [
+  { status: JOB_STATUS.RETURN_PENDING,   label: 'Return needed',     icon: '🔄', color: '#ec4899' },
+  { status: JOB_STATUS.NEEDS_ESTIMATE,   label: 'Needs estimate',    icon: '📋', color: '#f59e0b' },
+  { status: JOB_STATUS.NEEDS_PARTS,      label: 'Needs parts',       icon: '📦', color: '#eab308' },
+  { status: JOB_STATUS.NEEDS_DETAILS,    label: 'Needs notes',       icon: '📝', color: '#f97316' },
+  { status: JOB_STATUS.PENDING_DECISION, label: 'Blocked',           icon: '⏳', color: '#a855f7' },
+  { status: JOB_STATUS.READY_TO_SCHEDULE,label: 'Ready to schedule', icon: '✅', color: '#22c55e' },
+];
 
 function startOf(ev) { return ev.start?.dateTime || ev.start?.date || null; }
 function looksDone(title) {
@@ -89,6 +100,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
   const [selected, setSelected] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
+  const [pickerRow, setPickerRow] = useState(null);
 
   const load = useCallback(async () => {
     if (!accessToken) { setError('Not signed in.'); setLoading(false); return; }
@@ -139,6 +151,26 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
   const toggle = (id) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleExpand = (id) => setExpanded(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAll = (rows, on) => setSelected(s => { const n = new Set(s); rows.forEach(r => on ? n.add(r.id) : n.delete(r.id)); return n; });
+
+  const applyStatus = async (status) => {
+    if (!pickerRow) return;
+    setBusy(true);
+    try {
+      // Create a tracked job from the calendar event with the chosen status — no hours.
+      await jobsApi.create({
+        customer_name: pickerRow.title.replace(/\s*\[.*?\]\s*$/, '').trim(),
+        status,
+        issue: pickerRow.notes || '',
+        customer_address: pickerRow.location || '',
+        calendar_event_id: pickerRow.id,
+      }, userEmail);
+      await ignoreAllOrphans([pickerRow.id]);   // off the reconcile list — it's tracked now
+      setDone(d => d.filter(r => r.id !== pickerRow.id));
+      setReview(d => d.filter(r => r.id !== pickerRow.id));
+      setPickerRow(null);
+    } catch (e) { setError(e.message || 'Failed to set status'); }
+    finally { setBusy(false); }
+  };
 
   const markDone = async () => {
     const rows = [...done, ...review].filter(r => selected.has(r.id));
@@ -197,7 +229,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
                   )}
                   {!r.notes && <div style={{ color: '#475569', fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>no notes on this event</div>}
                 </div>
-                <button onClick={() => onOpenFinish?.(r.calId, r.id)} title="Open the finish sheet to give this a real status" style={openBtn}>Open →</button>
+                <button onClick={() => setPickerRow(r)} title="Set a status — like the board, no hours" style={openBtn}>Set status →</button>
               </div>
             </div>
           );
@@ -216,7 +248,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
 
       <div style={{ padding: '16px 16px 8px' }}>
         <div style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5 }}>
-          This year's events (before May 1) not on Completed and not already cleared. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = it's finished → moves onto the Completed calendar and stops showing as open. <b style={{ color: '#00c8e8' }}>Open →</b> = it's real but untagged → give it a status in the finish sheet. Nothing is deleted.
+          This year's events (before May 1) not on Completed and not already cleared. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = it's finished → moves onto the Completed calendar and stops showing as open. <b style={{ color: '#00c8e8' }}>Set status →</b> = it's real but untagged → tag it like the board (Return needed, Estimate, Needs parts…), no hours. Nothing is deleted.
         </div>
       </div>
 
@@ -243,6 +275,23 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
           <button onClick={markDone} disabled={busy || selected.size === 0} style={{ marginLeft: 'auto', background: selected.size ? '#22c55e' : '#1e293b', color: selected.size ? '#06121f' : '#475569', border: 'none', borderRadius: 10, padding: '12px 20px', fontSize: 14, fontWeight: 800, cursor: selected.size ? 'pointer' : 'default' }}>
             {busy ? 'Saving…' : `Mark ${selected.size} done`}
           </button>
+        </div>
+      )}
+
+      {pickerRow && (
+        <div onClick={() => !busy && setPickerRow(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 480, background: '#0f1729', borderTop: '1px solid #1e293b', borderRadius: '16px 16px 0 0', padding: '18px 18px 28px' }}>
+            <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 800 }}>{pickerRow.title.replace(/\s*\[.*?\]\s*$/, '')}</div>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 14 }}>{pickerRow.calName} · pick a status — no hours needed</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {TRIAGE.map(t => (
+                <button key={t.status} disabled={busy} onClick={() => applyStatus(t.status)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0c1322', border: `1.5px solid ${t.color}`, borderRadius: 12, padding: '14px 12px', color: '#e2e8f0', fontSize: 14, fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, textAlign: 'left' }}>
+                  <span style={{ fontSize: 20 }}>{t.icon}</span>{t.label}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => !busy && setPickerRow(null)} style={{ width: '100%', marginTop: 12, background: '#1e293b', border: 'none', borderRadius: 10, color: '#94a3b8', padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+          </div>
         </div>
       )}
     </div>

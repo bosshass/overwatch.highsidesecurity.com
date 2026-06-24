@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase, timeEntriesApi } from '../services/supabase.js';
+import { supabase, timeEntriesApi, normalizeDisposition } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -305,6 +305,23 @@ export default function Billing({ accessToken, onBack }) {
     return c;
   }, [allItems, calFilters]);
 
+  // ── Adoption gap ──────────────────────────────────────────────
+  // Calendar-tagged work that a tech NEVER logged in the app (no time entry).
+  // This is the number that explains why Billing and the time-entry screens
+  // disagree — it's the work escaping Overwatch. Surface it, don't bury it.
+  // Scope: June 1 fwd in full + May's still-actionable items. Pre-May = dust.
+  // (The actionable-bucket filter already excludes anything completed/billed,
+  //  so "May, not completed" is handled by the bucket check; the floor drops
+  //  everything older than May 1 so the number stays chase-able, not historical.)
+  const REPAIR_FLOOR = useMemo(() => new Date('2026-05-01T00:00:00'), []);
+  const untrackedCount = useMemo(() =>
+    allItems.filter(i =>
+      i._supabase === false &&
+      (i.bucket === 'bill_it' || i.bucket === 'return' || i.bucket === 'estimate') &&
+      i.start && new Date(i.start) >= REPAIR_FLOOR
+    ).length
+  , [allItems, REPAIR_FLOOR]);
+
   // ── Actions ────────────────────────────────────────────────
   const patchTag = async (item, newTag) => {
     setActing(item.id);
@@ -485,6 +502,11 @@ export default function Billing({ accessToken, onBack }) {
           <div>
             <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 16 }}>💰 Billing</div>
             <div style={{ color: '#475569', fontSize: 11 }}>{loading ? 'Loading...' : `${allItems.length} items · Calendar + Supabase`}</div>
+            {!loading && untrackedCount > 0 && (
+              <div style={{ color: '#f59e0b', fontSize: 11, fontWeight: 700, marginTop: 2 }}>
+                ⚠️ {untrackedCount} tagged on calendar, never logged in app
+              </div>
+            )}
           </div>
           <button onClick={load} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>↻</button>
         </div>
@@ -902,7 +924,11 @@ function dispositionToBucket(disposition) {
     case 'return':      return 'return';
     case 'estimate':    return 'estimate';
     case 'in_progress': return 'triage';
-    default:            return 'triage';
+    default: {
+      // Any legacy / stray disposition string collapses through the one shared map.
+      const norm = normalizeDisposition(disposition);
+      return (norm === 'in_progress' || norm === 'skip') ? 'triage' : norm;
+    }
   }
 }
 

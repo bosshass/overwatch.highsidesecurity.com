@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase, jobLinkingApi, returnCardsApi } from '../services/supabase.js';
+import { supabase, jobLinkingApi, returnCardsApi, timeEntriesApi } from '../services/supabase.js';
 import JobSearchModal from '../components/JobSearchModal.jsx';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 
@@ -861,16 +861,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, []);
 
   // The "invisible zone": tech finished (bill_it) but no invoice entered yet.
-  // Same query Billing's to-bill bucket uses; grouped per calendar event.
+  // Uses the ONE shared helper (timeEntriesApi.getBillingQueue) so this count
+  // and Billing's "Bill It" count come from the exact same query — and names
+  // resolve from the customers join (customer_id), not from parsing the title.
   const loadBillingQueue = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('time_entries')
-        .select('id, customer_name_raw, event_title, tech_name, tech_email, total_minutes, created_at, calendar_event_id')
-        .eq('billed', false)
-        .eq('disposition', 'bill_it')
-        .order('created_at', { ascending: true });
-      if (error) throw error;
+      const data = await timeEntriesApi.getBillingQueue();
       const groups = {};
       (data || []).forEach(te => {
         const key = te.calendar_event_id || te.id;
@@ -879,7 +875,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       });
       setBillingQueue(Object.values(groups).map(g => {
         const lead = g.entries[0];
-        const name = lead.customer_name_raw || stripAllTags(lead.event_title || '') || 'Unknown';
+        const name = lead.customers?.name || lead.customer_name_raw || stripAllTags(lead.event_title || '') || 'Unknown';
         const techs = [...new Set(g.entries.map(e => e.tech_name || e.tech_email?.split('@')[0]).filter(Boolean))];
         const minutes = g.entries.reduce((sum, e) => sum + (e.total_minutes || 0), 0);
         const oldest = g.entries.reduce((d, e) => (e.created_at < d ? e.created_at : d), lead.created_at);

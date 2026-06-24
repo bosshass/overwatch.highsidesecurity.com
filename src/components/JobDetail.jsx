@@ -214,8 +214,8 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           if (!a.calendar_event_id) continue;
           try {
             const techCalendars = [
-              CALENDARS.DRH_TECH_1, CALENDARS.JR_APPOINTMENT, CALENDARS.SHANA,
-              CALENDARS.INSTALLATIONS, CALENDARS.SARA_TASKS, CALENDARS.SERVICE_QUEUE
+              CALENDARS.DRH_TECH_1, CALENDARS.JR_APPOINTMENT, CALENDARS.TECH3, CALENDARS.SUBS,
+              CALENDARS.SHANA, CALENDARS.INSTALLATIONS, CALENDARS.SARA_TASKS, CALENDARS.SERVICE_QUEUE
             ];
             for (const srcCal of techCalendars) {
               try {

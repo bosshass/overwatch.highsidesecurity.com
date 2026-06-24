@@ -18,6 +18,14 @@ export const CALENDARS = {
   SUBS:                  'c_ef1cf02ebba19919b78be38a9c5d2603ef52a838ac4bb37253fd69d718cdcb5c@group.calendar.google.com',
 };
 
+// ── Aliases — older constant names still referenced in components ─────────────
+// NOT new calendars. These point at calendars already defined above, so the old
+// names (DRH_TECH_1, etc.) resolve to a real ID instead of undefined.
+CALENDARS.DRH_TECH_1     = CALENDARS.AUSTIN;                 // Austin's calendar
+CALENDARS.JR_APPOINTMENT = CALENDARS.JR;                     // JR's calendar
+CALENDARS.SARA_TASKS     = CALENDARS.ADMIN_NOTES;            // Sara's admin notes
+CALENDARS.SERVICE_QUEUE  = CALENDARS.TENTATIVELY_SCHEDULED;  // the service queue
+
 // ── Visibility ───────────────────────────────────────────────────────────────
 // visibleTo: null  = operators only (Sara)
 // visibleTo: [...] = those specific user emails + operators always

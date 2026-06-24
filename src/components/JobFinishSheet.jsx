@@ -26,7 +26,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
-import { timeEntriesApi, returnCardsApi } from '../services/supabase.js';
+import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 
@@ -167,6 +167,28 @@ export default function JobFinishSheet({
           reason:               extra.reason || null,
           time_entry_id:        entry?.id || null,
         });
+      }
+
+      if (disposition === 'estimate') {
+        // Disposition writes a row: send this job to "needs estimate" so it lands in the
+        // Estimate pipeline. Find the job behind this event; if none exists yet, create one.
+        let existing = null;
+        try {
+          const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
+          existing = data && data[0];
+        } catch (err) { console.warn('job lookup failed', err); }
+        if (existing) {
+          await jobsApi.changeStatus(existing.id, JOB_STATUS.NEEDS_ESTIMATE, userEmail, 'Estimate disposition from Work Today');
+        } else {
+          await jobsApi.create({
+            customer_name:     linkedCustomer?.name || base,
+            customer_id:       linkedCustomer?.id || undefined,
+            status:            JOB_STATUS.NEEDS_ESTIMATE,
+            issue:             notes.trim() || '',
+            customer_address:  event.location || '',
+            calendar_event_id: event.id,
+          }, `${userEmail} · PREVIEW`);
+        }
       }
 
       onFinished?.(disposition, newTitle);

@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase.js';
 import PLUpload from './PLUpload.jsx';
+import { isEnabled } from '../config/features.js';
 
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
                 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -226,7 +227,7 @@ export default function PLDashboard({ userEmail }) {
       </div>
 
       {/* Upload panel */}
-      {showUpload && (
+      {showUpload && isEnabled('PL_UPLOAD') && (
         <div style={{ borderBottom: '1px solid #1e293b' }}>
           <PLUpload 
             userEmail={userEmail} 

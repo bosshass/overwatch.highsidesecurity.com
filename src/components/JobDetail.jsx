@@ -329,7 +329,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     const actions = [];
     switch (status) {
       case JOB_STATUS.NEW:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_DETAILS, ACTIONS.COMPLETE_SALES, ACTIONS.MARK_DEAD); break;
+        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_DETAILS, ACTIONS.COMPLETE_SALES, ACTIONS.MARK_CANCELLED); break;
       case JOB_STATUS.NEEDS_DETAILS:
         actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.NEEDS_PARTS:
@@ -338,16 +338,21 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.READY_TO_SCHEDULE:
         actions.push(ACTIONS.SCHEDULE); break;
-      case JOB_STATUS.SCHEDULED: break;
+      case JOB_STATUS.SCHEDULED:
+        actions.push(ACTIONS.START_WORK); break;
+      case JOB_STATUS.SCHEDULE_SYNC_FAILED:
+        actions.push(ACTIONS.RETRY_SYNC, ACTIONS.MARK_READY); break;
+      case JOB_STATUS.IN_PROGRESS:
+        actions.push(ACTIONS.COMPLETE_FIXED, ACTIONS.COMPLETE_RETURN, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.COMPLETE:
-        actions.push(ACTIONS.MARK_BILLED, ACTIONS.COMPLETE_RETURN); break;
+        actions.push(ACTIONS.COMPLETE_FIXED, ACTIONS.COMPLETE_RETURN); break;
       case JOB_STATUS.TO_BILL:
         if (INSTALL_TYPES.includes(job.job_type) && !job.manager_approved_by) {
           if (isOperator) actions.push({ label: '✅ Approve Installation', action: () => setShowApprovalModal(true), color: '#22c55e' });
         } else { actions.push(ACTIONS.MARK_BILLED); }
         break;
       case JOB_STATUS.NEEDS_ESTIMATE:
-        actions.push(ACTIONS.SEND_ESTIMATE, ACTIONS.MARK_DEAD); break;
+        actions.push(ACTIONS.SEND_ESTIMATE, ACTIONS.MARK_CANCELLED); break;
       case JOB_STATUS.ESTIMATE_SENT:
         actions.push(ACTIONS.MARK_WON, ACTIONS.MARK_LOST); break;
       case JOB_STATUS.WON:

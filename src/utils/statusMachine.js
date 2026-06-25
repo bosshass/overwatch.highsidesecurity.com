@@ -4,35 +4,99 @@
 
 import { JOB_STATUS } from '../services/supabase.js';
 
-// Valid transitions — permissive. The office/operator can move a ticket to any other
-// status (Bill It from anywhere, schedule from anywhere, un-stick a pending estimate,
-// un-archive, etc.). The order below is the order the move buttons appear in.
-const FLOW_ORDER = [
+// Linear "happy path". Users advance one step at a time along this sequence.
+export const CORE_PATH = [
+  JOB_STATUS.NEW,
+  JOB_STATUS.NEEDS_DETAILS,
   JOB_STATUS.READY_TO_SCHEDULE,
   JOB_STATUS.SCHEDULED,
-  JOB_STATUS.NEEDS_PARTS,
-  JOB_STATUS.PENDING_MATERIALS,
-  JOB_STATUS.PENDING_DECISION,
-  JOB_STATUS.NEEDS_DETAILS,
-  JOB_STATUS.NEEDS_ESTIMATE,
-  JOB_STATUS.ESTIMATE_SENT,
-  JOB_STATUS.WON,
-  JOB_STATUS.RETURN_PENDING,
+  JOB_STATUS.IN_PROGRESS,
   JOB_STATUS.COMPLETE,
   JOB_STATUS.TO_BILL,
   JOB_STATUS.BILLED,
-  JOB_STATUS.LOST,
-  JOB_STATUS.DEAD,
   JOB_STATUS.ARCHIVED,
-  JOB_STATUS.NEW,
+];
+
+// Off-path states that branch from the core loop.
+export const EXCEPTION_STATUSES = [
+  JOB_STATUS.NEEDS_PARTS,
+  JOB_STATUS.RETURN_PENDING,
+  JOB_STATUS.SCHEDULE_SYNC_FAILED,
+  JOB_STATUS.NEEDS_ESTIMATE,
+  JOB_STATUS.ESTIMATE_SENT,
+  JOB_STATUS.WON,
+  JOB_STATUS.LOST,
+  JOB_STATUS.CANCELLED,
+];
+
+// Hybrid model: each status offers its forward "happy path" step(s) first, then a
+// fixed set of escape hatches that are always available so the operator can push a
+// ticket To Bill / Billed / Archived / Dead, or back to Ready to Schedule, from
+// anywhere (including un-archiving). Forward step(s) come first so they read as the
+// default action; the order each list is built in is the order the buttons appear in.
+const FORWARD_NEXT = {
+  [JOB_STATUS.NEW]:                  [JOB_STATUS.NEEDS_DETAILS, JOB_STATUS.NEEDS_ESTIMATE],
+  [JOB_STATUS.NEEDS_DETAILS]:        [JOB_STATUS.NEEDS_PARTS, JOB_STATUS.NEEDS_ESTIMATE],
+  [JOB_STATUS.READY_TO_SCHEDULE]:    [JOB_STATUS.SCHEDULED, JOB_STATUS.NEEDS_DETAILS],
+  [JOB_STATUS.SCHEDULED]:            [JOB_STATUS.IN_PROGRESS, JOB_STATUS.SCHEDULE_SYNC_FAILED],
+  [JOB_STATUS.IN_PROGRESS]:          [JOB_STATUS.COMPLETE, JOB_STATUS.RETURN_PENDING, JOB_STATUS.NEEDS_PARTS, JOB_STATUS.NEEDS_ESTIMATE],
+  [JOB_STATUS.COMPLETE]:             [JOB_STATUS.TO_BILL, JOB_STATUS.RETURN_PENDING, JOB_STATUS.NEEDS_ESTIMATE],
+  [JOB_STATUS.TO_BILL]:              [JOB_STATUS.BILLED, JOB_STATUS.COMPLETE],
+  [JOB_STATUS.BILLED]:               [JOB_STATUS.ARCHIVED],
+  [JOB_STATUS.ARCHIVED]:             [],
+
+  // Exception branches
+  [JOB_STATUS.NEEDS_PARTS]:          [JOB_STATUS.READY_TO_SCHEDULE],
+  [JOB_STATUS.RETURN_PENDING]:       [JOB_STATUS.SCHEDULED],
+  [JOB_STATUS.SCHEDULE_SYNC_FAILED]: [JOB_STATUS.SCHEDULED],
+  [JOB_STATUS.NEEDS_ESTIMATE]:       [JOB_STATUS.ESTIMATE_SENT],
+  [JOB_STATUS.ESTIMATE_SENT]:        [JOB_STATUS.WON, JOB_STATUS.LOST, JOB_STATUS.NEEDS_ESTIMATE],
+  [JOB_STATUS.WON]:                  [JOB_STATUS.READY_TO_SCHEDULE, JOB_STATUS.SCHEDULED],
+  [JOB_STATUS.LOST]:                 [JOB_STATUS.ARCHIVED],
+  [JOB_STATUS.CANCELLED]:            [JOB_STATUS.NEW],
+
+  // Legacy statuses — exit-only into the new flow
+  [JOB_STATUS.PENDING_DECISION]:     [JOB_STATUS.READY_TO_SCHEDULE, JOB_STATUS.NEEDS_PARTS, JOB_STATUS.NEEDS_ESTIMATE],
+  [JOB_STATUS.PENDING_MATERIALS]:    [JOB_STATUS.READY_TO_SCHEDULE],
+  [JOB_STATUS.DEAD]:                 [JOB_STATUS.NEW],
+};
+
+// Always-available operator overrides (escape hatches), appended after the
+// forward step(s) for every status.
+const ESCAPE_HATCHES = [
+  JOB_STATUS.READY_TO_SCHEDULE,  // re-schedule / un-stick from anywhere
+  JOB_STATUS.TO_BILL,            // Bill It from anywhere
+  JOB_STATUS.BILLED,             // mark Billed from anywhere
+  JOB_STATUS.DEAD,               // kill from anywhere
+  JOB_STATUS.ARCHIVED,           // archive (and un-archive back into the flow)
 ];
 
 export const VALID_TRANSITIONS = Object.fromEntries(
-  FLOW_ORDER.map(s => [s, FLOW_ORDER.filter(x => x !== s)])
+  Object.keys(FORWARD_NEXT).map(s => {
+    const seen = new Set();
+    const ordered = [...(FORWARD_NEXT[s] || []), ...ESCAPE_HATCHES]
+      .filter(x => x !== s && !seen.has(x) && seen.add(x));
+    return [s, ordered];
+  })
 );
 
 export function canTransition(fromStatus, toStatus) {
   return (VALID_TRANSITIONS[fromStatus] || []).includes(toStatus);
+}
+
+export function getNextStatuses(fromStatus) {
+  return VALID_TRANSITIONS[fromStatus] || [];
+}
+
+export function isExceptionStatus(status) {
+  return EXCEPTION_STATUSES.includes(status);
+}
+
+// The single "next logical" step along the core path (null at the end / off-path).
+export function getPrimaryNext(fromStatus) {
+  const idx = CORE_PATH.indexOf(fromStatus);
+  if (idx === -1 || idx === CORE_PATH.length - 1) return null;
+  return CORE_PATH[idx + 1];
 }
 
 // Actions
@@ -43,28 +107,38 @@ export const ACTIONS = {
   PENDING_DECISION: { label: '⏳ Pending Decision', toStatus: JOB_STATUS.PENDING_DECISION, color: '#a855f7' },
   MATERIALS_IN: { label: '🚚 Materials Received', toStatus: JOB_STATUS.READY_TO_SCHEDULE, color: '#22c55e' },
   SCHEDULE: { label: '📅 Schedule', toStatus: JOB_STATUS.SCHEDULED, color: '#3b82f6' },
-  COMPLETE_FIXED: { label: '✅ All Fixed', toStatus: JOB_STATUS.TO_BILL, color: '#22c55e' },
+  START_WORK: { label: '🔧 Start Work', toStatus: JOB_STATUS.IN_PROGRESS, color: '#0ea5e9' },
+  RETRY_SYNC: { label: '🔁 Retry Calendar Sync', toStatus: JOB_STATUS.SCHEDULED, color: '#3b82f6' },
+  // Finish Sheet dispositions — drive automated completion routing
+  COMPLETE_FIXED: { label: '✅ Fixed', toStatus: JOB_STATUS.TO_BILL, color: '#22c55e' },
   COMPLETE_RETURN: { label: '🔄 Return Needed', toStatus: JOB_STATUS.RETURN_PENDING, color: '#f59e0b' },
-  COMPLETE_SALES: { label: '💰 Sales Opportunity', toStatus: JOB_STATUS.NEEDS_ESTIMATE, color: '#eab308' },
-  COMPLETE_NC: { label: '🚫 No Charge', toStatus: JOB_STATUS.BILLED, color: '#6b7280' },
+  COMPLETE_SALES: { label: '📋 Needs Estimate', toStatus: JOB_STATUS.NEEDS_ESTIMATE, color: '#eab308' },
+  COMPLETE_NC: { label: '🚫 No Charge', toStatus: JOB_STATUS.COMPLETE, color: '#6b7280' },
   COMPLETE_PARTS: { label: '📦 Pending Parts', toStatus: JOB_STATUS.NEEDS_PARTS, color: '#eab308' },
   MARK_BILLED: { label: '💰 Billed', toStatus: JOB_STATUS.BILLED, color: '#8b5cf6' },
   SEND_ESTIMATE: { label: '📤 Send Estimate', toStatus: JOB_STATUS.ESTIMATE_SENT, color: '#06b6d4' },
   MARK_WON: { label: '🎉 Won', toStatus: JOB_STATUS.WON, color: '#22c55e' },
   MARK_LOST: { label: '❌ Lost', toStatus: JOB_STATUS.LOST, color: '#6b7280' },
-  BILL_MATERIALS: { label: '💵 Bill Materials', toStatus: JOB_STATUS.PENDING_MATERIALS, color: '#8b5cf6' },
-  MARK_DEAD: { label: '☠️ Mark Dead', toStatus: JOB_STATUS.DEAD, color: '#374151' },
+  MARK_CANCELLED: { label: '🚫 Cancel', toStatus: JOB_STATUS.CANCELLED, color: '#6b7280' },
   KICK_BACK: { label: '↩️ Kick Back', toStatus: JOB_STATUS.NEEDS_DETAILS, color: '#f97316' },
   ARCHIVE: { label: '📁 Archive', toStatus: JOB_STATUS.ARCHIVED, color: '#9ca3af' }
+};
+
+// Disposition -> action mapping for the Tech Finish Sheet (automated routing).
+export const DISPOSITION_ROUTING = {
+  fixed:          { toStatus: JOB_STATUS.TO_BILL, label: 'Fixed' },
+  return_needed:  { toStatus: JOB_STATUS.RETURN_PENDING, label: 'Return Needed' },
+  needs_estimate: { toStatus: JOB_STATUS.NEEDS_ESTIMATE, label: 'Needs Estimate' },
+  no_charge:      { toStatus: JOB_STATUS.COMPLETE, label: 'No Charge' },
 };
 
 // Status groups for each role's view
 export const STATUS_GROUPS = {
   ATC_TRIAGE: [JOB_STATUS.NEW, JOB_STATUS.NEEDS_DETAILS, JOB_STATUS.NEEDS_PARTS, JOB_STATUS.PENDING_MATERIALS],
   FLIGHT_DECK: [JOB_STATUS.READY_TO_SCHEDULE, JOB_STATUS.RETURN_PENDING],
-  ACTIVE: [JOB_STATUS.SCHEDULED],
-  BILLING: [JOB_STATUS.TO_BILL, JOB_STATUS.NEEDS_ESTIMATE, JOB_STATUS.ESTIMATE_SENT, JOB_STATUS.WON],
-  TERMINAL: [JOB_STATUS.BILLED, JOB_STATUS.LOST, JOB_STATUS.DEAD, JOB_STATUS.ARCHIVED]
+  ACTIVE: [JOB_STATUS.SCHEDULED, JOB_STATUS.IN_PROGRESS, JOB_STATUS.SCHEDULE_SYNC_FAILED],
+  BILLING: [JOB_STATUS.COMPLETE, JOB_STATUS.TO_BILL, JOB_STATUS.NEEDS_ESTIMATE, JOB_STATUS.ESTIMATE_SENT, JOB_STATUS.WON],
+  TERMINAL: [JOB_STATUS.BILLED, JOB_STATUS.LOST, JOB_STATUS.CANCELLED, JOB_STATUS.DEAD, JOB_STATUS.ARCHIVED]
 };
 
 // Helpers

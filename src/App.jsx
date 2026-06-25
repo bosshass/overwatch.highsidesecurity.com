@@ -29,22 +29,23 @@ import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
+import { isEnabled } from './config/features.js';
 
 const APP_VERSION = '7.2.1';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
 const USER_CONFIG = {
-  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
-  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
-  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
-  'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: null },
+  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: 'work' },
+  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: 'work' },
+  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'work' },
+  'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
   'info@drhsecurityservices.com':     { name: null,     role: 'operator', defaultCalendar: null, defaultView: null, needsIdentity: true },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
-  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
-  'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: null },
+  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: 'work' },
+  'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
   'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'billing' },
 };
 
@@ -68,7 +69,7 @@ const CALENDAR_OPTIONS = [
 ];
 
 function getUserConfig(email) {
-  return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null, defaultView: null };
+  return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null, defaultView: 'work' };
 }
 
 export default function App() {
@@ -565,6 +566,8 @@ export default function App() {
 
   // ── ROUTE GUARDS ────────────────────────────────────────────────────────
   const OperatorOnly = ({ children }) => isOperator ? children : <Navigate to="/" replace />;
+  // Hides a route when its feature flag is off (see src/config/features.js).
+  const FeatureGate = ({ flag, children }) => isEnabled(flag) ? children : <Navigate to="/" replace />;
 
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
@@ -609,14 +612,14 @@ export default function App() {
         {/* Operator-only */}
         <Route path="/command" element={<OperatorOnly><ViewShell><CommandCenter accessToken={accessToken} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
         <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
-        <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
+        <Route path="/dashboard" element={<OperatorOnly><FeatureGate flag="DASHBOARDS"><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></FeatureGate></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
-        <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/projects" element={<OperatorOnly><FeatureGate flag="PROJECT_GROUPING"><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></FeatureGate></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
-        <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
+        <Route path="/admin/gap" element={<OperatorOnly><FeatureGate flag="ADMIN_GAP"><AdminGap onBack={() => navigate('/')} /></FeatureGate></OperatorOnly>} />
         <Route path="/admin/reconcile" element={<OperatorOnly><ReconcileView accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} onOpenFinish={(calId, jobId) => navigate(`/?cal=${encodeURIComponent(calId)}&job=${encodeURIComponent(jobId)}`)} onOpenPreview={() => navigate('/admin/preview')} /></OperatorOnly>} />
         <Route path="/admin/preview" element={<OperatorOnly><PreviewChanges accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/admin/reconcile')} /></OperatorOnly>} />
 
@@ -730,7 +733,7 @@ export default function App() {
         </div>
       )}
 
-      <HelpBot userEmail={userEmail} currentView={location.pathname} userName={getUserConfig(userEmail).name} userRole={getUserConfig(userEmail).role} />
+      {isEnabled('HELPBOT') && <HelpBot userEmail={userEmail} currentView={location.pathname} userName={getUserConfig(userEmail).name} userRole={getUserConfig(userEmail).role} />}
       {showGuide && <QuickGuide onClose={() => setShowGuide(false)} />}
     </>
   );

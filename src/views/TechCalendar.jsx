@@ -11,6 +11,7 @@ import { scanForOrphans, ignoreOrphan, ignoreAllOrphans, syncIgnoredOrphansFromS
 import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 import { TECH_COLORS, getVisibleCalendars, CALENDARS } from '../config/calendars.js';
 import { JOB_TYPE_INFO, getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
+import { isEnabled } from '../config/features.js';
 import usePullToRefresh from '../utils/usePullToRefresh.jsx';
 import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
@@ -273,7 +274,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       const newJobs = taskTab === 'today' ? await queries.getATCQueue() : [];
       setJobs([...allAssigned, ...newJobs.map(j => ({ ...j, _isQueue: true }))]);
 
-      if (accessToken) {
+      if (accessToken && isEnabled('ORPHAN_ADOPTION')) {
         try {
           await syncIgnoredOrphansFromSupabase(); // pull cross-device ignores first
           const scan = await scanForOrphans(accessToken); setOrphans(scan.orphans || []);

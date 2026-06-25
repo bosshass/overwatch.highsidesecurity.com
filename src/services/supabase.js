@@ -36,6 +36,8 @@ export const JOB_STATUS = {
   READY_TO_SCHEDULE: 'ready_to_schedule',
   RETURN_PENDING: 'return_pending',
   SCHEDULED: 'scheduled',
+  SCHEDULE_SYNC_FAILED: 'schedule_sync_failed',
+  IN_PROGRESS: 'in_progress',
   COMPLETE: 'complete',
   TO_BILL: 'to_bill',
   BILLED: 'billed',
@@ -43,6 +45,7 @@ export const JOB_STATUS = {
   ESTIMATE_SENT: 'estimate_sent',
   WON: 'won',
   LOST: 'lost',
+  CANCELLED: 'cancelled',
   DEAD: 'dead',
   ARCHIVED: 'archived'
 };
@@ -54,8 +57,10 @@ export const STATUS_INFO = {
   [JOB_STATUS.PENDING_DECISION]: { label: 'Pending Decision', color: '#a855f7', icon: '⏳' },
   [JOB_STATUS.PENDING_MATERIALS]: { label: 'Pending Materials', color: '#f59e0b', icon: '🚚' },
   [JOB_STATUS.READY_TO_SCHEDULE]: { label: 'Ready to Schedule', color: '#22c55e', icon: '✅' },
-  [JOB_STATUS.RETURN_PENDING]: { label: 'Return Pending', color: '#ec4899', icon: '🔄' },
+  [JOB_STATUS.RETURN_PENDING]: { label: 'Return Needed', color: '#ec4899', icon: '🔄' },
   [JOB_STATUS.SCHEDULED]: { label: 'Scheduled', color: '#3b82f6', icon: '📅' },
+  [JOB_STATUS.SCHEDULE_SYNC_FAILED]: { label: 'Schedule Sync Failed', color: '#dc2626', icon: '⚠️' },
+  [JOB_STATUS.IN_PROGRESS]: { label: 'In Progress', color: '#0ea5e9', icon: '🔧' },
   [JOB_STATUS.COMPLETE]: { label: 'Complete', color: '#10b981', icon: '✓' },
   [JOB_STATUS.TO_BILL]: { label: 'To Bill', color: '#8b5cf6', icon: '💵' },
   [JOB_STATUS.BILLED]: { label: 'Billed', color: '#6b7280', icon: '💰' },
@@ -63,6 +68,7 @@ export const STATUS_INFO = {
   [JOB_STATUS.ESTIMATE_SENT]: { label: 'Estimate Sent', color: '#06b6d4', icon: '📤' },
   [JOB_STATUS.WON]: { label: 'Won', color: '#22c55e', icon: '🎉' },
   [JOB_STATUS.LOST]: { label: 'Lost', color: '#6b7280', icon: '❌' },
+  [JOB_STATUS.CANCELLED]: { label: 'Cancelled', color: '#6b7280', icon: '🚫' },
   [JOB_STATUS.DEAD]: { label: 'Dead', color: '#374151', icon: '☠️' },
   [JOB_STATUS.ARCHIVED]: { label: 'Archived', color: '#9ca3af', icon: '📁' }
 };

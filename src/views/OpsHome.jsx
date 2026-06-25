@@ -29,6 +29,7 @@ import { returnCardsApi, jobsApi, JOB_STATUS } from '../services/supabase.js';
 import { getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
 import { getWorkViewCalendars, CALENDARS } from '../config/calendars.js';
 import { fetchCalendarEvents } from '../services/calendarApi.js';
+import { isEnabled } from '../config/features.js';
 
 const NAVY = '#0f1729';
 const TEAL = '#00c8e8';
@@ -331,8 +332,8 @@ export default function OpsHome({ userName, isOperator, isRestricted, accessToke
     { path: '/work',      emoji: '📋', label: 'Work To Do Now', sub: "Today's jobs — log + complete", color: '#22c55e' },
     { path: '/board',     emoji: '🗂️', label: 'Board',          sub: 'Service · Returns · Blocked',   color: '#f59e0b' },
     { path: '/calendar',  emoji: '📅', label: 'Calendar',       sub: 'Every tech, every job',          color: '#60a5fa' },
-    { path: '/dashboard', emoji: '📊', label: 'Dashboard',      sub: 'The big picture',                color: '#c084fc' },
-  ];
+    isEnabled('DASHBOARDS') && { path: '/dashboard', emoji: '📊', label: 'Dashboard', sub: 'The big picture', color: '#c084fc' },
+  ].filter(Boolean);
 
   return (
     <div style={{ minHeight: '100vh', background: NAVY, color: '#e2e8f0' }}>

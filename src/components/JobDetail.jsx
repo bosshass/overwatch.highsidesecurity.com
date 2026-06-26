@@ -280,12 +280,18 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       const timeIn = tArrived ? `${today}T${tArrived}:00` : null;
       const timeOut = tDeparted ? `${today}T${tDeparted}:00` : null;
       const activeAssignment = assignments.find(a => !a.is_complete);
+      let notesToSave = notes;
       if (activeAssignment) {
         await assignmentsApi.markComplete(
           activeAssignment.id, timeIn, timeOut, notes || null, null, null
         );
+      } else if (tArrived || tDeparted) {
+        // No assignment to hold the time — fold it into the job notes so it is
+        // never silently dropped (the jobs table has no time columns).
+        const timeLine = `[Time ${tArrived || '—'}–${tDeparted || '—'}]`;
+        notesToSave = notes ? `${notes}\n${timeLine}` : timeLine;
       }
-      await jobsApi.changeStatus(job.id, pendingAction.toStatus, userEmail, notes || null);
+      await jobsApi.changeStatus(job.id, pendingAction.toStatus, userEmail, notesToSave || null);
       if (pendingAction.toStatus === JOB_STATUS.COMPLETED || pendingAction.toStatus === JOB_STATUS.ARCHIVED) {
         const techName = activeAssignment?.tech?.name || 'Tech';
         notifyJobComplete(techName, job.customer_name);

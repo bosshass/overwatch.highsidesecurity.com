@@ -1,455 +1,256 @@
 // ============================================
-// Overwatch — OpsHome (live operations triage)
+// OpsHome — Command home screen
 // ============================================
-// Drop-in replacement for the static HomeScreen launcher in App.jsx.
-// Reads existing Supabase APIs + Google Calendar — no schema changes.
-//
-// Surfaces, top to bottom:
-//   0. Open jobs — past calendar events with NO disposition tag (tap → finish it)
-//   1. Returns flagged but NOT scheduled  (return_cards + jobs.return_pending)
-//   2. Estimate pipeline — needs_estimate → estimate_sent → won → pending_materials,
-//      with one-tap advance buttons. Runs on jobs.status (QBO-independent).
-//   3. Done — not billed                  (jobs.to_bill)
-//
-// Wire it up in App.jsx — NOTE the two extra props (accessToken, userEmail):
-//   import OpsHome from './views/OpsHome.jsx';
-//   <Route path="/" element={
-//     <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted}
-//              accessToken={accessToken} userEmail={userEmail}
-//              onNavigate={navigate} onSignOut={handleSignOut}
-//              onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }}
-//              onSearch={() => setShowSearch(true)} />
-//   } />
-// Tapping an "Open job" routes to /?cal=X&job=Y — App.jsx's existing deep-link
-// branch catches it and opens JobFinishSheet. Advance buttons call
-// jobsApi.changeStatus, which already enforces legal transitions + logs history.
+// Design: command cards + stat bar, Supabase-driven counts.
+// Only shows what's actually built and working.
+// Mobile-first, bottom nav, FAB for quick add.
+// ============================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { returnCardsApi, jobsApi, JOB_STATUS } from '../services/supabase.js';
-import { getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
-import { getWorkViewCalendars, CALENDARS } from '../config/calendars.js';
-import { fetchCalendarEvents } from '../services/calendarApi.js';
+import { supabase, JOB_STATUS } from '../services/supabase.js';
+import NewJobModal from '../components/NewJobModal.jsx';
 
-const NAVY = '#0f1729';
-const TEAL = '#00c8e8';
-const STALE_LOOKBACK_DAYS = 3;
-
-const CLOSED_TAGS = [
-  '[BILL IT]', '[RETURN]', '[IN PROGRESS]', '[ESTIMATE]',
-  '[BILLED]', '[TO BILL]', '[INVOICED]', '[INVOICE]', '[COMPLETED]', '[COMPLETE]', '[DONE]',
-  '[RETURN NEEDED]', '[NEEDS ESTIMATE]', '[NC]', '[NO CHARGE]',
-  '[IGNORE]', '[IGNORED]', '[PTO]', '[OFF]', '[CANCELLED]', '[CANCELED]', '[HOLIDAY]',
-];
-
-// A return sitting on the Returns calendar with any of these is already handled.
-const RETURN_DONE_TAGS = ['[SCHEDULED]', '[MOVED]', '[MOVED TO QUEUE]', '[DONE]', '[COMPLETE]', '[COMPLETED]', '[BILL IT]', '[BILLED]', '[CANCELLED]', '[CANCELED]', '[IGNORE]', '[IGNORED]'];
-
-function daysAgo(iso) {
-  if (!iso) return 0;
-  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
-}
-function isClosed(title) {
-  const up = (title || '').toUpperCase();
-  return CLOSED_TAGS.some(t => up.includes(t));
-}
-function timeLabel(start) {
-  if (!start) return '';
-  const d = new Date(start);
-  if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  const days = daysAgo(start);
-  return days === 1 ? 'yesterday' : `${days}d ago`;
-}
-
-// ── SCAN: past, timed, undispositioned events across the user's calendars ─────
-function useStaleEvents(accessToken, userEmail) {
-  const [state, setState] = useState({ loading: true, items: [] });
-  const load = useCallback(async () => {
-    if (!accessToken || !userEmail) { setState({ loading: false, items: [] }); return; }
-    setState(s => ({ ...s, loading: true }));
-    try {
-      const cals = getWorkViewCalendars(userEmail);
-      if (!cals.length) { setState({ loading: false, items: [] }); return; }
-      const now = new Date();
-      const since = new Date(now.getTime() - STALE_LOOKBACK_DAYS * 86400000);
-      const batches = await Promise.all(cals.map(async (cal) => {
-        const events = await fetchCalendarEvents(accessToken, cal.id, since, now).catch(() => []);
-        return events.map(ev => ({ ...ev, _calName: cal.name, _calId: cal.id }));
-      }));
-      const seen = new Set();
-      const items = [];
-      for (const ev of batches.flat()) {
-        if (ev.status === 'cancelled') continue;
-        if (!ev.start?.dateTime) continue;
-        const end = ev.end?.dateTime || ev.end?.date;
-        if (!end || new Date(end) >= now) continue;
-        if (isClosed(ev.summary)) continue;
-        if (seen.has(ev.id)) continue;
-        seen.add(ev.id);
-        items.push({
-          key: ev.id, calId: ev._calId, calName: ev._calName,
-          title: (ev.summary || '(no title)').replace(/\s*\[.*?\]\s*$/, ''),
-          start: ev.start.dateTime, when: timeLabel(ev.start.dateTime), location: ev.location || '',
-        });
-      }
-      items.sort((a, b) => new Date(b.start) - new Date(a.start));
-      setState({ loading: false, items });
-    } catch { setState({ loading: false, items: [] }); }
-  }, [accessToken, userEmail]);
-  useEffect(() => { load(); }, [load]);
-  return { ...state, reload: load };
-}
-
-// ── Returns (3 sources) + to-bill ────────────────────────────────────────────
-// Returns get created three ways: tech-flagged (return_cards), linked job
-// (jobs.return_pending), and typed straight onto the Returns calendar.
-// All three show here so nothing gets lost.
-function useTriage(accessToken) {
-  const [state, setState] = useState({ loading: true, returns: [], toBill: [] });
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true }));
-    try {
-      const now = new Date();
-      const since = new Date(now.getTime() - 45 * 86400000);
-      const until = new Date(now.getTime() + 90 * 86400000);
-      const [cards, returnJobs, toBillJobs, calEvents] = await Promise.all([
-        returnCardsApi.getPending().catch(() => []),
-        jobsApi.getByStatus([JOB_STATUS.RETURN_PENDING]).catch(() => []),
-        jobsApi.getByStatus([JOB_STATUS.TO_BILL]).catch(() => []),
-        accessToken ? fetchCalendarEvents(accessToken, CALENDARS.RETURN_VISITS, since, until).catch(() => []) : Promise.resolve([]),
-      ]);
-
-      // Don't double-list a flagged return that also has a calendar event.
-      const cardEventIds = new Set(cards.map(c => c.original_event_id).filter(Boolean));
-      const calReturns = calEvents
-        .filter(ev => ev.status !== 'cancelled')
-        .filter(ev => !cardEventIds.has(ev.id))
-        .filter(ev => !RETURN_DONE_TAGS.some(t => (ev.summary || '').toUpperCase().includes(t)))
-        .map(ev => {
-          const start = ev.start?.dateTime || ev.start?.date;
-          return {
-            key: `cal:${ev.id}`,
-            title: (ev.summary || 'Return').replace(/\s*\[.*?\]\s*$/, ''),
-            sub: ev.location || 'On Returns calendar — tap to schedule',
-            age: daysAgo(start),
-            source: 'calendar',
-            calId: CALENDARS.RETURN_VISITS,
-            eventId: ev.id,
-          };
-        });
-
-      const returns = [
-        ...cards.map(c => ({ key: `card:${c.id}`, title: c.original_event_title || c.customers?.name || c.customer_name_raw || 'Return', sub: c.reason || 'Flagged for return', age: daysAgo(c.created_at), source: 'flagged' })),
-        ...returnJobs.map(j => ({ key: `job:${j.id}`, title: j.customer_name || j.job_number || 'Return', sub: j.issue || `${j.job_number} — return pending`, age: getJobAge(j.created_at), source: 'job' })),
-        ...calReturns,
-      ].sort((a, b) => b.age - a.age);
-
-      const toBill = toBillJobs.map(j => ({ key: `bill:${j.id}`, title: j.customer_name || j.job_number || 'Job', amount: j.estimate_amount || j.invoiced_amount || null, age: getJobAge(j.created_at) })).sort((a, b) => b.age - a.age);
-      setState({ loading: false, returns, toBill });
-    } catch { setState({ loading: false, returns: [], toBill: [] }); }
-  }, [accessToken]);
-  useEffect(() => { load(); }, [load]);
-  return { ...state, reload: load };
-}
-
-// ── Estimate pipeline (Supabase, status-driven) ──────────────────────────────
-const STAGE_ORDER = ['needs', 'sent', 'won', 'parts'];
-const STAGE = {
-  needs: { label: 'Needs estimate', color: '#f59e0b', actions: [{ label: 'Mark sent →', to: JOB_STATUS.ESTIMATE_SENT }] },
-  sent:  { label: 'Sent',           color: '#06b6d4', actions: [{ label: 'Won', to: JOB_STATUS.WON }, { label: 'Lost', to: JOB_STATUS.LOST, ghost: true }] },
-  won:   { label: 'Won',            color: '#22c55e', actions: [{ label: 'Needs parts', to: JOB_STATUS.PENDING_MATERIALS, ghost: true }, { label: 'Ready →', to: JOB_STATUS.READY_TO_SCHEDULE }] },
-  parts: { label: 'Waiting on parts', color: '#f59e0b', actions: [{ label: 'Parts in → Ready', to: JOB_STATUS.READY_TO_SCHEDULE }] },
-};
-const STATUS_TO_STAGE = {
-  [JOB_STATUS.NEEDS_ESTIMATE]: 'needs',
-  [JOB_STATUS.ESTIMATE_SENT]: 'sent',
-  [JOB_STATUS.WON]: 'won',
-  [JOB_STATUS.PENDING_MATERIALS]: 'parts',
+const C = {
+  bg:     '#07111f',
+  bg2:    '#0b1628',
+  panel:  '#101d31',
+  panel2: '#14243b',
+  card:   '#111f34',
+  line:   '#1d2f48',
+  line2:  '#263a55',
+  text:   '#edf4ff',
+  muted:  '#8ea0b8',
+  soft:   '#cbd6e6',
+  green:  '#22d16f',
+  red:    '#ff4f5e',
+  blue:   '#4b8dff',
+  cyan:   '#16c7df',
+  amber:  '#ffb020',
+  purple: '#9b6cff',
 };
 
-function useEstimates() {
-  const [state, setState] = useState({ loading: true, items: [] });
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true }));
+const fmtMoney = n => n >= 1000
+  ? `$${(n/1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
+  : n ? `$${n}` : '';
+
+export default function OpsHome({
+  userName, isOperator, accessToken, userEmail,
+  onNavigate, onSignOut, onSearch,
+}) {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showNewJob, setShowNewJob] = useState(false);
+
+  const loadStats = useCallback(async () => {
+    setLoading(true);
     try {
-      const rows = await jobsApi.getByStatus([
-        JOB_STATUS.NEEDS_ESTIMATE, JOB_STATUS.ESTIMATE_SENT, JOB_STATUS.WON, JOB_STATUS.PENDING_MATERIALS,
-      ]).catch(() => []);
-      const items = rows.map(j => ({
-        id: j.id,
-        stage: STATUS_TO_STAGE[j.status],
-        title: j.customer_name || j.job_number || 'Estimate',
-        sub: j.issue || (j.estimate_amount ? `$${Number(j.estimate_amount).toLocaleString()}` : 'No detail'),
-        age: getJobAge(j.created_at),
-      })).filter(x => x.stage);
-      items.sort((a, b) => (STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage)) || (b.age - a.age));
-      setState({ loading: false, items });
-    } catch { setState({ loading: false, items: [] }); }
+      const ACTIVE = [
+        'new','needs_details','needs_parts','pending_materials',
+        'needs_estimate','estimate_sent','ready_to_schedule',
+        'return_pending','scheduled','complete','to_bill',
+      ];
+      const { data } = await supabase
+        .from('jobs').select('status, estimate_amount')
+        .in('status', ACTIVE).limit(500);
+      const j = data || [];
+
+      setStats({
+        needsAction: j.filter(x => ['new','needs_details','needs_parts','needs_estimate'].includes(x.status)).length,
+        ready:       j.filter(x => x.status === 'ready_to_schedule').length,
+        readyValue:  j.filter(x => x.status === 'ready_to_schedule').reduce((s,x) => s+(parseFloat(x.estimate_amount)||0), 0),
+        returns:     j.filter(x => x.status === 'return_pending').length,
+        scheduled:   j.filter(x => x.status === 'scheduled').length,
+        estimates:   j.filter(x => ['needs_estimate','estimate_sent'].includes(x.status)).length,
+        toBill:      j.filter(x => ['complete','to_bill'].includes(x.status)).length,
+        toBillValue: j.filter(x => ['complete','to_bill'].includes(x.status)).reduce((s,x) => s+(parseFloat(x.estimate_amount)||0), 0),
+        total:       j.length,
+      });
+    } catch(e) { console.error(e); }
+    setLoading(false);
   }, []);
-  useEffect(() => { load(); }, [load]);
-  return { ...state, reload: load };
-}
 
-// ── Estimate pipeline card (div, not a button — holds its own action buttons) ─
-function EstimatePipeline({ items, loading, onAdvance, busyId }) {
-  const counts = STAGE_ORDER.map(s => ({ s, n: items.filter(i => i.stage === s).length }));
-  const total = items.length;
+  useEffect(() => { loadStats(); }, [loadStats]);
 
-  return (
-    <div style={{ background: total ? '#0c1322' : '#0d1a14', border: `1.5px solid ${total ? '#f59e0b' : '#16351f'}`, borderRadius: 16, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 16px 6px' }}>
-        <span style={{ fontSize: 30 }}>📐</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: total ? '#f59e0b' : '#22c55e', fontSize: 16, fontWeight: 800 }}>Estimate pipeline</div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 3, background: '#1e293b', border: '1px solid #334155', borderRadius: 6, padding: '2px 7px' }}>
-            <span style={{ width: 6, height: 6, borderRadius: 6, background: '#f59e0b' }} />
-            <span style={{ color: '#94a3b8', fontSize: 11 }}>QBO sync offline — tracked here, advance manually</span>
-          </div>
-        </div>
-        <span style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: total ? '#f59e0b' : '#22c55e', minWidth: 44, textAlign: 'right' }}>{total}</span>
-      </div>
+  const go = path => onNavigate(path);
 
-      {/* stage count strip */}
-      <div style={{ display: 'flex', gap: 6, padding: '6px 14px 12px' }}>
-        {counts.map(({ s, n }) => (
-          <div key={s} style={{ flex: 1, textAlign: 'center', background: '#0f1729', border: `1px solid ${n ? STAGE[s].color : '#1e293b'}`, borderRadius: 8, padding: '6px 4px' }}>
-            <div style={{ color: n ? STAGE[s].color : '#475569', fontSize: 18, fontWeight: 800 }}>{n}</div>
-            <div style={{ color: '#64748b', fontSize: 10 }}>{STAGE[s].label}</div>
-          </div>
-        ))}
-      </div>
-
-      {loading ? (
-        <div style={{ padding: '0 14px 14px', color: '#475569', fontSize: 13 }}>Loading…</div>
-      ) : total === 0 ? (
-        <div style={{ padding: '0 16px 16px', color: '#64748b', fontSize: 12 }}>No estimates in flight.</div>
-      ) : (
-        <div>
-          {items.slice(0, 8).map(it => {
-            const st = STAGE[it.stage];
-            const busy = busyId === it.id;
-            return (
-              <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderTop: '1px solid #1e293b' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 8, background: st.color, flexShrink: 0 }} />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={rowTitle}>{it.title}</div>
-                  <div style={rowSub}>{st.label} · {it.age === 0 ? 'today' : `${it.age}d`}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                  {st.actions.map(a => (
-                    <button key={a.to} disabled={busy} onClick={() => onAdvance(it.id, a.to)} style={{
-                      background: a.ghost ? 'transparent' : st.color,
-                      color: a.ghost ? '#94a3b8' : '#06121f',
-                      border: a.ghost ? '1px solid #334155' : 'none',
-                      borderRadius: 8, padding: '7px 10px', fontSize: 12, fontWeight: 700,
-                      cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, whiteSpace: 'nowrap',
-                    }}>{busy ? '…' : a.label}</button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-          {total > 8 && <div style={{ padding: '10px 14px', borderTop: '1px solid #1e293b', color: '#f59e0b', fontSize: 13, fontWeight: 700 }}>+ {total - 8} more in pipeline</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Row({ title, sub, age, badge }) {
-  const u = getAgeUrgency(age);
-  return (
-    <div style={rowStyle}>
-      <span style={{ width: 8, height: 8, borderRadius: 8, background: u.color, flexShrink: 0 }} />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={rowTitle}>{title}</div>
-        {sub && <div style={rowSub}>{sub}</div>}
-      </div>
-      {badge}
-      <span style={{ color: u.color, fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{age === 0 ? 'today' : `${age}d`}</span>
-    </div>
-  );
-}
-
-function OpenJobRow({ item, onOpen }) {
-  return (
-    <div onClick={(e) => { e.stopPropagation(); onOpen(item); }} style={{ ...rowStyle, cursor: 'pointer' }}>
-      <span style={{ width: 8, height: 8, borderRadius: 8, background: '#ef4444', flexShrink: 0 }} />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={rowTitle}>{item.title}</div>
-        <div style={rowSub}>{item.calName}{item.location ? ` · ${item.location}` : ''}</div>
-      </div>
-      <span style={{ color: '#f87171', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{item.when}</span>
-      <span style={{ color: '#ef4444', fontSize: 18, flexShrink: 0 }}>›</span>
-    </div>
-  );
-}
-
-function TriageCard({ emoji, label, count, accent, items, emptyLabel, onOpen, render, hint }) {
-  const hot = count > 0;
-  return (
-    <button onClick={onOpen} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: hot ? '#0c1322' : '#0d1a14', border: `1.5px solid ${hot ? accent : '#16351f'}`, borderRadius: 16, padding: 0, overflow: 'hidden', boxShadow: hot ? `0 0 0 1px ${accent}22, 0 8px 24px rgba(0,0,0,0.3)` : 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 16px 14px' }}>
-        <span style={{ fontSize: 30 }}>{emoji}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: hot ? accent : '#22c55e', fontSize: 16, fontWeight: 800 }}>{label}</div>
-          <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>{hot ? (hint || 'Tap to clear the queue') : emptyLabel}</div>
-        </div>
-        <span style={{ fontSize: 34, fontWeight: 900, lineHeight: 1, color: hot ? accent : '#22c55e', minWidth: 44, textAlign: 'right' }}>{count}</span>
-      </div>
-      {hot && (
-        <div onClick={(e) => e.stopPropagation()}>
-          {items.slice(0, 5).map(render)}
-          {count > 5 && <div onClick={onOpen} style={{ padding: '10px 14px', borderTop: '1px solid #1e293b', color: accent, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ {count - 5} more →</div>}
-        </div>
-      )}
-    </button>
-  );
-}
-
-export default function OpsHome({ userName, isOperator, isRestricted, accessToken, userEmail, onNavigate, onSignOut, onBackfill, onSearch }) {
-  const stale = useStaleEvents(accessToken, userEmail);
-  const triage = useTriage(accessToken);
-  const estimates = useEstimates();
-  const [busyId, setBusyId] = useState(null);
-
-  const openJob = useCallback((item) => {
-    onNavigate(`/?cal=${encodeURIComponent(item.calId)}&job=${encodeURIComponent(item.key)}`);
-  }, [onNavigate]);
-
-  const advance = useCallback(async (id, toStatus) => {
-    setBusyId(id);
-    try { await jobsApi.changeStatus(id, toStatus, userEmail); await estimates.reload(); }
-    catch (e) { console.error('advance failed', e); }
-    finally { setBusyId(null); }
-  }, [userEmail, estimates]);
-
-  const refreshAll = useCallback(() => { stale.reload(); triage.reload(); estimates.reload(); }, [stale, triage, estimates]);
-
-  if (isRestricted) return <LeanLauncher userName={userName} onNavigate={onNavigate} onSignOut={onSignOut} />;
-
-  const launchers = [
-    { path: '/work',      emoji: '📋', label: 'Work To Do Now', sub: "Today's jobs — log + complete", color: '#22c55e' },
-    { path: '/board',     emoji: '🗂️', label: 'Board',          sub: 'Service · Returns · Blocked',   color: '#f59e0b' },
-    { path: '/calendar',  emoji: '📅', label: 'Calendar',       sub: 'Every tech, every job',          color: '#60a5fa' },
-    { path: '/dashboard', emoji: '📊', label: 'Dashboard',      sub: 'The big picture',                color: '#c084fc' },
+  const COMMAND_CARDS = [
+    {
+      label: 'Board',
+      sub: stats ? `${stats.needsAction} need action` : '—',
+      icon: '▤',
+      accent: C.red,
+      path: '/board',
+      show: true,
+    },
+    {
+      label: 'Work To Do',
+      sub: 'Today\'s jobs + field notes',
+      icon: '✓',
+      accent: C.green,
+      path: '/work',
+      show: true,
+    },
+    {
+      label: 'Quick Notes',
+      sub: 'Capture before it disappears',
+      icon: '✎',
+      accent: C.amber,
+      path: '/todos',
+      show: true,
+    },
+    {
+      label: 'Billing',
+      sub: stats ? `${stats.toBill} to bill${stats.toBillValue ? ' · ' + fmtMoney(stats.toBillValue) : ''}` : '—',
+      icon: '$',
+      accent: C.purple,
+      path: '/billing',
+      show: true,
+    },
   ];
 
+  const STAT_PILLS = stats ? [
+    { label: 'Needs Action', val: stats.needsAction, accent: C.red },
+    { label: 'Ready',        val: stats.ready,       accent: C.green,  sub: fmtMoney(stats.readyValue) },
+    { label: 'Returns',      val: stats.returns,     accent: C.cyan },
+    { label: 'Scheduled',    val: stats.scheduled,   accent: C.blue },
+    { label: 'Estimates',    val: stats.estimates,   accent: C.amber },
+    { label: 'To Bill',      val: stats.toBill,      accent: C.purple, sub: fmtMoney(stats.toBillValue) },
+  ] : [];
+
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+
   return (
-    <div style={{ minHeight: '100vh', background: NAVY, color: '#e2e8f0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid #1e293b' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
-          <span style={{ fontWeight: 700, color: TEAL, fontSize: 16 }}>Overwatch</span>
+    <div style={{ minHeight:'100vh', background: `radial-gradient(circle at top left, #10213c 0%, ${C.bg} 32%, #050912 100%)`, color: C.text, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif', display:'flex', flexDirection:'column' }}>
+
+      {/* Sticky header */}
+      <div style={{ position:'sticky', top:0, zIndex:10, background:'rgba(7,17,31,0.96)', backdropFilter:'blur(14px)', borderBottom:`1px solid ${C.line}`, padding:'14px 16px 12px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:34, height:34, borderRadius:12, display:'grid', placeItems:'center', background:'#13233b', border:`1px solid #30445f`, color:'#9fd5ff', fontWeight:900, fontSize:13 }}>OW</div>
+            <div>
+              <div style={{ fontSize:19, fontWeight:700, lineHeight:1 }}>Overwatch</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>{today}{userName ? ` · ${userName}` : ''}</div>
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={loadStats}
+              style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.text, fontWeight:900, fontSize:16, cursor:'pointer' }}>
+              ↻
+            </button>
+            {isOperator && (
+              <button onClick={onSignOut}
+                style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.muted, fontWeight:900, fontSize:13, cursor:'pointer' }}>
+                ⏻
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={refreshAll} title="Refresh" style={iconBtn}>↻</button>
-          {isOperator && onBackfill && <button onClick={onBackfill} style={{ ...iconBtn, color: '#f59e0b' }}>🔗</button>}
-          <button onClick={onSignOut} style={{ ...iconBtn, padding: '4px 10px' }}>Out</button>
-        </div>
+        <input onClick={onSearch} readOnly placeholder="Search customers, jobs, CMS…"
+          style={{ width:'100%', background:'#111f34', border:`1px solid #293d58`, color:'#dbe7f8', borderRadius:15, padding:'11px 13px', fontSize:14, outline:'none', cursor:'pointer', boxSizing:'border-box' }} />
       </div>
 
-      <div style={{ padding: '18px 20px 6px' }}>
-        <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
-        <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 800 }}>{userName}</div>
-      </div>
+      {/* Scrollable body */}
+      <div style={{ flex:1, overflowY:'auto', paddingBottom:100 }}>
 
-      <div style={{ padding: '0 20px 10px' }}>
-        <button onClick={onSearch} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: '12px 16px', cursor: 'pointer', textAlign: 'left' }}>
-          <span style={{ fontSize: 16 }}>🔍</span>
-          <span style={{ color: '#475569', fontSize: 14 }}>Search customers, jobs, materials…</span>
-        </button>
-      </div>
-
-      <div style={{ padding: '6px 20px 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* 0 — OPEN JOBS */}
-        {stale.loading ? (
-          <div style={skel} />
-        ) : (
-          <TriageCard emoji="⏰" label="Open jobs — finish these" accent="#ef4444" count={stale.items.length} items={stale.items}
-            hint="Past appointments never closed out — tap one to finish" emptyLabel="Every past appointment is closed out"
-            onOpen={() => onNavigate('/work')} render={(it) => <OpenJobRow key={it.key} item={it} onOpen={openJob} />} />
+        {/* Hero stat block */}
+        {stats && (
+          <div style={{ margin:'14px 16px', padding:'18px', borderRadius:22, background:`linear-gradient(180deg,${C.panel2},${C.panel})`, border:`1px solid #304761` }}>
+            <div style={{ fontSize:12, color:C.muted, marginBottom:5 }}>open jobs</div>
+            <div style={{ fontSize:32, fontWeight:900, letterSpacing:'-0.03em', lineHeight:1 }}>
+              {loading ? '—' : stats.total}
+            </div>
+            <div style={{ marginTop:8, fontSize:13, color:'#b1bfd0', lineHeight:1.35 }}>
+              {stats.needsAction > 0 ? `${stats.needsAction} need attention` : 'Board is clear'}{stats.toBill > 0 ? ` · ${stats.toBill} to bill` : ''}
+            </div>
+          </div>
         )}
 
-        {/* 1 — RETURNS */}
-        {triage.loading ? <div style={skel} /> : (
-          <TriageCard emoji="🔄" label="Returns to schedule" accent="#ec4899" count={triage.returns.length} items={triage.returns}
-            hint="Tap a return to schedule it to a tech" emptyLabel="No returns waiting — loop is closed" onOpen={() => onNavigate('/scheduler')}
-            render={(r) => {
-              const meta = r.source === 'flagged' ? { c: '#ec4899', t: 'FLAGGED' } : r.source === 'calendar' ? { c: '#00c8e8', t: 'CALENDAR' } : { c: '#f59e0b', t: 'JOB' };
-              return (
-                <div key={r.key} onClick={(e) => { e.stopPropagation(); onNavigate('/scheduler'); }} style={{ cursor: 'pointer' }}>
-                  <Row title={r.title} sub={r.sub} age={r.age}
-                    badge={<span style={{ fontSize: 10, fontWeight: 700, color: meta.c, border: `1px solid ${meta.c}`, borderRadius: 5, padding: '1px 5px' }}>{meta.t}</span>} />
-                </div>
-              );
-            }} />
+        {/* Needs action carryover — only if >0 */}
+        {stats?.needsAction > 0 && (
+          <button onClick={() => go('/board')}
+            style={{ display:'block', width:'calc(100% - 32px)', margin:'0 16px 14px', padding:'14px 15px', borderRadius:18, background:'linear-gradient(180deg,#301923,#23121a)', border:`1px solid #6a2a39`, cursor:'pointer', textAlign:'left', color:C.text }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+              <strong style={{ fontSize:14 }}>Needs action</strong>
+              <span style={{ background:C.red, color:'#fff', borderRadius:999, padding:'4px 8px', fontSize:11, fontWeight:900 }}>{stats.needsAction}</span>
+            </div>
+            <p style={{ margin:0, color:'#e0b8c0', fontSize:12, lineHeight:1.4 }}>
+              New jobs, missing info, and blocked items waiting on a decision.
+            </p>
+          </button>
         )}
 
-        {/* 2 — ESTIMATE PIPELINE */}
-        <EstimatePipeline items={estimates.items} loading={estimates.loading} onAdvance={advance} busyId={busyId} />
-
-        {/* 3 — DONE, NOT BILLED */}
-        {triage.loading ? <div style={skel} /> : (
-          <TriageCard emoji="💵" label="Done — not billed" accent="#8b5cf6" count={triage.toBill.length} items={triage.toBill}
-            emptyLabel="Everything completed is billed" onOpen={() => onNavigate('/billing')}
-            render={(b) => <Row key={b.key} title={b.title} age={b.age}
-              badge={b.amount ? <span style={{ color: '#8b5cf6', fontSize: 12, fontWeight: 700 }}>${Number(b.amount).toLocaleString()}</span> : null} />} />
+        {/* Stat pills row */}
+        {stats && STAT_PILLS.length > 0 && (
+          <div style={{ padding:'0 16px 16px', display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8 }}>
+            {STAT_PILLS.map(s => (
+              <button key={s.label} onClick={() => go('/board')}
+                style={{ background:C.card, border:`1px solid ${C.line2}`, borderRadius:15, padding:'12px 10px', textAlign:'left', cursor:'pointer', color:C.text }}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.label}</div>
+                <div style={{ fontSize:20, fontWeight:900, color:s.accent }}>{s.val}</div>
+                {s.sub && <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{s.sub}</div>}
+              </button>
+            ))}
+          </div>
         )}
-      </div>
 
-      <div style={{ padding: '12px 20px 32px' }}>
-        <div style={{ color: '#475569', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', margin: '4px 2px 10px' }}>Go to</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {launchers.map(({ path, emoji, label, sub, color }) => (
-            <button key={path} onClick={() => onNavigate(path)} style={{ background: '#0c1322', border: '1px solid #1e293b', borderRadius: 14, padding: '14px', textAlign: 'left', cursor: 'pointer' }}>
-              <div style={{ fontSize: 22 }}>{emoji}</div>
-              <div style={{ color, fontSize: 14, fontWeight: 700, marginTop: 6 }}>{label}</div>
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 1 }}>{sub}</div>
+        {/* Command cards */}
+        <div style={{ padding:'0 16px', display:'flex', flexDirection:'column', gap:10 }}>
+          {COMMAND_CARDS.filter(c => c.show).map(card => (
+            <button key={card.path} onClick={() => go(card.path)}
+              style={{ position:'relative', display:'grid', gridTemplateColumns:'44px 1fr auto', gap:14, alignItems:'center', background:`linear-gradient(180deg,${C.panel2},${C.panel})`, border:`1px solid ${C.line2}`, borderRadius:18, padding:'18px 18px 18px 20px', cursor:'pointer', textAlign:'left', color:C.text, overflow:'hidden' }}>
+              {/* Left accent bar */}
+              <div style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:card.accent }} />
+              {/* Icon */}
+              <div style={{ width:44, height:44, borderRadius:14, background:'#0b1526', border:`1px solid #314563`, display:'grid', placeItems:'center', fontSize:20, color:card.accent }}>
+                {card.icon}
+              </div>
+              {/* Text */}
+              <div>
+                <div style={{ fontSize:17, fontWeight:700, marginBottom:4 }}>{card.label}</div>
+                <div style={{ fontSize:12, color:C.muted }}>{card.sub}</div>
+              </div>
+              {/* Chevron */}
+              <div style={{ color:'#4a5f7a', fontSize:22 }}>›</div>
             </button>
           ))}
         </div>
-        <button onClick={() => onNavigate('/newjob')} style={{ width: '100%', marginTop: 12, background: TEAL, color: '#001018', border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>➕  New Job</button>
-      </div>
-    </div>
-  );
-}
 
-function LeanLauncher({ userName, onNavigate, onSignOut }) {
-  const btns = [
-    { path: '/work',   emoji: '📋', label: 'Work To Do Now', sub: "Today's jobs — log notes + complete", color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/newjob', emoji: '➕', label: 'New Job',        sub: 'Capture a call or new work',          color: TEAL,      dark: '#001a1f', border: '#0891b2' },
-  ];
-  return (
-    <div style={{ minHeight: '100vh', background: NAVY, color: '#e2e8f0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid #1e293b' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
-          <span style={{ fontWeight: 700, color: TEAL, fontSize: 16 }}>Overwatch</span>
-        </div>
-        <button onClick={onSignOut} style={{ ...iconBtn, padding: '4px 10px' }}>Out</button>
+        {/* Sign out — tucked at bottom for ops users */}
+        {isOperator && (
+          <div style={{ padding:'24px 16px 0', textAlign:'center' }}>
+            <button onClick={onSignOut} style={{ background:'none', border:'none', color:C.muted, fontSize:12, cursor:'pointer' }}>sign out</button>
+          </div>
+        )}
       </div>
-      <div style={{ padding: '20px 20px 8px', textAlign: 'center' }}>
-        <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
-        <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
-      </div>
-      <div style={{ padding: '8px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {btns.map(({ path, emoji, label, sub, color, dark, border }) => (
-          <button key={path} onClick={() => onNavigate(path)} style={{ background: dark, border: `1px solid ${border}`, borderRadius: 16, padding: '22px 20px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 18 }}>
-            <span style={{ fontSize: 36 }}>{emoji}</span>
-            <div>
-              <div style={{ color, fontSize: 18, fontWeight: 700 }}>{label}</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{sub}</div>
-            </div>
-            <span style={{ marginLeft: 'auto', color: border, fontSize: 20 }}>›</span>
+
+      {/* FAB */}
+      <button onClick={() => setShowNewJob(true)}
+        style={{ position:'fixed', bottom:80, right:20, width:56, height:56, borderRadius:999, background:C.green, border:'none', color:'#04130a', fontSize:28, fontWeight:900, cursor:'pointer', boxShadow:'0 8px 24px rgba(34,209,111,0.35)', zIndex:20, display:'grid', placeItems:'center' }}>
+        +
+      </button>
+
+      {/* Bottom nav */}
+      <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'rgba(7,17,31,0.97)', borderTop:`1px solid ${C.line}`, display:'flex', zIndex:15, backdropFilter:'blur(14px)', paddingBottom:'env(safe-area-inset-bottom)' }}>
+        {[
+          { icon:'⌂', label:'Home',  path:'/',      active:true },
+          { icon:'✓', label:'Today', path:'/work',  active:false },
+          { icon:'▤', label:'Board', path:'/board', active:false },
+          { icon:'📅', label:'Cal',  path:'/calendar', active:false },
+        ].map(t => (
+          <button key={t.path} onClick={() => go(t.path)}
+            style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: t.active ? C.cyan : C.muted, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+            <span style={{ fontSize:20 }}>{t.icon}</span>
+            <span style={{ fontSize:10, fontWeight:700 }}>{t.label}</span>
           </button>
         ))}
       </div>
+
+      {/* New job modal */}
+      {showNewJob && (
+        <NewJobModal accessToken={accessToken} userEmail={userEmail}
+          onCreated={() => { setShowNewJob(false); loadStats(); }}
+          onClose={() => setShowNewJob(false)} />
+      )}
     </div>
   );
 }
-
-const iconBtn = { background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', padding: '4px 8px', fontSize: 13, cursor: 'pointer' };
-const skel = { height: 86, borderRadius: 16, background: '#0c1322', border: '1px solid #1e293b', opacity: 0.6 };
-const rowStyle = { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderTop: '1px solid #1e293b' };
-const rowTitle = { color: '#e2e8f0', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
-const rowSub = { color: '#64748b', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };

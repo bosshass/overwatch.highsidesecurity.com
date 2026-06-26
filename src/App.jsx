@@ -29,8 +29,9 @@ import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
+import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '7.2.1';
+const APP_VERSION = '8.0.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -90,6 +91,7 @@ export default function App() {
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showAlertGate, setShowAlertGate] = useState(false);
+  const [showBuildLog, setShowBuildLog] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -147,11 +149,8 @@ export default function App() {
   useEffect(() => {
     const storedVersion = localStorage.getItem('juce_v4_version');
     if (storedVersion && storedVersion !== APP_VERSION) {
-      localStorage.removeItem('juce_v4_token');
-      localStorage.removeItem('juce_v4_email');
-      localStorage.removeItem('juce_v4_expiry');
-      localStorage.removeItem('juce_v4_view');
-      localStorage.setItem('juce_v4_version', APP_VERSION);
+      // New build detected — show changelog, clear session only after user taps "Got it"
+      setShowBuildLog(true);
       setIsLoading(false);
       return;
     }
@@ -316,6 +315,15 @@ export default function App() {
     navigate('/');
   }, [navigate]);
 
+  const handleBuildLogDismiss = useCallback(() => {
+    localStorage.removeItem('juce_v4_token');
+    localStorage.removeItem('juce_v4_email');
+    localStorage.removeItem('juce_v4_expiry');
+    localStorage.removeItem('juce_v4_view');
+    localStorage.setItem('juce_v4_version', APP_VERSION);
+    setShowBuildLog(false);
+  }, []);
+
   // ── AUTH: Silent token refresh ────────────────────────────────────────
   // Google tokens expire after ~1hr. Session lasts 36hrs.
   // On 401, silently get a new token via hidden iframe.
@@ -429,6 +437,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // ── BUILD LOG ───────────────────────────────────────────────────────────
+  if (showBuildLog) {
+    return <BuildLog onDismiss={handleBuildLogDismiss} />;
   }
 
   // ── LOGIN ───────────────────────────────────────────────────────────────

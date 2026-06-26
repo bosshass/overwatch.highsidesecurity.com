@@ -6,6 +6,7 @@
 
 export const CALENDARS = {
   TENTATIVELY_SCHEDULED: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
+  RETURN_VISITS:         'drhhsscalendar@gmail.com',
   ADMIN_NOTES:           'fff001b042126a6179ac3abe30b1b7928a6f6170227a290d5f24fd0ec2ffa0c9@group.calendar.google.com',
   AUSTIN:                'drhservicetech1@gmail.com',
   JR:                    'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com',
@@ -16,6 +17,14 @@ export const CALENDARS = {
   SHANA:                 'shanaparks@drhsecurityservices.com',
   SUBS:                  'c_ef1cf02ebba19919b78be38a9c5d2603ef52a838ac4bb37253fd69d718cdcb5c@group.calendar.google.com',
 };
+
+// ── Aliases — older constant names still referenced in components ─────────────
+// NOT new calendars. These point at calendars already defined above, so the old
+// names (DRH_TECH_1, etc.) resolve to a real ID instead of undefined.
+CALENDARS.DRH_TECH_1     = CALENDARS.AUSTIN;                 // Austin's calendar
+CALENDARS.JR_APPOINTMENT = CALENDARS.JR;                     // JR's calendar
+CALENDARS.SARA_TASKS     = CALENDARS.ADMIN_NOTES;            // Sara's admin notes
+CALENDARS.SERVICE_QUEUE  = CALENDARS.TENTATIVELY_SCHEDULED;  // the service queue
 
 // ── Visibility ───────────────────────────────────────────────────────────────
 // visibleTo: null  = operators only (Sara)

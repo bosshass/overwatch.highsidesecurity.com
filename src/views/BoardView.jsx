@@ -6,9 +6,11 @@
 // Supabase = Source for estimates (QBO sync)
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase, jobLinkingApi } from '../services/supabase.js';
+import { supabase, jobLinkingApi, returnCardsApi, timeEntriesApi } from '../services/supabase.js';
 import JobSearchModal from '../components/JobSearchModal.jsx';
+import JobFinishSheet from '../components/JobFinishSheet.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -33,7 +35,7 @@ const TASK_CALENDARS = [
 
 // Tags that mean task is DONE — exclude from board
 // Accepts canonical [BILL IT] AND legacy [COMPLETED] / [TO BILL] equivalently.
-const DONE_TAGS = ['[BILLED]', '[BILL IT]', '[INVOICED]', '[COMPLETED]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
+const DONE_TAGS = ['[BILLED]', '[BILL IT]', '[INVOICED]', '[COMPLETED]', '[COMPLETE]', '[IGNORE]', '[IGNORED]', '[INVOICE]', '[TO BILL]', '[SCHEDULED]', '[MOVED TO QUEUE]'];
 
 // Tags that mean task is BLOCKED — show in Blocked column
 const BLOCKED_TAGS = ['[NEEDS PARTS]', '[BLOCKED]', '[WAITING]', '[ON HOLD]', '[PENDING PARTS]', '[NEEDS NOTES]', '[QUICK TASK]'];
@@ -51,7 +53,9 @@ const extractCustomerName = (title) => {
     .trim();
 };
 
-export default function BoardView({ accessToken, onBack }) {
+export default function BoardView({ accessToken, onBack, userEmail, userName }) {
+  const navigate = useNavigate();
+  const [billingQueue, setBillingQueue] = useState([]); // unbilled bill_it time entries, grouped per job
   const [loading, setLoading] = useState(true);
   const [readyToSchedule, setReadyToSchedule] = useState([]); // Queue + Returns + Approved Estimates
   const [blockedItems, setBlockedItems] = useState([]); // Items waiting on parts/info
@@ -78,6 +82,7 @@ export default function BoardView({ accessToken, onBack }) {
   
   // Scheduling state
   const [showScheduler, setShowScheduler] = useState(false);
+  const [finishTask, setFinishTask] = useState(null); // task being billed via JobFinishSheet
   const [scheduleEstimate, setScheduleEstimate] = useState(null);
   const [selectedTech, setSelectedTech] = useState(null);
   const [helperTech, setHelperTech] = useState(null); // Second tech for 2-man jobs
@@ -201,6 +206,29 @@ export default function BoardView({ accessToken, onBack }) {
     setShowScheduler(true);
   };
 
+  // Open scheduler for tech-flagged return cards (Supabase return_cards group)
+  const openSchedulerForReturnCards = (group) => {
+    const lead = [...group].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+    const reasons = group.filter(c => c.reason).map(c => `• ${c.flagged_by_name || 'Tech'}: ${c.reason}`).join('\n');
+    setScheduleEstimate({
+      id: lead.id,
+      type: 'return',
+      returnIds: group.map(c => c.id),
+      customer_name: lead.job?.customer_name || lead.customer_name_raw || lead.original_event_title || 'Customer',
+      customer_address: lead.original_location || '',
+      issue: reasons,
+    });
+    setSelectedTech(null);
+    setHelperTech(null);
+    setSelectedDate('');
+    setStartTime('09:00');
+    setEndTime('17:00');
+    setTechAvailability([]);
+    setHelperAvailability([]);
+    setScheduleNotes(reasons);
+    setShowScheduler(true);
+  };
+
   // Find matching events on tech calendars
   const findMatchingEvents = async (searchName) => {
     if (!accessToken || !searchName) return;
@@ -289,7 +317,7 @@ export default function BoardView({ accessToken, onBack }) {
       
       // Create calendar event with user-edited notes
       const eventBody = {
-        summary: `${est.customer_name || 'Customer'} - Install`,
+        summary: `${est.customer_name || 'Customer'} - ${est.type === 'return' ? 'Return' : 'Install'}`,
         description: isCalendarItem 
           ? `${helperTech ? `👥 Crew: ${crewText}\n\n` : ''}${scheduleNotes}` 
           : `${helperTech ? `👥 Crew: ${crewText}\n` : ''}Est# ${est.qbo_estimate_ref || 'N/A'}\nAmount: $${est.estimate_amount?.toLocaleString() || '0'}\n\n${scheduleNotes}`.trim(),
@@ -347,6 +375,15 @@ export default function BoardView({ accessToken, onBack }) {
           }
         } catch (e) {
           console.warn('Could not mark original as scheduled:', e);
+        }
+      } else if (est.type === 'return') {
+        // Tech-flagged return cards → mark every card in the group scheduled
+        try {
+          await Promise.all((est.returnIds || [est.id]).map(rid =>
+            returnCardsApi.markScheduled(rid, newEvent.id, selectedTech.id, selectedDate)
+          ));
+        } catch (e) {
+          console.warn('Return card markScheduled warning:', e);
         }
       } else {
         // Update Supabase with calendar_event_id (for estimates)
@@ -409,7 +446,7 @@ export default function BoardView({ accessToken, onBack }) {
   const markTaskComplete = async (task) => {
     setUpdating(true);
     try {
-      const newTitle = `[COMPLETED] ${task.title}`;
+      const newTitle = `[COMPLETED] ${stripAllTags(task.title)}`;
       const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(task.calendarId)}/events/${task.id}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -422,27 +459,6 @@ export default function BoardView({ accessToken, onBack }) {
       setSelectedItem(null);
     } catch (e) {
       console.error('Mark complete error:', e);
-      alert(`Error: ${e.message}`);
-    }
-    setUpdating(false);
-  };
-
-  const sendTaskToBilling = async (task) => {
-    setUpdating(true);
-    try {
-      const newTitle = `[TO BILL] ${task.title}`;
-      const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(task.calendarId)}/events/${task.id}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summary: newTitle })
-      });
-      
-      if (!res.ok) throw new Error('Failed to update event');
-      
-      await loadOpenTasks();
-      setSelectedItem(null);
-    } catch (e) {
-      console.error('Send to billing error:', e);
       alert(`Error: ${e.message}`);
     }
     setUpdating(false);
@@ -506,13 +522,23 @@ export default function BoardView({ accessToken, onBack }) {
     setLinkingCalendarItem(item);
   };
 
+  // Strip ALL leading and trailing [TAGS] from a title (handles stacked + finish-flow trailing tags)
+  const stripAllTags = (title) => {
+    let t = (title || '').trim();
+    let prev;
+    do {
+      prev = t;
+      t = t.replace(/^\[[^\]]+\]\s*/, '').replace(/\s*\[[^\]]+\]$/, '').trim();
+    } while (t !== prev);
+    return t;
+  };
+
   // Patch a GCal event title: strips all leading [TAGS] then prepends the new one.
   const patchCalendarTag = async (item, tag) => {
     setUpdating(true);
     setModalSubMenu(null);
     try {
-      let clean = (item.title || '').replace(/^\[[^\]]+\]\s*/g, '');
-      while (clean.match(/^\[[^\]]+\]\s*/)) clean = clean.replace(/^\[[^\]]+\]\s*/, '');
+      const clean = stripAllTags(item.title);
       const newTitle = tag ? `[${tag}] ${clean}` : clean;
       const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
         method: 'PATCH',
@@ -834,11 +860,37 @@ export default function BoardView({ accessToken, onBack }) {
     }
   }, []);
 
+  // The "invisible zone": tech finished (bill_it) but no invoice entered yet.
+  // Uses the ONE shared helper (timeEntriesApi.getBillingQueue) so this count
+  // and Billing's "Bill It" count come from the exact same query — and names
+  // resolve from the customers join (customer_id), not from parsing the title.
+  const loadBillingQueue = useCallback(async () => {
+    try {
+      const data = await timeEntriesApi.getBillingQueue();
+      const groups = {};
+      (data || []).forEach(te => {
+        const key = te.calendar_event_id || te.id;
+        if (!groups[key]) groups[key] = { key, entries: [] };
+        groups[key].entries.push(te);
+      });
+      setBillingQueue(Object.values(groups).map(g => {
+        const lead = g.entries[0];
+        const name = lead.customers?.name || lead.customer_name_raw || stripAllTags(lead.event_title || '') || 'Unknown';
+        const techs = [...new Set(g.entries.map(e => e.tech_name || e.tech_email?.split('@')[0]).filter(Boolean))];
+        const minutes = g.entries.reduce((sum, e) => sum + (e.total_minutes || 0), 0);
+        const oldest = g.entries.reduce((d, e) => (e.created_at < d ? e.created_at : d), lead.created_at);
+        return { key: g.key, name, techs, minutes, oldest };
+      }));
+    } catch (e) {
+      console.warn('Billing queue load error:', e.message);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks(), loadEstimates(), loadReturnCards()]);
+    await Promise.all([loadReadyToSchedule(), loadBlockedItems(), loadOpenTasks(), loadEstimates(), loadReturnCards(), loadBillingQueue()]);
     setLoading(false);
-  }, [loadReadyToSchedule, loadBlockedItems, loadOpenTasks, loadEstimates, loadReturnCards]);
+  }, [loadReadyToSchedule, loadBlockedItems, loadOpenTasks, loadEstimates, loadReturnCards, loadBillingQueue]);
 
   useEffect(() => {
     loadAll();
@@ -1355,7 +1407,7 @@ export default function BoardView({ accessToken, onBack }) {
                   View in Calendar
                 </a>
                 <button
-                  onClick={() => sendTaskToBilling(item)}
+                  onClick={() => { setSelectedItem(null); setFinishTask(item); }}
                   disabled={updating}
                   style={{ background: '#f59e0b', border: 'none', color: '#000', padding: 12, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
                 >
@@ -1479,7 +1531,7 @@ export default function BoardView({ accessToken, onBack }) {
                       await fetch(`${GCAL}/calendars/${encodeURIComponent(item.calendarId)}/events/${item.id}`, {
                         method: 'PATCH',
                         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ summary: `[MOVED TO QUEUE] ${item.title}` }),
+                        body: JSON.stringify({ summary: `[MOVED TO QUEUE] ${stripAllTags(item.title)}` }),
                       });
                       await loadAll();
                       setSelectedItem(null);
@@ -1700,7 +1752,7 @@ export default function BoardView({ accessToken, onBack }) {
           <div style={{ color: '#8b5cf6', fontSize: 18, fontWeight: 600 }}>{serviceCallsToSchedule.length}</div>
         </div>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
-          <div style={{ color: '#64748b', fontSize: 12 }}>Open Tasks</div>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Scheduled Work</div>
           <div style={{ color: '#3b82f6', fontSize: 18, fontWeight: 600 }}>{openTasks.length}</div>
         </div>
         <div style={{ background: '#1e293b', padding: '8px 16px', borderRadius: 8 }}>
@@ -1720,8 +1772,9 @@ export default function BoardView({ accessToken, onBack }) {
           { key: 'returns', label: 'Returns', count: returnsToSchedule.length },
           { key: 'service', label: 'Service', count: serviceCallsToSchedule.length },
           { key: 'blocked', label: 'Blocked', count: blockedItems.length },
-          { key: 'tasks', label: 'Tasks', count: openTasks.length },
           { key: 'pending', label: 'Pending', count: pendingEstimates.length },
+          { key: 'tasks', label: 'Scheduled', count: openTasks.length },
+          { key: 'billing', label: 'To Bill', count: billingQueue.length },
         ].map(col => (
           <button
             key={col.key}
@@ -1871,12 +1924,39 @@ export default function BoardView({ accessToken, onBack }) {
                         </div>
                       )}
 
-                      {/* Footer — link button */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                      {/* Footer — schedule + link actions */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
                         {!isLinked && (
-                          <span style={{ fontSize: 11, color: '#64748b' }}>No job linked</span>
+                          <span style={{ fontSize: 11, color: '#64748b', marginRight: 'auto' }}>No job linked</span>
                         )}
-                        <div style={{ marginLeft: 'auto' }}>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openSchedulerForReturnCards(group); }}
+                            style={{
+                              background: '#06b6d4', border: 'none', borderRadius: 6,
+                              color: '#000', fontSize: 11, fontWeight: 700,
+                              padding: '4px 10px', cursor: 'pointer',
+                            }}
+                          >
+                            📅 Schedule
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (!confirm('Mark this return as already scheduled (handled outside the board)?')) return;
+                              try {
+                                await Promise.all(group.map(c => returnCardsApi.markScheduled(c.id, null, null, new Date().toISOString())));
+                                await loadReturnCards();
+                              } catch (err) { alert(`Error: ${err.message}`); }
+                            }}
+                            style={{
+                              background: '#14532d', border: 'none', borderRadius: 6,
+                              color: '#4ade80', fontSize: 11, fontWeight: 600,
+                              padding: '4px 10px', cursor: 'pointer',
+                            }}
+                          >
+                            ✓ Scheduled
+                          </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); setLinkingCard(lead); }}
                             style={{
@@ -1955,14 +2035,6 @@ export default function BoardView({ accessToken, onBack }) {
             )}
           </Column>
 
-          <Column title="Open Tasks" count={openTasks.length} color="#3b82f6" columnKey="tasks">
-            {openTasks.length === 0 ? (
-              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No open tasks</div>
-            ) : (
-              openTasks.map(task => <TaskCard key={`${task.calendarId}-${task.id}`} task={task} />)
-            )}
-          </Column>
-
           <Column title="Pending Estimates" count={pendingEstimates.length} color="#f59e0b" columnKey="pending">
             {pendingEstimates.length === 0 ? (
               <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>No pending estimates</div>
@@ -1970,11 +2042,71 @@ export default function BoardView({ accessToken, onBack }) {
               pendingEstimates.map(est => <EstimateCard key={est.id} estimate={est} isApproved={false} />)
             )}
           </Column>
+          <Column title="📋 Scheduled Work" count={openTasks.length} color="#3b82f6" columnKey="tasks">
+            {openTasks.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>Nothing scheduled — items here feed Work To Do Today</div>
+            ) : (
+              openTasks.map(task => <TaskCard key={`${task.calendarId}-${task.id}`} task={task} />)
+            )}
+          </Column>
+
+          <Column title="💵 To Bill" count={billingQueue.length} color="#a78bfa" columnKey="billing">
+            {billingQueue.length > 0 && (
+              <div style={{ color: '#a78bfa', fontSize: 12, fontWeight: 700, padding: '0 4px 8px' }}>
+                {(billingQueue.reduce((s2, b) => s2 + b.minutes, 0) / 60).toFixed(1)}h unbilled — awaiting invoice
+              </div>
+            )}
+            {billingQueue.length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', padding: 20 }}>Nothing waiting to bill</div>
+            ) : (
+              billingQueue.map(b => {
+                const days = Math.floor((Date.now() - new Date(b.oldest).getTime()) / 86400000);
+                const ageColor = days >= 14 ? '#ef4444' : days >= 7 ? '#f59e0b' : '#64748b';
+                return (
+                  <div key={b.key} onClick={() => navigate('/billing')} style={{
+                    background: '#1e293b', borderRadius: 8, padding: 12, marginBottom: 8,
+                    borderLeft: '3px solid #a78bfa', cursor: 'pointer',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: '#fff' }}>{b.name}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#a78bfa', whiteSpace: 'nowrap' }}>{(b.minutes / 60).toFixed(1)}h</div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>{b.techs.join(', ') || '—'}</div>
+                      <div style={{ fontSize: 11, color: ageColor, fontWeight: 600 }}>{days === 0 ? 'today' : `${days}d waiting`}</div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </Column>
+
         </div>
       )}
 
       {/* Detail Modal */}
       {renderDetailModal()}
+
+      {/* Bill-It via finish sheet (writes a time entry, unlike the old blind [TO BILL] tag) */}
+      {finishTask && (
+        <JobFinishSheet
+          event={{
+            id: finishTask.id,
+            title: finishTask.title,
+            calendarId: finishTask.calendarId,
+            start: finishTask.start || null,
+            end: finishTask.end || null,
+            description: finishTask.description || '',
+            location: finishTask.location || '',
+          }}
+          accessToken={accessToken}
+          userEmail={userEmail}
+          userName={userName}
+          mode="full"
+          onFinished={() => { setFinishTask(null); loadAll(); }}
+          onCancel={() => setFinishTask(null)}
+        />
+      )}
 
       {/* Scheduler Modal */}
       {showScheduler && scheduleEstimate && (

@@ -26,7 +26,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
-import { timeEntriesApi, returnCardsApi } from '../services/supabase.js';
+import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 
@@ -72,15 +72,51 @@ export default function JobFinishSheet({
   const eventDate     = event?.start ? new Date(event.start) : new Date();
   const timeValid     = isValidTimeEntry(timeEntry, eventDate);
   const hasCustomer   = !!linkedCustomer?.id;
-  const canFinish     = timeValid && hasCustomer && !acting;
+  const notesValid    = notes.trim().length >= 3;   // required: no blank completions
+  const canFinish     = timeValid && hasCustomer && notesValid && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
+  // Patches the title and, when the tech left notes/materials, APPENDS them to
+  // the event description so the worker's notes live on the calendar — not just
+  // in Overwatch. Append-only: never overwrites the existing description.
   const patchTitle = async (newTitle) => {
+    const body = { summary: newTitle };
+
+    const noteText = notes.trim();
+    const matText  = materials.trim();
+    if (noteText || matText) {
+      const stamp = new Date()
+        .toLocaleString('en-US', {
+          timeZone: 'America/Denver',
+          month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+        })
+        .replace(',', '').replace(' AM', 'a').replace(' PM', 'p');
+      const who = event.techName || userName || 'Tech';
+      const parts = [];
+      if (noteText) parts.push(noteText);
+      if (matText)  parts.push(`Materials: ${matText}`);
+      const line = `📝 [${stamp} ${who}] ${parts.join(' — ')}`;
+
+      // Read the event's CURRENT description straight from Google so we never
+      // clobber the customer-info block (which CustomerLookup owns) — append only.
+      let current = event.description || '';
+      try {
+        const getUrl = `${GCAL}/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`;
+        const getRes = await fetch(getUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (getRes.ok) {
+          const live = await getRes.json();
+          current = live.description || '';
+        }
+      } catch { /* fall back to the passed-in description */ }
+
+      body.description = current ? `${current}\n${line}` : line;
+    }
+
     const url = `${GCAL}/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`;
     const res = await fetch(url, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: newTitle }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Calendar patch failed: ${res.status}`);
   };
@@ -133,6 +169,28 @@ export default function JobFinishSheet({
         });
       }
 
+      if (disposition === 'estimate') {
+        // Disposition writes a row: send this job to "needs estimate" so it lands in the
+        // Estimate pipeline. Find the job behind this event; if none exists yet, create one.
+        let existing = null;
+        try {
+          const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
+          existing = data && data[0];
+        } catch (err) { console.warn('job lookup failed', err); }
+        if (existing) {
+          await jobsApi.changeStatus(existing.id, JOB_STATUS.NEEDS_ESTIMATE, userEmail, 'Estimate disposition from Work Today');
+        } else {
+          await jobsApi.create({
+            customer_name:     linkedCustomer?.name || base,
+            customer_id:       linkedCustomer?.id || undefined,
+            status:            JOB_STATUS.NEEDS_ESTIMATE,
+            issue:             notes.trim() || '',
+            customer_address:  event.location || '',
+            calendar_event_id: event.id,
+          }, `${userEmail} · PREVIEW`);
+        }
+      }
+
       onFinished?.(disposition, newTitle);
     } catch (e) {
       console.error(`${disposition} failed:`, e);
@@ -173,12 +231,15 @@ export default function JobFinishSheet({
         required
       />
 
-      {/* Notes */}
+      {/* Notes (required — blocks finish until filled) */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        📝 Notes — required {notesValid ? '✓' : ''}
+      </div>
       <textarea
         value={notes}
         onChange={e => setNotes(e.target.value)}
-        placeholder="Notes (what was done, what's needed...)"
-        style={textareaStyle}
+        placeholder="What was done / what's needed — required to finish"
+        style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
       {/* Materials */}
@@ -195,9 +256,11 @@ export default function JobFinishSheet({
       {/* Gate hint when not ready */}
       {!canFinish && !acting && (
         <div style={hintBox}>
-          {!hasCustomer && !timeValid && 'Link a customer and add time to finish.'}
-          {!hasCustomer && timeValid && 'Link a customer to finish.'}
-          {hasCustomer && !timeValid && 'Add a time entry to finish.'}
+          {`To finish, add: ${[
+            !hasCustomer && 'a linked customer',
+            !timeValid   && 'a time entry',
+            !notesValid  && 'notes',
+          ].filter(Boolean).join(', ')}.`}
         </div>
       )}
 
@@ -333,53 +396,53 @@ const overlay = {
 };
 const sheet = {
   background: '#ffffff', borderRadius: '20px 20px 0 0',
-  padding: '20px 18px 28px', width: '100%', maxWidth: 480,
-  maxHeight: '92vh', overflowY: 'auto',
+  padding: '20px 18px calc(28px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480,
+  maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto',
   boxShadow: '0 -4px 24px rgba(0,0,0,0.2)',
 };
 const hr = { height: 1, background: '#e5e7eb', margin: '12px 0' };
 const closeBtn = {
   background: 'none', border: 'none', color: '#9ca3af',
-  fontSize: 24, cursor: 'pointer', padding: '0 4px', lineHeight: 1,
+  fontSize: 28, cursor: 'pointer', padding: '0 4px', lineHeight: 1,
 };
 const textareaStyle = {
-  width: '100%', padding: 10,
-  background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10,
-  color: '#1B2A4A', fontSize: 14, resize: 'none', height: 60,
-  marginBottom: 8, boxSizing: 'border-box', fontFamily: 'inherit',
+  width: '100%', padding: 12,
+  background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12,
+  color: '#1B2A4A', fontSize: 16, resize: 'none', height: 72,
+  marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit',
 };
 const hintBox = {
-  padding: '8px 10px', background: '#fffbeb', border: '1px solid #fcd34d',
-  borderRadius: 10, fontSize: 11, color: '#92400e', textAlign: 'center', marginBottom: 4,
+  padding: '10px 12px', background: '#fffbeb', border: '1px solid #fcd34d',
+  borderRadius: 12, fontSize: 13, color: '#92400e', textAlign: 'center', marginBottom: 4,
 };
 const errorBox = {
-  padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca',
-  borderRadius: 10, fontSize: 12, color: '#b91c1c', marginBottom: 4,
+  padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca',
+  borderRadius: 12, fontSize: 13, color: '#b91c1c', marginBottom: 4,
 };
 const btnInProgress = (on) => ({
-  padding: 12, background: on ? '#ecfeff' : '#f1f5f9',
-  border: `1.5px solid ${on ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 10,
-  color: on ? '#155e75' : '#94a3b8', fontSize: 14, fontWeight: 700,
+  padding: 15, background: on ? '#ecfeff' : '#f1f5f9',
+  border: `1.5px solid ${on ? '#67e8f9' : '#cbd5e1'}`, borderRadius: 12,
+  color: on ? '#155e75' : '#94a3b8', fontSize: 16, fontWeight: 700,
   cursor: on ? 'pointer' : 'not-allowed',
 });
 const btnReturnCollapsed = (on) => ({
-  padding: 12, background: on ? '#fffbeb' : '#f1f5f9',
-  border: `1.5px solid ${on ? '#fbbf24' : '#cbd5e1'}`, borderRadius: 10,
-  color: on ? '#92400e' : '#94a3b8', fontSize: 14, fontWeight: 700,
+  padding: 15, background: on ? '#fffbeb' : '#f1f5f9',
+  border: `1.5px solid ${on ? '#fbbf24' : '#cbd5e1'}`, borderRadius: 12,
+  color: on ? '#92400e' : '#94a3b8', fontSize: 16, fontWeight: 700,
   cursor: on ? 'pointer' : 'not-allowed',
 });
 const btnEstimate = (on) => ({
-  padding: 12, background: on ? '#f5f3ff' : '#f1f5f9',
-  border: `1.5px solid ${on ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 10,
-  color: on ? '#5b21b6' : '#94a3b8', fontSize: 14, fontWeight: 700,
+  padding: 15, background: on ? '#f5f3ff' : '#f1f5f9',
+  border: `1.5px solid ${on ? '#c4b5fd' : '#cbd5e1'}`, borderRadius: 12,
+  color: on ? '#5b21b6' : '#94a3b8', fontSize: 16, fontWeight: 700,
   cursor: on ? 'pointer' : 'not-allowed',
 });
 const btnBillIt = (on) => ({
-  padding: 12, background: on ? '#1B2A4A' : '#cbd5e1', border: 'none',
-  borderRadius: 10, color: '#ffffff', fontSize: 14, fontWeight: 700,
+  padding: 16, background: on ? '#1B2A4A' : '#cbd5e1', border: 'none',
+  borderRadius: 12, color: '#ffffff', fontSize: 16, fontWeight: 800,
   cursor: on ? 'pointer' : 'not-allowed',
 });
 const btnCancel = {
-  padding: 10, background: 'none', border: '1px solid #e5e7eb',
-  borderRadius: 10, color: '#9ca3af', fontSize: 13, cursor: 'pointer',
+  padding: 13, background: 'none', border: '1px solid #e5e7eb',
+  borderRadius: 12, color: '#9ca3af', fontSize: 15, cursor: 'pointer',
 };

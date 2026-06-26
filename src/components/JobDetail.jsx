@@ -439,19 +439,40 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           <input value={statusNote} onChange={e => setStatusNote(e.target.value)}
             placeholder="Add note for this change (optional)"
             style={{ width: '100%', background: '#0f1729', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0', padding: '8px 12px', fontSize: '13px', marginBottom: '8px', outline: 'none', boxSizing: 'border-box' }} />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {validNextStatuses.filter(s => s !== JOB_STATUS.ARCHIVED || isOperator).map(s => {
+          {(() => {
+            const suggested = new Set(validNextStatuses);
+            const allStatuses = Object.values(JOB_STATUS)
+              .filter(s => s !== job.status)
+              .filter(s => s !== JOB_STATUS.ARCHIVED || isOperator);
+            const renderBtn = (s, isSuggested) => {
               const info = STATUS_INFO[s];
+              if (!info) return null;
               return (
                 <button key={s} onClick={() => handleStatusChange(s)} disabled={actionInProgress !== null}
-                  style={{ background: `${info.color}15`, color: info.color, border: `1px solid ${info.color}30`, borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                  style={{ background: isSuggested ? `${info.color}25` : `${info.color}10`, color: info.color, border: `1px solid ${info.color}${isSuggested ? '60' : '20'}`, borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: isSuggested ? '700' : '500' }}>
                   {info.label}
                 </button>
               );
-            })}
-            <button onClick={() => setShowStatusPicker(false)}
-              style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
-          </div>
+            };
+            return (
+              <>
+                {allStatuses.some(s => suggested.has(s)) && (
+                  <>
+                    <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Suggested next</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                      {allStatuses.filter(s => suggested.has(s)).map(s => renderBtn(s, true))}
+                    </div>
+                  </>
+                )}
+                <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Or move to any status</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {allStatuses.filter(s => !suggested.has(s)).map(s => renderBtn(s, false))}
+                  <button onClick={() => setShowStatusPicker(false)}
+                    style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
     </>

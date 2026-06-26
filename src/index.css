@@ -94,3 +94,11 @@ a { color: #00c8e8; text-decoration: none; }
     padding-top: env(safe-area-inset-top);
   }
 }
+
+/* Mobile: enforce comfortable tap targets (iOS 44px minimum). */
+@media (max-width: 600px) {
+  button,
+  a[role="button"] {
+    min-height: 44px;
+  }
+}

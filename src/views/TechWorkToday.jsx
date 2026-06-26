@@ -46,8 +46,8 @@ function isProjectLike(title = '', description = '') {
 }
 
 const TABS = [
-  { key: 'new',    label: 'Today',   emoji: '📋', color: '#1a8a8a' },
-  { key: 'billit', label: 'Bill It', emoji: '✅', color: '#1B2A4A' },
+  { key: 'new',    label: 'Today',   emoji: '📋', color: '#00c8e8' },
+  { key: 'billit', label: 'Bill It', emoji: '✅', color: '#22c55e' },
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
@@ -189,19 +189,19 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', fontFamily: "'Inter', -apple-system, sans-serif" }}>
 
       {/* Header */}
-      <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>
+      <div style={{ background: '#0f1729', borderBottom: '1px solid #1e293b', position: 'sticky', top: 0, zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px 0' }}>
           <button onClick={onBack}
-            style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
             ← Home
           </button>
           <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
-          <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: '#e2e8f0' }}>{headerTitle}</div>
           <button onClick={load}
-            style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
+            style={{ marginLeft: 'auto', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
             ↻
           </button>
         </div>
@@ -209,27 +209,27 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         {/* Day nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px' }}>
           <button onClick={() => setOffset(o => o - 1)}
-            style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#374151', minWidth: 52 }}>‹</button>
+            style={{ background: '#1e293b', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#94a3b8', minWidth: 52 }}>‹</button>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontWeight: 800, fontSize: 17, color: offset === 0 ? '#1a8a8a' : '#1B2A4A' }}>{dayLabel()}</div>
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>
+            <div style={{ fontWeight: 800, fontSize: 17, color: offset === 0 ? '#00c8e8' : '#e2e8f0' }}>{dayLabel()}</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>
               {viewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
               {!loading && ' · ' + allEvents.length + ' total'}
             </div>
           </div>
           <button onClick={() => setOffset(o => o + 1)}
-            style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#374151', minWidth: 52 }}>›</button>
+            style={{ background: '#1e293b', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#94a3b8', minWidth: 52 }}>›</button>
         </div>
 
         {/* Four Tabs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #1e293b' }}>
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setTab(tab.key)}
               style={{
                 background: 'none', border: 'none',
                 borderBottom: activeTab === tab.key ? '3px solid ' + tab.color : '3px solid transparent',
                 padding: '12px 4px 10px', cursor: 'pointer', textAlign: 'center',
-                color: activeTab === tab.key ? tab.color : '#9ca3af',
+                color: activeTab === tab.key ? tab.color : '#64748b',
                 fontWeight: activeTab === tab.key ? 700 : 500, fontSize: 14,
               }}>
               <div style={{ fontSize: 20, marginBottom: 4 }}>{tab.emoji}</div>
@@ -237,8 +237,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               {tabCounts[tab.key] > 0 && (
                 <div style={{
                   display: 'inline-block', marginTop: 3,
-                  background: activeTab === tab.key ? tab.color : '#e5e7eb',
-                  color: activeTab === tab.key ? '#fff' : '#6b7280',
+                  background: activeTab === tab.key ? tab.color : '#334155',
+                  color: activeTab === tab.key ? '#fff' : '#94a3b8',
                   borderRadius: 10, fontSize: 11, fontWeight: 700, padding: '2px 8px',
                 }}>{tabCounts[tab.key]}</div>
               )}
@@ -249,12 +249,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
       {/* List */}
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
+        {loading && <div style={{ textAlign: 'center', padding: 48, color: '#64748b' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (
           <div style={{ textAlign: 'center', padding: 60 }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>{activeTab === 'new' && offset === 0 ? '🎉' : '📭'}</div>
-            <div style={{ color: '#6b7280', fontSize: 16, fontWeight: 600 }}>
+            <div style={{ color: '#94a3b8', fontSize: 16, fontWeight: 600 }}>
               {activeTab === 'new' && offset === 0 ? 'Nothing scheduled today' : activeTab === 'new' ? 'Nothing scheduled' : 'Nothing in ' + activeTabObj?.label}
             </div>
           </div>
@@ -270,15 +270,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           return (
             <div key={ev.id} onClick={() => openDetail(ev)}
               style={{
-                background: '#ffffff',
+                background: '#1e293b',
                 borderRadius: i === 0 && events.length === 1 ? 12 : i === 0 ? '12px 12px 0 0' : i === events.length - 1 ? '0 0 12px 12px' : 0,
                 padding: '18px 16px', cursor: 'pointer',
-                borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
-                borderLeft: '4px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
+                borderBottom: i < events.length - 1 ? '1px solid #0f1729' : 'none',
+                borderLeft: '4px solid ' + (techColor || (isNow ? '#00c8e8' : activeTabObj?.color || '#334155')),
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                {isNow && <div style={{ color: '#1a8a8a', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>In Progress</div>}
+                {isNow && <div style={{ color: '#00c8e8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>In Progress</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   {ev.techName && (
                     <span style={{ 
@@ -293,22 +293,22 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     </span>
                   )}
                   {ev.tab === 'return' && (
-                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Return</span>
+                    <span style={{ background: '#f59e0b20', color: '#f59e0b', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Return</span>
                   )}
                   {ev.tab === 'estimate' && (
-                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estimate</span>
+                    <span style={{ background: '#a78bfa20', color: '#a78bfa', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estimate</span>
                   )}
-                  <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 17, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name || '(no name)'}
                   </span>
                 </div>
-                <div style={{ fontSize: 14, color: '#6b7280' }}>
+                <div style={{ fontSize: 14, color: '#94a3b8' }}>
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                   {ev.location && ' · ' + ev.location.split(',')[0]}
                 </div>
-                {phone && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>📞 {phone}</div>}
+                {phone && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>📞 {phone}</div>}
               </div>
-              <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>
+              <div style={{ color: '#475569', fontSize: 26, marginLeft: 10 }}>›</div>
             </div>
           );
         })}

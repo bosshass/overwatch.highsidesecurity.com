@@ -9,7 +9,8 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi } from '../services/supabase.js';
+import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
+import { notifyJobAssigned } from '../services/pushNotifications.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -19,7 +20,7 @@ const GCAL = 'https://www.googleapis.com/calendar/v3';
 const ALL_STATUSES = [
   'new','needs_details','needs_parts','pending_materials','needs_estimate',
   'estimate_sent','won','lost','ready_to_schedule','scheduled','return_pending',
-  'complete','to_bill','billed','dead','archived',
+  'complete','to_bill','billed','blocked','dead','archived',
 ];
 
 // "Suggested" next step per status — used only to pick the ONE quick-move verb
@@ -365,6 +366,49 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
     }
   };
 
+  // ── Add note ────────────────────────────────
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteOk, setNoteOk] = useState(false);
+  const addNote = async () => {
+    const t = noteText.trim();
+    if (!t) return;
+    setSavingNote(true);
+    try {
+      await notesApi.addNote(job.id, t, 'board');
+      setNoteText('');
+      setNoteOk(true);
+      setTimeout(() => setNoteOk(false), 2000);
+    } catch (e) {
+      alert('Could not add note: ' + e.message);
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  // ── Assign (used especially when Blocked) ────
+  const [assigning, setAssigning] = useState(false);
+  const [typedAssignee, setTypedAssignee] = useState('');
+  const assignTo = async (tech) => {
+    if (!tech || !tech.name) return;
+    setAssigning(true);
+    try {
+      const upd = { tech_name: tech.name };
+      if (tech.id) upd.tech_assigned = tech.id;   // only set FK when a real tech row
+      const { error } = await supabase.from('jobs').update(upd).eq('id', job.id);
+      if (error) throw error;
+      try { notifyJobAssigned(tech.name, job.customer_name || 'a job', job.scheduled_date || null); } catch {}
+      try { await notesApi.addNote(job.id, `🚫 Assigned to ${tech.name}${job.status==='blocked'?' (BLOCKED — needs attention)':''}`, 'board'); } catch {}
+      onRenamed?.(job.id, job.customer_name); // trigger parent refresh of this job
+      setTypedAssignee('');
+      alert(`Assigned to ${tech.name}. They'll be notified if push is enabled on their device.`);
+    } catch (e) {
+      alert('Could not assign: ' + e.message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
       <div style={{ background:'#1e293b', borderRadius:'16px 16px 0 0', width:'100%', maxWidth:520, padding:'20px 20px 40px', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
@@ -426,6 +470,43 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             <div style={{ color:'#e2e8f0', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{job.issue}</div>
           </div>
         )}
+
+        {/* Add a note — works on any job */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>add note</div>
+          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={2} placeholder="Type a note…"
+            style={{ width:'100%', padding:10, borderRadius:8, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
+          <button onClick={addNote} disabled={savingNote||!noteText.trim()}
+            style={{ marginTop:6, padding:'8px 14px', borderRadius:8, border:'none', background:noteText.trim()?'#3b82f6':'#334155', color:'#fff', fontWeight:600, fontSize:13, cursor:noteText.trim()?'pointer':'not-allowed' }}>
+            {savingNote ? 'Saving…' : noteOk ? '✓ Added' : '+ Add note'}
+          </button>
+        </div>
+
+        {/* Assign to a user — emphasized when Blocked */}
+        <div style={{ marginBottom:14, padding:job.status==='blocked'?'12px':'0', borderRadius:8, background:job.status==='blocked'?'#dc262615':'transparent', border:job.status==='blocked'?'1px solid #dc262640':'none' }}>
+          <div style={{ color:job.status==='blocked'?'#dc2626':'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6, fontWeight:600 }}>
+            {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {(techs||[]).map(tech => (
+              <button key={tech.id} onClick={() => assignTo(tech)} disabled={assigning}
+                style={{ padding:'6px 12px', borderRadius:6, border:`1px solid ${job.tech_assigned===tech.id?'#22c55e':'#334155'}`, background:job.tech_assigned===tech.id?'#22c55e22':'transparent', color:job.tech_assigned===tech.id?'#22c55e':'#cbd5e1', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+                {job.tech_assigned===tech.id ? '✓ ' : ''}{tech.name}
+              </button>
+            ))}
+            {(!techs || techs.length === 0) && (
+              <div style={{ color:'#94a3b8', fontSize:12 }}>No team members loaded — type a name below.</div>
+            )}
+          </div>
+          {/* Typed-name fallback — always available */}
+          <div style={{ display:'flex', gap:6, marginTop:8 }}>
+            <input value={typedAssignee} onChange={e => setTypedAssignee(e.target.value)} placeholder="…or type a name"
+              onKeyDown={e => { if (e.key==='Enter' && typedAssignee.trim()) assignTo({ id:null, name:typedAssignee.trim() }); }}
+              style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
+            <button onClick={() => typedAssignee.trim() && assignTo({ id:null, name:typedAssignee.trim() })} disabled={assigning||!typedAssignee.trim()}
+              style={{ padding:'6px 12px', borderRadius:6, border:'none', background:typedAssignee.trim()?'#22c55e':'#334155', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>Assign</button>
+          </div>
+        </div>
 
         {/* Merge tool */}
         <MergeTool job={job} allJobs={allJobs} onMerge={onMerge} />
@@ -555,7 +636,21 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, []);
 
   const loadTechs = useCallback(async () => {
-    try { setTechs(await techsApi.getAll()); } catch(e) { console.warn('techs:', e); }
+    try {
+      let list = await techsApi.getAll();
+      // Fallback: if is_active filtering returned nothing, load every tech row
+      if (!list || list.length === 0) {
+        const { data } = await supabase.from('techs').select('*').order('name');
+        list = data || [];
+      }
+      setTechs(list);
+    } catch (e) {
+      console.warn('techs:', e);
+      try {
+        const { data } = await supabase.from('techs').select('*').order('name');
+        setTechs(data || []);
+      } catch {}
+    }
   }, []);
 
   useEffect(() => { loadJobs(); loadTechs(); }, [loadJobs, loadTechs]);

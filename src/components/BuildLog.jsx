@@ -9,6 +9,34 @@
 
 export const BUILDS = [
   {
+    version: '8.1.0',
+    date: '2026-06-26',
+    label: 'Overwatch — Full Release',
+    changes: [
+      // — Home & Board foundation (8.0) —
+      'New home screen — command cards, live job counts, one-tap navigation',
+      'Board runs on Supabase as the single source of truth — no more Google Calendar guesswork',
+      'Board lanes: Triage · Blocked · Ready · Returns · Scheduled · Estimates · To Bill',
+      'Tap a customer to link them; create a customer right on the job if missing',
+      'Merge / duplicate tool — mark a job dead and point it at the survivor',
+      'Scheduling stamps the calendar event back to the job, keeping them linked',
+      'Jobs keep their real dates — no more everything showing as "today"',
+      // — Board power-ups (8.1) —
+      'Edit a job title — tap the name to rename it',
+      'Move any job any direction — statuses are no longer one-way',
+      'Add a note to any job, right from the job detail',
+      'New "Blocked" status with its own red lane',
+      'Assign a job to a team member (or type a name) — with a notification',
+      'Cards show their CURRENT status as the bold tag, with the next step as a small "move →" chip',
+      // — Billing (8.1) —
+      'Billing rebuilt as a pipeline: Estimate Needed → Estimate Sent → Won, plus To Bill',
+      'Notes stay visible on every billing card until it is marked billed',
+      'Triage & Return removed from Billing — those live on the Board',
+      // — Calendar capture (8.1) —
+      'Appointments booked directly on Google Calendar are now captured — dispositioning one adopts it into a tracked job',
+    ],
+  },
+  {
     version: '8.0.0',
     date: '2026-06-25',
     label: 'NakedPM Board + Command Home',

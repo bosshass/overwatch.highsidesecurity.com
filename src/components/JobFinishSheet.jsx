@@ -121,6 +121,44 @@ export default function JobFinishSheet({
     if (!res.ok) throw new Error(`Calendar patch failed: ${res.status}`);
   };
 
+  // ── Adopt-on-disposition (Option C) ───────────────────────────────
+  // Every disposition must land on a real jobs row. If this calendar event
+  // was booked outside Overwatch (no jobs row), adopt it now: create the row
+  // from the event and stamp calendar_event_id. Dedupe on calendar_event_id
+  // so we never make a ghost. Returns the job id.
+  const DISPOSITION_STATUS = {
+    bill_it:     JOB_STATUS.TO_BILL,
+    estimate:    JOB_STATUS.NEEDS_ESTIMATE,
+    in_progress: JOB_STATUS.SCHEDULED,   // stays open / active
+    return:      JOB_STATUS.RETURN_PENDING,
+  };
+  const ensureJobForEvent = async (disposition) => {
+    const base = cleanTitle(event.title);
+    const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
+    let existing = null;
+    try {
+      const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
+      existing = data && data[0];
+    } catch (err) { console.warn('adopt: job lookup failed', err); }
+
+    if (existing) {
+      // Already tracked — just move it to the disposition's status.
+      await jobsApi.changeStatus(existing.id, target, userEmail, `${disposition} disposition from Work Today`);
+      return existing.id;
+    }
+    // Not tracked — adopt the calendar event into a new jobs row.
+    const created = await jobsApi.create({
+      customer_name:     linkedCustomer?.name || base,
+      customer_id:       linkedCustomer?.id || undefined,
+      status:            target,
+      issue:             notes.trim() || base || '',
+      customer_address:  event.location || '',
+      scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
+      calendar_event_id: event.id,
+    }, `${userEmail} · adopted from calendar`);
+    return created?.id || null;
+  };
+
   // ── Supabase write — every disposition routes through this ────────
   const writeTimeEntry = async (disposition) => {
     const payload = timeEntryToPayload(timeEntry, eventDate);
@@ -154,6 +192,15 @@ export default function JobFinishSheet({
       await patchTitle(newTitle);
       const entry = await writeTimeEntry(disposition);
 
+      // Adopt-on-disposition: ensure a jobs row exists for THIS event and
+      // move it to the right status — for every disposition, not just estimate.
+      // This captures appointments booked directly on Google Calendar.
+      try {
+        await ensureJobForEvent(disposition);
+      } catch (err) {
+        console.warn('adopt-on-disposition failed (time entry still saved):', err);
+      }
+
       if (disposition === 'return') {
         await returnCardsApi.create({
           customer_id:          linkedCustomer?.id || null,
@@ -167,28 +214,6 @@ export default function JobFinishSheet({
           reason:               extra.reason || null,
           time_entry_id:        entry?.id || null,
         });
-      }
-
-      if (disposition === 'estimate') {
-        // Disposition writes a row: send this job to "needs estimate" so it lands in the
-        // Estimate pipeline. Find the job behind this event; if none exists yet, create one.
-        let existing = null;
-        try {
-          const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
-          existing = data && data[0];
-        } catch (err) { console.warn('job lookup failed', err); }
-        if (existing) {
-          await jobsApi.changeStatus(existing.id, JOB_STATUS.NEEDS_ESTIMATE, userEmail, 'Estimate disposition from Work Today');
-        } else {
-          await jobsApi.create({
-            customer_name:     linkedCustomer?.name || base,
-            customer_id:       linkedCustomer?.id || undefined,
-            status:            JOB_STATUS.NEEDS_ESTIMATE,
-            issue:             notes.trim() || '',
-            customer_address:  event.location || '',
-            calendar_event_id: event.id,
-          }, `${userEmail} · PREVIEW`);
-        }
       }
 
       onFinished?.(disposition, newTitle);

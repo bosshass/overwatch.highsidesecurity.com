@@ -48,6 +48,25 @@ const STATUS_VERBS = Object.fromEntries(
   ALL_STATUSES.map(s => [s, ALL_STATUSES.filter(t => t !== s)])
 );
 
+// Move-to targets shown as the 6 board lanes (not 15 raw statuses).
+// Tapping a lane sends the card there. Estimates expands to its stages.
+const LANE_MOVES = [
+  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','needs_estimate'] },
+  { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', target:'blocked',           statuses:['blocked'] },
+  { key:'ready',     label:'✅ Ready',      color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule'] },
+  { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', target:'scheduled',         statuses:['scheduled'] },
+  { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
+  { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', target:'to_bill',           statuses:['complete','to_bill','billed'] },
+];
+
+// Estimate sub-stages, revealed when Estimates is tapped.
+const EST_STAGES = [
+  { status:'needs_estimate', label:'Needed', color:'#f59e0b' },
+  { status:'estimate_sent',  label:'Sent',   color:'#06b6d4' },
+  { status:'won',            label:'Won',    color:'#22c55e' },
+  { status:'lost',           label:'Lost',   color:'#6b7280' },
+];
+
 const COLUMNS = [
   { key:'triage',    label:'🔥 Triage',    color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','needs_estimate'] },
   { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', statuses:['blocked'] },
@@ -348,6 +367,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   const verbs = STATUS_VERBS[job.status] || [];
   const si = STATUS_INFO[job.status] || {};
   const [editingTitle, setEditingTitle] = useState(false);
+  const [showEstStages, setShowEstStages] = useState(false);
   const [titleVal, setTitleVal] = useState(job.customer_name || '');
   const [savingTitle, setSavingTitle] = useState(false);
 
@@ -520,18 +540,43 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           </button>
         )}
 
-        {/* Verb buttons — fire immediately, no note gate */}
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {verbs.map((verb, i) => {
-            const vsi = STATUS_INFO[verb] || {};
-            const isPrimary = i === 0;
-            return (
-              <button key={verb} onClick={() => onStatusMove(job.id, verb)} disabled={moving}
-                style={{ padding:12, borderRadius:8, border:isPrimary?'none':`1px solid ${vsi.color||'#334155'}`, background:isPrimary?(vsi.color||'#334155'):'transparent', color:isPrimary?'#fff':(vsi.color||'#94a3b8'), fontWeight:600, fontSize:13, cursor:'pointer', textAlign:'left', opacity:moving?0.6:1 }}>
-                {vsi.icon} → {vsi.label||verb}
-              </button>
-            );
-          })}
+        {/* Move to a lane — the 6 board buckets, not 15 raw statuses */}
+        <div>
+          <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6 }}>move to</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            {LANE_MOVES.map(lane => {
+              const isHere = lane.statuses.includes(job.status);
+              if (lane.key === 'estimates') {
+                return (
+                  <button key={lane.key} onClick={() => setShowEstStages(s => !s)} disabled={moving}
+                    style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:lane.color, fontWeight:700, fontSize:13, cursor:'pointer', gridColumn: showEstStages ? '1 / -1' : 'auto' }}>
+                    {lane.label} ▾
+                  </button>
+                );
+              }
+              return (
+                <button key={lane.key} onClick={() => onStatusMove(job.id, lane.target)} disabled={moving||isHere}
+                  style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}33`:'transparent', color:isHere?'#fff':lane.color, fontWeight:700, fontSize:13, cursor:isHere?'default':'pointer', opacity:moving?0.6:1 }}>
+                  {isHere ? '● ' : ''}{lane.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Estimates sub-stages — revealed on tap */}
+          {showEstStages && (
+            <div style={{ marginTop:8, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #f59e0b40' }}>
+              <div style={{ color:'#f59e0b', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:700 }}>Estimate stage</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                {EST_STAGES.map(st => (
+                  <button key={st.status} onClick={() => onStatusMove(job.id, st.status)} disabled={moving||job.status===st.status}
+                    style={{ padding:10, borderRadius:8, border:`1px solid ${st.color}`, background:job.status===st.status?`${st.color}33`:'transparent', color:job.status===st.status?'#fff':st.color, fontWeight:600, fontSize:12, cursor:'pointer' }}>
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

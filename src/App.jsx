@@ -31,7 +31,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '8.0.0';
+const APP_VERSION = '8.1.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 

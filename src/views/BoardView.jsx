@@ -50,10 +50,11 @@ const STATUS_VERBS = Object.fromEntries(
 
 const COLUMNS = [
   { key:'triage',    label:'🔥 Triage',    color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','needs_estimate'] },
+  { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', statuses:['blocked'] },
   { key:'ready',     label:'✅ Ready',      color:'#22c55e', statuses:['ready_to_schedule'] },
   { key:'returns',   label:'🔄 Returns',    color:'#06b6d4', statuses:['return_pending'] },
   { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', statuses:['estimate_sent'] },
+  { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', statuses:['estimate_sent','won'] },
   { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', statuses:['complete','to_bill'] },
 ];
 
@@ -558,17 +559,20 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
       </div>
       <div style={{ fontSize:12, color:'#64748b', marginBottom:6, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.issue||'no issue noted'}</div>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
-        <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-          <span style={{ fontSize:10, color:'#475569' }}>{job.job_type||'service'}</span>
+        <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
+          {/* CURRENT status — the prominent tag */}
+          <span style={{ fontSize:10, fontWeight:700, color:si.color||'#94a3b8', background:`${si.color||'#334155'}22`, padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
+            {si.icon} {si.label||job.status}
+          </span>
           {job.tech_name && <span style={{ fontSize:10, color:'#3b82f6' }}>· {job.tech_name}</span>}
           {job.estimate_amount>0 && <span style={{ fontSize:10, color:'#22c55e' }}>· {fmtMoney(job.estimate_amount)}</span>}
-          {/* Original date — not "today" */}
           <span style={{ fontSize:10, color:'#334155' }}>· {fmtDate(job.created_at)}</span>
         </div>
         {quickVerbs.length > 0 && (
           <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-            style={{ padding:'3px 8px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:10, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
-            → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+            title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
+            style={{ padding:'3px 8px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:10, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, opacity:0.8 }}>
+            move → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
           </button>
         )}
       </div>

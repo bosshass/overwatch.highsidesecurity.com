@@ -14,23 +14,38 @@ import NewJobModal from '../components/NewJobModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
-const STATUS_VERBS = {
-  new:               ['needs_details','needs_parts','needs_estimate','ready_to_schedule','dead'],
-  needs_details:     ['needs_parts','ready_to_schedule','dead'],
-  needs_parts:       ['pending_materials','ready_to_schedule'],
-  pending_materials: ['ready_to_schedule','needs_parts'],
-  needs_estimate:    ['estimate_sent','needs_parts','dead'],
-  estimate_sent:     ['won','lost'],
-  won:               ['needs_parts','ready_to_schedule'],
-  ready_to_schedule: ['scheduled','return_pending','needs_parts'],
-  scheduled:         ['complete','return_pending','needs_parts'],
-  return_pending:    ['scheduled','complete','dead'],
-  complete:          ['to_bill','billed'],
-  to_bill:           ['billed'],
-  billed:            ['archived'],
-  lost:              ['archived'],
-  dead:              ['archived'],
+// All statuses a job can be moved to. Order = the natural workflow,
+// but every status is reachable from any status (move any ticket anywhere).
+const ALL_STATUSES = [
+  'new','needs_details','needs_parts','pending_materials','needs_estimate',
+  'estimate_sent','won','lost','ready_to_schedule','scheduled','return_pending',
+  'complete','to_bill','billed','dead','archived',
+];
+
+// "Suggested" next step per status — used only to pick the ONE quick-move verb
+// shown on the card. The full move list is always every other status.
+const SUGGESTED_NEXT = {
+  new:               'ready_to_schedule',
+  needs_details:     'ready_to_schedule',
+  needs_parts:       'ready_to_schedule',
+  pending_materials: 'ready_to_schedule',
+  needs_estimate:    'estimate_sent',
+  estimate_sent:     'won',
+  won:               'ready_to_schedule',
+  ready_to_schedule: 'scheduled',
+  scheduled:         'complete',
+  return_pending:    'scheduled',
+  complete:          'to_bill',
+  to_bill:           'billed',
+  billed:            'archived',
+  lost:              'archived',
+  dead:              'archived',
 };
+
+// Every status can move to every OTHER status (no one-way lock).
+const STATUS_VERBS = Object.fromEntries(
+  ALL_STATUSES.map(s => [s, ALL_STATUSES.filter(t => t !== s)])
+);
 
 const COLUMNS = [
   { key:'triage',    label:'🔥 Triage',    color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','needs_estimate'] },
@@ -327,9 +342,28 @@ function SchedulerModal({ job, techs, accessToken, onScheduled, onClose }) {
 }
 
 // ── Detail drawer ─────────────────────────────────────────────────────────────
-function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge }) {
+function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed }) {
   const verbs = STATUS_VERBS[job.status] || [];
   const si = STATUS_INFO[job.status] || {};
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleVal, setTitleVal] = useState(job.customer_name || '');
+  const [savingTitle, setSavingTitle] = useState(false);
+
+  const saveTitle = async () => {
+    const next = titleVal.trim();
+    if (!next || next === job.customer_name) { setEditingTitle(false); return; }
+    setSavingTitle(true);
+    try {
+      const { error } = await supabase.from('jobs').update({ customer_name: next }).eq('id', job.id);
+      if (error) throw error;
+      onRenamed?.(job.id, next);
+      setEditingTitle(false);
+    } catch (e) {
+      alert('Could not rename: ' + e.message);
+    } finally {
+      setSavingTitle(false);
+    }
+  };
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
@@ -339,7 +373,20 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
           <div>
             <span style={{ fontSize:11, color:si.color||'#94a3b8', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>{si.icon} {si.label}</span>
-            <h3 style={{ margin:'4px 0 0', color:'#fff', fontSize:17 }}>{job.customer_name||'—'}</h3>
+            {editingTitle ? (
+              <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:4 }}>
+                <input autoFocus value={titleVal} onChange={e => setTitleVal(e.target.value)}
+                  onKeyDown={e => { if (e.key==='Enter') saveTitle(); if (e.key==='Escape') { setTitleVal(job.customer_name||''); setEditingTitle(false); } }}
+                  style={{ flex:1, padding:'6px 8px', borderRadius:6, border:'1px solid #475569', background:'#0f172a', color:'#fff', fontSize:16, boxSizing:'border-box' }} />
+                <button onClick={saveTitle} disabled={savingTitle} style={{ padding:'6px 10px', borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>{savingTitle?'…':'Save'}</button>
+                <button onClick={() => { setTitleVal(job.customer_name||''); setEditingTitle(false); }} style={{ padding:'6px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer' }}>✕</button>
+              </div>
+            ) : (
+              <h3 onClick={() => setEditingTitle(true)} title="Tap to rename"
+                style={{ margin:'4px 0 0', color:'#fff', fontSize:17, cursor:'text' }}>
+                {job.customer_name||'—'} <span style={{ fontSize:12, color:'#64748b' }}>✎</span>
+              </h3>
+            )}
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'#64748b', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
         </div>
@@ -415,7 +462,7 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
   const hasUUID = !!job.customer_id;
-  const quickVerbs = (STATUS_VERBS[job.status] || []).slice(0,1);
+  const quickVerbs = SUGGESTED_NEXT[job.status] ? [SUGGESTED_NEXT[job.status]] : [];
 
   return (
     <div onClick={() => onSelect(job)}
@@ -614,6 +661,10 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           onClose={() => setSelectedJob(null)}
           onUUIDLinked={handleUUIDLinked}
           onMerge={handleMerge}
+          onRenamed={(jobId, name) => {
+            setJobs(prev => prev.map(j => j.id===jobId ? {...j, customer_name:name} : j));
+            setSelectedJob(prev => prev?.id===jobId ? {...prev, customer_name:name} : prev);
+          }}
         />
       )}
 

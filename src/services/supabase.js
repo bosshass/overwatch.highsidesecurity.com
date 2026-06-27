@@ -43,6 +43,7 @@ export const JOB_STATUS = {
   ESTIMATE_SENT: 'estimate_sent',
   WON: 'won',
   LOST: 'lost',
+  BLOCKED: 'blocked',
   DEAD: 'dead',
   ARCHIVED: 'archived'
 };
@@ -63,6 +64,7 @@ export const STATUS_INFO = {
   [JOB_STATUS.ESTIMATE_SENT]: { label: 'Estimate Sent', color: '#06b6d4', icon: '📤' },
   [JOB_STATUS.WON]: { label: 'Won', color: '#22c55e', icon: '🎉' },
   [JOB_STATUS.LOST]: { label: 'Lost', color: '#6b7280', icon: '❌' },
+  [JOB_STATUS.BLOCKED]: { label: 'Blocked', color: '#dc2626', icon: '🚫' },
   [JOB_STATUS.DEAD]: { label: 'Dead', color: '#374151', icon: '☠️' },
   [JOB_STATUS.ARCHIVED]: { label: 'Archived', color: '#9ca3af', icon: '📁' }
 };

@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
+import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -187,7 +188,7 @@ function UUIDLinker({ job, onLinked }) {
 }
 
 // ── Merge/Duplicate finder ────────────────────────────────────────────────────
-function MergeTool({ job, allJobs, onMerge }) {
+function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(job.customer_name || '');
   const [saving, setSaving] = useState(false);
@@ -204,16 +205,56 @@ function MergeTool({ job, allJobs, onMerge }) {
   ).slice(0, 10);
 
   const merge = async (survivorId) => {
-    if (!window.confirm('Mark THIS job as dead and keep the other as the survivor?')) return;
+    if (!window.confirm('Merge THIS job into the other? Notes, issue, contact info and the calendar link carry over to the survivor; this one is marked dead.')) return;
     setSaving(true);
+    setErr('');
     try {
+      const survivor = allJobs.find(j => j.id === survivorId) || {};
+      const by = userEmail || 'board';
+
+      // 1) Carry the dead job's notes onto the survivor (never lose them)
+      try {
+        const deadNotes = await notesApi.getAllForJob(job.id);
+        for (const n of deadNotes.slice().reverse()) {
+          if (n.text?.trim()) {
+            await notesApi.addNote(survivorId, `↪ from merged job: ${n.text}`, by);
+          }
+        }
+      } catch (e) { console.warn('merge: note carry failed', e); }
+
+      // 2) Fill survivor gaps: issue, phone, address, and the calendar link
+      const upd = {};
+      if (!survivor.issue && job.issue) upd.issue = job.issue;
+      if (!survivor.customer_phone && job.customer_phone) upd.customer_phone = job.customer_phone;
+      if (!survivor.customer_address && job.customer_address) upd.customer_address = job.customer_address;
+      if (!survivor.calendar_event_id && job.calendar_event_id) {
+        upd.calendar_event_id = job.calendar_event_id;
+        if (job.calendar_id) upd.calendar_id = job.calendar_id;
+      }
+      if (Object.keys(upd).length) {
+        upd.updated_by = by;
+        await supabase.from('jobs').update(upd).eq('id', survivorId);
+      }
+
+      // 3) Move the dead job's calendar event to the Completed calendar (best-effort)
+      if (accessToken && job.calendar_event_id && job.calendar_id) {
+        try {
+          await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
+            { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+        } catch (e) { console.warn('merge: calendar move failed', e); }
+      }
+
+      // 4) Mark this job dead, pointing at the survivor
       const { error } = await supabase.from('jobs').update({
         status: 'dead',
         action_note: `Merged into job ${survivorId}`,
-        updated_by: 'info@drhsecurityservices.com',
+        updated_by: by,
         updated_at: new Date().toISOString(),
       }).eq('id', job.id);
       if (error) throw error;
+
       onMerge(job.id, survivorId);
       setOpen(false);
     } catch(e) { setErr(e.message); }
@@ -363,7 +404,7 @@ function SchedulerModal({ job, techs, accessToken, onScheduled, onClose }) {
 }
 
 // ── Detail drawer ─────────────────────────────────────────────────────────────
-function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed }) {
+function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail }) {
   const verbs = STATUS_VERBS[job.status] || [];
   const si = STATUS_INFO[job.status] || {};
   const [editingTitle, setEditingTitle] = useState(false);
@@ -391,15 +432,21 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [noteOk, setNoteOk] = useState(false);
+  const [jobNotes, setJobNotes] = useState([]);
+  const loadNotes = useCallback(async () => {
+    try { setJobNotes(await notesApi.getAllForJob(job.id)); } catch { setJobNotes([]); }
+  }, [job.id]);
+  useEffect(() => { loadNotes(); }, [loadNotes]);
   const addNote = async () => {
     const t = noteText.trim();
     if (!t) return;
     setSavingNote(true);
     try {
-      await notesApi.addNote(job.id, t, 'board');
+      await notesApi.addNote(job.id, t, userEmail || 'board');
       setNoteText('');
       setNoteOk(true);
       setTimeout(() => setNoteOk(false), 2000);
+      loadNotes();
     } catch (e) {
       alert('Could not add note: ' + e.message);
     } finally {
@@ -501,6 +548,20 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             style={{ marginTop:6, padding:'8px 14px', borderRadius:8, border:'none', background:noteText.trim()?'#3b82f6':'#334155', color:'#fff', fontWeight:600, fontSize:13, cursor:noteText.trim()?'pointer':'not-allowed' }}>
             {savingNote ? 'Saving…' : noteOk ? '✓ Added' : '+ Add note'}
           </button>
+
+          {/* Notes thread — shows the notes that were added */}
+          {jobNotes.length > 0 && (
+            <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
+              {jobNotes.map(n => (
+                <div key={n.id} style={{ background:'#0f172a', borderRadius:8, padding:'8px 10px', borderLeft:'2px solid #3b82f6' }}>
+                  <div style={{ color:'#cbd5e1', fontSize:12, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.text}</div>
+                  <div style={{ color:'#475569', fontSize:9, marginTop:3 }}>
+                    {n.created_by || 'unknown'} · {fmtDate(n.created_at)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Assign to a user — emphasized when Blocked */}
@@ -530,7 +591,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
         </div>
 
         {/* Merge tool */}
-        <MergeTool job={job} allJobs={allJobs} onMerge={onMerge} />
+        <MergeTool job={job} allJobs={allJobs} onMerge={onMerge} accessToken={accessToken} userEmail={userEmail} />
 
         {/* Optional scheduler for ready/return */}
         {(job.status==='ready_to_schedule'||job.status==='return_pending') && (
@@ -798,7 +859,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
 
       {selectedJob && (
         <DetailDrawer
-          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving}
+          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail}
           allJobs={jobs}
           onStatusMove={(jobId, verb) => { moveStatus(jobId, verb); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}

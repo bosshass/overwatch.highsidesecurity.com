@@ -88,15 +88,27 @@ Scope of Work: `;
 
   const selectCustomer = (customer) => {
     setSelectedCustomer(customer);
-    setForm(f => ({
-      ...f,
-      customer_name: customer.name,
-      customer_address: customer.address || '',
-      customer_phone: customer.phone || '',
-      gate_code: customer.gate_code || '',
-      panel_password: customer.panel_password || '',
-      cms_account_id: customer.cms_account_id || ''
-    }));
+    setForm(f => {
+      // If the issue is still the blank intake template, pre-fill the Name/Phone
+      // lines from the customer record so they don't have to retype known info.
+      let issue = f.issue;
+      if (issue && issue.includes('Name:') && issue.includes('Phone:')) {
+        issue = issue
+          .replace(/^Name:\s*$/m, `Name: ${customer.name || ''}`)
+          .replace(/^Phone:\s*$/m, `Phone: ${customer.phone || ''}`)
+          .replace(/^CMS #:\s*$/m, `CMS #: ${customer.cms_account_id || ''}`);
+      }
+      return {
+        ...f,
+        customer_name: customer.name,
+        customer_address: customer.address || '',
+        customer_phone: customer.phone || '',
+        gate_code: customer.gate_code || '',
+        panel_password: customer.panel_password || '',
+        cms_account_id: customer.cms_account_id || '',
+        issue,
+      };
+    });
     setShowCustomerSearch(false);
     setSearchQuery(customer.name);
   };

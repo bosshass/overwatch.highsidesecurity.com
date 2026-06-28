@@ -53,13 +53,21 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
     if (!scheduleDate) setScheduleDate(new Date().toISOString().split('T')[0]);
   }, []);
 
+  const INTAKE_TEMPLATE = `Name: 
+Phone: 
+On-Site Contact: 
+Contact Phone: 
+CMS #: 
+Access: ☐ Permission to enter without client present
+Scope of Work: `;
+
   const [form, setForm] = useState({
     customer_name: prefill?.customerName || '',
     customer_address: prefill?.address || '',
     customer_phone: '',
     job_type: prefill?.jobType || 'service_res',
     priority: 'normal',
-    issue: prefill?.issue || '',
+    issue: prefill?.issue || INTAKE_TEMPLATE,
     gate_code: '',
     panel_password: '',
     cms_account_id: ''
@@ -594,7 +602,7 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
         {/* 2. ISSUE */}
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Issue / Description</label>
-          <textarea value={form.issue} onChange={e => setForm(f => ({ ...f, issue: e.target.value }))} placeholder="What's the job?" rows={2} style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+          <textarea value={form.issue} onChange={e => setForm(f => ({ ...f, issue: e.target.value }))} placeholder="What's the job?" rows={8} style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} />
         </div>
 
 

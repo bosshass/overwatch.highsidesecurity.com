@@ -798,10 +798,10 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       }}>
         {(isOperator ? [
           { key: 'calendar', label: '📅 Calendar' },
-          { key: 'tasks', label: '📋 Tasks' },
+          { key: 'tasks', label: '📋 Tasks 🚧' },
         ] : [
           { key: 'calendar', label: '📅 Calendar' },
-          { key: 'tasks', label: '📋 My Day' },
+          { key: 'tasks', label: '📋 My Day 🚧' },
         ]).map(t => (
           <button key={t.key} onClick={() => {
             setMainTab(t.key);
@@ -976,6 +976,17 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       {/* ===== TASKS TAB ===== */}
       {mainTab === 'tasks' && (
         <>
+          <div style={{
+            margin: '10px 12px 0', padding: '10px 14px', borderRadius: 10,
+            background: 'repeating-linear-gradient(45deg, rgba(245,158,11,0.12) 0 12px, rgba(26,18,0,0.9) 12px 24px)',
+            border: '1px solid #f59e0b', display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{ fontSize: 16 }}>🚧</span>
+            <div>
+              <div style={{ color: '#f59e0b', fontWeight: 800, fontSize: 13 }}>Under Construction</div>
+              <div style={{ color: '#fbbf24', fontSize: 11, opacity: 0.85 }}>Scheduling from tasks is still being built — use the Board to schedule for now.</div>
+            </div>
+          </div>
           <div style={{
             display: 'flex', gap: '0', borderBottom: '1px solid #1e293b',
             position: 'sticky', top: '94px', background: '#0f1729', zIndex: 49

@@ -54,7 +54,20 @@ function BillingCard({ job, onMarkBilled, onAddNote, busy }) {
           </div>
         </div>
         {fmtMoney(job.estimate_amount) && (
-          <div style={{ color:'#22c55e', fontWeight:700, fontSize:16, whiteSpace:'nowrap' }}>{fmtMoney(job.estimate_amount)}</div>
+          <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
+            <div style={{ color:'#22c55e', fontWeight:700, fontSize:16 }}>{fmtMoney(job.estimate_amount)}</div>
+            {(() => {
+              // QBO figures are last-synced, not live. Flag age so nobody bills off a stale number.
+              const synced = job.synced_at ? new Date(job.synced_at) : null;
+              const days = synced ? Math.floor((Date.now() - synced.getTime()) / 86400000) : null;
+              const stale = days === null || days > 7;
+              return (
+                <div style={{ color: stale ? '#f59e0b' : '#64748b', fontSize:9, fontWeight:600, marginTop:2 }}>
+                  {stale ? '🚧 ' : ''}as of {synced ? fmtDate(job.synced_at) : 'unknown'}{stale ? ' · verify in QBO' : ''}
+                </div>
+              );
+            })()}
+          </div>
         )}
       </div>
 

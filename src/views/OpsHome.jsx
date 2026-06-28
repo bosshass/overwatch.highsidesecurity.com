@@ -97,6 +97,7 @@ export default function OpsHome({
       accent: C.amber,
       path: '/todos',
       show: true,
+      wip: true,
     },
     {
       label: 'Billing',
@@ -211,6 +212,16 @@ export default function OpsHome({
               </div>
               {/* Chevron */}
               <div style={{ color:'#4a5f7a', fontSize:22 }}>›</div>
+              {/* Under-construction corner badge (purely visual; tap still works) */}
+              {card.wip && (
+                <span style={{
+                  position:'absolute', top:8, right:8, zIndex:3,
+                  display:'inline-flex', alignItems:'center', gap:4,
+                  background:'#1a1200', border:'1px solid #f59e0b',
+                  color:'#f59e0b', fontSize:9, fontWeight:800,
+                  borderRadius:6, padding:'2px 7px', letterSpacing:0.3,
+                }}>🚧 Under Construction</span>
+              )}
             </button>
           ))}
         </div>

@@ -19,6 +19,7 @@ import ReconcileView from './views/ReconcileView.jsx';
 import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
+import SmsTest from './views/SmsTest.jsx';
 import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
@@ -625,6 +626,7 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 

@@ -559,7 +559,7 @@ export default function App() {
         }}>← Home</button>
         <img src="/overwatch-logo.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
-        <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
+        <span style={{ color: '#475569', fontSize: 11 }}>V8.2</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
           {isOperator && (
@@ -779,7 +779,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
-          <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
+          <span style={{ color: '#475569', fontSize: 11 }}>V8.2</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>

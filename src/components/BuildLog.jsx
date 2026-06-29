@@ -9,6 +9,24 @@
 
 export const BUILDS = [
   {
+    version: '8.2.0',
+    date: '2026-06-29',
+    label: 'Customer Lookup + Field Visits',
+    changes: [
+      // — Customer Lookup (rebuilt) —
+      'Customer Lookup rebuilt — search a customer and see EVERY calendar visit in one place: date, time, tech, disposition, hours, materials, and the full notes',
+      'Scattered name spellings now pull together — one customer is no longer split across "Jerry Allen Construction" and "ALLEN, JERRY/MARILYN"',
+      'Visits that were never tagged show up under the matching customer with a one-tap "Assign" button',
+      'Opening a customer from search now opens THAT customer (it used to jump to your last search)',
+      // — Event Audit —
+      'New Event Audit screen — work through calendar events and assign each one to the right customer account',
+      // — Board card —
+      "Job cards now show the FIELD VISIT — the tech's real notes, materials, hours, and disposition, right on the card (not just \"disposition from Work Today\")",
+      // — Behind the scenes —
+      'Dispositioning a job now tags the customer account automatically when it can match — less manual cleanup',
+    ],
+  },
+  {
     version: '8.1.0',
     date: '2026-06-26',
     label: 'Overwatch — Full Release',

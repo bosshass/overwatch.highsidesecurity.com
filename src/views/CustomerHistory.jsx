@@ -103,7 +103,7 @@ async function loadAllJobsForCustomer(customer) {
       supabase
         .from('jobs')
         .select('id, job_number, status, job_type, issue, created_at, customer_name, tech_name, scheduled_for, completed_at, time_in, time_out, actual_hours, completion_notes')
-        .ilike('customer_name', customer.name.trim())
+        .ilike('customer_name', `%${customer.name.trim().split(' ').filter(w => w.length >= 3).sort((a,b) => b.length - a.length)[0] || customer.name.trim()}%`)
         .order('created_at', { ascending: false })
     );
   }

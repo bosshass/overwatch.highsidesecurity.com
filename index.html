@@ -9,7 +9,7 @@
          reloads once — so nobody runs a stale bundle. -->
     <script>
       (function () {
-        var BUILD = '2026-06-29-24'; // ← bump this string each deploy to force all clients to refresh
+        var BUILD = '2026-06-29-23'; // ← bump this string each deploy to force all clients to refresh
         try {
           if (localStorage.getItem('ow_build') === BUILD) return;
           if (sessionStorage.getItem('ow_busting')) { localStorage.setItem('ow_build', BUILD); return; }

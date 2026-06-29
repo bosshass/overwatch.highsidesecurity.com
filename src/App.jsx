@@ -7,33 +7,23 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OfficeHub from './views/OfficeHub.jsx';
-import OpsHome from './views/OpsHome.jsx';
 import ThingsToDo from './views/ThingsToDo.jsx';
+import JobStatus from './views/JobStatus.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
 import Queue from './views/Queue.jsx';
 import Billing from './views/Billing.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
-import ReconcileView from './views/ReconcileView.jsx';
-import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
-import SmsTest from './views/SmsTest.jsx';
-import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
-import JobFinishSheet from './components/JobFinishSheet.jsx';
+import CompletionModal from './components/CompletionModal.jsx';
 import HelpBot from './components/HelpBot.jsx';
 import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
-import GlobalSearch from './components/GlobalSearch.jsx';
-import QuickNotes from './views/QuickNotes.jsx';
-import CustomerHistory from './views/CustomerHistory.jsx';
-import { StuckAlertGate } from './components/StuckAlerts.jsx';
-import { shouldShowGate } from './utils/alertEngine.js';
-import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '8.1.0';
+const APP_VERSION = '7.2.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -91,9 +81,6 @@ export default function App() {
   const [backfillLog, setBackfillLog] = useState([]);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [showAlertGate, setShowAlertGate] = useState(false);
-  const [showBuildLog, setShowBuildLog] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -151,8 +138,11 @@ export default function App() {
   useEffect(() => {
     const storedVersion = localStorage.getItem('juce_v4_version');
     if (storedVersion && storedVersion !== APP_VERSION) {
-      // New build detected — show changelog, clear session only after user taps "Got it"
-      setShowBuildLog(true);
+      localStorage.removeItem('juce_v4_token');
+      localStorage.removeItem('juce_v4_email');
+      localStorage.removeItem('juce_v4_expiry');
+      localStorage.removeItem('juce_v4_view');
+      localStorage.setItem('juce_v4_version', APP_VERSION);
       setIsLoading(false);
       return;
     }
@@ -317,15 +307,6 @@ export default function App() {
     navigate('/');
   }, [navigate]);
 
-  const handleBuildLogDismiss = useCallback(() => {
-    localStorage.removeItem('juce_v4_token');
-    localStorage.removeItem('juce_v4_email');
-    localStorage.removeItem('juce_v4_expiry');
-    localStorage.removeItem('juce_v4_view');
-    localStorage.setItem('juce_v4_version', APP_VERSION);
-    setShowBuildLog(false);
-  }, []);
-
   // ── AUTH: Silent token refresh ────────────────────────────────────────
   // Google tokens expire after ~1hr. Session lasts 36hrs.
   // On 401, silently get a new token via hidden iframe.
@@ -370,16 +351,6 @@ export default function App() {
       iframe.src = authUrl.toString();
     });
   }, [userEmail]);
-
-  // ── ALERT GATE: show for JR every 6 hours ──────────────────────────────
-  useEffect(() => {
-    if (!isSignedIn || !userEmail) return;
-    if (userEmail.toLowerCase() === 'jr@drhsecurityservices.com') {
-      if (shouldShowGate(userEmail)) {
-        setShowAlertGate(true);
-      }
-    }
-  }, [isSignedIn, userEmail]);
 
   // ── AUTH: Session expiry check (36hr) ───────────────────────────────────
   useEffect(() => {
@@ -434,83 +405,35 @@ export default function App() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f1729' }}>
         <div style={{ textAlign: 'center' }}>
-          <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 84, height: 84, marginBottom: 16, borderRadius: 16 }} />
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🛡️</div>
           <div style={{ color: '#00c8e8', fontSize: '14px' }}>Loading...</div>
         </div>
       </div>
     );
   }
 
-  // ── BUILD LOG ───────────────────────────────────────────────────────────
-  if (showBuildLog) {
-    return <BuildLog onDismiss={handleBuildLogDismiss} />;
-  }
-
   // ── LOGIN ───────────────────────────────────────────────────────────────
   if (!isSignedIn) {
-    const teal = '#2bb3b3';
-    const Reticle = ({ size, style }) => (
-      <svg width={size} height={size} viewBox="0 0 100 100" style={{ position: 'absolute', opacity: 0.28, pointerEvents: 'none', ...style }}>
-        <circle cx="50" cy="50" r="47" fill="none" stroke={teal} strokeWidth="0.7" strokeDasharray="1 3.2" />
-        <circle cx="50" cy="50" r="35" fill="none" stroke={teal} strokeWidth="0.6" />
-        <circle cx="50" cy="50" r="31" fill="none" stroke={teal} strokeWidth="0.5" strokeDasharray="2 5" />
-      </svg>
-    );
-
     return (
       <div style={{
         minHeight: '100vh', minHeight: '100dvh',
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        background: 'radial-gradient(120% 80% at 50% 0%, #0d1422 0%, #070a11 60%, #05070c 100%)',
-        padding: 'calc(56px + env(safe-area-inset-top)) 28px calc(28px + env(safe-area-inset-bottom))',
-        position: 'relative', overflow: 'hidden', textAlign: 'center',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'flex-start',
+        background: 'linear-gradient(135deg, #0f1729 0%, #1a2332 100%)',
+        padding: '15vh 24px 24px',
       }}>
-        {/* ambient reticles */}
-        <Reticle size={210} style={{ top: 70, right: -60 }} />
-        <Reticle size={150} style={{ top: 230, right: 30 }} />
-        <Reticle size={190} style={{ bottom: 120, left: -70 }} />
-        <Reticle size={120} style={{ bottom: 30, left: 30 }} />
-
-        {/* logo */}
-        <img src="/overwatch-logo.png" alt="Overwatch" style={{
-          width: 190, height: 'auto', marginBottom: 26, zIndex: 1,
-          filter: 'drop-shadow(0 14px 34px rgba(0,0,0,0.5))',
-        }} />
-
-        {/* wordmark */}
-        <h1 style={{
-          fontFamily: "'Playfair Display', Georgia, serif",
-          fontSize: 46, fontWeight: 800, color: '#fff', letterSpacing: 4,
-          margin: 0, lineHeight: 1, zIndex: 1,
-        }}>OVERWATCH</h1>
-        <div style={{ width: 132, height: 3, background: teal, borderRadius: 2, margin: '18px 0 16px', zIndex: 1 }} />
-        <p style={{ fontSize: 15, color: '#8b97a6', letterSpacing: 3, fontWeight: 600, margin: 0, zIndex: 1 }}>
-          DRH SECURITY COMMAND CENTER
-        </p>
-
-        {/* shield */}
-        <svg width="58" height="58" viewBox="0 0 24 24" fill="none" style={{ margin: '48px 0 26px', zIndex: 1 }}>
-          <path d="M12 2.5l7 2.6v5.4c0 4.6-3 8.4-7 9.5-4-1.1-7-4.9-7-9.5V5.1l7-2.6z" stroke={teal} strokeWidth="1.4" strokeLinejoin="round" />
-          <path d="M8.8 12.2l2.2 2.2 4-4.4" stroke={teal} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-
-        <h2 style={{ fontSize: 24, fontWeight: 800, color: '#fff', margin: '0 0 14px', zIndex: 1 }}>
-          Smart Security. Real Clarity.
-        </h2>
-        <p style={{ fontSize: 16, color: '#aeb8c4', margin: 0, lineHeight: 1.55, maxWidth: 360, zIndex: 1 }}>
-          Always sign in with Google.<br />
-          One clean login for field, office, and owner visibility.
-        </p>
-
-        {/* push button toward the bottom */}
-        <div style={{ flex: 1, minHeight: 28 }} />
-
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <img src="/overwatch-icon.png" alt="Overwatch" style={{ width: 120, height: 120, marginBottom: 20 }} />
+          <h1 style={{ fontSize: 32, marginBottom: 6, color: '#fff', fontWeight: 700 }}>DRH Security</h1>
+          <p style={{ fontSize: 18, color: '#00c8e8', margin: 0 }}>Overwatch</p>
+        </div>
         <button onClick={handleSignIn} style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-          padding: '17px 24px', fontSize: 17, fontWeight: 700,
-          background: '#fff', color: '#1B2A4A', border: 'none', borderRadius: 14,
-          cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-          width: '100%', maxWidth: 380, minHeight: 58, zIndex: 1,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+          padding: '16px 24px', fontSize: 16, fontWeight: 600,
+          background: 'white', color: '#333', border: 'none',
+          borderRadius: 12, cursor: 'pointer',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+          width: '100%', maxWidth: 360, minHeight: 56,
         }}>
           <svg width="22" height="22" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
@@ -518,26 +441,21 @@ export default function App() {
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          Continue with Google
+          Sign in with Google
         </button>
-
-        <p style={{ marginTop: 22, color: '#6b7787', fontSize: 13, lineHeight: 1.5, zIndex: 1 }}>
-          By continuing, you agree to the<br />
-          <span style={{ color: teal }}>Terms of Service</span> and <span style={{ color: teal }}>Privacy Policy</span>.
-        </p>
+        <p style={{ marginTop: 20, color: '#475569', fontSize: 12 }}>v{APP_VERSION}</p>
       </div>
     );
   }
 
-  // ── DEEP LINK: ?cal=X&job=Y → JobFinishSheet ─────────────────────────
+  // ── DEEP LINK: ?cal=X&job=Y → Completion Modal ─────────────────────────
   if (deepLinkCal && deepLinkJob) {
     return (
-      <DeepLinkFinish
+      <CompletionModal
         calendarId={deepLinkCal}
         eventId={deepLinkJob}
         accessToken={accessToken}
         userEmail={userEmail}
-        userName={getUserConfig(userEmail).name}
         onDone={() => navigate('/')}
       />
     );
@@ -556,7 +474,7 @@ export default function App() {
           color: '#e2e8f0', fontSize: 14, fontWeight: 700,
           padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
         }}>← Home</button>
-        <img src="/overwatch-logo.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
+        <span style={{ fontSize: 18 }}>🛡️</span>
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
         <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -586,7 +504,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={
-          <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
+          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} />
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
@@ -604,6 +522,7 @@ export default function App() {
         <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/billing" element={<Billing accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
+        <Route path="/jobs" element={<JobStatus onBack={() => navigate('/')} />} />
 
         <Route path="/newjob" element={
           <div style={{ minHeight: '100vh', background: '#0f1729' }}>
@@ -625,35 +544,15 @@ export default function App() {
         <Route path="/command" element={<OperatorOnly><ViewShell><CommandCenter accessToken={accessToken} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
         <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
-        <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
-        <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
-        <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
-        <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
-        <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate('/')} /></ViewShell>} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
-        <Route path="/admin/reconcile" element={<OperatorOnly><ReconcileView accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} onOpenFinish={(calId, jobId) => navigate(`/?cal=${encodeURIComponent(calId)}&job=${encodeURIComponent(jobId)}`)} onOpenPreview={() => navigate('/admin/preview')} /></OperatorOnly>} />
-        <Route path="/admin/preview" element={<OperatorOnly><PreviewChanges accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/admin/reconcile')} /></OperatorOnly>} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-
-      {/* Global Search */}
-      {showSearch && (
-        <GlobalSearch onClose={() => setShowSearch(false)} onNavigate={navigate} />
-      )}
-
-      {/* JR Alert Gate */}
-      {showAlertGate && (
-        <StuckAlertGate
-          accessToken={accessToken}
-          userEmail={userEmail}
-          onDismiss={() => setShowAlertGate(false)}
-        />
-      )}
 
       {/* Modals (render on top of any route) */}
       {showIdentityPicker && (
@@ -754,20 +653,14 @@ export default function App() {
 }
 
 // ── HOME SCREEN ───────────────────────────────────────────────────────────
-function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill, onSearch }) {
-  const techButtons = [
-    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill }) {
+  const allButtons = [
+    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a', techVisible: true },
+    { path: '/board',   emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706', techVisible: false },
+    { path: '/billing', emoji: '💰', label: 'Billing',         sub: 'Ready to invoice',                    color: '#a78bfa', dark: '#1e0a3c', border: '#7c3aed', techVisible: false },
+    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2', techVisible: true },
   ];
-  const operatorButtons = [
-    { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
-    { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
-    { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
-    { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
-  ];
-  const buttons = isRestricted ? techButtons : operatorButtons;
+  const buttons = isRestricted ? allButtons.filter(b => b.techVisible) : allButtons;
   return (
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{
@@ -775,7 +668,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         padding: '14px 16px', borderBottom: '1px solid #1e293b'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
+          <span style={{ fontSize: 22 }}>🛡️</span>
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
           <span style={{ color: '#475569', fontSize: 11 }}>V6.9</span>
         </div>
@@ -792,20 +685,9 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         </div>
       </div>
 
-      <div style={{ padding: '20px 20px 8px', textAlign: 'center' }}>
+      <div style={{ padding: '32px 20px 16px', textAlign: 'center' }}>
         <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
         <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
-      </div>
-
-      <div style={{ padding: '0 20px 12px' }}>
-        <button onClick={onSearch} style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-          background: '#1e293b', border: '1px solid #334155', borderRadius: 12,
-          padding: '12px 16px', cursor: 'pointer', textAlign: 'left'
-        }}>
-          <span style={{ fontSize: 16 }}>🔍</span>
-          <span style={{ color: '#475569', fontSize: 14 }}>Search customers, jobs, materials…</span>
-        </button>
       </div>
 
       <div style={{ padding: '8px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -826,12 +708,10 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         ))}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {(isRestricted ? [
+          {[
             { path: '/calendar', label: '📅 Calendar' },
-          ] : [
-            { path: '/billing', label: '💰 Billing' },
-            { path: '/newjob',  label: '➕ New Job' },
-          ]).map(({ path, label }) => (
+            ...(isOperator ? [{ path: '/dashboard', label: '📊 Dashboard' }] : []),
+          ].map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{
               flex: 1, background: '#1e293b', border: '1px solid #334155',
               borderRadius: 10, padding: '10px 8px', color: '#475569',
@@ -841,68 +721,5 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         </div>
       </div>
     </div>
-  );
-}
-
-// ── DEEP LINK FINISH ────────────────────────────────────────────────
-// Tech opens "📱 Open in Overwatch" link from a calendar event description.
-// We fetch the event from Google Calendar and hand it to JobFinishSheet.
-// JobFinishSheet writes the time entry, return card if needed, and patches the title.
-function DeepLinkFinish({ calendarId, eventId, accessToken, userEmail, userName, onDone }) {
-  const [event, setEvent] = useState(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!calendarId || !eventId || !accessToken) return;
-    fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    )
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then(data => {
-        setEvent({
-          id: data.id,
-          title: data.summary || '(no title)',
-          calendarId,
-          start: data.start?.dateTime || data.start?.date,
-          end: data.end?.dateTime || data.end?.date,
-          description: data.description || '',
-          location: data.location || '',
-        });
-      })
-      .catch(e => setError(e.message || 'Could not load job'));
-  }, [calendarId, eventId, accessToken]);
-
-  if (error) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24 }}>
-        <div style={{ fontSize: 48 }}>⚠️</div>
-        <div style={{ color: '#e2e8f0', fontSize: 16 }}>Could not load this job.</div>
-        <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center' }}>{error}</div>
-        <button onClick={onDone} style={{ marginTop: 12, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '10px 20px', cursor: 'pointer' }}>
-          Back to home
-        </button>
-      </div>
-    );
-  }
-
-  if (!event) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#64748b', fontSize: 14 }}>Loading job…</div>
-      </div>
-    );
-  }
-
-  return (
-    <JobFinishSheet
-      event={event}
-      accessToken={accessToken}
-      userEmail={userEmail}
-      userName={userName}
-      mode="full"
-      onFinished={onDone}
-      onCancel={onDone}
-    />
   );
 }

@@ -305,7 +305,7 @@ export const jobsApi = {
     const { data, error } = await supabase
       .from('jobs')
       .select('*')
-      .or(`customer_name.ilike.%${query}%,job_number.ilike.%${query}%,issue.ilike.%${query}%`)
+      .or(`customer_name.ilike.%${query}%,issue.ilike.%${query}%,customer_address.ilike.%${query}%,customer_phone.ilike.%${query}%`)
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) throw error;

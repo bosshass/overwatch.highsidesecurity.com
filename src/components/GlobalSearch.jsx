@@ -76,10 +76,10 @@ export default function GlobalSearch({ onClose, onNavigate }) {
       try {
         const { data } = await supabase
           .from('jobs')
-          .select('id, customer_name, customer_phone, job_number, status, customer_address')
-          .or(`customer_name.ilike.%${safe}%,job_number.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
+          .select('id, customer_name, customer_phone, p_number, status, customer_address')
+          .or(`customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
           .limit(8);
-        jobs = data || [];
+        jobs = (data || []).map(j => ({ ...j, job_number: j.p_number }));
       } catch (e) { console.warn('Job search failed:', e); }
 
       try {

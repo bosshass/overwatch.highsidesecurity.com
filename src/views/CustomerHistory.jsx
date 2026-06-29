@@ -6,6 +6,7 @@
 // - Catches customer_id-linked AND name-typed jobs
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { customersApi, supabase } from '../services/supabase.js';
 
 // ── helpers ──────────────────────────────────────────────────
@@ -169,6 +170,7 @@ let _stickySelected = null;
 let _stickyJobs = [];
 
 export default function CustomerHistory({ onBack }) {
+  const location = useLocation();
   const [query, setQuery]       = useState(_stickyQuery);
   const [results, setResults]   = useState(_stickyResults);
   const [searching, setSearching] = useState(false);
@@ -185,13 +187,13 @@ export default function CustomerHistory({ onBack }) {
 
   // Auto-search from GlobalSearch ?name= param
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const nameParam = params.get('name');
     if (nameParam && nameParam.length >= 2 && !_stickySelected) {
       setQuery(nameParam);
       runSearch(nameParam);
     }
-  }, []);
+  }, [location.search]);
 
   const runSearch = useCallback(async (q) => {
     if (!q || q.length < 2) { setResults([]); return; }

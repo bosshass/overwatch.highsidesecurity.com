@@ -16,6 +16,7 @@ import { notifyJobComplete, notifyStatusChange } from '../services/pushNotificat
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
 import ScheduleModal from './ScheduleModal.jsx';
+import RescheduleModal from './RescheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
 
 export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userEmail, userRole }) {
@@ -36,6 +37,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const [completionNotes, setCompletionNotes] = useState('');
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
 
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
@@ -214,8 +216,8 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           if (!a.calendar_event_id) continue;
           try {
             const techCalendars = [
-              CALENDARS.DRH_TECH_1, CALENDARS.JR_APPOINTMENT, CALENDARS.SHANA,
-              CALENDARS.INSTALLATIONS, CALENDARS.SARA_TASKS, CALENDARS.SERVICE_QUEUE
+              CALENDARS.DRH_TECH_1, CALENDARS.JR_APPOINTMENT, CALENDARS.TECH3, CALENDARS.SUBS,
+              CALENDARS.SHANA, CALENDARS.INSTALLATIONS, CALENDARS.SARA_TASKS, CALENDARS.SERVICE_QUEUE
             ];
             for (const srcCal of techCalendars) {
               try {
@@ -279,12 +281,23 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       const notes = completionData?.completionNotes || completionNotes;
       const timeIn = tArrived ? `${today}T${tArrived}:00` : null;
       const timeOut = tDeparted ? `${today}T${tDeparted}:00` : null;
+      const actualHours = (timeIn && timeOut)
+        ? (new Date(timeOut) - new Date(timeIn)) / (1000 * 60 * 60)
+        : null;
       const activeAssignment = assignments.find(a => !a.is_complete);
+      // Keep the assignment record in sync IF one exists (scheduling history)
       if (activeAssignment) {
         await assignmentsApi.markComplete(
           activeAssignment.id, timeIn, timeOut, notes || null, null, null
         );
       }
+      // SOURCE OF TRUTH: always write time to the JOB row, assignment or not.
+      // (changeStatus below writes completion_notes; this writes the time.)
+      await jobsApi.update(job.id, {
+        time_in: timeIn,
+        time_out: timeOut,
+        actual_hours: actualHours
+      }, userEmail);
       await jobsApi.changeStatus(job.id, pendingAction.toStatus, userEmail, notes || null);
       if (pendingAction.toStatus === JOB_STATUS.COMPLETED || pendingAction.toStatus === JOB_STATUS.ARCHIVED) {
         const techName = activeAssignment?.tech?.name || 'Tech';
@@ -586,6 +599,11 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           onScheduled={() => { setShowScheduleModal(false); loadJob(); onUpdate?.(); }}
           userEmail={userEmail} userRole={userRole} accessToken={accessToken} />
       )}
+      {showRescheduleModal && job && (
+        <RescheduleModal job={job} assignments={assignments} onClose={() => setShowRescheduleModal(false)}
+          onRescheduled={() => { setShowRescheduleModal(false); loadJob(); onUpdate?.(); }}
+          userEmail={userEmail} accessToken={accessToken} />
+      )}
       {showApprovalModal && job && (
         <InstallationApprovalModal job={job} assignments={assignments}
           onApprove={handleApproval} onCancel={() => setShowApprovalModal(false)}
@@ -783,6 +801,16 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
 
           {/* Notes */}
           <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+
+          {/* Reschedule — always visible for scheduled jobs */}
+          <button onClick={() => setShowRescheduleModal(true)}
+            style={{
+              width: '100%', padding: '12px', background: '#f59e0b15', border: '1px solid #f59e0b40',
+              borderRadius: '10px', color: '#f59e0b', fontSize: '14px', fontWeight: '600',
+              cursor: 'pointer', textAlign: 'center', marginBottom: '8px'
+            }}>
+            📅 Reschedule
+          </button>
 
           {/* Admin toggle */}
           {isOperator && (
@@ -1011,10 +1039,22 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </div>
         )}
 
-        {/* Notes */}
-        <div style={{ marginBottom: '16px' }}>
-          <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
-        </div>
+        {/* Time log fallback — job-row time when no assignment carries it (NakedPM) */}
+        {!assignments.some(a => a.time_in || a.time_out || a.actual_hours) && (job.time_in || job.time_out || job.actual_hours) && (
+          <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px' }}>
+            <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Time Log</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+              <div>
+                <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{job.tech_assigned || 'Logged'}</span>
+                {job.time_in && <span style={{ color: '#94a3b8', fontSize: '12px', marginLeft: '8px' }}>In: {formatTimeOnly(job.time_in)}</span>}
+                {job.time_out && <span style={{ color: '#94a3b8', fontSize: '12px', marginLeft: '8px' }}>Out: {formatTimeOnly(job.time_out)}</span>}
+              </div>
+              <div>
+                {job.actual_hours ? <span style={{ color: '#00c8e8', fontSize: '13px', fontWeight: '700' }}>{Number(job.actual_hours).toFixed(1)}h</span> : null}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Quick actions */}
         {quickActions.length > 0 && (
@@ -1037,6 +1077,18 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
               ))}
             </div>
           </div>
+        )}
+
+        {/* Reschedule — show for scheduled jobs in admin view */}
+        {job.status === JOB_STATUS.SCHEDULED && (
+          <button onClick={() => setShowRescheduleModal(true)}
+            style={{
+              width: '100%', padding: '12px 16px', background: '#f59e0b15', border: '1px solid #f59e0b40',
+              borderRadius: '10px', color: '#f59e0b', fontSize: '14px', fontWeight: '600',
+              cursor: 'pointer', textAlign: 'center', marginBottom: '12px'
+            }}>
+            📅 Reschedule
+          </button>
         )}
 
         {/* Duplicate merge */}

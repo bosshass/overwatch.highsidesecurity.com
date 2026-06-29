@@ -26,7 +26,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
-import { timeEntriesApi, returnCardsApi } from '../services/supabase.js';
+import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 
@@ -72,7 +72,8 @@ export default function JobFinishSheet({
   const eventDate     = event?.start ? new Date(event.start) : new Date();
   const timeValid     = isValidTimeEntry(timeEntry, eventDate);
   const hasCustomer   = !!linkedCustomer?.id;
-  const canFinish     = timeValid && hasCustomer && !acting;
+  const notesValid    = notes.trim().length >= 3;   // required: no blank completions
+  const canFinish     = timeValid && hasCustomer && notesValid && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
   // Patches the title and, when the tech left notes/materials, APPENDS them to
@@ -120,6 +121,44 @@ export default function JobFinishSheet({
     if (!res.ok) throw new Error(`Calendar patch failed: ${res.status}`);
   };
 
+  // ── Adopt-on-disposition (Option C) ───────────────────────────────
+  // Every disposition must land on a real jobs row. If this calendar event
+  // was booked outside Overwatch (no jobs row), adopt it now: create the row
+  // from the event and stamp calendar_event_id. Dedupe on calendar_event_id
+  // so we never make a ghost. Returns the job id.
+  const DISPOSITION_STATUS = {
+    bill_it:     JOB_STATUS.TO_BILL,
+    estimate:    JOB_STATUS.NEEDS_ESTIMATE,
+    in_progress: JOB_STATUS.SCHEDULED,   // stays open / active
+    return:      JOB_STATUS.RETURN_PENDING,
+  };
+  const ensureJobForEvent = async (disposition) => {
+    const base = cleanTitle(event.title);
+    const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
+    let existing = null;
+    try {
+      const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
+      existing = data && data[0];
+    } catch (err) { console.warn('adopt: job lookup failed', err); }
+
+    if (existing) {
+      // Already tracked — just move it to the disposition's status.
+      await jobsApi.changeStatus(existing.id, target, userEmail, `${disposition} disposition from Work Today`);
+      return existing.id;
+    }
+    // Not tracked — adopt the calendar event into a new jobs row.
+    const created = await jobsApi.create({
+      customer_name:     linkedCustomer?.name || base,
+      customer_id:       linkedCustomer?.id || undefined,
+      status:            target,
+      issue:             notes.trim() || base || '',
+      customer_address:  event.location || '',
+      scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
+      calendar_event_id: event.id,
+    }, `${userEmail} · adopted from calendar`);
+    return created?.id || null;
+  };
+
   // ── Supabase write — every disposition routes through this ────────
   const writeTimeEntry = async (disposition) => {
     const payload = timeEntryToPayload(timeEntry, eventDate);
@@ -152,6 +191,15 @@ export default function JobFinishSheet({
       const newTitle = `${base} ${TAG[disposition]}`;
       await patchTitle(newTitle);
       const entry = await writeTimeEntry(disposition);
+
+      // Adopt-on-disposition: ensure a jobs row exists for THIS event and
+      // move it to the right status — for every disposition, not just estimate.
+      // This captures appointments booked directly on Google Calendar.
+      try {
+        await ensureJobForEvent(disposition);
+      } catch (err) {
+        console.warn('adopt-on-disposition failed (time entry still saved):', err);
+      }
 
       if (disposition === 'return') {
         await returnCardsApi.create({
@@ -208,12 +256,15 @@ export default function JobFinishSheet({
         required
       />
 
-      {/* Notes */}
+      {/* Notes (required — blocks finish until filled) */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        📝 Notes — required {notesValid ? '✓' : ''}
+      </div>
       <textarea
         value={notes}
         onChange={e => setNotes(e.target.value)}
-        placeholder="Notes (what was done, what's needed...)"
-        style={textareaStyle}
+        placeholder="What was done / what's needed — required to finish"
+        style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
       {/* Materials */}
@@ -230,9 +281,11 @@ export default function JobFinishSheet({
       {/* Gate hint when not ready */}
       {!canFinish && !acting && (
         <div style={hintBox}>
-          {!hasCustomer && !timeValid && 'Link a customer and add time to finish.'}
-          {!hasCustomer && timeValid && 'Link a customer to finish.'}
-          {hasCustomer && !timeValid && 'Add a time entry to finish.'}
+          {`To finish, add: ${[
+            !hasCustomer && 'a linked customer',
+            !timeValid   && 'a time entry',
+            !notesValid  && 'notes',
+          ].filter(Boolean).join(', ')}.`}
         </div>
       )}
 

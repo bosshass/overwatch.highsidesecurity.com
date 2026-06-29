@@ -43,6 +43,7 @@ export const JOB_STATUS = {
   ESTIMATE_SENT: 'estimate_sent',
   WON: 'won',
   LOST: 'lost',
+  BLOCKED: 'blocked',
   DEAD: 'dead',
   ARCHIVED: 'archived'
 };
@@ -63,6 +64,7 @@ export const STATUS_INFO = {
   [JOB_STATUS.ESTIMATE_SENT]: { label: 'Estimate Sent', color: '#06b6d4', icon: '📤' },
   [JOB_STATUS.WON]: { label: 'Won', color: '#22c55e', icon: '🎉' },
   [JOB_STATUS.LOST]: { label: 'Lost', color: '#6b7280', icon: '❌' },
+  [JOB_STATUS.BLOCKED]: { label: 'Blocked', color: '#dc2626', icon: '🚫' },
   [JOB_STATUS.DEAD]: { label: 'Dead', color: '#374151', icon: '☠️' },
   [JOB_STATUS.ARCHIVED]: { label: 'Archived', color: '#9ca3af', icon: '📁' }
 };
@@ -664,6 +666,34 @@ export const queries = {
 //   - Billing queue: disposition='bill_it' AND billed=false
 //   - Project queue: disposition='in_progress'
 //   - Customer history: ORDER BY created_at DESC WHERE customer_id=x
+
+// ============================================
+// CANONICAL DISPOSITION VOCABULARY
+// ============================================
+// The app writes exactly four real states. Everything else — legacy calendar
+// tags, tech free-text, the "17k synonyms" pile (return / return trip /
+// return required, bill it / to bill / complete, billed / invoiced) — collapses
+// HERE, in one place, so no screen ever has to guess again.
+//
+//   bill_it      → ready to invoice
+//   return       → needs a return visit
+//   in_progress  → multi-day work, stays open
+//   estimate     → sales handoff
+//   skip         → terminal / already handled / ignore
+//   triage       → unknown, needs human eyes
+export const DISPOSITIONS = ['bill_it', 'return', 'in_progress', 'estimate'];
+
+export function normalizeDisposition(raw) {
+  if (!raw) return 'triage';
+  const t = String(raw).toUpperCase().replace(/[[\]]/g, ' ').trim();
+  // Order matters: 'billed/invoiced' (skip) must beat 'bill' (bill_it).
+  if (/\b(BILLED|INVOICED?|IGNORED?|SKIP|SCHEDULED|ARCHIVED?)\b/.test(t)) return 'skip';
+  if (/\bRETURN\b/.test(t)) return 'return';                       // return · return trip · return needed · return required
+  if (/\b(ESTIMATE|SALES|QUOTE|BID)\b/.test(t)) return 'estimate';
+  if (/\b(IN ?PROGRESS|ONGOING|MULTI[- ]?DAY)\b/.test(t)) return 'in_progress';
+  if (/\b(BILL ?IT|TO ?BILL|BILL|COMPLETED?|DONE|INSTALL(?:ATION)?|NO ?CHARGE|NC)\b/.test(t)) return 'bill_it';
+  return 'triage';
+}
 
 export const timeEntriesApi = {
   // Create a time entry from a finish action

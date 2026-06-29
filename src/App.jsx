@@ -7,6 +7,7 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OfficeHub from './views/OfficeHub.jsx';
+import OpsHome from './views/OpsHome.jsx';
 import ThingsToDo from './views/ThingsToDo.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
@@ -14,8 +15,11 @@ import Queue from './views/Queue.jsx';
 import Billing from './views/Billing.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
+import ReconcileView from './views/ReconcileView.jsx';
+import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Scheduler from './views/Scheduler.jsx';
+import SmsTest from './views/SmsTest.jsx';
 import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
@@ -26,8 +30,9 @@ import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
+import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '7.2.1';
+const APP_VERSION = '8.1.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -87,6 +92,7 @@ export default function App() {
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showAlertGate, setShowAlertGate] = useState(false);
+  const [showBuildLog, setShowBuildLog] = useState(false);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -144,11 +150,8 @@ export default function App() {
   useEffect(() => {
     const storedVersion = localStorage.getItem('juce_v4_version');
     if (storedVersion && storedVersion !== APP_VERSION) {
-      localStorage.removeItem('juce_v4_token');
-      localStorage.removeItem('juce_v4_email');
-      localStorage.removeItem('juce_v4_expiry');
-      localStorage.removeItem('juce_v4_view');
-      localStorage.setItem('juce_v4_version', APP_VERSION);
+      // New build detected — show changelog, clear session only after user taps "Got it"
+      setShowBuildLog(true);
       setIsLoading(false);
       return;
     }
@@ -313,6 +316,15 @@ export default function App() {
     navigate('/');
   }, [navigate]);
 
+  const handleBuildLogDismiss = useCallback(() => {
+    localStorage.removeItem('juce_v4_token');
+    localStorage.removeItem('juce_v4_email');
+    localStorage.removeItem('juce_v4_expiry');
+    localStorage.removeItem('juce_v4_view');
+    localStorage.setItem('juce_v4_version', APP_VERSION);
+    setShowBuildLog(false);
+  }, []);
+
   // ── AUTH: Silent token refresh ────────────────────────────────────────
   // Google tokens expire after ~1hr. Session lasts 36hrs.
   // On 401, silently get a new token via hidden iframe.
@@ -426,6 +438,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // ── BUILD LOG ───────────────────────────────────────────────────────────
+  if (showBuildLog) {
+    return <BuildLog onDismiss={handleBuildLogDismiss} />;
   }
 
   // ── LOGIN ───────────────────────────────────────────────────────────────
@@ -568,7 +585,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={
-          <HomeScreen userName={userName} isOperator={isOperator} isRestricted={isRestricted} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
+          <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
@@ -609,11 +626,14 @@ export default function App() {
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
+        <Route path="/admin/reconcile" element={<OperatorOnly><ReconcileView accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} onOpenFinish={(calId, jobId) => navigate(`/?cal=${encodeURIComponent(calId)}&job=${encodeURIComponent(jobId)}`)} onOpenPreview={() => navigate('/admin/preview')} /></OperatorOnly>} />
+        <Route path="/admin/preview" element={<OperatorOnly><PreviewChanges accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/admin/reconcile')} /></OperatorOnly>} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />

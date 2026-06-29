@@ -15,6 +15,7 @@ import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIO
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
+import FieldVisits from './FieldVisits.jsx';
 import ScheduleModal from './ScheduleModal.jsx';
 import RescheduleModal from './RescheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
@@ -801,6 +802,9 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
 
           {/* Notes */}
           <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+
+          {/* Field visits — the tech's actual time_entry (notes/materials/hours) */}
+          <FieldVisits job={job} />
 
           {/* Reschedule — always visible for scheduled jobs */}
           <button onClick={() => setShowRescheduleModal(true)}

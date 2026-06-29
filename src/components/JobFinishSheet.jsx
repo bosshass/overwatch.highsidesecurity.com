@@ -192,6 +192,22 @@ export default function JobFinishSheet({
       await patchTitle(newTitle);
       const entry = await writeTimeEntry(disposition);
 
+      // Auto-stamp the registry P-code: match the linked (old) customer to a
+      // registry master account by CS# (drh_id -> cs_legacy). Unique match only,
+      // fully guarded — never blocks the disposition, never guesses a customer.
+      try {
+        const drhId = linkedCustomer?.drh_id;
+        if (drhId && entry?.id) {
+          const { data: reg } = await supabase
+            .from('customer_registry').select('code')
+            .eq('cs_legacy', String(drhId)).limit(2);
+          if (reg && reg.length === 1) {
+            await supabase.from('time_entries')
+              .update({ registry_id: reg[0].code }).eq('id', entry.id);
+          }
+        }
+      } catch (err) { console.warn('registry auto-stamp skipped:', err); }
+
       // Adopt-on-disposition: ensure a jobs row exists for THIS event and
       // move it to the right status — for every disposition, not just estimate.
       // This captures appointments booked directly on Google Calendar.

@@ -1,12 +1,12 @@
 // ============================================
 // Overwatch — Customer History
 // ============================================
-// Search any customer (linked or name-only).
-// Shows every job + every note, all time, in one thread.
-// Catches BOTH customer_id-linked jobs AND name-typed jobs.
+// - Searches by name AND address
+// - State stays sticky when viewing a job and going back
+// - Catches customer_id-linked AND name-typed jobs
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { customersApi, notesApi, supabase } from '../services/supabase.js';
+import { customersApi, supabase } from '../services/supabase.js';
 
 // ── helpers ──────────────────────────────────────────────────
 
@@ -48,86 +48,90 @@ const STATUS_COLORS = {
   won: '#22c55e', lost: '#ef4444', dead: '#334155',
 };
 
+function safeKeyword(str) {
+  if (!str) return null;
+  const words = str.trim().split(/\s+/).filter(w => w.length >= 4);
+  return (words[0] || str.trim()).replace(/[%,()*']/g, '');
+}
+
 // ── data fetching ────────────────────────────────────────────
 
-// Search jobs by name — catches both linked and unlinked jobs
-async function searchJobsByName(query) {
-  if (!query || query.length < 2) return [];
-  const safe = query.replace(/[%,()*]/g, ' ').trim()
-    .split(' ').filter(w => w.length >= 2)
-    .sort((a, b) => b.length - a.length)[0] || query;
+async function searchCustomers(q) {
+  const safe = q.replace(/[%,()*']/g, ' ').trim();
+  if (safe.length < 2) return { linked: [], nameOnly: [] };
+
+  // 1. Linked customers (customers table) — by name, phone, address
+  let linked = [];
+  try {
+    linked = await customersApi.search(q);
+  } catch (_) {}
+
+  // 2. Name-only jobs (no customer_id) — by name OR address
+  let nameOnly = [];
+  try {
+    const { data } = await supabase
+      .from('jobs')
+      .select('customer_name, customer_id, customer_phone, customer_address')
+      .is('customer_id', null)
+      .or(`customer_name.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
+      .order('customer_name')
+      .limit(200);
+
+    const seen = new Set();
+    const linkedNames = new Set(linked.map(c => c.name?.toLowerCase().trim()));
+    nameOnly = (data || []).filter(j => {
+      const key = j.customer_name?.toLowerCase().trim();
+      if (!key || seen.has(key) || linkedNames.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map(j => ({
+      id: null,
+      name: j.customer_name,
+      phone: j.customer_phone,
+      address: j.customer_address,
+      _nameOnly: true,
+    }));
+  } catch (_) {}
+
+  return { linked, nameOnly };
+}
+
+async function loadAllJobsForCustomer(customer) {
+  const nameKw = safeKeyword(customer.name);
+  const addrKw = safeKeyword(customer.address);
+
+  // Build OR clause: customer_id match + name fuzzy + address fuzzy
+  const orParts = [];
+  if (customer.id) orParts.push(`customer_id.eq.${customer.id}`);
+  if (nameKw)      orParts.push(`customer_name.ilike.%${nameKw}%`);
+  if (addrKw)      orParts.push(`customer_address.ilike.%${addrKw}%`);
+
+  if (!orParts.length) return [];
 
   const { data, error } = await supabase
     .from('jobs')
-    .select('customer_name, customer_id, customer_phone, customer_address')
-    .ilike('customer_name', `%${safe}%`)
-    .is('customer_id', null)
-    .order('customer_name')
-    .limit(200);
-  if (error) return [];
-
-  const seen = new Set();
-  return (data || []).filter(j => {
-    const key = j.customer_name?.toLowerCase().trim();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).map(j => ({
-    id: null,
-    name: j.customer_name,
-    phone: j.customer_phone,
-    address: j.customer_address,
-    _nameOnly: true,
-  }));
-}
-
-// Load ALL jobs for a customer — by customer_id AND by name match
-// This is the key fix: most jobs have customer_id=null even for known customers
-async function loadAllJobsForCustomer(customer) {
-  const keyword = customer.name
-    ? customer.name.trim().split(/\s+/).filter(w => w.length >= 4)[0] || customer.name.trim()
-    : null;
-
-  // Single query: by customer_id OR by name — catches both linked and name-typed jobs
-  // Uses select('*') to avoid silent failures from missing columns
-  let query = supabase
-    .from('jobs')
     .select('*')
+    .or(orParts.join(','))
     .order('created_at', { ascending: false })
     .limit(500);
 
-  if (customer.id && keyword) {
-    query = query.or(`customer_id.eq.${customer.id},customer_name.ilike.%${keyword}%`);
-  } else if (customer.id) {
-    query = query.eq('customer_id', customer.id);
-  } else if (keyword) {
-    query = query.ilike('customer_name', `%${keyword}%`);
-  }
+  if (error) { console.error('CustomerHistory job query error:', error); return []; }
 
-  const { data, error } = await query;
-  if (error) {
-    console.error('CustomerHistory job query error:', error);
-    return [];
-  }
-
-  // Dedupe by id, sort newest first
   const seen = new Set();
   return (data || []).filter(j => {
     if (seen.has(j.id)) return false;
     seen.add(j.id);
     return true;
-  }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  });
 }
 
-// Load notes for a single job from job_history + completion_notes
-async function loadJobNotes(job) {
+async function loadJobNotes(jobId) {
   const notes = [];
 
-  // From job_history (status changes with notes)
   const { data: history } = await supabase
     .from('job_history')
     .select('id, notes, changed_at, changed_by, from_status, to_status')
-    .eq('job_id', job.id)
+    .eq('job_id', jobId)
     .not('notes', 'is', null)
     .order('changed_at', { ascending: false });
 
@@ -144,49 +148,46 @@ async function loadJobNotes(job) {
     }
   }
 
-  // From completion_notes on the job itself
-  if (job.completion_notes?.trim()) {
-    notes.push({
-      id: `completion-${job.id}`,
-      text: job.completion_notes,
-      created_at: job.completed_at || job.created_at,
-      created_by: null,
-      from_status: null,
-      to_status: 'completed',
-    });
-  }
-
   notes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return notes;
 }
 
 async function loadFullHistory(customer) {
   const jobs = await loadAllJobsForCustomer(customer);
-  const withNotes = await Promise.all(
-    jobs.map(async job => ({
-      ...job,
-      notes: await loadJobNotes(job),
-    }))
-  );
-  return withNotes;
+  return Promise.all(jobs.map(async job => ({
+    ...job,
+    notes: await loadJobNotes(job.id),
+  })));
 }
 
 // ── component ────────────────────────────────────────────────
 
+// Sticky state — persists across back navigation within the same session
+let _stickyQuery = '';
+let _stickyResults = [];
+let _stickySelected = null;
+let _stickyJobs = [];
+
 export default function CustomerHistory({ onBack }) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
+  const [query, setQuery]       = useState(_stickyQuery);
+  const [results, setResults]   = useState(_stickyResults);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [jobs, setJobs] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(_stickySelected);
+  const [jobs, setJobs]         = useState(_stickyJobs);
+  const [loading, setLoading]   = useState(false);
   const debounceRef = useRef(null);
 
-  // Auto-search if navigated here from GlobalSearch with ?name= param
+  // Sync sticky state on every change
+  useEffect(() => { _stickyQuery = query; }, [query]);
+  useEffect(() => { _stickyResults = results; }, [results]);
+  useEffect(() => { _stickySelected = selected; }, [selected]);
+  useEffect(() => { _stickyJobs = jobs; }, [jobs]);
+
+  // Auto-search from GlobalSearch ?name= param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const nameParam = params.get('name');
-    if (nameParam && nameParam.length >= 2) {
+    if (nameParam && nameParam.length >= 2 && !_stickySelected) {
       setQuery(nameParam);
       runSearch(nameParam);
     }
@@ -196,14 +197,8 @@ export default function CustomerHistory({ onBack }) {
     if (!q || q.length < 2) { setResults([]); return; }
     setSearching(true);
     try {
-      const [linked, nameOnly] = await Promise.all([
-        customersApi.search(q),
-        searchJobsByName(q),
-      ]);
-      // Linked customers first, then name-only orphans (deduped by name)
-      const linkedNames = new Set(linked.map(c => c.name?.toLowerCase().trim()));
-      const filtered = nameOnly.filter(n => !linkedNames.has(n.name?.toLowerCase().trim()));
-      setResults([...linked, ...filtered]);
+      const { linked, nameOnly } = await searchCustomers(q);
+      setResults([...linked, ...nameOnly]);
     } catch (_) {
       setResults([]);
     } finally {
@@ -221,7 +216,6 @@ export default function CustomerHistory({ onBack }) {
   const selectCustomer = async (customer) => {
     setSelected(customer);
     setResults([]);
-    setQuery('');
     setLoading(true);
     try {
       const jobData = await loadFullHistory(customer);
@@ -235,9 +229,19 @@ export default function CustomerHistory({ onBack }) {
 
   const clearSelection = () => {
     setSelected(null);
+    _stickySelected = null;
     setJobs([]);
-    setQuery('');
-    setResults([]);
+    _stickyJobs = [];
+    // Keep query + results so search stays sticky
+  };
+
+  const handleBack = () => {
+    if (selected) { clearSelection(); }
+    else {
+      // Full reset on leaving the screen
+      _stickyQuery = ''; _stickyResults = []; _stickySelected = null; _stickyJobs = [];
+      onBack();
+    }
   };
 
   const totalNotes = jobs.reduce((sum, j) => sum + (j.notes?.length || 0), 0);
@@ -247,7 +251,7 @@ export default function CustomerHistory({ onBack }) {
 
       {/* Header */}
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: '12px', position: 'sticky', top: 0, background: '#0f1729', zIndex: 10 }}>
-        <button onClick={selected ? clearSelection : onBack}
+        <button onClick={handleBack}
           style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '16px', cursor: 'pointer', padding: '4px 0' }}>←</button>
         <div style={{ fontSize: '16px', fontWeight: '700', color: '#e2e8f0' }}>
           {selected ? selected.name : '👤 Customer History'}
@@ -323,7 +327,7 @@ export default function CustomerHistory({ onBack }) {
                   <div style={{ color: '#00c8e8', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>{selected.drh_id}</div>
                 )}
                 {selected._nameOnly && (
-                  <div style={{ color: '#f59e0b', fontSize: '11px', marginBottom: '4px' }}>⚠️ No customer ID — name match only</div>
+                  <div style={{ color: '#f59e0b', fontSize: '11px', marginBottom: '4px' }}>⚠️ No customer ID</div>
                 )}
                 <div style={{ color: '#64748b', fontSize: '13px' }}>
                   {selected.phone && <div>📞 {selected.phone}</div>}
@@ -344,14 +348,12 @@ export default function CustomerHistory({ onBack }) {
           </div>
         )}
 
-        {/* ── LOADING ── */}
         {loading && (
           <div style={{ textAlign: 'center', color: '#64748b', padding: '60px 0', fontSize: '14px' }}>
             Loading history...
           </div>
         )}
 
-        {/* ── EMPTY ── */}
         {!loading && selected && jobs.length === 0 && (
           <div style={{ textAlign: 'center', color: '#64748b', padding: '40px 0', fontSize: '14px' }}>
             No jobs found for this customer.
@@ -361,11 +363,8 @@ export default function CustomerHistory({ onBack }) {
         {/* ── JOB + NOTE THREAD ── */}
         {!loading && jobs.map((job) => {
           const statusColor = STATUS_COLORS[job.status] || '#475569';
-
           return (
             <div key={job.id} style={{ marginBottom: '20px' }}>
-
-              {/* Job header */}
               <div style={{
                 background: '#1e293b', borderRadius: '12px 12px 0 0',
                 padding: '14px 16px', borderLeft: `3px solid ${statusColor}`
@@ -376,14 +375,14 @@ export default function CustomerHistory({ onBack }) {
                       {job.issue || job.job_type?.replace(/_/g, ' ') || 'Job'}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {job.job_number && (
-                        <span style={{ color: '#38bdf8', fontSize: '11px' }}>{job.job_number}</span>
-                      )}
+                      {job.job_number && <span style={{ color: '#38bdf8', fontSize: '11px' }}>{job.job_number}</span>}
                       {(job.tech_name || job.tech_assigned) && (
                         <span style={{ color: '#94a3b8', fontSize: '11px' }}>👷 {job.tech_name || job.tech_assigned}</span>
                       )}
                       {job.scheduled_for && (
-                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {new Date(job.scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} {new Date(job.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>
+                          📅 {new Date(job.scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
                       )}
                       {job.actual_hours > 0 && (
                         <span style={{ color: '#00c8e8', fontSize: '11px' }}>⏱ {Number(job.actual_hours).toFixed(1)}h</span>
@@ -405,7 +404,6 @@ export default function CustomerHistory({ onBack }) {
                 </div>
               </div>
 
-              {/* Notes thread */}
               <div style={{
                 background: '#0f172a', borderRadius: '0 0 12px 12px',
                 border: '1px solid #1e293b', borderTop: 'none'
@@ -426,9 +424,9 @@ export default function CustomerHistory({ onBack }) {
                     <div style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
                       {note.text}
                     </div>
-                    {(note.from_status || note.to_status) && note.to_status !== note.from_status && (
+                    {note.from_status && note.to_status && note.from_status !== note.to_status && (
                       <div style={{ color: '#334155', fontSize: '10px', marginTop: '4px' }}>
-                        {note.from_status?.replace(/_/g, ' ')} → {note.to_status?.replace(/_/g, ' ')}
+                        {note.from_status.replace(/_/g, ' ')} → {note.to_status.replace(/_/g, ' ')}
                       </div>
                     )}
                   </div>

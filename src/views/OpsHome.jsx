@@ -246,6 +246,7 @@ export default function OpsHome({
           { icon:'⌂', label:'Home',  path:'/',      active:true },
           { icon:'✓', label:'Today', path:'/work',  active:false },
           { icon:'▤', label:'Board', path:'/board', active:false },
+          { icon:'👤', label:'Clients', path:'/customers', active:false },
           { icon:'📅', label:'Cal',  path:'/calendar', active:false },
         ].map(t => (
           <button key={t.path} onClick={() => go(t.path)}

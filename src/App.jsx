@@ -28,6 +28,7 @@ import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
+import CustomerHistory from './views/CustomerHistory.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
@@ -629,6 +630,7 @@ export default function App() {
         <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
+        <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate('/')} /></ViewShell>} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />

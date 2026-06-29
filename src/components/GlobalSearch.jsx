@@ -182,7 +182,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         {results.entries.length > 0 && (
           <Section label={`Time Entries (${results.entries.length})`}>
             {results.entries.map(e => (
-              <ResultCard key={e.id} onClick={() => { onNavigate('/billing'); onClose(); }}>
+              <ResultCard key={e.id} onClick={() => { onNavigate(`/customers?name=${encodeURIComponent(e.customer_name_raw || '')}`); onClose(); }}>
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>
                   {e.customer_name_raw || e.event_title || '(no name)'}
                 </div>

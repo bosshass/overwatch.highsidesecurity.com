@@ -84,47 +84,39 @@ async function searchJobsByName(query) {
 // Load ALL jobs for a customer — by customer_id AND by name match
 // This is the key fix: most jobs have customer_id=null even for known customers
 async function loadAllJobsForCustomer(customer) {
-  const queries = [];
+  const keyword = customer.name
+    ? customer.name.trim().split(/\s+/).filter(w => w.length >= 4)[0] || customer.name.trim()
+    : null;
 
-  // Query 1: by customer_id (if linked)
-  if (customer.id) {
-    queries.push(
-      supabase
-        .from('jobs')
-        .select('id, job_number, status, job_type, issue, created_at, customer_name, tech_name, scheduled_for, completed_at, time_in, time_out, actual_hours, completion_notes')
-        .eq('customer_id', customer.id)
-        .order('created_at', { ascending: false })
-    );
+  // Single query: by customer_id OR by name — catches both linked and name-typed jobs
+  // Uses select('*') to avoid silent failures from missing columns
+  let query = supabase
+    .from('jobs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (customer.id && keyword) {
+    query = query.or(`customer_id.eq.${customer.id},customer_name.ilike.%${keyword}%`);
+  } else if (customer.id) {
+    query = query.eq('customer_id', customer.id);
+  } else if (keyword) {
+    query = query.ilike('customer_name', `%${keyword}%`);
   }
 
-  // Query 2: by name (catches jobs created without linking to customer record)
-  if (customer.name) {
-    queries.push(
-      supabase
-        .from('jobs')
-        .select('id, job_number, status, job_type, issue, created_at, customer_name, tech_name, scheduled_for, completed_at, time_in, time_out, actual_hours, completion_notes')
-        .ilike('customer_name', `%${customer.name.trim().split(' ').filter(w => w.length >= 3).sort((a,b) => b.length - a.length)[0] || customer.name.trim()}%`)
-        .order('created_at', { ascending: false })
-    );
+  const { data, error } = await query;
+  if (error) {
+    console.error('CustomerHistory job query error:', error);
+    return [];
   }
 
-  const results = await Promise.all(queries);
-  
-  // Merge and dedupe by job id
+  // Dedupe by id, sort newest first
   const seen = new Set();
-  const allJobs = [];
-  for (const r of results) {
-    for (const job of (r.data || [])) {
-      if (!seen.has(job.id)) {
-        seen.add(job.id);
-        allJobs.push(job);
-      }
-    }
-  }
-
-  // Sort newest first
-  allJobs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  return allJobs;
+  return (data || []).filter(j => {
+    if (seen.has(j.id)) return false;
+    seen.add(j.id);
+    return true;
+  }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 // Load notes for a single job from job_history + completion_notes
@@ -359,12 +351,6 @@ export default function CustomerHistory({ onBack }) {
         {/* ── JOB + NOTE THREAD ── */}
         {!loading && jobs.map((job) => {
           const statusColor = STATUS_COLORS[job.status] || '#475569';
-          const scheduledDate = job.scheduled_for
-            ? new Date(job.scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-            : null;
-          const scheduledTime = job.scheduled_for
-            ? new Date(job.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-            : null;
 
           return (
             <div key={job.id} style={{ marginBottom: '20px' }}>
@@ -383,11 +369,11 @@ export default function CustomerHistory({ onBack }) {
                       {job.job_number && (
                         <span style={{ color: '#38bdf8', fontSize: '11px' }}>{job.job_number}</span>
                       )}
-                      {job.tech_name && (
-                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>👷 {job.tech_name}</span>
+                      {(job.tech_name || job.tech_assigned) && (
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>👷 {job.tech_name || job.tech_assigned}</span>
                       )}
-                      {scheduledDate && (
-                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {scheduledDate} {scheduledTime}</span>
+                      {job.scheduled_for && (
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {new Date(job.scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} {new Date(job.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                       )}
                       {job.actual_hours > 0 && (
                         <span style={{ color: '#00c8e8', fontSize: '11px' }}>⏱ {Number(job.actual_hours).toFixed(1)}h</span>

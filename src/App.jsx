@@ -55,7 +55,7 @@ const USER_CONFIG = {
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
   { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: null },
-  { key: 'JR', label: 'JR', defaultCalendar: 'JR', defaultView: 'dashboard' },
+  { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: null },
   { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
 ];
 
@@ -152,10 +152,11 @@ export default function App() {
   useEffect(() => {
     const storedVersion = localStorage.getItem('juce_v4_version');
     if (storedVersion && storedVersion !== APP_VERSION) {
-      // New build detected — show changelog, clear session only after user taps "Got it"
+      // New build — show the changelog as an overlay, but DO NOT skip the
+      // session + identity restore below. Falling through keeps the user signed
+      // in and routed correctly underneath (fixes info@ -> JR identity not
+      // firing on version bumps).
       setShowBuildLog(true);
-      setIsLoading(false);
-      return;
     }
     localStorage.setItem('juce_v4_version', APP_VERSION);
 
@@ -319,10 +320,9 @@ export default function App() {
   }, [navigate]);
 
   const handleBuildLogDismiss = useCallback(() => {
-    localStorage.removeItem('juce_v4_token');
-    localStorage.removeItem('juce_v4_email');
-    localStorage.removeItem('juce_v4_expiry');
-    localStorage.removeItem('juce_v4_view');
+    // Just acknowledge the changelog. Keep the session and identity intact so
+    // the user (especially info@ -> JR) stays signed in and on their routed
+    // screen instead of being bounced to a re-login as anonymous info@.
     localStorage.setItem('juce_v4_version', APP_VERSION);
     setShowBuildLog(false);
   }, []);

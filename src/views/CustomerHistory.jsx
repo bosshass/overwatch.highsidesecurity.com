@@ -3,6 +3,7 @@
 // ============================================
 // Search any customer (linked or name-only).
 // Shows every job + every note, all time, in one thread.
+// Catches BOTH customer_id-linked jobs AND name-typed jobs.
 
 import { useState, useCallback, useRef } from 'react';
 import { customersApi, notesApi, supabase } from '../services/supabase.js';
@@ -16,7 +17,10 @@ function fmtDate(iso) {
 
 function fmtDateTime(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit'
+  });
 }
 
 function resolveAuthor(email) {
@@ -33,33 +37,40 @@ function resolveAuthor(email) {
     'admin@jnbservice.com': 'Sara',
     'shanaparks@drhsecurityservices.com': 'Shana',
   };
-  return names[email.toLowerCase()] || email.split('@')[0];
+  return names[email?.toLowerCase()] || email?.split('@')[0] || 'Unknown';
 }
 
 const STATUS_COLORS = {
   new: '#64748b', needs_details: '#f59e0b', ready_to_schedule: '#3b82f6',
-  scheduled: '#00c8e8', completed: '#22c55e', billed: '#8b5cf6',
-  archived: '#475569', blocked: '#ef4444', needs_parts: '#f97316',
-  return_pending: '#f97316', complete: '#22c55e', to_bill: '#8b5cf6',
+  scheduled: '#00c8e8', completed: '#22c55e', complete: '#22c55e',
+  billed: '#8b5cf6', to_bill: '#8b5cf6', archived: '#475569',
+  blocked: '#ef4444', needs_parts: '#f97316', return_pending: '#f97316',
+  won: '#22c55e', lost: '#ef4444', dead: '#334155',
 };
 
-// Search jobs by customer_name for no-ID jobs
+// ── data fetching ────────────────────────────────────────────
+
+// Search jobs by name — catches both linked and unlinked jobs
 async function searchJobsByName(query) {
   if (!query || query.length < 2) return [];
-  const safe = query.replace(/[%,()*]/g, ' ').trim().split(' ').filter(w => w.length >= 2).sort((a, b) => b.length - a.length)[0] || query;
+  const safe = query.replace(/[%,()*]/g, ' ').trim()
+    .split(' ').filter(w => w.length >= 2)
+    .sort((a, b) => b.length - a.length)[0] || query;
+
   const { data, error } = await supabase
     .from('jobs')
     .select('customer_name, customer_id, customer_phone, customer_address')
     .ilike('customer_name', `%${safe}%`)
     .is('customer_id', null)
     .order('customer_name')
-    .limit(100);
+    .limit(200);
   if (error) return [];
-  // Dedupe by customer_name
+
   const seen = new Set();
   return (data || []).filter(j => {
-    if (seen.has(j.customer_name?.toLowerCase())) return false;
-    seen.add(j.customer_name?.toLowerCase());
+    const key = j.customer_name?.toLowerCase().trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
     return true;
   }).map(j => ({
     id: null,
@@ -70,54 +81,116 @@ async function searchJobsByName(query) {
   }));
 }
 
-// Get all jobs + notes for a linked customer (by customer_id)
-async function loadLinkedHistory(customerId) {
-  const { data: jobs, error } = await supabase
-    .from('jobs')
-    .select('id, job_number, status, job_type, issue, created_at, customer_name')
-    .eq('customer_id', customerId)
-    .order('created_at', { ascending: false });
-  if (error || !jobs?.length) return [];
-  return loadNotesForJobs(jobs);
-}
+// Load ALL jobs for a customer — by customer_id AND by name match
+// This is the key fix: most jobs have customer_id=null even for known customers
+async function loadAllJobsForCustomer(customer) {
+  const queries = [];
 
-// Get all jobs + notes for name-only customer (no customer_id)
-async function loadNameHistory(name) {
-  const { data: jobs, error } = await supabase
-    .from('jobs')
-    .select('id, job_number, status, job_type, issue, created_at, customer_name')
-    .ilike('customer_name', name)
-    .is('customer_id', null)
-    .order('created_at', { ascending: false });
-  if (error || !jobs?.length) return [];
-  return loadNotesForJobs(jobs);
-}
-
-async function loadNotesForJobs(jobs) {
-  const results = [];
-  for (const job of jobs) {
-    let notes = [];
-    try {
-      notes = await notesApi.getAllForJob(job.id);
-    } catch (_) {}
-    results.push({ ...job, notes });
+  // Query 1: by customer_id (if linked)
+  if (customer.id) {
+    queries.push(
+      supabase
+        .from('jobs')
+        .select('id, job_number, status, job_type, issue, created_at, customer_name, tech_name, scheduled_for, completed_at, time_in, time_out, actual_hours, completion_notes')
+        .eq('customer_id', customer.id)
+        .order('created_at', { ascending: false })
+    );
   }
-  return results;
+
+  // Query 2: by name (catches jobs created without linking to customer record)
+  if (customer.name) {
+    queries.push(
+      supabase
+        .from('jobs')
+        .select('id, job_number, status, job_type, issue, created_at, customer_name, tech_name, scheduled_for, completed_at, time_in, time_out, actual_hours, completion_notes')
+        .ilike('customer_name', customer.name.trim())
+        .order('created_at', { ascending: false })
+    );
+  }
+
+  const results = await Promise.all(queries);
+  
+  // Merge and dedupe by job id
+  const seen = new Set();
+  const allJobs = [];
+  for (const r of results) {
+    for (const job of (r.data || [])) {
+      if (!seen.has(job.id)) {
+        seen.add(job.id);
+        allJobs.push(job);
+      }
+    }
+  }
+
+  // Sort newest first
+  allJobs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return allJobs;
+}
+
+// Load notes for a single job from job_history + completion_notes
+async function loadJobNotes(job) {
+  const notes = [];
+
+  // From job_history (status changes with notes)
+  const { data: history } = await supabase
+    .from('job_history')
+    .select('id, notes, changed_at, changed_by, from_status, to_status')
+    .eq('job_id', job.id)
+    .not('notes', 'is', null)
+    .order('changed_at', { ascending: false });
+
+  for (const h of (history || [])) {
+    if (h.notes?.trim()) {
+      notes.push({
+        id: h.id,
+        text: h.notes,
+        created_at: h.changed_at,
+        created_by: h.changed_by,
+        from_status: h.from_status,
+        to_status: h.to_status,
+      });
+    }
+  }
+
+  // From completion_notes on the job itself
+  if (job.completion_notes?.trim()) {
+    notes.push({
+      id: `completion-${job.id}`,
+      text: job.completion_notes,
+      created_at: job.completed_at || job.created_at,
+      created_by: null,
+      from_status: null,
+      to_status: 'completed',
+    });
+  }
+
+  notes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return notes;
+}
+
+async function loadFullHistory(customer) {
+  const jobs = await loadAllJobsForCustomer(customer);
+  const withNotes = await Promise.all(
+    jobs.map(async job => ({
+      ...job,
+      notes: await loadJobNotes(job),
+    }))
+  );
+  return withNotes;
 }
 
 // ── component ────────────────────────────────────────────────
 
 export default function CustomerHistory({ onBack }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]); // merged: linked customers + name-only
+  const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState(null); // { id, name, phone, address, drh_id, _nameOnly }
-  const [jobs, setJobs] = useState([]); // [{ ...job, notes: [] }]
+  const [selected, setSelected] = useState(null);
+  const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
 
   const runSearch = useCallback(async (q) => {
-    setQuery(q);
     if (!q || q.length < 2) { setResults([]); return; }
     setSearching(true);
     try {
@@ -125,9 +198,9 @@ export default function CustomerHistory({ onBack }) {
         customersApi.search(q),
         searchJobsByName(q),
       ]);
-      // Merge: linked customers first, then name-only (deduped by name)
-      const linkedNames = new Set(linked.map(c => c.name?.toLowerCase()));
-      const filtered = nameOnly.filter(n => !linkedNames.has(n.name?.toLowerCase()));
+      // Linked customers first, then name-only orphans (deduped by name)
+      const linkedNames = new Set(linked.map(c => c.name?.toLowerCase().trim()));
+      const filtered = nameOnly.filter(n => !linkedNames.has(n.name?.toLowerCase().trim()));
       setResults([...linked, ...filtered]);
     } catch (_) {
       setResults([]);
@@ -149,9 +222,7 @@ export default function CustomerHistory({ onBack }) {
     setQuery('');
     setLoading(true);
     try {
-      const jobData = customer._nameOnly
-        ? await loadNameHistory(customer.name)
-        : await loadLinkedHistory(customer.id);
+      const jobData = await loadFullHistory(customer);
       setJobs(jobData);
     } catch (_) {
       setJobs([]);
@@ -168,20 +239,22 @@ export default function CustomerHistory({ onBack }) {
   };
 
   const totalNotes = jobs.reduce((sum, j) => sum + (j.notes?.length || 0), 0);
-  const totalJobs = jobs.length;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: 80 }}>
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: 100 }}>
 
       {/* Header */}
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: '12px', position: 'sticky', top: 0, background: '#0f1729', zIndex: 10 }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '16px', cursor: 'pointer', padding: '4px 0' }}>←</button>
-        <div style={{ fontSize: '16px', fontWeight: '700', color: '#e2e8f0' }}>👤 Customer History</div>
+        <button onClick={selected ? clearSelection : onBack}
+          style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '16px', cursor: 'pointer', padding: '4px 0' }}>←</button>
+        <div style={{ fontSize: '16px', fontWeight: '700', color: '#e2e8f0' }}>
+          {selected ? selected.name : '👤 Customer History'}
+        </div>
       </div>
 
       <div style={{ padding: '16px' }}>
 
-        {/* Search bar */}
+        {/* ── SEARCH ── */}
         {!selected && (
           <>
             <div style={{ position: 'relative', marginBottom: '12px' }}>
@@ -189,7 +262,7 @@ export default function CustomerHistory({ onBack }) {
                 autoFocus
                 value={query}
                 onChange={handleInput}
-                placeholder="Search by name, phone, or address..."
+                placeholder="Name, phone, or address..."
                 style={{
                   width: '100%', background: '#1e293b', border: '1px solid #334155',
                   borderRadius: '12px', color: '#e2e8f0', padding: '14px 16px',
@@ -203,7 +276,6 @@ export default function CustomerHistory({ onBack }) {
               )}
             </div>
 
-            {/* Results */}
             {results.length > 0 && (
               <div style={{ background: '#1e293b', borderRadius: '12px', overflow: 'hidden', border: '1px solid #334155' }}>
                 {results.map((c, i) => (
@@ -216,11 +288,11 @@ export default function CustomerHistory({ onBack }) {
                     }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ fontSize: '15px', fontWeight: '600', color: '#e2e8f0' }}>{c.name}</div>
-                      {c._nameOnly ? (
-                        <span style={{ fontSize: '10px', color: '#64748b', background: '#334155', padding: '2px 6px', borderRadius: '4px' }}>NO ID</span>
-                      ) : c.drh_id ? (
-                        <span style={{ fontSize: '11px', color: '#00c8e8' }}>{c.drh_id}</span>
-                      ) : null}
+                      {c._nameOnly
+                        ? <span style={{ fontSize: '10px', color: '#64748b', background: '#334155', padding: '2px 6px', borderRadius: '4px' }}>NO ID</span>
+                        : c.drh_id
+                          ? <span style={{ fontSize: '11px', color: '#00c8e8' }}>{c.drh_id}</span>
+                          : null}
                     </div>
                     <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
                       {c.phone && <span>📞 {c.phone}</span>}
@@ -240,116 +312,136 @@ export default function CustomerHistory({ onBack }) {
           </>
         )}
 
-        {/* Selected customer header */}
-        {selected && (
+        {/* ── CUSTOMER HEADER ── */}
+        {selected && !loading && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontSize: '22px', fontWeight: '800', color: '#e2e8f0', textTransform: 'uppercase' }}>
-                  {selected.name}
-                </div>
+              <div style={{ flex: 1 }}>
                 {selected.drh_id && (
-                  <div style={{ color: '#00c8e8', fontSize: '13px', fontWeight: '600', marginTop: '2px' }}>{selected.drh_id}</div>
+                  <div style={{ color: '#00c8e8', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>{selected.drh_id}</div>
                 )}
                 {selected._nameOnly && (
-                  <div style={{ color: '#f59e0b', fontSize: '11px', marginTop: '2px' }}>⚠️ No customer ID — matched by name</div>
+                  <div style={{ color: '#f59e0b', fontSize: '11px', marginBottom: '4px' }}>⚠️ No customer ID — name match only</div>
                 )}
-                <div style={{ color: '#64748b', fontSize: '13px', marginTop: '6px' }}>
+                <div style={{ color: '#64748b', fontSize: '13px' }}>
                   {selected.phone && <div>📞 {selected.phone}</div>}
                   {selected.address && <div>📍 {selected.address}</div>}
                 </div>
               </div>
-              <button onClick={clearSelection}
-                style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', color: '#64748b', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}>
-                ← Back
-              </button>
-            </div>
-
-            {!loading && (
-              <div style={{ display: 'flex', gap: '16px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#e2e8f0', fontSize: '20px', fontWeight: '700' }}>{totalJobs}</div>
+              <div style={{ display: 'flex', gap: '20px', textAlign: 'center' }}>
+                <div>
+                  <div style={{ color: '#e2e8f0', fontSize: '22px', fontWeight: '800' }}>{jobs.length}</div>
                   <div style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase' }}>Jobs</div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#e2e8f0', fontSize: '20px', fontWeight: '700' }}>{totalNotes}</div>
+                <div>
+                  <div style={{ color: '#e2e8f0', fontSize: '22px', fontWeight: '800' }}>{totalNotes}</div>
                   <div style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase' }}>Notes</div>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* Loading */}
+        {/* ── LOADING ── */}
         {loading && (
-          <div style={{ textAlign: 'center', color: '#64748b', padding: '40px 0' }}>
+          <div style={{ textAlign: 'center', color: '#64748b', padding: '60px 0', fontSize: '14px' }}>
             Loading history...
           </div>
         )}
 
-        {/* Job + note history */}
+        {/* ── EMPTY ── */}
         {!loading && selected && jobs.length === 0 && (
           <div style={{ textAlign: 'center', color: '#64748b', padding: '40px 0', fontSize: '14px' }}>
             No jobs found for this customer.
           </div>
         )}
 
+        {/* ── JOB + NOTE THREAD ── */}
         {!loading && jobs.map((job) => {
           const statusColor = STATUS_COLORS[job.status] || '#475569';
+          const scheduledDate = job.scheduled_for
+            ? new Date(job.scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+            : null;
+          const scheduledTime = job.scheduled_for
+            ? new Date(job.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+            : null;
+
           return (
-            <div key={job.id} style={{ marginBottom: '16px' }}>
+            <div key={job.id} style={{ marginBottom: '20px' }}>
+
               {/* Job header */}
-              <div style={{ background: '#1e293b', borderRadius: '12px 12px 0 0', padding: '12px 16px', borderLeft: `3px solid ${statusColor}` }}>
+              <div style={{
+                background: '#1e293b', borderRadius: '12px 12px 0 0',
+                padding: '14px 16px', borderLeft: `3px solid ${statusColor}`
+              }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#e2e8f0' }}>
-                      {job.issue || job.job_type || 'Job'}
+                  <div style={{ flex: 1, paddingRight: 8 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#e2e8f0' }}>
+                      {job.issue || job.job_type?.replace(/_/g, ' ') || 'Job'}
                     </div>
-                    {job.job_number && (
-                      <div style={{ color: '#38bdf8', fontSize: '11px', marginTop: '1px' }}>{job.job_number}</div>
-                    )}
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {job.job_number && (
+                        <span style={{ color: '#38bdf8', fontSize: '11px' }}>{job.job_number}</span>
+                      )}
+                      {job.tech_name && (
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>👷 {job.tech_name}</span>
+                      )}
+                      {scheduledDate && (
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {scheduledDate} {scheduledTime}</span>
+                      )}
+                      {job.actual_hours > 0 && (
+                        <span style={{ color: '#00c8e8', fontSize: '11px' }}>⏱ {Number(job.actual_hours).toFixed(1)}h</span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ background: `${statusColor}20`, color: statusColor, padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', border: `1px solid ${statusColor}40` }}>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <span style={{
+                      background: `${statusColor}20`, color: statusColor,
+                      padding: '2px 8px', borderRadius: '4px', fontSize: '10px',
+                      fontWeight: '600', border: `1px solid ${statusColor}40`
+                    }}>
                       {job.status?.replace(/_/g, ' ').toUpperCase()}
                     </span>
-                    <div style={{ color: '#475569', fontSize: '11px', marginTop: '3px' }}>{fmtDate(job.created_at)}</div>
+                    <div style={{ color: '#475569', fontSize: '11px', marginTop: '4px' }}>
+                      {fmtDate(job.created_at)}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Notes */}
-              {job.notes?.length > 0 ? (
-                <div style={{ background: '#0f172a', borderRadius: '0 0 12px 12px', border: '1px solid #1e293b', borderTop: 'none' }}>
-                  {job.notes.map((note, ni) => (
-                    <div key={note.id} style={{
-                      padding: '12px 16px',
-                      borderBottom: ni < job.notes.length - 1 ? '1px solid #1e293b' : 'none',
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ color: '#00c8e8', fontSize: '11px', fontWeight: '600' }}>
-                          {resolveAuthor(note.created_by)}
-                        </span>
-                        <span style={{ color: '#475569', fontSize: '11px' }}>
-                          {fmtDateTime(note.created_at)}
-                        </span>
-                      </div>
-                      <div style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                        {note.text}
-                      </div>
-                      {(note.from_status || note.to_status) && (
-                        <div style={{ color: '#475569', fontSize: '10px', marginTop: '4px' }}>
-                          {note.from_status?.replace(/_/g, ' ')} → {note.to_status?.replace(/_/g, ' ')}
-                        </div>
-                      )}
+              {/* Notes thread */}
+              <div style={{
+                background: '#0f172a', borderRadius: '0 0 12px 12px',
+                border: '1px solid #1e293b', borderTop: 'none'
+              }}>
+                {job.notes?.length > 0 ? job.notes.map((note, ni) => (
+                  <div key={note.id} style={{
+                    padding: '12px 16px',
+                    borderBottom: ni < job.notes.length - 1 ? '1px solid #1a2540' : 'none',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                      <span style={{ color: '#00c8e8', fontSize: '12px', fontWeight: '700' }}>
+                        {resolveAuthor(note.created_by)}
+                      </span>
+                      <span style={{ color: '#475569', fontSize: '11px' }}>
+                        {fmtDateTime(note.created_at)}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ background: '#0f172a', borderRadius: '0 0 12px 12px', border: '1px solid #1e293b', borderTop: 'none', padding: '10px 16px' }}>
-                  <span style={{ color: '#334155', fontSize: '12px', fontStyle: 'italic' }}>No notes on this job</span>
-                </div>
-              )}
+                    <div style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                      {note.text}
+                    </div>
+                    {(note.from_status || note.to_status) && note.to_status !== note.from_status && (
+                      <div style={{ color: '#334155', fontSize: '10px', marginTop: '4px' }}>
+                        {note.from_status?.replace(/_/g, ' ')} → {note.to_status?.replace(/_/g, ' ')}
+                      </div>
+                    )}
+                  </div>
+                )) : (
+                  <div style={{ padding: '10px 16px' }}>
+                    <span style={{ color: '#334155', fontSize: '12px', fontStyle: 'italic' }}>No notes</span>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}

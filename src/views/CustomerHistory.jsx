@@ -5,7 +5,7 @@
 // Shows every job + every note, all time, in one thread.
 // Catches BOTH customer_id-linked jobs AND name-typed jobs.
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { customersApi, notesApi, supabase } from '../services/supabase.js';
 
 // ── helpers ──────────────────────────────────────────────────
@@ -181,6 +181,16 @@ export default function CustomerHistory({ onBack }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
+
+  // Auto-search if navigated here from GlobalSearch with ?name= param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nameParam = params.get('name');
+    if (nameParam && nameParam.length >= 2) {
+      setQuery(nameParam);
+      runSearch(nameParam);
+    }
+  }, []);
 
   const runSearch = useCallback(async (q) => {
     if (!q || q.length < 2) { setResults([]); return; }

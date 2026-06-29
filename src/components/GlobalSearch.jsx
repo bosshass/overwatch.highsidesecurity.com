@@ -163,7 +163,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         {results.jobs.length > 0 && (
           <Section label={`Customers / Jobs (${results.jobs.length})`}>
             {results.jobs.map(j => (
-              <ResultCard key={j.id} onClick={() => { onNavigate('/board'); onClose(); }}>
+              <ResultCard key={j.id} onClick={() => { onNavigate('/customers?name=' + encodeURIComponent(j.customer_name || '')); onClose(); }}>
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{j.customer_name}</div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   {j.job_number && <Chip color="#3b82f6">{j.job_number}</Chip>}
@@ -173,6 +173,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                 {j.customer_address && (
                   <div style={{ color: '#475569', fontSize: 11, marginTop: 3 }}>📍 {j.customer_address}</div>
                 )}
+                <div style={{ color: '#334155', fontSize: 10, marginTop: 4 }}>Tap to view full history →</div>
               </ResultCard>
             ))}
           </Section>

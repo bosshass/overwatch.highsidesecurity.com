@@ -107,6 +107,14 @@ export default function OpsHome({
       path: '/billing',
       show: true,
     },
+    {
+      label: 'Event Audit',
+      sub: 'Tag events to a customer',
+      icon: '🔎',
+      accent: C.cyan,
+      path: '/audit',
+      show: isOperator,
+    },
   ];
 
   const STAT_PILLS = stats ? [

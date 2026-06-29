@@ -99,31 +99,43 @@ async function searchCustomers(q) {
 
 async function loadAllJobsForCustomer(customer) {
   const nameKw = safeKeyword(customer.name);
-  const addrKw = safeKeyword(customer.address);
-
-  // Build OR clause: customer_id match + name fuzzy + address fuzzy
-  const orParts = [];
-  if (customer.id) orParts.push(`customer_id.eq.${customer.id}`);
-  if (nameKw)      orParts.push(`customer_name.ilike.%${nameKw}%`);
-  if (addrKw)      orParts.push(`customer_address.ilike.%${addrKw}%`);
-
-  if (!orParts.length) return [];
-
-  const { data, error } = await supabase
-    .from('jobs')
-    .select('*')
-    .or(orParts.join(','))
-    .order('created_at', { ascending: false })
-    .limit(500);
-
-  if (error) { console.error('CustomerHistory job query error:', error); return []; }
-
   const seen = new Set();
-  return (data || []).filter(j => {
-    if (seen.has(j.id)) return false;
-    seen.add(j.id);
-    return true;
-  });
+  const allJobs = [];
+
+  const merge = (rows) => {
+    for (const j of (rows || [])) {
+      if (!seen.has(j.id)) { seen.add(j.id); allJobs.push(j); }
+    }
+  };
+
+  // Query 1: by customer_id
+  if (customer.id) {
+    const { data } = await supabase.from('jobs').select('*')
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false }).limit(200);
+    merge(data);
+  }
+
+  // Query 2: by name keyword
+  if (nameKw) {
+    const { data } = await supabase.from('jobs').select('*')
+      .ilike('customer_name', `%${nameKw}%`)
+      .order('created_at', { ascending: false }).limit(200);
+    merge(data);
+  }
+
+  // Query 3: by address keyword (first number+word from address)
+  if (customer.address) {
+    const addrWord = customer.address.trim().split(/\s+/).find(w => w.length >= 4 && !/^\d+$/.test(w));
+    if (addrWord) {
+      const { data } = await supabase.from('jobs').select('*')
+        .ilike('customer_address', `%${addrWord}%`)
+        .order('created_at', { ascending: false }).limit(100);
+      merge(data);
+    }
+  }
+
+  return allJobs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 async function loadJobNotes(jobId) {

@@ -631,7 +631,7 @@ export default function App() {
         <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
-        <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate('/')} accessToken={accessToken} userEmail={userEmail} /></ViewShell>} />
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}

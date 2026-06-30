@@ -1,17 +1,18 @@
 // ============================================
-// Overwatch — Customer Lookup (registry-driven)
+// Overwatch — Client Cockpit (registry-driven)
 // ============================================
-// Source of truth = customer_registry (master accounts) + time_entries (calendar events).
-// Flow: search a master account -> see EVERY calendar event tagged to it
-//       (registry_id), with date, time, tech, disposition, hours, materials, notes.
-// Also surfaces look-alike events that share the customer's name but were never
-// tagged, so the fragmented raw names ("Jerry Allen Construction", "ALLEN, JERRY/MARILYN")
-// can be pulled into the one master account with a single tap.
-// No module-level sticky state -> opening a customer always opens THAT customer.
+// Source of truth = customer_registry (master accounts).
+// Search a client -> see their history AND act on them:
+//   + Note      -> logs a note, stamped with the client's code
+//   + Task      -> action item, assign to a user (lands in their queue)
+//   + New job   -> full intake/schedule flow (NewJobModal), stamped on save
+// Everything created here gets registry_id = client code, so it can't
+// fragment by name and always shows back in this client's history.
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { supabase } from '../services/supabase.js';
+import { supabase, jobsApi, assignmentsApi, techsApi, JOB_STATUS } from '../services/supabase.js';
+import NewJobModal from '../components/NewJobModal.jsx';
 
 // ── helpers ──────────────────────────────────────────────────
 function fmtDateTime(iso) {
@@ -20,6 +21,10 @@ function fmtDateTime(iso) {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 function hoursFromMin(min) {
   if (min == null) return null;
@@ -37,6 +42,32 @@ const DISPO = {
 function dispo(d) {
   return DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#64748b' };
 }
+
+// Open-work status chip colors (jobs.status)
+function jobChip(status) {
+  const map = {
+    new:            { label: 'New',           color: '#64748b' },
+    needs_details:  { label: 'Needs details', color: '#64748b' },
+    needs_parts:    { label: 'Needs parts',   color: '#eab308' },
+    pending_materials: { label: 'Pending materials', color: '#eab308' },
+    ready_to_schedule: { label: 'Ready',      color: '#3b82f6' },
+    scheduled:      { label: 'Scheduled',     color: '#3b82f6' },
+    return_pending: { label: 'Return',        color: '#f97316' },
+    needs_estimate: { label: 'Needs estimate', color: '#eab308' },
+    estimate_sent:  { label: 'Estimate sent', color: '#06b6d4' },
+    won:            { label: 'Won',           color: '#22c55e' },
+    to_bill:        { label: 'To bill',       color: '#22c55e' },
+    complete:       { label: 'Complete',      color: '#22c55e' },
+  };
+  return map[status] || { label: (status || '—').replace(/_/g, ' '), color: '#64748b' };
+}
+function typeBadge(job) {
+  if (job.job_type === 'note') return { label: 'Note', color: '#5dcaa5' };
+  if (job.job_type === 'task') return { label: 'Task', color: '#7f77dd' };
+  return { label: 'Job', color: '#97c459' };
+}
+
+const TERMINAL = [JOB_STATUS.BILLED, JOB_STATUS.LOST, JOB_STATUS.DEAD, JOB_STATUS.ARCHIVED].filter(Boolean);
 
 // Distinctive name tokens, for finding un-tagged look-alikes.
 const STOP = new Set([
@@ -56,16 +87,29 @@ const TIME_FIELDS =
   'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, registry_id';
 
 // ── component ────────────────────────────────────────────────
-export default function CustomerHistory({ onBack }) {
+export default function CustomerHistory({ onBack, userEmail, accessToken }) {
   const location = useLocation();
+  const me = userEmail || (typeof localStorage !== 'undefined' && localStorage.getItem('juce_v4_email')) || '';
 
   const [registry, setRegistry]   = useState([]);
   const [query, setQuery]         = useState('');
   const [selected, setSelected]   = useState(null);
   const [tagged, setTagged]       = useState([]);
   const [suggested, setSuggested] = useState([]);
+  const [openWork, setOpenWork]   = useState([]);
   const [loading, setLoading]     = useState(false);
   const [err, setErr]             = useState('');
+
+  // techs (for task assignee)
+  const [techs, setTechs] = useState([]);
+
+  // create flow
+  const [createMode, setCreateMode] = useState(null); // 'note' | 'task' | null
+  const [noteText, setNoteText]     = useState('');
+  const [taskTitle, setTaskTitle]   = useState('');
+  const [taskAssignee, setTaskAssignee] = useState('');
+  const [showJobModal, setShowJobModal] = useState(false);
+  const [saving, setSaving]         = useState(false);
 
   // load the master account list once
   useEffect(() => {
@@ -77,6 +121,11 @@ export default function CustomerHistory({ onBack }) {
       if (error) setErr(error.message);
       else setRegistry(data || []);
     })();
+  }, []);
+
+  // load techs once (for task assignment)
+  useEffect(() => {
+    techsApi.getAll().then(setTechs).catch(() => {});
   }, []);
 
   // pre-fill the search box if arrived via ?name=
@@ -95,6 +144,15 @@ export default function CustomerHistory({ onBack }) {
       (c.address || '').toLowerCase().includes(s)
     ).slice(0, 40);
   }, [query, registry]);
+
+  const loadOpenWork = useCallback(async (customer) => {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id, customer_name, job_type, status, issue, notes, created_at, registry_id')
+      .eq('registry_id', customer.code)
+      .order('created_at', { ascending: false });
+    if (!error) setOpenWork((data || []).filter(j => !TERMINAL.includes(j.status)));
+  }, []);
 
   const loadEvents = useCallback(async (customer) => {
     setLoading(true); setErr('');
@@ -131,13 +189,53 @@ export default function CustomerHistory({ onBack }) {
     }
   }, []);
 
-  const pick = (customer) => { setSelected(customer); loadEvents(customer); };
+  const pick = (customer) => {
+    setSelected(customer);
+    setCreateMode(null);
+    loadEvents(customer);
+    loadOpenWork(customer);
+  };
+
+  const refreshWork = () => { if (selected) loadOpenWork(selected); };
+
+  // ── create actions ──
+  const saveNote = async () => {
+    if (!noteText.trim() || !selected) return;
+    setSaving(true); setErr('');
+    try {
+      await jobsApi.create({
+        customer_name: selected.name, customer_address: selected.address || '',
+        registry_id: selected.code, job_type: 'note', priority: 'normal',
+        issue: noteText.trim(),
+        notes: `[NOTE - ${new Date().toLocaleString()}]\n${noteText.trim()}`,
+        status: JOB_STATUS.NEW,
+      }, me);
+      setNoteText(''); setCreateMode(null); refreshWork();
+    } catch (e) { setErr(e.message || 'Failed to save note'); }
+    finally { setSaving(false); }
+  };
+
+  const saveTask = async () => {
+    if (!taskTitle.trim() || !selected) return;
+    setSaving(true); setErr('');
+    try {
+      const job = await jobsApi.create({
+        customer_name: selected.name, customer_address: selected.address || '',
+        registry_id: selected.code, job_type: 'task', priority: 'normal',
+        issue: taskTitle.trim(), status: JOB_STATUS.NEW,
+      }, me);
+      if (taskAssignee && job?.id) {
+        await assignmentsApi.create({ job_id: job.id, tech_id: taskAssignee, scheduled_for: null }, me);
+      }
+      setTaskTitle(''); setTaskAssignee(''); setCreateMode(null); refreshWork();
+    } catch (e) { setErr(e.message || 'Failed to create task'); }
+    finally { setSaving(false); }
+  };
 
   const assign = async (entryId, code) => {
     const { error } = await supabase
       .from('time_entries').update({ registry_id: code }).eq('id', entryId);
     if (error) { setErr(error.message); return; }
-    // move it from suggested -> tagged locally
     setSuggested(prev => {
       const hit = prev.find(e => e.id === entryId);
       if (hit) setTagged(t => [{ ...hit, registry_id: code }, ...t]);
@@ -146,7 +244,8 @@ export default function CustomerHistory({ onBack }) {
   };
 
   const goBack = () => {
-    if (selected) { setSelected(null); setTagged([]); setSuggested([]); setErr(''); }
+    if (createMode) { setCreateMode(null); return; }
+    if (selected) { setSelected(null); setTagged([]); setSuggested([]); setOpenWork([]); setErr(''); }
     else if (onBack) onBack();
   };
 
@@ -156,11 +255,20 @@ export default function CustomerHistory({ onBack }) {
   const back = { background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer', padding: '4px 0' };
   const input = { width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0', padding: '12px 14px', fontSize: 15, outline: 'none', boxSizing: 'border-box' };
   const card = { background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', marginBottom: 12 };
+  const sectionLabel = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0 10px' };
+
+  const actBtn = (bg) => ({
+    flex: 1, background: `${bg}1f`, border: `1px solid ${bg}`, color: bg,
+    borderRadius: 10, padding: '11px 0', fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
+  });
 
   const Chip = ({ d }) => {
     const { label, color } = dispo(d);
     return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${color}20`, color, border: `1px solid ${color}40` }}>{label}</span>;
   };
+  const Badge = ({ color, children }) => (
+    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${color}20`, color, border: `1px solid ${color}40` }}>{children}</span>
+  );
 
   const EventCard = ({ e, showAssign }) => (
     <div style={card}>
@@ -180,6 +288,21 @@ export default function CustomerHistory({ onBack }) {
       )}
     </div>
   );
+
+  const WorkCard = ({ j }) => {
+    const t = typeBadge(j);
+    const s = jobChip(j.status);
+    return (
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+          <Badge color={t.color}>{t.label}</Badge>
+          <Badge color={s.color}>{s.label}</Badge>
+          {j.created_at && <span style={{ fontSize: 12, color: '#64748b' }}>📅 {fmtDate(j.created_at)}</span>}
+        </div>
+        {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{j.issue}</div>}
+      </div>
+    );
+  };
 
   return (
     <div style={page}>
@@ -232,11 +355,70 @@ export default function CustomerHistory({ onBack }) {
         {/* customer detail mode */}
         {selected && (
           <>
-            {loading && <div style={{ color: '#64748b', fontSize: 13 }}>Loading events…</div>}
+            {/* action bar */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <button style={actBtn('#5dcaa5')} onClick={() => setCreateMode(createMode === 'note' ? null : 'note')}>+ Note</button>
+              <button style={actBtn('#7f77dd')} onClick={() => setCreateMode(createMode === 'task' ? null : 'task')}>+ Task</button>
+              <button style={actBtn('#97c459')} onClick={() => setShowJobModal(true)}>+ New job</button>
+            </div>
+
+            {/* create: note */}
+            {createMode === 'note' && (
+              <div style={{ ...card, borderColor: '#5dcaa580' }}>
+                <textarea
+                  autoFocus value={noteText} onChange={e => setNoteText(e.target.value)} rows={3}
+                  placeholder={`Note for ${selected.name}…`}
+                  style={{ ...input, resize: 'vertical', fontFamily: 'inherit', marginBottom: 10 }}
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setCreateMode(null); setNoteText(''); }} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={saveNote} disabled={saving || !noteText.trim()} style={{ flex: 2, padding: 10, borderRadius: 8, border: 'none', background: noteText.trim() ? '#5dcaa5' : '#334155', color: '#0f1729', fontWeight: 700, cursor: noteText.trim() ? 'pointer' : 'not-allowed' }}>{saving ? 'Saving…' : 'Save note'}</button>
+                </div>
+              </div>
+            )}
+
+            {/* create: task */}
+            {createMode === 'task' && (
+              <div style={{ ...card, borderColor: '#7f77dd80' }}>
+                <input
+                  autoFocus value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
+                  placeholder="What needs to happen?"
+                  style={{ ...input, marginBottom: 10 }}
+                />
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Assign to</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                  {techs.map(t => {
+                    const on = taskAssignee === t.id;
+                    const c = t.color || '#7f77dd';
+                    return (
+                      <button key={t.id} onClick={() => setTaskAssignee(on ? '' : t.id)}
+                        style={{ padding: '7px 13px', borderRadius: 8, border: `2px solid ${on ? c : '#334155'}`, background: on ? `${c}22` : '#0f172a', color: on ? c : '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+                        {t.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setCreateMode(null); setTaskTitle(''); setTaskAssignee(''); }} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={saveTask} disabled={saving || !taskTitle.trim()} style={{ flex: 2, padding: 10, borderRadius: 8, border: 'none', background: taskTitle.trim() ? '#7f77dd' : '#334155', color: '#fff', fontWeight: 700, cursor: taskTitle.trim() ? 'pointer' : 'not-allowed' }}>{saving ? 'Saving…' : (taskAssignee ? 'Create + assign' : 'Create task')}</button>
+                </div>
+              </div>
+            )}
+
+            {loading && <div style={{ color: '#64748b', fontSize: 13, marginTop: 6 }}>Loading…</div>}
 
             {!loading && (
               <>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0 10px' }}>
+                {/* open work */}
+                {openWork.length > 0 && (
+                  <>
+                    <div style={{ ...sectionLabel, color: '#a78bfa' }}>Open work ({openWork.length})</div>
+                    {openWork.map(j => <WorkCard key={j.id} j={j} />)}
+                  </>
+                )}
+
+                {/* finished visits */}
+                <div style={{ ...sectionLabel, color: '#64748b', marginTop: openWork.length ? 18 : 4 }}>
                   Calendar events ({tagged.length})
                 </div>
                 {tagged.length === 0 && (
@@ -248,7 +430,7 @@ export default function CustomerHistory({ onBack }) {
 
                 {suggested.length > 0 && (
                   <>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.5, margin: '18px 0 10px' }}>
+                    <div style={{ ...sectionLabel, color: '#f59e0b', marginTop: 18 }}>
                       Possible matches — not yet assigned ({suggested.length})
                     </div>
                     {suggested.map(e => <EventCard key={e.id} e={e} showAssign />)}
@@ -259,6 +441,20 @@ export default function CustomerHistory({ onBack }) {
           </>
         )}
       </div>
+
+      {showJobModal && selected && (
+        <NewJobModal
+          accessToken={accessToken}
+          userEmail={me}
+          prefill={{ customerName: selected.name, address: selected.address || '' }}
+          onClose={() => setShowJobModal(false)}
+          onCreated={async (job) => {
+            setShowJobModal(false);
+            if (job?.id) { try { await jobsApi.update(job.id, { registry_id: selected.code }, me); } catch (_) {} }
+            refreshWork();
+          }}
+        />
+      )}
     </div>
   );
 }

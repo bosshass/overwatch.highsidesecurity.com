@@ -9,6 +9,24 @@
 
 export const BUILDS = [
   {
+    version: '9.0.0',
+    date: '2026-06-29',
+    label: 'Customer Cockpit + Real Field Notes',
+    changes: [
+      // — Customer cockpit —
+      'The customer screen is now a workspace, not just a lookup — pull up a customer and act right there',
+      'Add a note to a customer in one tap — it stays on their account whether or not it ever turns into a job',
+      'Create a task and assign it to a person — it lands in their queue to act on',
+      'Start a new job straight from the customer screen — already filled in with their info',
+      'Everything you create is stamped to the customer automatically, so it can never split across different name spellings',
+      // — Real field notes on the card —
+      "Job cards now show the tech's REAL notes — pulled from wherever they were saved, with duplicates cleaned up (no more just \"disposition from Work Today\")",
+      'Dispositioning a job now writes the actual field notes onto the card, not just a status stamp',
+      // — Scheduling —
+      "Scheduling now shows each tech's actual Google Calendar — see who's busy before you book, for the whole team (not just Austin and JR)",
+    ],
+  },
+  {
     version: '8.2.0',
     date: '2026-06-29',
     label: 'Customer Lookup + Field Visits',

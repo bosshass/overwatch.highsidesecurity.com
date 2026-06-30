@@ -23,12 +23,18 @@ const TIME_SLOTS = [
 // Active techs only — Shana no longer on team
 const ACTIVE_TECHS = ['Austin', 'JR', 'Trevor'];
 
-// Map tech name → Google Calendar ID for freebusy queries
+// Map tech name → Google Calendar ID for freebusy queries.
+// Prefer the tech record's own calendar_id; this name map is the fallback.
 const TECH_GCAL_ID = {
-  'Austin':  CALENDARS.DRH_TECH_1,
-  'JR':      CALENDARS.JR_APPOINTMENT,
-  'Trevor':  null, // Trevor doesn't have a dedicated GCal yet — fall back to Supabase only
+  'Austin':  CALENDARS.AUSTIN,
+  'JR':      CALENDARS.JR,
+  'Brian':   CALENDARS.TECH3,
+  'Bryan':   CALENDARS.TECH3,
+  'Shana':   CALENDARS.SHANA,
+  'Subs':    CALENDARS.SUBS,
+  'Trevor':  null, // no dedicated GCal yet — Supabase jobs only until one's created
 };
+const resolveCalId = (tech) => tech?.calendar_id || TECH_GCAL_ID[tech?.name] || null;
 
 const getWeekDates = (offset = 0) => {
   const today = new Date();
@@ -185,7 +191,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
   // When tech or week changes, fetch GCal busy counts for the week
   useEffect(() => {
     if (!selectedTech || !accessToken) return;
-    const calId = TECH_GCAL_ID[selectedTech.name];
+    const calId = resolveCalId(selectedTech);
     if (!calId) return;
 
     setGcalBusyLoading(true);
@@ -201,7 +207,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
       setGcalEvents(null);
       return;
     }
-    const calId = TECH_GCAL_ID[selectedTech.name];
+    const calId = resolveCalId(selectedTech);
     if (!calId) {
       setGcalEvents(null);
       return;
@@ -334,7 +340,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
     : [];
 
   // Determine if day looks truly open (both Supabase and GCal)
-  const calId = selectedTech ? TECH_GCAL_ID[selectedTech.name] : null;
+  const calId = selectedTech ? resolveCalId(selectedTech) : null;
   const hasGcalForTech = !!calId;
   const gcalConfirmedOpen = hasGcalForTech && gcalEvents !== null && gcalEvents.length === 0;
   const gcalHasEvents = hasGcalForTech && gcalEvents !== null && gcalEvents.length > 0;

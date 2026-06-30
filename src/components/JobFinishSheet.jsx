@@ -132,6 +132,7 @@ export default function JobFinishSheet({
     in_progress: JOB_STATUS.SCHEDULED,   // stays open / active
     return:      JOB_STATUS.RETURN_PENDING,
   };
+  const DISPO_LABEL = { bill_it: 'Bill it', estimate: 'Estimate', in_progress: 'In progress', return: 'Return' };
   const ensureJobForEvent = async (disposition) => {
     const base = cleanTitle(event.title);
     const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
@@ -142,8 +143,12 @@ export default function JobFinishSheet({
     } catch (err) { console.warn('adopt: job lookup failed', err); }
 
     if (existing) {
-      // Already tracked — just move it to the disposition's status.
-      await jobsApi.changeStatus(existing.id, target, userEmail, `${disposition} disposition from Work Today`);
+      // Already tracked — move it to the disposition's status AND put the
+      // tech's real field notes on the card (job_history), not just a stub.
+      const histNote = notes.trim()
+        ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
+        : `${disposition} disposition from Work Today`;
+      await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
       return existing.id;
     }
     // Not tracked — adopt the calendar event into a new jobs row.

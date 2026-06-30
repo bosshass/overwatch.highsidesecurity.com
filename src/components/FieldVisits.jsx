@@ -57,6 +57,12 @@ export default function FieldVisits({ job }) {
             .eq('customer_id', job.customer_id).limit(100);
           if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
         }
+        // 3) anything stamped with this job's registry code (cockpit / auto-stamp)
+        if (job?.registry_id) {
+          const r = await supabase.from('time_entries').select(FIELDS)
+            .eq('registry_id', job.registry_id).limit(100);
+          if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
+        }
       } catch { /* leave what we have */ }
       const rows = Object.values(byId).sort(
         (a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at)
@@ -64,7 +70,7 @@ export default function FieldVisits({ job }) {
       if (!cancelled) { setEntries(rows); setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [job?.calendar_event_id, job?.customer_id]);
+  }, [job?.calendar_event_id, job?.customer_id, job?.registry_id]);
 
   const shown = useMemo(() => (showAll ? entries : entries.slice(0, PREVIEW)), [entries, showAll]);
 

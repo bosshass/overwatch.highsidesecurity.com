@@ -97,6 +97,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
   const [tagged, setTagged]       = useState([]);
   const [suggested, setSuggested] = useState([]);
   const [openWork, setOpenWork]   = useState([]);
+  const [showDone, setShowDone]   = useState(false);
   const [loading, setLoading]     = useState(false);
   const [err, setErr]             = useState('');
 
@@ -151,7 +152,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
       .select('id, customer_name, job_type, status, issue, notes, created_at, registry_id')
       .eq('registry_id', customer.code)
       .order('created_at', { ascending: false });
-    if (!error) setOpenWork((data || []).filter(j => !TERMINAL.includes(j.status)));
+    if (!error) setOpenWork(data || []); // keep ALL (open + done); split in render
   }, []);
 
   const loadEvents = useCallback(async (customer) => {
@@ -232,6 +233,21 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     finally { setSaving(false); }
   };
 
+  // mark a note/task done = archive it. Row stays, so the customer keeps the record.
+  const markDone = async (id) => {
+    try { await jobsApi.changeStatus(id, JOB_STATUS.ARCHIVED, me, 'Marked done from customer screen'); refreshWork(); }
+    catch (e) { setErr(e.message || 'Failed to mark done'); }
+  };
+  // promote a note/task into a real job → enters the schedule→bill flow.
+  const promoteToJob = async (id) => {
+    try { await jobsApi.update(id, { job_type: 'service_res' }, me); refreshWork(); }
+    catch (e) { setErr(e.message || 'Failed to make a job'); }
+  };
+  const reopen = async (id) => {
+    try { await jobsApi.changeStatus(id, JOB_STATUS.NEW, me, 'Reopened from customer screen'); refreshWork(); }
+    catch (e) { setErr(e.message || 'Failed to reopen'); }
+  };
+
   const assign = async (entryId, code) => {
     const { error } = await supabase
       .from('time_entries').update({ registry_id: code }).eq('id', entryId);
@@ -289,17 +305,32 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     </div>
   );
 
-  const WorkCard = ({ j }) => {
+  const WorkCard = ({ j, done }) => {
     const t = typeBadge(j);
     const s = jobChip(j.status);
+    const actionable = j.job_type === 'note' || j.job_type === 'task';
+    const miniBtn = (bg) => ({ flex: 1, background: `${bg}1f`, border: `1px solid ${bg}`, color: bg, borderRadius: 8, padding: '8px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' });
     return (
-      <div style={card}>
+      <div style={{ ...card, opacity: done ? 0.6 : 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
           <Badge color={t.color}>{t.label}</Badge>
-          <Badge color={s.color}>{s.label}</Badge>
+          {!done && <Badge color={s.color}>{s.label}</Badge>}
+          {done && <Badge color="#64748b">Done</Badge>}
           {j.created_at && <span style={{ fontSize: 12, color: '#64748b' }}>📅 {fmtDate(j.created_at)}</span>}
         </div>
-        {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{j.issue}</div>}
+        {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none' }}>{j.issue}</div>}
+        {actionable && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {done ? (
+              <button style={miniBtn('#64748b')} onClick={() => reopen(j.id)}>↩ Reopen</button>
+            ) : (
+              <>
+                <button style={miniBtn('#22c55e')} onClick={() => markDone(j.id)}>✓ Done</button>
+                <button style={miniBtn('#97c459')} onClick={() => promoteToJob(j.id)}>→ Make a job</button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -409,13 +440,29 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
 
             {!loading && (
               <>
-                {/* open work */}
-                {openWork.length > 0 && (
-                  <>
-                    <div style={{ ...sectionLabel, color: '#a78bfa' }}>Open work ({openWork.length})</div>
-                    {openWork.map(j => <WorkCard key={j.id} j={j} />)}
-                  </>
-                )}
+                {/* open work + collapsed done */}
+                {(() => {
+                  const openItems = openWork.filter(j => !TERMINAL.includes(j.status));
+                  const doneItems = openWork.filter(j => j.status === JOB_STATUS.ARCHIVED);
+                  return (
+                    <>
+                      {openItems.length > 0 && (
+                        <>
+                          <div style={{ ...sectionLabel, color: '#a78bfa' }}>Open work ({openItems.length})</div>
+                          {openItems.map(j => <WorkCard key={j.id} j={j} />)}
+                        </>
+                      )}
+                      {doneItems.length > 0 && (
+                        <>
+                          <button onClick={() => setShowDone(v => !v)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', padding: '6px 0', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            {showDone ? '▾ Hide done' : `▸ Done (${doneItems.length})`}
+                          </button>
+                          {showDone && doneItems.map(j => <WorkCard key={j.id} j={j} done />)}
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* finished visits */}
                 <div style={{ ...sectionLabel, color: '#64748b', marginTop: openWork.length ? 18 : 4 }}>

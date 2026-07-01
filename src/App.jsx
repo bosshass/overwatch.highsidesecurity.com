@@ -603,7 +603,7 @@ export default function App() {
         } />
 
         <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} />} />
-        <Route path="/billing" element={<Billing accessToken={accessToken} onBack={() => navigate('/')} />} />
+        <Route path="/billing" element={<Billing accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
         <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
 
         <Route path="/newjob" element={

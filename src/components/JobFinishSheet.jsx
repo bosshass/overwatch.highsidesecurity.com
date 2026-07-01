@@ -9,7 +9,10 @@
 //
 // REPLACES (deleted): CompletionModal.jsx, JobCompleteModal.jsx, TimeCaptureModal.jsx
 //
-// Required gates: linked customer + valid time entry. Return also requires a reason.
+// Required gates: valid time entry + notes. Return also requires a reason.
+// (Linked customer used to be a hard gate — dropped because that association
+// should already exist upstream; it's still captured when present, just not
+// a blocker.)
 // Writes ONE row to time_entries; for 'return' also writes ONE row to return_cards.
 // Patches the calendar event TITLE only (description is owned by CustomerLookup).
 //
@@ -71,9 +74,13 @@ export default function JobFinishSheet({
 
   const eventDate     = event?.start ? new Date(event.start) : new Date();
   const timeValid     = isValidTimeEntry(timeEntry, eventDate);
-  const hasCustomer   = !!linkedCustomer?.id;
   const notesValid    = notes.trim().length >= 3;   // required: no blank completions
-  const canFinish     = timeValid && hasCustomer && notesValid && !acting;
+  // Linking a customer is no longer a hard gate — that association should
+  // already exist upstream (calendar sync / registry match), and forcing
+  // the tech to do it manually every single time was pure friction. It's
+  // still shown and still gets saved when present; it just can't block
+  // finishing a job anymore.
+  const canFinish     = timeValid && notesValid && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
   // Patches the title and, when the tech left notes/materials, APPENDS them to
@@ -261,7 +268,7 @@ export default function JobFinishSheet({
   // ── The actual form content (customer + time + notes + materials + buttons) ──
   const formContent = (
     <>
-      {/* Customer link (required) */}
+      {/* Customer link — optional now, not a blocker. Still saved when set. */}
       <CustomerLookup
         event={event}
         accessToken={accessToken}
@@ -303,7 +310,6 @@ export default function JobFinishSheet({
       {!canFinish && !acting && (
         <div style={hintBox}>
           {`To finish, add: ${[
-            !hasCustomer && 'a linked customer',
             !timeValid   && 'a time entry',
             !notesValid  && 'notes',
           ].filter(Boolean).join(', ')}.`}

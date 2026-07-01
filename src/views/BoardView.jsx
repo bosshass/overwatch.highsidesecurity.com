@@ -206,14 +206,20 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
   ).slice(0, 10);
 
   const merge = async (survivorId) => {
-    if (!window.confirm('Merge THIS job into the other? Notes, issue, contact info and the calendar link carry over to the survivor; this one is marked dead.')) return;
+    if (!window.confirm('Merge THIS job into the other? Notes, issue/scope details, contact info, CMS/access codes, and the calendar link carry over to the survivor; this one is marked dead.')) return;
     setSaving(true);
     setErr('');
     try {
       const survivor = allJobs.find(j => j.id === survivorId) || {};
       const by = userEmail || 'board';
 
-      // 1) Carry the dead job's notes onto the survivor (never lose them)
+      // 1) Carry the dead job's notes onto the survivor (never lose them).
+      //    getAllForJob only reads job_history.notes + completion_notes — for
+      //    a freshly-created job that's just the literal "Job created" string,
+      //    NOT the real intake details, which live in the issue field. So we
+      //    always surface the dead job's issue as its own note too, regardless
+      //    of whether the survivor already has its own issue text — otherwise
+      //    those details vanish with no trail at all.
       try {
         const deadNotes = await notesApi.getAllForJob(job.id);
         for (const n of deadNotes.slice().reverse()) {
@@ -221,13 +227,23 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
             await notesApi.addNote(survivorId, `↪ from merged job: ${n.text}`, by);
           }
         }
+        if (job.issue?.trim()) {
+          await notesApi.addNote(survivorId, `↪ merged job details:\n${job.issue.trim()}`, by);
+        }
       } catch (e) { console.warn('merge: note carry failed', e); }
 
-      // 2) Fill survivor gaps: issue, phone, address, and the calendar link
+      // 2) Fill survivor gaps — issue, contact info, CMS/access details, and
+      //    the calendar link. Issue only backfills if survivor's is empty
+      //    (step 1 above already preserved the dead job's issue as a note
+      //    either way, so nothing is lost if survivor's issue wins here).
       const upd = {};
       if (!survivor.issue && job.issue) upd.issue = job.issue;
       if (!survivor.customer_phone && job.customer_phone) upd.customer_phone = job.customer_phone;
       if (!survivor.customer_address && job.customer_address) upd.customer_address = job.customer_address;
+      if (!survivor.customer_email && job.customer_email) upd.customer_email = job.customer_email;
+      if (!survivor.cms_account_id && job.cms_account_id) upd.cms_account_id = job.cms_account_id;
+      if (!survivor.gate_code && job.gate_code) upd.gate_code = job.gate_code;
+      if (!survivor.panel_password && job.panel_password) upd.panel_password = job.panel_password;
       if (!survivor.calendar_event_id && job.calendar_event_id) {
         upd.calendar_event_id = job.calendar_event_id;
         if (job.calendar_id) upd.calendar_id = job.calendar_id;

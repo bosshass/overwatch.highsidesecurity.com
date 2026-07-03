@@ -59,6 +59,9 @@ const LANE_MOVES = [
   { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', target:'scheduled',         statuses:['scheduled'] },
   { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
   { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', target:'to_bill',           statuses:['complete','to_bill','billed'] },
+  // Not a billing outcome — for test entries, dupes handled outside the merge tool, or
+  // anything that just needs to leave the active board without touching money.
+  { key:'clear',     label:'🗑️ Clear (not billable)', color:'#64748b', target:'archived', statuses:['archived','dead'] },
 ];
 
 // Estimate sub-stages, revealed when Estimates is tapped.
@@ -641,6 +644,19 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
                   <button key={lane.key} onClick={() => setShowEstStages(s => !s)} disabled={moving}
                     style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:lane.color, fontWeight:700, fontSize:13, cursor:'pointer', gridColumn: showEstStages ? '1 / -1' : 'auto' }}>
                     {lane.label} ▾
+                  </button>
+                );
+              }
+              if (lane.key === 'clear') {
+                return (
+                  <button key={lane.key} disabled={moving||isHere}
+                    onClick={() => {
+                      if (window.confirm(`Clear "${job.customer_name || 'this job'}"? It leaves the active board and is not billed. This isn't billing history — undo it later from Archived if needed.`)) {
+                        onStatusMove(job.id, lane.target);
+                      }
+                    }}
+                    style={{ gridColumn:'1 / -1', padding:12, borderRadius:8, border:`1px dashed ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:isHere?'#fff':lane.color, fontWeight:700, fontSize:13, cursor:isHere?'default':'pointer', opacity:moving?0.6:1 }}>
+                    {isHere ? '● ' : ''}{lane.label}
                   </button>
                 );
               }

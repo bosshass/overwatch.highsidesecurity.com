@@ -380,6 +380,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   // null while nothing pending; set to a tech object right after a successful assign.
   const [notifyTarget, setNotifyTarget] = useState(null);
   const [phoneInput, setPhoneInput] = useState('');
+  const [editingPhone, setEditingPhone] = useState(false);
   const [sendingText, setSendingText] = useState(false);
   const [textResult, setTextResult] = useState(null); // { ok, msg }
 
@@ -397,6 +398,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
         try { await notesApi.addNote(job.id, `Assigned to ${tech.name}${job.status==='blocked'?' (BLOCKED — needs attention)':''}`, 'board'); } catch {}
         setTypedAssignee('');
         setPhoneInput(tech.phone || '');
+        setEditingPhone(!tech.phone);
         setNotifyTarget(tech); // offer email/text notify
       } else {
         // Unassign: clear the job row AND any active (non-complete) job_assignments
@@ -432,6 +434,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
 
   const savePhoneAndSend = async () => {
     if (!notifyTarget?.id || !phoneInput.trim()) return;
+    setEditingPhone(false);
     setSendingText(true);
     setTextResult(null);
     try {
@@ -593,10 +596,15 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               </div>
 
               <div style={{ marginTop:10 }}>
-                {!phoneInput ? (
+                {editingPhone ? (
                   <div style={{ display:'flex', gap:6 }}>
                     <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)} placeholder="Phone number to text (e.g. +17195551234)"
+                      onKeyDown={e => { if (e.key === 'Enter' && phoneInput.trim()) savePhoneAndSend(); }}
                       style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
+                    <button onClick={savePhoneAndSend} disabled={!phoneInput.trim() || sendingText}
+                      style={{ padding:'6px 12px', borderRadius:6, border:'none', background: phoneInput.trim() ? '#22c55e' : '#334155', color:'#fff', fontSize:13, fontWeight:600, cursor: phoneInput.trim() ? 'pointer' : 'not-allowed' }}>
+                      Save
+                    </button>
                   </div>
                 ) : (
                   <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
@@ -607,7 +615,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
                     <a href={smsHref} style={{ fontSize:12, color:'#94a3b8', textDecoration:'underline' }}>
                       or text manually
                     </a>
-                    <button onClick={() => setPhoneInput('')} title="Edit number"
+                    <button onClick={() => setEditingPhone(true)} title="Edit number"
                       style={{ padding:'4px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
                       edit #
                     </button>

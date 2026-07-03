@@ -9,6 +9,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
@@ -425,7 +426,8 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
       )}`
     : null;
 
-  const smsMessage = `You've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}. — Overwatch`;
+  const jobLink = `${window.location.origin}/board?job=${job.id}`;
+  const smsMessage = `You've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}. ${jobLink}`;
   const smsHref = phoneInput ? `sms:${phoneInput.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(smsMessage)}` : null;
 
   const savePhoneAndSend = async () => {
@@ -760,6 +762,8 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
 // MAIN
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function BoardView({ accessToken, onBack, userEmail, userName }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -811,6 +815,24 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, []);
 
   useEffect(() => { loadJobs(); loadTechs(); }, [loadJobs, loadTechs]);
+
+  // Deep link — /board?job=<id> (used by the assign-to SMS/email notify links).
+  // Opens straight to that job's card once the list has loaded.
+  useEffect(() => {
+    if (loading) return;
+    const jobId = new URLSearchParams(location.search).get('job');
+    if (!jobId) return;
+    const match = jobs.find(j => j.id === jobId);
+    if (match) {
+      setSelectedJob(match);
+    } else {
+      // Not in the active list (e.g. archived/billed) — fetch it directly so the link still works.
+      supabase.from('jobs').select('*').eq('id', jobId).maybeSingle()
+        .then(({ data }) => { if (data) setSelectedJob(data); });
+    }
+    // Strip the param so closing the card and navigating around doesn't keep reopening it.
+    navigate('/board', { replace: true });
+  }, [loading, jobs, location.search, navigate]);
 
   // Status move — no note required, never touches created_at
   const moveStatus = useCallback(async (jobId, newStatus) => {

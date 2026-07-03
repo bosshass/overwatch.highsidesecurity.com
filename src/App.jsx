@@ -684,8 +684,17 @@ export default function App() {
                     setUserName(opt.key);
                     setDefaultCalendar(opt.defaultCalendar);
                     setShowIdentityPicker(false);
-                    if (opt.defaultView) {
-                      navigate(`/${opt.defaultView}`);
+                    // A deep link (e.g. /board?job=...) that triggered a fresh
+                    // sign-in gets parked here until an identity is picked —
+                    // this is the shared-login (info@) path JR actually uses,
+                    // so resuming it here is what makes his text-message
+                    // ticket links actually land on the right card.
+                    const pendingPath = sessionStorage.getItem('ow_post_login_path');
+                    sessionStorage.removeItem('ow_post_login_path');
+                    const dest = pendingPath || (opt.defaultView ? `/${opt.defaultView}` : null);
+                    if (dest) {
+                      window.history.replaceState(null, '', dest);
+                      navigate(dest);
                     }
                   }}
                   style={{

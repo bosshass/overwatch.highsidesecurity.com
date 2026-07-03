@@ -76,9 +76,10 @@ export default function GlobalSearch({ onClose, onNavigate }) {
       try {
         const { data } = await supabase
           .from('jobs')
-          .select('id, customer_name, customer_phone, p_number, status, customer_address')
-          .or(`customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
-          .limit(8);
+          .select('id, customer_name, customer_phone, p_number, status, customer_address, created_at')
+          .or(`p_number.ilike.%${safe}%,customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
+          .order('created_at', { ascending: false })
+          .limit(20);
         jobs = (data || []).map(j => ({ ...j, job_number: j.p_number }));
       } catch (e) { console.warn('Job search failed:', e); }
 
@@ -86,9 +87,9 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         const { data } = await supabase
           .from('time_entries')
           .select('id, customer_name_raw, event_title, tech_name, created_at, disposition, materials, notes, project_ref')
-          .or(`customer_name_raw.ilike.%${safe}%,event_title.ilike.%${safe}%,materials.ilike.%${safe}%,notes.ilike.%${safe}%`)
+          .or(`customer_name_raw.ilike.%${safe}%,event_title.ilike.%${safe}%,materials.ilike.%${safe}%,notes.ilike.%${safe}%,project_ref.ilike.%${safe}%`)
           .order('created_at', { ascending: false })
-          .limit(8);
+          .limit(20);
         entries = data || [];
       } catch (e) { console.warn('Entry search failed:', e); }
     }

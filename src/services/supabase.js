@@ -114,6 +114,12 @@ export const techsApi = {
     const { data, error } = await supabase.from('techs').select('*').eq('calendar_id', calendarId).maybeSingle();
     if (error) throw error;
     return data;
+  },
+
+  async update(id, updates) {
+    const { data, error } = await supabase.from('techs').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
   }
 };
 

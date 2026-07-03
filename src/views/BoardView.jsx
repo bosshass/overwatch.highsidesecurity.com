@@ -372,23 +372,79 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   // ── Assign (used especially when Blocked) ────
   const [assigning, setAssigning] = useState(false);
   const [typedAssignee, setTypedAssignee] = useState('');
+  // Tech we just assigned to, so we can offer to notify them (email / text).
+  // null while nothing pending; set to a tech object right after a successful assign.
+  const [notifyTarget, setNotifyTarget] = useState(null);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [sendingText, setSendingText] = useState(false);
+  const [textResult, setTextResult] = useState(null); // { ok, msg }
+
   const assignTo = async (tech) => {
-    if (!tech || !tech.name) return;
+    // tech === null means "assign to no one" (the unassign radio option)
     setAssigning(true);
+    setTextResult(null);
     try {
-      const upd = { tech_name: tech.name };
-      if (tech.id) upd.tech_assigned = tech.id;   // only set FK when a real tech row
-      const { error } = await supabase.from('jobs').update(upd).eq('id', job.id);
-      if (error) throw error;
-      try { notifyJobAssigned(tech.name, job.customer_name || 'a job', job.scheduled_date || null); } catch {}
-      try { await notesApi.addNote(job.id, `🚫 Assigned to ${tech.name}${job.status==='blocked'?' (BLOCKED — needs attention)':''}`, 'board'); } catch {}
+      if (tech && tech.name) {
+        const upd = { tech_name: tech.name };
+        if (tech.id) upd.tech_assigned = tech.id;   // only set FK when a real tech row
+        const { error } = await supabase.from('jobs').update(upd).eq('id', job.id);
+        if (error) throw error;
+        try { notifyJobAssigned(tech.name, job.customer_name || 'a job', job.scheduled_date || null); } catch {}
+        try { await notesApi.addNote(job.id, `Assigned to ${tech.name}${job.status==='blocked'?' (BLOCKED — needs attention)':''}`, 'board'); } catch {}
+        setTypedAssignee('');
+        setPhoneInput(tech.phone || '');
+        setNotifyTarget(tech); // offer email/text notify
+      } else {
+        // Unassign: clear the job row AND any active (non-complete) job_assignments
+        // rows tied to this job, so the person is fully off this task everywhere —
+        // not just cleared on the jobs table — while staying in the tech list.
+        const prevName = job.tech_name;
+        const { error } = await supabase.from('jobs').update({ tech_name: null, tech_assigned: null }).eq('id', job.id);
+        if (error) throw error;
+        try {
+          await supabase.from('job_assignments').delete().eq('job_id', job.id)
+            .or('is_complete.is.null,is_complete.eq.false');
+        } catch (e) { console.error('Could not clear job_assignments for unassign:', e); }
+        try { await notesApi.addNote(job.id, `Unassigned${prevName ? ` (was ${prevName})` : ''}`, 'board'); } catch {}
+        setNotifyTarget(null);
+      }
       onRenamed?.(job.id, job.customer_name); // trigger parent refresh of this job
-      setTypedAssignee('');
-      alert(`Assigned to ${tech.name}. They'll be notified if push is enabled on their device.`);
     } catch (e) {
-      alert('Could not assign: ' + e.message);
+      alert('Could not update assignment: ' + e.message);
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const emailHref = notifyTarget?.email
+    ? `mailto:${notifyTarget.email}?subject=${encodeURIComponent(`Job assigned: ${job.customer_name || 'Job'}`)}&body=${encodeURIComponent(
+        `Hi ${notifyTarget.name},\n\nYou've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}.\n\n— Overwatch`
+      )}`
+    : null;
+
+  const smsMessage = `You've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}. — Overwatch`;
+  const smsHref = phoneInput ? `sms:${phoneInput.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(smsMessage)}` : null;
+
+  const savePhoneAndSend = async () => {
+    if (!notifyTarget?.id || !phoneInput.trim()) return;
+    setSendingText(true);
+    setTextResult(null);
+    try {
+      if (notifyTarget.id && phoneInput.trim() !== (notifyTarget.phone || '')) {
+        await techsApi.update(notifyTarget.id, { phone: phoneInput.trim() });
+      }
+      const res = await fetch('/api/send-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: phoneInput.trim(), message: smsMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || 'Send failed');
+      setTextResult({ ok: true, msg: `Texted ${notifyTarget.name}.` });
+    } catch (e) {
+      setTextResult({ ok: false, msg: `Auto-send failed (${e.message}) — use "text manually" below instead.` });
+    } finally {
+      setSendingText(false);
     }
   };
 
@@ -484,18 +540,27 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           <div style={{ color:job.status==='blocked'?'#dc2626':'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6, fontWeight:600 }}>
             {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
           </div>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            {/* Unassigned / "no one" — always first */}
+            <label style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 2px', cursor: assigning?'default':'pointer', fontSize:13, color: !job.tech_assigned && !job.tech_name ? '#e2e8f0' : '#94a3b8', fontWeight: !job.tech_assigned && !job.tech_name ? 600 : 400 }}>
+              <input type="radio" name={`assign-${job.id}`} disabled={assigning}
+                checked={!job.tech_assigned && !job.tech_name}
+                onChange={() => assignTo(null)} />
+              Unassigned (no one)
+            </label>
             {(techs||[]).map(tech => (
-              <button key={tech.id} onClick={() => assignTo(tech)} disabled={assigning}
-                style={{ padding:'6px 12px', borderRadius:6, border:`1px solid ${job.tech_assigned===tech.id?'#22c55e':'#334155'}`, background:job.tech_assigned===tech.id?'#22c55e22':'transparent', color:job.tech_assigned===tech.id?'#22c55e':'#cbd5e1', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-                {job.tech_assigned===tech.id ? '✓ ' : ''}{tech.name}
-              </button>
+              <label key={tech.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 2px', cursor: assigning?'default':'pointer', fontSize:13, color: job.tech_assigned===tech.id ? '#22c55e' : '#cbd5e1', fontWeight: job.tech_assigned===tech.id ? 600 : 400 }}>
+                <input type="radio" name={`assign-${job.id}`} disabled={assigning}
+                  checked={job.tech_assigned===tech.id}
+                  onChange={() => assignTo(tech)} />
+                {tech.name}
+              </label>
             ))}
             {(!techs || techs.length === 0) && (
               <div style={{ color:'#94a3b8', fontSize:12 }}>No team members loaded — type a name below.</div>
             )}
           </div>
-          {/* Typed-name fallback — always available */}
+          {/* Typed-name fallback — for a person not in the techs table */}
           <div style={{ display:'flex', gap:6, marginTop:8 }}>
             <input value={typedAssignee} onChange={e => setTypedAssignee(e.target.value)} placeholder="…or type a name"
               onKeyDown={e => { if (e.key==='Enter' && typedAssignee.trim()) assignTo({ id:null, name:typedAssignee.trim() }); }}
@@ -503,6 +568,55 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             <button onClick={() => typedAssignee.trim() && assignTo({ id:null, name:typedAssignee.trim() })} disabled={assigning||!typedAssignee.trim()}
               style={{ padding:'6px 12px', borderRadius:6, border:'none', background:typedAssignee.trim()?'#22c55e':'#334155', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>Assign</button>
           </div>
+
+          {/* Notify panel — shows right after assigning to someone with an id (a real tech row) */}
+          {notifyTarget?.id && (
+            <div style={{ marginTop:10, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #334155' }}>
+              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:600 }}>
+                Let {notifyTarget.name} know
+              </div>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {emailHref ? (
+                  <a href={emailHref} style={{ padding:'6px 12px', borderRadius:6, background:'#334155', color:'#fff', fontSize:13, fontWeight:600, textDecoration:'none' }}>
+                    ✉️ Email {notifyTarget.name}
+                  </a>
+                ) : (
+                  <div style={{ color:'#f59e0b', fontSize:12 }}>No email on file for {notifyTarget.name}.</div>
+                )}
+              </div>
+
+              <div style={{ marginTop:10 }}>
+                {!phoneInput ? (
+                  <div style={{ display:'flex', gap:6 }}>
+                    <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)} placeholder="Phone number to text (e.g. +17195551234)"
+                      style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
+                  </div>
+                ) : (
+                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    <button onClick={savePhoneAndSend} disabled={sendingText}
+                      style={{ padding:'6px 12px', borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+                      {sendingText ? 'Sending…' : `📱 Text ${notifyTarget.name}`}
+                    </button>
+                    <a href={smsHref} style={{ fontSize:12, color:'#94a3b8', textDecoration:'underline' }}>
+                      or text manually
+                    </a>
+                    <button onClick={() => setPhoneInput('')} title="Edit number"
+                      style={{ padding:'4px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
+                      edit #
+                    </button>
+                  </div>
+                )}
+                {textResult && (
+                  <div style={{ marginTop:6, fontSize:12, color: textResult.ok ? '#22c55e' : '#f59e0b' }}>{textResult.msg}</div>
+                )}
+              </div>
+
+              <button onClick={() => { setNotifyTarget(null); setTextResult(null); }}
+                style={{ marginTop:8, padding:'4px 8px', borderRadius:6, border:'none', background:'transparent', color:'#64748b', fontSize:11, cursor:'pointer' }}>
+                dismiss
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Merge tool */}

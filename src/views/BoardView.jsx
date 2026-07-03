@@ -543,20 +543,22 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           <div style={{ color:job.status==='blocked'?'#dc2626':'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6, fontWeight:600 }}>
             {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
             {/* Unassigned / "no one" — always first */}
-            <label style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 2px', cursor: assigning?'default':'pointer', fontSize:13, color: !job.tech_assigned && !job.tech_name ? '#e2e8f0' : '#94a3b8', fontWeight: !job.tech_assigned && !job.tech_name ? 600 : 400 }}>
+            <label style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`1px solid ${!job.tech_assigned && !job.tech_name ? '#94a3b8' : '#334155'}`, background: !job.tech_assigned && !job.tech_name ? '#94a3b822' : 'transparent', cursor: assigning?'default':'pointer', fontSize:13, color: !job.tech_assigned && !job.tech_name ? '#e2e8f0' : '#94a3b8', fontWeight: !job.tech_assigned && !job.tech_name ? 600 : 400 }}>
               <input type="radio" name={`assign-${job.id}`} disabled={assigning}
                 checked={!job.tech_assigned && !job.tech_name}
-                onChange={() => assignTo(null)} />
-              Unassigned (no one)
+                onChange={() => assignTo(null)}
+                style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
+              {!job.tech_assigned && !job.tech_name ? '✓ ' : ''}Unassigned
             </label>
             {(techs||[]).map(tech => (
-              <label key={tech.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 2px', cursor: assigning?'default':'pointer', fontSize:13, color: job.tech_assigned===tech.id ? '#22c55e' : '#cbd5e1', fontWeight: job.tech_assigned===tech.id ? 600 : 400 }}>
+              <label key={tech.id} style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`1px solid ${job.tech_assigned===tech.id?'#22c55e':'#334155'}`, background:job.tech_assigned===tech.id?'#22c55e22':'transparent', cursor: assigning?'default':'pointer', fontSize:13, color:job.tech_assigned===tech.id?'#22c55e':'#cbd5e1', fontWeight:job.tech_assigned===tech.id?600:400 }}>
                 <input type="radio" name={`assign-${job.id}`} disabled={assigning}
                   checked={job.tech_assigned===tech.id}
-                  onChange={() => assignTo(tech)} />
-                {tech.name}
+                  onChange={() => assignTo(tech)}
+                  style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
+                {job.tech_assigned===tech.id ? '✓ ' : ''}{tech.name}
               </label>
             ))}
             {(!techs || techs.length === 0) && (

@@ -221,6 +221,13 @@ export default function App() {
 
   // ── AUTH: Google Sign In ────────────────────────────────────────────────
   const handleSignIn = useCallback(() => {
+    // Remember where the user was actually trying to go — e.g. a /board?job=...
+    // deep link from an assign-to SMS/email — so sign-in can send them there
+    // instead of unconditionally dropping them at '/' or their default view.
+    const here = window.location.pathname + window.location.search;
+    if (here && here !== '/') {
+      sessionStorage.setItem('ow_post_login_path', here);
+    }
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
     authUrl.searchParams.set('redirect_uri', window.location.origin);
@@ -238,6 +245,14 @@ export default function App() {
       const token = params.get('access_token');
 
       if (token) {
+        // A deep link (e.g. /board?job=...) that required a fresh sign-in —
+        // consume it now so it takes priority over the normal defaultView
+        // redirect below. Left in place (not removed) only in the rare
+        // needsIdentity-without-saved-identity branch, since that case has to
+        // pause for an identity pick first and isn't wired to resume the
+        // deep link automatically yet.
+        const pendingPath = sessionStorage.getItem('ow_post_login_path');
+
         fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
           headers: { Authorization: `Bearer ${token}` }
         })
@@ -265,12 +280,10 @@ export default function App() {
                 if (identity) {
                   setUserName(identity.key);
                   setDefaultCalendar(identity.defaultCalendar);
-                  if (identity.defaultView) {
-                    window.history.replaceState(null, '', `/${identity.defaultView}`);
-                    navigate(`/${identity.defaultView}`);
-                  } else {
-                    window.history.replaceState(null, '', '/');
-                  }
+                  sessionStorage.removeItem('ow_post_login_path');
+                  const dest = pendingPath || (identity.defaultView ? `/${identity.defaultView}` : '/');
+                  window.history.replaceState(null, '', dest);
+                  if (dest !== '/') navigate(dest);
                 } else {
                   setShowIdentityPicker(true);
                   window.history.replaceState(null, '', '/');
@@ -296,13 +309,11 @@ export default function App() {
                 setShowGuide(true);
               }
 
-              // Navigate to user's default view if set
-              if (config.defaultView) {
-                window.history.replaceState(null, '', `/${config.defaultView}`);
-                navigate(`/${config.defaultView}`);
-              } else {
-                window.history.replaceState(null, '', '/');
-              }
+              // Deep link takes priority over the normal default-view redirect.
+              sessionStorage.removeItem('ow_post_login_path');
+              const dest = pendingPath || (config.defaultView ? `/${config.defaultView}` : '/');
+              window.history.replaceState(null, '', dest);
+              if (dest !== '/') navigate(dest);
             }
           })
           .catch(err => console.error('Auth error:', err));

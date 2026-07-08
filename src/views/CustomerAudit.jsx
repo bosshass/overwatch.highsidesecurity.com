@@ -1,7 +1,7 @@
 // ============================================================
 // Event Audit — the reconciliation workbench.
 // Every calendar event (time_entry) since Jan 1:
-//   • assign / re-assign to a Registry customer (writes time_entries.registry_id)
+//   • assign / re-assign to a real customer (writes time_entries.customer_id)
 //   • change the disposition inline (Bill it / Return / Estimate / In progress)
 //   • push to the Board as a ticket — ONLY on explicit confirm (never auto)
 //   • expand the full history thread (job_history) inline
@@ -65,8 +65,8 @@ function CustomerPicker({ registry, onPick, onClose }) {
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     const list = s ? registry.filter(c =>
-      (c.name || '').toLowerCase().includes(s) || (c.code || '').toLowerCase().includes(s) ||
-      (c.address || '').toLowerCase().includes(s) || (c.cs_legacy || '').toLowerCase().includes(s)) : registry;
+      (c.name || '').toLowerCase().includes(s) || (c.short_code || '').toLowerCase().includes(s) ||
+      (c.address || '').toLowerCase().includes(s) || (c.cs_number || '').toLowerCase().includes(s)) : registry;
     return list.slice(0, 40);
   }, [q, registry]);
   return (
@@ -79,10 +79,10 @@ function CustomerPicker({ registry, onPick, onClose }) {
       <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {matches.length === 0 && <div style={{ color: '#475569', fontSize: 13, padding: 12, textAlign: 'center' }}>No match for "{q}"</div>}
         {matches.map(c => (
-          <div key={c.code} onClick={() => onPick(c)} style={{ padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: '#1a1a2e', border: '1px solid #1e293b' }}>
+          <div key={c.id} onClick={() => onPick(c)} style={{ padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: '#1a1a2e', border: '1px solid #1e293b' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{c.name}</span>
-              <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.code}</span>
+              <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
             </div>
             {c.address && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>{c.address}</div>}
           </div>
@@ -111,7 +111,7 @@ export default function CustomerAudit({ onBack }) {
   const [openHistoryId, setOpenHistoryId] = useState(null);
   const [historyById, setHistoryById] = useState({}); // entryId -> { loading, rows, hasJob }
 
-  const byCode = useMemo(() => { const m = {}; for (const c of registry) m[c.code] = c; return m; }, [registry]);
+  const byId = useMemo(() => { const m = {}; for (const c of registry) m[c.id] = c; return m; }, [registry]);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -119,9 +119,9 @@ export default function CustomerAudit({ onBack }) {
     setLoading(true); setErr(null);
     try {
       const [{ data: reg, error: e1 }, { data: ev, error: e2 }, { data: jobs, error: e3 }] = await Promise.all([
-        supabase.from('customer_registry').select('code, name, cs_legacy, address').order('name'),
+        supabase.from('customers').select('id, name, short_code, cs_number, address').order('name'),
         supabase.from('time_entries')
-          .select('id, event_title, event_start, created_at, calendar_event_id, customer_id, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, registry_id')
+          .select('id, event_title, event_start, created_at, calendar_event_id, customer_id, tech_name, total_minutes, disposition, materials, notes, customer_name_raw')
           .gte('created_at', SINCE).limit(2000),
         supabase.from('jobs').select('id, status, calendar_event_id').not('calendar_event_id', 'is', null).limit(3000),
       ]);
@@ -135,12 +135,12 @@ export default function CustomerAudit({ onBack }) {
     setLoading(false);
   }
 
-  async function assign(entryId, code) {
+  async function assign(entryId, customerId) {
     setSavingId(entryId);
     try {
-      const { error } = await supabase.from('time_entries').update({ registry_id: code }).eq('id', entryId);
+      const { error } = await supabase.from('time_entries').update({ customer_id: customerId }).eq('id', entryId);
       if (error) throw error;
-      setEvents(prev => prev.map(e => e.id === entryId ? { ...e, registry_id: code } : e));
+      setEvents(prev => prev.map(e => e.id === entryId ? { ...e, customer_id: customerId } : e));
       setOpenPickerId(null);
     } catch (e) { alert('Could not save: ' + (e.message || e)); }
     setSavingId(null);
@@ -167,7 +167,7 @@ export default function CustomerAudit({ onBack }) {
         setJobByEvent(m => ({ ...m, [ev.calendar_event_id]: { ...existing, status: target } }));
       } else {
         const job = {
-          customer_name: byCode[ev.registry_id]?.name || ev.customer_name_raw || ev.event_title || 'Customer',
+          customer_name: byId[ev.customer_id]?.name || ev.customer_name_raw || ev.event_title || 'Customer',
           customer_id: ev.customer_id || undefined,
           status: target,
           issue: ev.notes || ev.event_title || '',
@@ -199,17 +199,17 @@ export default function CustomerAudit({ onBack }) {
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return events.filter(e => {
-      if (unassignedOnly && e.registry_id) return false;
+      if (unassignedOnly && e.customer_id) return false;
       if (!s) return true;
-      const cust = byCode[e.registry_id];
+      const cust = byId[e.customer_id];
       return (e.event_title || '').toLowerCase().includes(s) || (e.customer_name_raw || '').toLowerCase().includes(s) ||
         (e.notes || '').toLowerCase().includes(s) || (e.materials || '').toLowerCase().includes(s) ||
         (e.tech_name || '').toLowerCase().includes(s) || (cust?.name || '').toLowerCase().includes(s) ||
-        (e.registry_id || '').toLowerCase().includes(s);
+        (cust?.short_code || '').toLowerCase().includes(s);
     });
-  }, [events, search, unassignedOnly, byCode]);
+  }, [events, search, unassignedOnly, byId]);
 
-  const assignedCount = events.filter(e => e.registry_id).length;
+  const assignedCount = events.filter(e => e.customer_id).length;
   const total = events.length;
 
   const btn = (active, color) => ({
@@ -254,7 +254,7 @@ export default function CustomerAudit({ onBack }) {
 
         {!loading && !err && filtered.map(e => {
           const d = DISPO[e.disposition] || { label: e.disposition || '—', color: '#64748b' };
-          const cust = byCode[e.registry_id];
+          const cust = byId[e.customer_id];
           const job = e.calendar_event_id ? jobByEvent[e.calendar_event_id] : null;
           const target = DISPO_STATUS[e.disposition] || JOB_STATUS.SCHEDULED;
           const onBoardSynced = job && job.status === target;
@@ -291,7 +291,7 @@ export default function CustomerAudit({ onBack }) {
                 {cust ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <div style={{ minWidth: 0 }}>
-                      <span style={{ color: '#22c55e', fontSize: 11, fontWeight: 700, marginRight: 6 }}>✓ {e.registry_id}</span>
+                      <span style={{ color: '#22c55e', fontSize: 11, fontWeight: 700, marginRight: 6 }}>✓ {cust.short_code}</span>
                       <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{cust.name}</span>
                     </div>
                     <button onClick={() => setOpenPickerId(openPickerId === e.id ? null : e.id)} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '5px 10px', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>Change</button>
@@ -302,7 +302,7 @@ export default function CustomerAudit({ onBack }) {
                     {savingId === e.id ? 'Saving…' : '+ Assign customer'}
                   </button>
                 )}
-                {openPickerId === e.id && <CustomerPicker registry={registry} onPick={c => assign(e.id, c.code)} onClose={() => setOpenPickerId(null)} />}
+                {openPickerId === e.id && <CustomerPicker registry={registry} onPick={c => assign(e.id, c.id)} onClose={() => setOpenPickerId(null)} />}
               </div>
 
               {/* Board ticket + History */}

@@ -1,12 +1,12 @@
 // ============================================
-// Overwatch — Client Cockpit (registry-driven)
+// Overwatch — Client Cockpit
 // ============================================
-// Source of truth = customer_registry (master accounts).
+// Source of truth = customers (master accounts).
 // Search a client -> see their history AND act on them:
-//   + Note      -> logs a note, stamped with the client's code
+//   + Note      -> logs a note, stamped with the client's id
 //   + Task      -> action item, assign to a user (lands in their queue)
 //   + New job   -> full intake/schedule flow (NewJobModal), stamped on save
-// Everything created here gets registry_id = client code, so it can't
+// Everything created here gets customer_id = client's real UUID, so it can't
 // fragment by name and always shows back in this client's history.
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -84,7 +84,7 @@ function nameTokens(name) {
 }
 
 const TIME_FIELDS =
-  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, registry_id';
+  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, customer_id';
 
 // ── component ────────────────────────────────────────────────
 export default function CustomerHistory({ onBack, userEmail, accessToken }) {
@@ -116,8 +116,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
-        .from('customer_registry')
-        .select('code, name, cs_legacy, address')
+        .from('customers')
+        .select('id, name, short_code, cs_number, address')
         .order('name');
       if (error) setErr(error.message);
       else setRegistry(data || []);
@@ -140,8 +140,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     if (!s) return [];
     return registry.filter(c =>
       (c.name || '').toLowerCase().includes(s) ||
-      (c.code || '').toLowerCase().includes(s) ||
-      (c.cs_legacy || '').toLowerCase().includes(s) ||
+      (c.short_code || '').toLowerCase().includes(s) ||
+      (c.cs_number || '').toLowerCase().includes(s) ||
       (c.address || '').toLowerCase().includes(s)
     ).slice(0, 40);
   }, [query, registry]);
@@ -149,8 +149,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
   const loadOpenWork = useCallback(async (customer) => {
     const { data, error } = await supabase
       .from('jobs')
-      .select('id, customer_name, job_type, status, issue, notes, created_at, registry_id')
-      .eq('registry_id', customer.code)
+      .select('id, customer_name, job_type, status, issue, notes, created_at, customer_id')
+      .eq('customer_id', customer.id)
       .order('created_at', { ascending: false });
     if (!error) setOpenWork(data || []); // keep ALL (open + done); split in render
   }, []);
@@ -162,7 +162,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
       const tg = await supabase
         .from('time_entries')
         .select(TIME_FIELDS)
-        .eq('registry_id', customer.code)
+        .eq('customer_id', customer.id)
         .order('event_start', { ascending: false });
       if (tg.error) throw tg.error;
 
@@ -174,7 +174,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
         const r = await supabase
           .from('time_entries')
           .select(TIME_FIELDS)
-          .is('registry_id', null)
+          .is('customer_id', null)
           .or(orStr)
           .order('event_start', { ascending: false })
           .limit(100);
@@ -206,7 +206,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     try {
       await jobsApi.create({
         customer_name: selected.name, customer_address: selected.address || '',
-        registry_id: selected.code, job_type: 'note', priority: 'normal',
+        customer_id: selected.id, job_type: 'note', priority: 'normal',
         issue: noteText.trim(),
         notes: `[NOTE - ${new Date().toLocaleString()}]\n${noteText.trim()}`,
         status: JOB_STATUS.NEW,
@@ -222,7 +222,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     try {
       const job = await jobsApi.create({
         customer_name: selected.name, customer_address: selected.address || '',
-        registry_id: selected.code, job_type: 'task', priority: 'normal',
+        customer_id: selected.id, job_type: 'task', priority: 'normal',
         issue: taskTitle.trim(), status: JOB_STATUS.NEW,
       }, me);
       if (taskAssignee && job?.id) {
@@ -248,13 +248,13 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     catch (e) { setErr(e.message || 'Failed to reopen'); }
   };
 
-  const assign = async (entryId, code) => {
+  const assign = async (entryId, customerId) => {
     const { error } = await supabase
-      .from('time_entries').update({ registry_id: code }).eq('id', entryId);
+      .from('time_entries').update({ customer_id: customerId }).eq('id', entryId);
     if (error) { setErr(error.message); return; }
     setSuggested(prev => {
       const hit = prev.find(e => e.id === entryId);
-      if (hit) setTagged(t => [{ ...hit, registry_id: code }, ...t]);
+      if (hit) setTagged(t => [{ ...hit, customer_id: customerId }, ...t]);
       return prev.filter(e => e.id !== entryId);
     });
   };
@@ -298,7 +298,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
       {e.materials && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 4 }}>🔧 {e.materials}</div>}
       {e.notes && <div style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{e.notes}</div>}
       {showAssign && (
-        <button onClick={() => assign(e.id, selected.code)} style={{ marginTop: 10, width: '100%', background: '#00c8e820', border: '1px solid #00c8e8', borderRadius: 8, color: '#00c8e8', padding: '8px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+        <button onClick={() => assign(e.id, selected.id)} style={{ marginTop: 10, width: '100%', background: '#00c8e820', border: '1px solid #00c8e8', borderRadius: 8, color: '#00c8e8', padding: '8px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           + Assign to {selected.name}
         </button>
       )}
@@ -344,8 +344,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
         </div>
         {selected && (
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-            <span style={{ color: '#00c8e8', fontWeight: 700 }}>{selected.code}</span>
-            {selected.cs_legacy && <span> · CS# {selected.cs_legacy}</span>}
+            <span style={{ color: '#00c8e8', fontWeight: 700 }}>{selected.short_code}</span>
+            {selected.cs_number && <span> · CS# {selected.cs_number}</span>}
             {selected.address && <span> · {selected.address}</span>}
           </div>
         )}
@@ -366,15 +366,15 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
             />
             {query.trim() && matches.length === 0 && (
               <div style={{ color: '#64748b', fontSize: 13, marginTop: 14 }}>
-                No master account matches “{query.trim()}”. (Customer lookup searches the registry.)
+                No customer matches “{query.trim()}”. (Customer lookup searches all customers.)
               </div>
             )}
             <div style={{ marginTop: 14 }}>
               {matches.map(c => (
-                <button key={c.code} onClick={() => pick(c)} style={{ ...card, display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+                <button key={c.id} onClick={() => pick(c)} style={{ ...card, display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                     <span style={{ fontWeight: 700, fontSize: 14 }}>{c.name}</span>
-                    <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.code}</span>
+                    <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
                   </div>
                   {c.address && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>📍 {c.address}</div>}
                 </button>
@@ -497,7 +497,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
           onClose={() => setShowJobModal(false)}
           onCreated={async (job) => {
             setShowJobModal(false);
-            if (job?.id) { try { await jobsApi.update(job.id, { registry_id: selected.code }, me); } catch (_) {} }
+            if (job?.id) { try { await jobsApi.update(job.id, { customer_id: selected.id }, me); } catch (_) {} }
             refreshWork();
           }}
         />

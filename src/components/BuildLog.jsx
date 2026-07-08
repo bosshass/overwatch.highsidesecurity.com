@@ -9,6 +9,16 @@
 
 export const BUILDS = [
   {
+    version: '9.1.0',
+    date: '2026-07-08',
+    label: 'Customer lookup fix — one source of truth',
+    changes: [
+      'Event Audit, Customer Lookup, and field notes now all read from the same customer list — fixes empty/broken customer search',
+      'Assigning a customer to an event now links it permanently, so it always shows back in that customer history',
+      'Removed the old duplicate customer lookup that was causing events to not show up under the right client',
+    ],
+  },
+  {
     version: '9.0.0',
     date: '2026-06-29',
     label: 'Customer Cockpit + Real Field Notes',

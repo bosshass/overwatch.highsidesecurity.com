@@ -51,7 +51,7 @@ function parseIssueNotes(issue) {
 const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const FIELDS =
-  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, registry_id, calendar_event_id, customer_id, created_at';
+  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, calendar_event_id, customer_id, created_at';
 
 const PREVIEW = 3;
 
@@ -74,10 +74,6 @@ export default function FieldVisits({ job }) {
           const r = await supabase.from('time_entries').select(FIELDS).eq('customer_id', job.customer_id).limit(100);
           if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
         }
-        if (job?.registry_id) {
-          const r = await supabase.from('time_entries').select(FIELDS).eq('registry_id', job.registry_id).limit(100);
-          if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
-        }
       } catch { /* leave what we have */ }
       const rows = Object.values(byId).sort(
         (a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at)
@@ -85,7 +81,7 @@ export default function FieldVisits({ job }) {
       if (!cancelled) { setEntries(rows); setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [job?.calendar_event_id, job?.customer_id, job?.registry_id]);
+  }, [job?.calendar_event_id, job?.customer_id]);
 
   // 📝 notes from the issue field, minus any that duplicate a visit's note text.
   const issueNotes = useMemo(() => {
@@ -125,7 +121,6 @@ export default function FieldVisits({ job }) {
               {e.tech_name && <span>👷 {e.tech_name}</span>}
               {e.event_start && <span>📅 {fmtDateTime(e.event_start)}</span>}
               {hoursFromMin(e.total_minutes) && <span>⏱ {hoursFromMin(e.total_minutes)}</span>}
-              {e.registry_id && <span style={{ color: '#00c8e8', fontWeight: 700 }}>{e.registry_id}</span>}
             </div>
             {e.materials && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 4 }}>🔧 {e.materials}</div>}
             {e.notes && <div style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{e.notes}</div>}

@@ -217,22 +217,61 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
       const survivor = allJobs.find(j => j.id === survivorId) || {};
       const by = userEmail || 'board';
 
-      // 1) Carry the dead job's notes onto the survivor (never lose them).
-      //    getAllForJob only reads job_history.notes + completion_notes — for
-      //    a freshly-created job that's just the literal "Job created" string,
-      //    NOT the real intake details, which live in the issue field. So we
-      //    always surface the dead job's issue as its own note too, regardless
-      //    of whether the survivor already has its own issue text — otherwise
-      //    those details vanish with no trail at all.
+      // 1) Carry the dead job's notes onto the survivor with their ORIGINAL
+      //    timestamps intact. Going through notesApi.addNote() here would
+      //    stamp every single carried note with changed_at = now(), which is
+      //    the actual root cause of the merged event log looking scrambled:
+      //    months of the dead job's history all landing at the exact instant
+      //    the merge button was clicked, out of any real chronological
+      //    relationship to the survivor's own history. Inserting into
+      //    job_history directly lets each note keep the date it really
+      //    happened on.
       try {
         const deadNotes = await notesApi.getAllForJob(job.id);
-        for (const n of deadNotes.slice().reverse()) {
-          if (n.text?.trim()) {
-            await notesApi.addNote(survivorId, `↪ from merged job: ${n.text}`, by);
-          }
-        }
+        const { data: survivorRow } = await supabase.from('jobs').select('status').eq('id', survivorId).single();
+        const survivorStatus = survivorRow?.status || null;
+
+        const carryRows = deadNotes
+          .filter(n => n.text?.trim())
+          .map(n => ({
+            job_id: survivorId,
+            from_status: survivorStatus,
+            to_status: survivorStatus,
+            changed_by: n.created_by || by,
+            notes: `↪ from merged job (${fmtDate(n.created_at)}): ${n.text}`,
+            changed_at: n.created_at, // preserve the real date — the actual fix
+          }));
+
+        //    getAllForJob only reads job_history.notes + completion_notes — for
+        //    a freshly-created job that's just the literal "Job created" string,
+        //    NOT the real intake details, which live in the issue field. So we
+        //    always surface the dead job's issue as its own note too, regardless
+        //    of whether the survivor already has its own issue text — otherwise
+        //    those details vanish with no trail at all.
         if (job.issue?.trim()) {
-          await notesApi.addNote(survivorId, `↪ merged job details:\n${job.issue.trim()}`, by);
+          carryRows.push({
+            job_id: survivorId,
+            from_status: survivorStatus,
+            to_status: survivorStatus,
+            changed_by: by,
+            notes: `↪ merged job details (originally logged ${fmtDate(job.created_at)}):\n${job.issue.trim()}`,
+            changed_at: job.created_at || new Date().toISOString(),
+          });
+        }
+
+        // One clear marker, stamped at the ACTUAL merge time (now), so it's
+        // obvious in the survivor's log exactly when a merge happened versus
+        // the backdated notes carried in above it.
+        carryRows.push({
+          job_id: survivorId,
+          from_status: survivorStatus,
+          to_status: survivorStatus,
+          changed_by: by,
+          notes: `🔀 Merged in duplicate: ${job.customer_name || job.id} — its history is carried in above with original dates`,
+        });
+
+        if (carryRows.length) {
+          await supabase.from('job_history').insert(carryRows);
         }
       } catch (e) { console.warn('merge: note carry failed', e); }
 
@@ -275,6 +314,19 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
         updated_at: new Date().toISOString(),
       }).eq('id', job.id);
       if (error) throw error;
+
+      // Log the merge-out on the dead job's OWN event log too — action_note
+      // above is a raw column, not part of job_history, so without this the
+      // dead job's own audit trail never shows it was merged anywhere.
+      try {
+        await supabase.from('job_history').insert([{
+          job_id: job.id,
+          from_status: job.status,
+          to_status: 'dead',
+          changed_by: by,
+          notes: `🔀 Merged into: ${survivor.customer_name || survivorId}`,
+        }]);
+      } catch (e) { console.warn('merge: dead-job event log failed', e); }
 
       onMerge(job.id, survivorId);
       setOpen(false);

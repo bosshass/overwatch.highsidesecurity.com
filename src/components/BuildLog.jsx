@@ -9,6 +9,16 @@
 
 export const BUILDS = [
   {
+    version: '9.1.3',
+    date: '2026-07-09',
+    label: 'Customer details now editable + QuickBooks ID field',
+    changes: [
+      'Edit details button on Customer Lookup: address, phone, gate code, key location',
+      'Added QuickBooks customer ID/name fields — fill in when known, leave blank otherwise',
+      'CS# and system/monitoring fields stay read-only to protect the dedup matching',
+    ],
+  },
+  {
     version: '9.1.2',
     date: '2026-07-09',
     label: 'Customer Lookup shows stored details',

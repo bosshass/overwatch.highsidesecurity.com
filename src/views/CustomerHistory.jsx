@@ -426,7 +426,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
               {(selected.system_type || selected.monitoring_tier || selected.service_tier || selected.package) && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <span style={{ flexShrink: 0 }}>🛡️</span>
-                  <span style={{ color: '#94a3b8' }}>
+                  <span style={{ color: '#e2e8f0', background: '#1e293b', padding: '2px 8px', borderRadius: 6, display: 'inline-block' }}>
                     {[selected.system_type, selected.monitoring_tier, selected.service_tier, selected.package].filter(Boolean).join(' · ')}
                   </span>
                 </div>

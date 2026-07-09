@@ -272,6 +272,7 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
             style={{
               width: '100%', padding: '10px', border: '1px solid #d1d5db',
               borderRadius: 8, fontSize: 13, marginBottom: 8, boxSizing: 'border-box',
+              background: '#fff', color: '#1B2A4A',
             }}
           />
           {results.length > 0 && (
@@ -281,7 +282,7 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
                   key={c.id} type="button" onClick={() => link(c)} disabled={saving}
                   style={{
                     display: 'block', width: '100%', textAlign: 'left',
-                    padding: '8px 10px', background: 'none', border: 'none',
+                    padding: '8px 10px', background: '#fff', border: 'none',
                     borderBottom: '1px solid #f3f4f6', cursor: 'pointer', fontSize: 13,
                   }}
                 >
@@ -314,25 +315,25 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
             onChange={e => setCreateForm({ ...createForm, name: e.target.value })}
             placeholder="Name (required)"
             autoFocus
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
+            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
           />
           <input
             value={createForm.phone}
             onChange={e => setCreateForm({ ...createForm, phone: e.target.value })}
             placeholder="Phone (optional)"
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
+            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
           />
           <input
             value={createForm.address}
             onChange={e => setCreateForm({ ...createForm, address: e.target.value })}
             placeholder="Address (optional)"
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
+            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
           />
           <input
             value={createForm.email}
             onChange={e => setCreateForm({ ...createForm, email: e.target.value })}
             placeholder="Email (optional)"
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
+            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button type="button" onClick={() => setMode('idle')} disabled={saving}

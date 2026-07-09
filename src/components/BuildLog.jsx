@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.2.3',
+    date: '2026-07-09',
+    label: 'Fixed invisible text in customer search + details panel',
+    changes: [
+      'Several inputs/buttons in customer search and the details panel had no explicit background/text color, leaving them exposed to OS/browser dark-mode form styling — could make text unreadable depending on your system setting',
+      'All affected elements now use fixed colors that no longer shift based on light/dark mode',
+    ],
+  },
+  {
     version: '9.2.2',
     date: '2026-07-09',
     label: 'Scheduling from the Board now clears it from Queue too',

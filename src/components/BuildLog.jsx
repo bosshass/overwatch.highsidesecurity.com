@@ -9,6 +9,23 @@
 
 export const BUILDS = [
   {
+    version: '9.2.7',
+    date: '2026-07-09',
+    label: 'Fixed stale version number in header',
+    changes: [
+      'The version shown in the header was hardcoded to "V9.0" and never updated across any version bump — now shows the real live version automatically, every time',
+    ],
+  },
+  {
+    version: '9.2.6',
+    date: '2026-07-09',
+    label: 'Triage Queue customers now open the real Clients screen',
+    changes: [
+      'Searching a customer in Triage Queue now takes you to the actual Clients screen — full history, notes, tasks, new jobs, editable details',
+      'Hitting Back returns you to Triage Queue, not Home',
+    ],
+  },
+  {
     version: '9.2.5',
     date: '2026-07-09',
     label: 'Everyone now gets kicked to new versions automatically',

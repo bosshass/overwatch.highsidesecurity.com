@@ -54,7 +54,7 @@ const STATUS_VERBS = Object.fromEntries(
 // Move-to targets shown as the 6 board lanes (not 15 raw statuses).
 // Tapping a lane sends the card there. Estimates expands to its stages.
 const LANE_MOVES = [
-  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','needs_estimate'] },
+  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','needs_estimate'] },
   { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', target:'blocked',           statuses:['blocked'] },
   { key:'ready',     label:'✅ Ready',      color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule'] },
   { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', target:'scheduled',         statuses:['scheduled'] },
@@ -74,7 +74,7 @@ const EST_STAGES = [
 ];
 
 const COLUMNS = [
-  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','needs_estimate'] },
+  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','needs_estimate'] },
   { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', statuses:['blocked'] },
   { key:'ready',     label:'✅ Ready',      color:'#22c55e', statuses:['ready_to_schedule'] },
   { key:'returns',   label:'🔄 Returns',    color:'#06b6d4', statuses:['return_pending'] },
@@ -841,7 +841,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const loadJobs = useCallback(async () => {
     setLoading(true);
     try {
-      const ACTIVE = ['new','needs_details','needs_parts','pending_materials','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill'];
+      const ACTIVE = ['new','needs_details','needs_parts','pending_materials','pending_decision','blocked','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill','won'];
       const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:false}).limit(500);
       if (error) throw error;
       setJobs(data||[]);

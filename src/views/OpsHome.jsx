@@ -45,9 +45,9 @@ export default function OpsHome({
     setLoading(true);
     try {
       const ACTIVE = [
-        'new','needs_details','needs_parts','pending_materials',
+        'new','needs_details','needs_parts','pending_materials','blocked','pending_decision',
         'needs_estimate','estimate_sent','ready_to_schedule',
-        'return_pending','scheduled','complete','to_bill',
+        'return_pending','scheduled','complete','to_bill','won',
       ];
       const { data } = await supabase
         .from('jobs').select('status, estimate_amount')

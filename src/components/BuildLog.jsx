@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.1.4',
+    date: '2026-07-09',
+    label: 'Board status gaps fixed + full send-back-to-board options',
+    changes: [
+      'Board and dashboard stats now include Blocked, Won, and Pending Decision jobs — these were real statuses that were never being fetched, so jobs sitting there were invisible everywhere',
+      '"Send back to board" from a To Bill card now offers every real status (Won, Lost, Needs Estimate, Pending Decision, and more), auto-generated so future statuses are never missing again',
+    ],
+  },
+  {
     version: '9.1.3',
     date: '2026-07-09',
     label: 'Customer details now editable + QuickBooks ID field',

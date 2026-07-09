@@ -21,12 +21,16 @@ const TABS = [
 
 // "Send back to board" targets — the active-work board lanes a billing card
 // can be pulled back into. Mirrors the board's own lane vocabulary + colors.
-const BOARD_LANES = [
-  { label: '🔥 Triage',   target: 'new',               color: '#ef4444' },
-  { label: '✅ Ready',     target: 'ready_to_schedule', color: '#22c55e' },
-  { label: '📅 Scheduled', target: 'scheduled',         color: '#3b82f6' },
-  { label: '🚫 Blocked',   target: 'blocked',           color: '#dc2626' },
-];
+// Send-back-to-board targets: every real status EXCEPT the ones that make no
+// sense to "send back" to (billed/archived/dead are true closed-book states,
+// and 'to_bill' is where the card already is). Derived straight from
+// STATUS_INFO so a newly added status is automatically available here too --
+// this is what was missing before (won/lost/needs_estimate/pending_decision
+// had to be added by hand because this list was hardcoded and got stale).
+const EXCLUDE_FROM_SEND_BACK = new Set(['billed', 'archived', 'dead', 'to_bill']);
+const BOARD_LANES = Object.entries(STATUS_INFO)
+  .filter(([status]) => !EXCLUDE_FROM_SEND_BACK.has(status))
+  .map(([status, info]) => ({ label: `${info.icon} ${info.label}`, target: status, color: info.color }));
 
 function fmtDate(d) {
   if (!d) return '';

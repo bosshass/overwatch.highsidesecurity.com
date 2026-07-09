@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.1.5',
+    date: '2026-07-09',
+    label: 'Customer link no longer lost on scheduling + cleaner notes',
+    changes: [
+      'Scheduling a job (from the Board, Reschedule, Return, or Office Hub) now stamps the customer ID onto the new calendar event — fixes having to re-search for a customer that was already known',
+      'Merge-carried history entries are hidden from the notes feed by default — full history still lives in the database if ever needed',
+    ],
+  },
+  {
     version: '9.1.4',
     date: '2026-07-09',
     label: 'Board status gaps fixed + full send-back-to-board options',

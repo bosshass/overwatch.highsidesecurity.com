@@ -31,6 +31,11 @@ export default function SchedulerModal({ job, techs, accessToken, onScheduled, o
         const body = {
           summary: `${job.customer_name||'Customer'} — ${job.job_type||'Service'}`,
           description: [
+            // Stamped first so CustomerLookup's extractStoredCustomerId finds it
+            // immediately when the tech opens this visit to finish it later --
+            // without this, the customer link was silently lost on every
+            // job scheduled from the Board, forcing a fresh manual re-search.
+            job.customer_id ? `CUSTOMER_ID: ${job.customer_id}` : '',
             `Issue: ${job.issue||''}`,
             job.customer_phone ? `Phone: ${job.customer_phone}` : '',
             notes ? `Notes: ${notes}` : '',

@@ -133,6 +133,11 @@ export function buildEventTitle(job, tag) {
 // Build event description with just the latest note
 export function buildEventDescription(job, latestNote) {
   let desc = '';
+  // Stamped first so CustomerLookup's extractStoredCustomerId finds it
+  // immediately when a tech opens this visit -- without this, every one of
+  // the 5 scheduling paths that share this function silently dropped the
+  // customer link, forcing a manual re-search later.
+  if (job.customer_id) desc += `CUSTOMER_ID: ${job.customer_id}\n`;
   if (job.job_number) desc += `JOB #${job.job_number}\n`;
   if (job.customer_address) desc += `📍 ${job.customer_address}\n`;
   if (job.customer_phone) desc += `📞 ${job.customer_phone}\n`;

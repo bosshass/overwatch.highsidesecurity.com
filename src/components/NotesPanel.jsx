@@ -22,7 +22,11 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
     setIsLoading(true);
     try {
       const data = await notesApi.getAllForJob(jobId);
-      setNotes(data);
+      // Merge-carried entries (from the Board's merge tool folding a duplicate
+      // job's history in) are an audit trail, not something a tech needs
+      // cluttering their note feed -- they're still in job_history in the
+      // database if ever needed directly.
+      setNotes(data.filter(n => !n.text?.startsWith('↪ from merged job')));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {

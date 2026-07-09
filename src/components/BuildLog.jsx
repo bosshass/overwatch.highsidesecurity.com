@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.2.5',
+    date: '2026-07-09',
+    label: 'Everyone now gets kicked to new versions automatically',
+    changes: [
+      'Every open tab now checks for a new version every 45 seconds — previously an already-open tab never noticed a new deploy until someone manually refreshed',
+      'When a new version is detected, a big red full-screen warning appears with a Reload Now button, and auto-reloads after 20 seconds either way',
+    ],
+  },
+  {
     version: '9.2.4',
     date: '2026-07-09',
     label: 'Renamed Queue to Triage Queue',

@@ -34,7 +34,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '9.2.4';
+const APP_VERSION = '9.2.5';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -95,6 +95,8 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showAlertGate, setShowAlertGate] = useState(false);
   const [showBuildLog, setShowBuildLog] = useState(false);
+  const [forceReload, setForceReload] = useState(false);
+  const [forceReloadSeconds, setForceReloadSeconds] = useState(20);
 
   // Deep link detection — ?cal=X&job=Y at root
   const urlParams = new URLSearchParams(location.search);
@@ -212,6 +214,33 @@ export default function App() {
     }
     setIsLoading(false);
   }, []);
+
+  // ── LIVE VERSION POLL ────────────────────────────────────────────────────
+  // The check above only ever runs once, on load — someone who has a tab
+  // open for hours never gets caught by it, no matter how many versions ship
+  // underneath them. This polls the real deployed version every 45s and
+  // force-reloads EVERYONE still on an old build, with a full warning first.
+  useEffect(() => {
+    const checkForNewVersion = async () => {
+      try {
+        const res = await fetch(`/version.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.version && data.version !== APP_VERSION) {
+          setForceReload(true);
+        }
+      } catch (e) { /* network hiccup, non-fatal, just try again next interval */ }
+    };
+    const interval = setInterval(checkForNewVersion, 45000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!forceReload) return;
+    if (forceReloadSeconds <= 0) { window.location.reload(); return; }
+    const t = setTimeout(() => setForceReloadSeconds(s => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [forceReload, forceReloadSeconds]);
 
   const clearStorage = () => {
     localStorage.removeItem('juce_v4_token');
@@ -448,6 +477,43 @@ export default function App() {
         <div style={{ textAlign: 'center' }}>
           <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 84, height: 84, marginBottom: 16, borderRadius: 16 }} />
           <div style={{ color: '#00c8e8', fontSize: '14px' }}>Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── FORCE RELOAD (new version detected while this tab was already open) ──
+  // Highest priority in the whole app -- overrides everything, including the
+  // changelog screen below, because staying on stale code is the actual risk
+  // here (this is exactly what "code drift between deployed and live" looks
+  // like from the user's side).
+  if (forceReload) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 99999,
+        background: '#7f1d1d',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: 24, textAlign: 'center', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+      }}>
+        <div style={{ fontSize: 72, marginBottom: 12 }}>🚨</div>
+        <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', marginBottom: 14, lineHeight: 1.1 }}>
+          NEW VERSION AVAILABLE
+        </div>
+        <div style={{ fontSize: 18, color: '#fecaca', marginBottom: 28, maxWidth: 480 }}>
+          Overwatch has updated. This tab is running an old version and needs to reload
+          to stay in sync with everyone else.
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            background: '#fff', color: '#7f1d1d', border: 'none', borderRadius: 14,
+            padding: '18px 40px', fontSize: 22, fontWeight: 800, cursor: 'pointer',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)', marginBottom: 20,
+          }}>
+          🔄 Reload Now
+        </button>
+        <div style={{ fontSize: 15, color: '#fecaca' }}>
+          Reloading automatically in <span style={{ fontWeight: 800, fontSize: 20, color: '#fff' }}>{forceReloadSeconds}</span>s…
         </div>
       </div>
     );

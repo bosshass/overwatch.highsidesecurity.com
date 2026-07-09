@@ -108,6 +108,14 @@ export default function OpsHome({
       show: true,
     },
     {
+      label: 'Triage Queue',
+      sub: 'Returns, parts & scheduling',
+      icon: '📋',
+      accent: C.cyan,
+      path: '/queue',
+      show: true,
+    },
+    {
       label: 'Event Audit',
       sub: 'Tag events to a customer',
       icon: '🔎',

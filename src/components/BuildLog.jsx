@@ -9,6 +9,14 @@
 
 export const BUILDS = [
   {
+    version: '9.2.4',
+    date: '2026-07-09',
+    label: 'Renamed Queue to Triage Queue',
+    changes: [
+      'Renamed on the landing page tile and the screen\'s own header, for clarity',
+    ],
+  },
+  {
     version: '9.2.3',
     date: '2026-07-09',
     label: 'Fixed invisible text in customer search + details panel',

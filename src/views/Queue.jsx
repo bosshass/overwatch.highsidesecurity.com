@@ -688,7 +688,7 @@ export default function Queue({ accessToken, onBack }) {
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 16, borderBottom: '1px solid #334155' }}>
         <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>← Home</button>
-        <h2 style={{ margin: 0 }}>📂 Queue</h2>
+        <h2 style={{ margin: 0 }}>📂 Triage Queue</h2>
       </div>
 
       <div style={{ display: 'flex', borderBottom: '1px solid #334155' }}>

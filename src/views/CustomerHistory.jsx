@@ -90,7 +90,7 @@ const editLabel = { display: 'flex', flexDirection: 'column', gap: 3, color: '#6
 const editInput = { background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', fontSize: 13, padding: '7px 9px', outline: 'none', fontFamily: 'inherit' };
 
 // ── component ────────────────────────────────────────────────
-export default function CustomerHistory({ onBack, userEmail, accessToken }) {
+export default function CustomerHistory({ onBack, userEmail, accessToken, initialCustomerId }) {
   const location = useLocation();
   const me = userEmail || (typeof localStorage !== 'undefined' && localStorage.getItem('juce_v4_email')) || '';
 
@@ -141,6 +141,21 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     const p = new URLSearchParams(location.search).get('name');
     if (p && p.length >= 2) setQuery(p);
   }, [location.search]);
+
+  // arrived with a SPECIFIC customer already chosen (e.g. from Triage Queue's
+  // Customers tab) -- jump straight to their detail view, skip the search step
+  useEffect(() => {
+    if (!initialCustomerId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name, short_code, cs_number, cms_account_id, address, phone, system_type, monitoring_tier, service_tier, package, gate_code, key_location, alula_username, has_cms_monitoring, qbo_customer_id, qbo_customer_name')
+        .eq('id', initialCustomerId)
+        .maybeSingle();
+      if (!error && data) pick(data);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCustomerId]);
 
   const matches = useMemo(() => {
     const s = query.trim().toLowerCase();

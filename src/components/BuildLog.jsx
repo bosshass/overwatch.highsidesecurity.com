@@ -9,6 +9,25 @@
 
 export const BUILDS = [
   {
+    version: '9.2.9',
+    date: '2026-07-09',
+    label: 'Bottom nav now shows on every screen',
+    changes: [
+      'Home/Today/Board/Clients/Cal nav bar used to only exist on the Home screen — now it\'s global, present everywhere, so you never have to navigate all the way back to Home just to switch areas',
+      'Active tab now correctly reflects the real screen you\'re on instead of always highlighting Home',
+      'Board: mobile now shows lanes as a stacked, tap-to-expand accordion instead of horizontal scroll',
+    ],
+  },
+  {
+    version: '9.2.8',
+    date: '2026-07-09',
+    label: 'Force-reload screen now scales properly on mobile',
+    changes: [
+      'The big red "new version" screen now uses fluid sizing — looks equally massive and clean on a phone as it does on desktop, no more fixed pixel sizes',
+      'Reload Now button is now full-width on mobile for an easy thumb tap',
+    ],
+  },
+  {
     version: '9.2.7',
     date: '2026-07-09',
     label: 'Fixed stale version number in header',

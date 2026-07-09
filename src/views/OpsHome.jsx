@@ -256,22 +256,7 @@ export default function OpsHome({
         +
       </button>
 
-      {/* Bottom nav */}
-      <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'rgba(7,17,31,0.97)', borderTop:`1px solid ${C.line}`, display:'flex', zIndex:15, backdropFilter:'blur(14px)', paddingBottom:'env(safe-area-inset-bottom)' }}>
-        {[
-          { icon:'⌂', label:'Home',  path:'/',      active:true },
-          { icon:'✓', label:'Today', path:'/work',  active:false },
-          { icon:'▤', label:'Board', path:'/board', active:false },
-          { icon:'👤', label:'Clients', path:'/customers', active:false },
-          { icon:'📅', label:'Cal',  path:'/calendar', active:false },
-        ].map(t => (
-          <button key={t.path} onClick={() => go(t.path)}
-            style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: t.active ? C.cyan : C.muted, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-            <span style={{ fontSize:20 }}>{t.icon}</span>
-            <span style={{ fontSize:10, fontWeight:700 }}>{t.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* Bottom nav now lives globally in App.jsx, visible on every screen */}
 
       {/* New job modal */}
       {showNewJob && (

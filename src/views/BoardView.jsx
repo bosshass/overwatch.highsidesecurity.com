@@ -796,6 +796,37 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving }) {
+  const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
+  return (
+    <div style={{ borderBottom: '1px solid #1e293b' }}>
+      <div onClick={onToggle}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 16px', cursor: 'pointer', background: expanded ? '#111f34' : 'transparent',
+          borderLeft: `4px solid ${col.color}`,
+        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: '#64748b', fontSize: 12, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>▶</span>
+          <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{col.label}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {totalEstimate > 0 && <span style={{ fontSize: 12, color: '#22c55e' }}>{fmtMoney(totalEstimate)}</span>}
+          <span style={{ background: col.color, color: '#000', padding: '2px 9px', borderRadius: 10, fontSize: 12, fontWeight: 700 }}>{jobs.length}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
+          {jobs.length === 0
+            ? <div style={{ color: '#334155', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} />)
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
@@ -835,6 +866,14 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState({ total_open:0, needs_action:0, to_bill:0, returns_pending:0 });
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
+  const [expandedCol, setExpandedCol] = useState('triage'); // accordion: which section is open on mobile
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''), 2400); };
 
@@ -967,17 +1006,30 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           style={{ marginLeft:'auto', padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:220 }} />
       </div>
 
-      <div style={{ display:'flex', overflowX:'auto', borderBottom:'1px solid #1e293b' }}>
-        {COLUMNS.map(col => (
-          <button key={col.key} onClick={() => setActiveCol(col.key)}
-            style={{ padding:'10px 14px', background:'none', border:'none', whiteSpace:'nowrap', borderBottom:activeCol===col.key?`2px solid ${col.color}`:'2px solid transparent', color:activeCol===col.key?col.color:'#475569', cursor:'pointer', fontSize:12, fontWeight:activeCol===col.key?700:400 }}>
-            {col.label} <span style={{ background:'#1e293b', padding:'1px 6px', borderRadius:10, fontSize:10 }}>{buckets[col.key]?.length||0}</span>
-          </button>
-        ))}
-      </div>
+      {!isMobile && (
+        <div style={{ display:'flex', overflowX:'auto', borderBottom:'1px solid #1e293b' }}>
+          {COLUMNS.map(col => (
+            <button key={col.key} onClick={() => setActiveCol(col.key)}
+              style={{ padding:'10px 14px', background:'none', border:'none', whiteSpace:'nowrap', borderBottom:activeCol===col.key?`2px solid ${col.color}`:'2px solid transparent', color:activeCol===col.key?col.color:'#475569', cursor:'pointer', fontSize:12, fontWeight:activeCol===col.key?700:400 }}>
+              {col.label} <span style={{ background:'#1e293b', padding:'1px 6px', borderRadius:10, fontSize:10 }}>{buckets[col.key]?.length||0}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#334155', fontSize:14 }}>Loading from Supabase…</div>
+      ) : isMobile ? (
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {COLUMNS.map(col => (
+            <AccordionColumn
+              key={col.key} col={col} jobs={buckets[col.key]||[]}
+              expanded={expandedCol===col.key}
+              onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
+              onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
+            />
+          ))}
+        </div>
       ) : (
         <div style={{ flex:1, display:'flex', gap:12, padding:14, overflowX:'auto', overflowY:'hidden' }}>
           {COLUMNS.map(col => (

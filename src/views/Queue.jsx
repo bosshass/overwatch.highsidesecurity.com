@@ -63,7 +63,7 @@ const generateTimeOptions = (startHour = 7, endHour = 18) => {
 
 const TIME_OPTIONS = generateTimeOptions();
 
-export default function Queue({ accessToken, onBack }) {
+export default function Queue({ accessToken, onBack, onOpenCustomer }) {
   const [activeTab, setActiveTab] = useState('schedule');
   
   // Triage state
@@ -762,25 +762,9 @@ export default function Queue({ accessToken, onBack }) {
         {activeTab === 'customers' && (
           <div>
             <input type="text" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="Search customers..." style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: '12px 16px', color: '#fff', marginBottom: 16 }} />
-            {selectedCustomer ? (
-              <div>
-                <button onClick={() => setSelectedCustomer(null)} style={{ background: '#334155', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, marginBottom: 16, cursor: 'pointer' }}>← Back</button>
-                <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                  <h3 style={{ margin: '0 0 8px' }}>{selectedCustomer.name}</h3>
-                  {selectedCustomer.phone && <div style={{ color: '#94a3b8' }}>📞 {selectedCustomer.phone}</div>}
-                  {selectedCustomer.address && <div style={{ color: '#94a3b8' }}>📍 {selectedCustomer.address}</div>}
-                </div>
-                <h4 style={{ color: '#94a3b8', marginBottom: 12 }}>Job History ({customerJobs.length})</h4>
-                {customerJobs.map(job => (
-                  <div key={job.id} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 500 }}>{job.issue}</div>
-                    <div style={{ color: '#64748b', fontSize: 13 }}>{new Date(job.created_at).toLocaleDateString()}</div>
-                  </div>
-                ))}
-              </div>
-            ) : customersLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading...</div> :
+            {customersLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading...</div> :
             customers.map(c => (
-              <div key={c.id} onClick={() => openCustomer(c)} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12, cursor: 'pointer' }}>
+              <div key={c.id} onClick={() => onOpenCustomer(c.id)} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12, cursor: 'pointer' }}>
                 <div style={{ fontWeight: 500 }}>{c.name}</div>
                 {c.phone && <div style={{ color: '#64748b', fontSize: 13 }}>📞 {c.phone}</div>}
               </div>

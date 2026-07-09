@@ -34,7 +34,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '9.2.7';
+const APP_VERSION = '9.2.9';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -493,13 +493,13 @@ export default function App() {
         position: 'fixed', inset: 0, zIndex: 99999,
         background: '#7f1d1d',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: 24, textAlign: 'center', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+        padding: '24px 20px', textAlign: 'center', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
       }}>
-        <div style={{ fontSize: 72, marginBottom: 12 }}>🚨</div>
-        <div style={{ fontSize: 40, fontWeight: 900, color: '#fff', marginBottom: 14, lineHeight: 1.1 }}>
+        <div style={{ fontSize: 'clamp(48px, 15vw, 72px)', marginBottom: 12 }}>🚨</div>
+        <div style={{ fontSize: 'clamp(26px, 8vw, 40px)', fontWeight: 900, color: '#fff', marginBottom: 14, lineHeight: 1.15 }}>
           NEW VERSION AVAILABLE
         </div>
-        <div style={{ fontSize: 18, color: '#fecaca', marginBottom: 28, maxWidth: 480 }}>
+        <div style={{ fontSize: 'clamp(14px, 4.2vw, 18px)', color: '#fecaca', marginBottom: 28, maxWidth: 480 }}>
           Overwatch has updated. This tab is running an old version and needs to reload
           to stay in sync with everyone else.
         </div>
@@ -507,13 +507,13 @@ export default function App() {
           onClick={() => window.location.reload()}
           style={{
             background: '#fff', color: '#7f1d1d', border: 'none', borderRadius: 14,
-            padding: '18px 40px', fontSize: 22, fontWeight: 800, cursor: 'pointer',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.3)', marginBottom: 20,
+            padding: 'clamp(14px, 4vw, 18px) clamp(24px, 8vw, 40px)', fontSize: 'clamp(17px, 5vw, 22px)', fontWeight: 800, cursor: 'pointer',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)', marginBottom: 20, width: '100%', maxWidth: 340,
           }}>
           🔄 Reload Now
         </button>
-        <div style={{ fontSize: 15, color: '#fecaca' }}>
-          Reloading automatically in <span style={{ fontWeight: 800, fontSize: 20, color: '#fff' }}>{forceReloadSeconds}</span>s…
+        <div style={{ fontSize: 'clamp(13px, 3.5vw, 15px)', color: '#fecaca' }}>
+          Reloading automatically in <span style={{ fontWeight: 800, fontSize: 'clamp(16px, 4.5vw, 20px)', color: '#fff' }}>{forceReloadSeconds}</span>s…
         </div>
       </div>
     );
@@ -652,7 +652,9 @@ export default function App() {
           >Out</button>
         </div>
       </div>
-      {children}
+      <div style={{ paddingBottom: 70 }}>
+        {children}
+      </div>
     </div>
   );
 
@@ -719,6 +721,29 @@ export default function App() {
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      {/* Global bottom nav — present on every screen, not just Home.
+          Active tab reflects the REAL current path now, not a hardcoded guess. */}
+      {isSignedIn && (
+        <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'rgba(7,17,31,0.97)', borderTop:'1px solid #1d2f48', display:'flex', zIndex:150, backdropFilter:'blur(14px)', paddingBottom:'env(safe-area-inset-bottom)' }}>
+          {[
+            { icon:'⌂', label:'Home',  path:'/' },
+            { icon:'✓', label:'Today', path:'/work' },
+            { icon:'▤', label:'Board', path:'/board' },
+            { icon:'👤', label:'Clients', path:'/customers' },
+            { icon:'📅', label:'Cal',  path:'/calendar' },
+          ].map(t => {
+            const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);
+            return (
+              <button key={t.path} onClick={() => navigate(t.path)}
+                style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: active ? '#00c8e8' : '#8ea0b8', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+                <span style={{ fontSize:20 }}>{t.icon}</span>
+                <span style={{ fontSize:10, fontWeight:700 }}>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Global Search */}
       {showSearch && (

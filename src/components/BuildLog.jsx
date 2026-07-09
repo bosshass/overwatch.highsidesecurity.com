@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.3.0',
+    date: '2026-07-09',
+    label: 'Estimate Needed jobs now route to Estimates only',
+    changes: [
+      'Fixed: a job marked "Estimate Needed" was showing in both Triage AND Estimates on desktop (double-counted), and was missing from Estimates entirely on mobile',
+      'Now shows only in the Estimates lane, on both desktop and mobile',
+    ],
+  },
+  {
     version: '9.2.9',
     date: '2026-07-09',
     label: 'Bottom nav now shows on every screen',

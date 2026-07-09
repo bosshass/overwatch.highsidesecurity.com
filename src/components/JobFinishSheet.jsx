@@ -80,7 +80,7 @@ export default function JobFinishSheet({
   // the tech to do it manually every single time was pure friction. It's
   // still shown and still gets saved when present; it just can't block
   // finishing a job anymore.
-  const canFinish     = timeValid && notesValid && !acting;
+  const canFinish     = notesValid && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
   // Patches the title and, when the tech left notes/materials, APPENDS them to
@@ -265,7 +265,7 @@ export default function JobFinishSheet({
         value={timeEntry}
         onChange={setTimeEntry}
         eventDate={eventDate}
-        required
+        required={false}
       />
 
       {/* Notes (required — blocks finish until filled) */}
@@ -293,10 +293,7 @@ export default function JobFinishSheet({
       {/* Gate hint when not ready */}
       {!canFinish && !acting && (
         <div style={hintBox}>
-          {`To finish, add: ${[
-            !timeValid   && 'a time entry',
-            !notesValid  && 'notes',
-          ].filter(Boolean).join(', ')}.`}
+          To finish, add notes.
         </div>
       )}
 

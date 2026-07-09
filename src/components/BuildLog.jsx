@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.1.6',
+    date: '2026-07-09',
+    label: 'Hours no longer required to finish a job',
+    changes: [
+      'Work To Do Today: only notes are required to finish a visit — hours are optional',
+      'Hours still save normally if entered; the sheet just no longer blocks on them being blank',
+    ],
+  },
+  {
     version: '9.1.5',
     date: '2026-07-09',
     label: 'Customer link no longer lost on scheduling + cleaner notes',

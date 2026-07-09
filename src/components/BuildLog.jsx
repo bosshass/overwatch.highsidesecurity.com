@@ -9,6 +9,16 @@
 
 export const BUILDS = [
   {
+    version: '9.2.0',
+    date: '2026-07-09',
+    label: 'Visual Scheduler on the Board',
+    changes: [
+      'Scheduling a job from the Board now shows real tech availability — a color-graded 14-day grid (green=wide open, yellow=partial, red=tight/full), tap a day, tap a free slot, confirm',
+      'Works for any tech with a calendar configured, not just Austin/JR',
+      'Replaces the old plain date/time form entirely',
+    ],
+  },
+  {
     version: '9.1.6',
     date: '2026-07-09',
     label: 'Hours no longer required to finish a job',

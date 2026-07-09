@@ -1,0 +1,270 @@
+// ============================================
+// Visual Scheduler — pick a tech + time by seeing real availability
+// ============================================
+// Drop-in replacement for SchedulerModal.jsx: same props (job, techs,
+// accessToken, onScheduled, onClose), so swapping it in BoardView is a
+// one-line change. Internally shows the color-graded 14-day grid (green =
+// wide open, yellow = partial, red = tight, dark red = full) per tech --
+// tap a day, tap a free slot, confirm. Unlike Queue.jsx's original version
+// (calendar-only, hardcoded to Austin/JR, tags everything [RETURN]), this:
+//   - works for any tech passed in (not hardcoded names)
+//   - actually updates the job's status/scheduled_date/tech in Supabase
+//   - uses the shared buildEventDescription/createEventOnCalendar from
+//     calendarSync.js, so the CUSTOMER_ID stamp + deep link + real notes
+//     carry over correctly (the fix from earlier tonight)
+
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../services/supabase.js';
+import { buildEventTitle, buildEventDescription, getLatestNote, createEventOnCalendar } from '../services/calendarSync.js';
+
+const GCAL = 'https://www.googleapis.com/calendar/v3';
+const DAYS_AHEAD = 14;
+const WORK_START_HOUR = 9;
+const WORK_END_HOUR = 18;
+
+function colorFor(freeHours, isWeekend) {
+  if (isWeekend) return '#1e293b';
+  if (freeHours <= 0) return '#dc2626';       // Full
+  if (freeHours < 2) return '#ef4444';        // Tight
+  if (freeHours < 5) return '#eab308';        // Partial
+  return '#22c55e';                            // Wide open
+}
+
+function labelFor(freeHours, isWeekend) {
+  if (isWeekend) return '';
+  if (freeHours <= 0) return 'Full';
+  if (freeHours < 2) return 'Tight';
+  if (freeHours < 5) return 'Partial';
+  return 'Wide open';
+}
+
+export default function VisualSchedulerModal({ job, techs, accessToken, onClose, onScheduled }) {
+  const [availability, setAvailability] = useState({}); // techId -> [{date, day, dayNum, month, freeHours, freeSlots, isWeekend}]
+  const [loading, setLoading] = useState(true);
+  const [selectedTechId, setSelectedTechId] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(null); // { techId, dayData }
+  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const validTechs = (techs || []).filter(t => t.calendar_id);
+
+  const loadAvailability = useCallback(async () => {
+    if (!accessToken || validTechs.length === 0) { setLoading(false); return; }
+    setLoading(true);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const endDate = new Date(today); endDate.setDate(endDate.getDate() + DAYS_AHEAD);
+    const result = {};
+
+    await Promise.all(validTechs.map(async (tech) => {
+      result[tech.id] = [];
+      try {
+        const params = new URLSearchParams({
+          timeMin: today.toISOString(), timeMax: endDate.toISOString(),
+          singleEvents: 'true', orderBy: 'startTime', maxResults: '150',
+        });
+        const res = await fetch(`${GCAL}/calendars/${encodeURIComponent(tech.calendar_id)}/events?${params}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const data = res.ok ? await res.json() : { items: [] };
+        const items = (data.items || []).filter(ev => ev.status !== 'cancelled');
+
+        for (let d = 0; d < DAYS_AHEAD; d++) {
+          const day = new Date(today); day.setDate(day.getDate() + d);
+          const dayStr = day.toISOString().split('T')[0];
+          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+
+          const dayEvents = items.filter(ev => {
+            const s = new Date(ev.start?.dateTime || ev.start?.date);
+            return s.toISOString().split('T')[0] === dayStr;
+          });
+
+          const workStart = new Date(day); workStart.setHours(WORK_START_HOUR, 0, 0, 0);
+          const workEnd = new Date(day); workEnd.setHours(WORK_END_HOUR, 0, 0, 0);
+
+          const busy = dayEvents.map(ev => ({
+            start: new Date(ev.start?.dateTime || ev.start?.date),
+            end: new Date(ev.end?.dateTime || ev.end?.date),
+          })).sort((a, b) => a.start - b.start);
+
+          let bookedHours = 0;
+          const freeSlots = [];
+          let cursor = workStart;
+          busy.forEach(b => {
+            bookedHours += Math.max(0, (b.end - b.start) / 3600000);
+            if (b.start > cursor) {
+              const dur = (b.start - cursor) / 3600000;
+              if (dur >= 0.5) freeSlots.push({ start: new Date(cursor), end: new Date(b.start), hours: dur });
+            }
+            if (b.end > cursor) cursor = new Date(b.end);
+          });
+          if (cursor < workEnd) {
+            const dur = (workEnd - cursor) / 3600000;
+            if (dur >= 0.5) freeSlots.push({ start: new Date(cursor), end: new Date(workEnd), hours: dur });
+          }
+          const freeHours = Math.max(0, WORK_END_HOUR - WORK_START_HOUR - bookedHours);
+
+          result[tech.id].push({
+            date: dayStr,
+            day: day.toLocaleDateString('en-US', { weekday: 'short' }),
+            dayNum: day.getDate(),
+            month: day.toLocaleDateString('en-US', { month: 'short' }),
+            freeHours, freeSlots, isWeekend,
+          });
+        }
+      } catch (e) { console.warn('Availability fetch failed for', tech.name, e.message); }
+    }));
+
+    setAvailability(result);
+    setLoading(false);
+  }, [accessToken, JSON.stringify(validTechs.map(t => t.id))]);
+
+  useEffect(() => { loadAvailability(); }, [loadAvailability]);
+
+  const pickSlot = (techId, dayData, slot) => {
+    setSelectedTechId(techId);
+    setSelectedDay(dayData);
+    setSelectedSlot(slot);
+    const defStart = new Date(slot.start);
+    const defEnd = new Date(Math.min(slot.end.getTime(), slot.start.getTime() + 2 * 3600000));
+    setStartTime(`${String(defStart.getHours()).padStart(2,'0')}:${String(defStart.getMinutes()).padStart(2,'0')}`);
+    setEndTime(`${String(defEnd.getHours()).padStart(2,'0')}:${String(defEnd.getMinutes()).padStart(2,'0')}`);
+  };
+
+  const confirm = async () => {
+    if (!selectedTechId || !selectedDay || !startTime || !endTime) return;
+    const tech = validTechs.find(t => t.id === selectedTechId);
+    if (!tech) return;
+
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const start = new Date(selectedDay.date); start.setHours(sh, sm, 0, 0);
+    const end = new Date(selectedDay.date); end.setHours(eh, em, 0, 0);
+    if (end <= start) { setErr('End time must be after start time'); return; }
+
+    setSaving(true); setErr('');
+    try {
+      const { error: dbErr } = await supabase.from('jobs').update({
+        status: 'scheduled',
+        scheduled_date: selectedDay.date,
+        tech_assigned: tech.id,
+        tech_name: tech.name || '',
+        updated_at: new Date().toISOString(),
+      }).eq('id', job.id);
+      if (dbErr) throw dbErr;
+
+      const latestNote = await getLatestNote(job.id);
+      await createEventOnCalendar(accessToken, tech.calendar_id, {
+        title: buildEventTitle(job),
+        description: buildEventDescription(job, latestNote),
+        location: job.customer_address,
+        startTime: start,
+        endTime: end,
+      });
+
+      onScheduled();
+    } catch (e) { setErr(e.message || 'Failed to schedule'); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ background: '#1e293b', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 640, padding: '20px 20px 32px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <div style={{ color: '#fff', fontSize: 17, fontWeight: 700 }}>📅 Schedule</div>
+            <div style={{ color: '#94a3b8', fontSize: 13 }}>{job.customer_name}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {loading ? (
+          <div style={{ color: '#94a3b8', textAlign: 'center', padding: 30 }}>Loading availability…</div>
+        ) : validTechs.length === 0 ? (
+          <div style={{ color: '#94a3b8', textAlign: 'center', padding: 30 }}>No techs with a calendar configured.</div>
+        ) : (
+          <>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>Tap a day to see available time slots.</div>
+            {validTechs.map(tech => (
+              <div key={tech.id} style={{ marginBottom: 16 }}>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{tech.name}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+                  {(availability[tech.id] || []).map(d => (
+                    <button
+                      key={d.date}
+                      disabled={d.isWeekend}
+                      onClick={() => setSelectedDay(prev => prev?.date === d.date && prev?.techId === tech.id ? null : { ...d, techId: tech.id })}
+                      style={{
+                        background: colorFor(d.freeHours, d.isWeekend), border: 'none', borderRadius: 8,
+                        padding: '8px 4px', cursor: d.isWeekend ? 'default' : 'pointer',
+                        opacity: d.isWeekend ? 0.35 : 1, color: '#fff', textAlign: 'center',
+                        outline: selectedDay?.date === d.date && selectedDay?.techId === tech.id ? '2px solid #00c8e8' : 'none',
+                      }}>
+                      <div style={{ fontSize: 10, opacity: 0.85 }}>{d.day}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>{d.dayNum}</div>
+                      {!d.isWeekend && <div style={{ fontSize: 9 }}>{d.freeHours.toFixed(0)}h</div>}
+                    </button>
+                  ))}
+                </div>
+
+                {selectedDay?.techId === tech.id && (
+                  <div style={{ marginTop: 8, background: '#0f172a', borderRadius: 8, padding: 10 }}>
+                    <div style={{ color: '#64748b', fontSize: 11, marginBottom: 6 }}>
+                      {selectedDay.day} {selectedDay.month} {selectedDay.dayNum} — {labelFor(selectedDay.freeHours, false)}
+                    </div>
+                    {selectedDay.freeSlots.length === 0 ? (
+                      <div style={{ color: '#64748b', fontSize: 12 }}>No open slots this day.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {selectedDay.freeSlots.map((slot, i) => (
+                          <button key={i} onClick={() => pickSlot(tech.id, selectedDay, slot)}
+                            style={{
+                              background: selectedSlot === slot ? '#00c8e8' : '#1e293b',
+                              color: selectedSlot === slot ? '#0f1729' : '#e2e8f0',
+                              border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer',
+                            }}>
+                            {slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {slot.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} ({slot.hours.toFixed(1)}h)
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, marginBottom: 14, fontSize: 11, color: '#94a3b8' }}>
+              <span>🟢 Wide open</span><span>🟡 Partial</span><span>🔴 Tight</span><span style={{ opacity: 0.7 }}>⬛ Full</span>
+            </div>
+
+            {selectedSlot && (
+              <div style={{ background: '#0f172a', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                <div style={{ color: '#64748b', fontSize: 11, marginBottom: 6 }}>Confirm time</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+                    style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '8px 10px', fontSize: 13 }} />
+                  <span style={{ color: '#64748b' }}>to</span>
+                  <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
+                    style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '8px 10px', fontSize: 13 }} />
+                </div>
+              </div>
+            )}
+
+            {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+            <button onClick={confirm} disabled={!selectedSlot || saving}
+              style={{
+                width: '100%', background: selectedSlot ? '#00c8e8' : '#334155', border: 'none', borderRadius: 10,
+                color: selectedSlot ? '#0f1729' : '#64748b', fontWeight: 700, padding: '13px', fontSize: 14,
+                cursor: selectedSlot ? 'pointer' : 'default',
+              }}>
+              {saving ? 'Scheduling…' : selectedSlot ? `✅ Confirm — ${validTechs.find(t=>t.id===selectedTechId)?.name}, ${selectedDay?.day} ${selectedDay?.month} ${selectedDay?.dayNum}` : 'Pick a time slot above'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

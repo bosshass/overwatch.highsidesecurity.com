@@ -14,7 +14,7 @@ import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } f
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
-import SchedulerModal from '../components/SchedulerModal.jsx';
+import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -1003,7 +1003,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       )}
 
       {schedulingJob && (
-        <SchedulerModal job={schedulingJob} techs={techs} accessToken={accessToken}
+        <VisualSchedulerModal job={schedulingJob} techs={techs} accessToken={accessToken}
           onScheduled={() => { setSchedulingJob(null); loadJobs(); showToast('Scheduled ✓'); }}
           onClose={() => setSchedulingJob(null)} />
       )}

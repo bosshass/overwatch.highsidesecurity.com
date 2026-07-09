@@ -9,6 +9,22 @@
 
 export const BUILDS = [
   {
+    version: '9.2.2',
+    date: '2026-07-09',
+    label: 'Scheduling from the Board now clears it from Queue too',
+    changes: [
+      'The new Visual Scheduler now tags a job\'s original calendar event as [SCHEDULED] when booked, so it correctly disappears from Queue\'s Triage and Schedule tabs instead of sitting there stale',
+    ],
+  },
+  {
+    version: '9.2.1',
+    date: '2026-07-09',
+    label: 'Queue is now on the home screen',
+    changes: [
+      'Added a Queue tile to the landing page — Returns, parts, and scheduling, one tap from Home instead of typing the URL',
+    ],
+  },
+  {
     version: '9.2.0',
     date: '2026-07-09',
     label: 'Visual Scheduler on the Board',

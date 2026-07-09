@@ -164,6 +164,33 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
         endTime: end,
       });
 
+      // Tag the job's ORIGINAL source event (if any) as [SCHEDULED] --
+      // this is the same tag Queue.jsx's own exclusion list already checks
+      // for, so this job correctly disappears from Queue's Triage and
+      // Schedule tabs instead of sitting there stale while a second,
+      // duplicate event now exists on the tech's calendar.
+      if (job.calendar_event_id && job.calendar_id) {
+        try {
+          const evRes = await fetch(
+            `${GCAL}/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          if (evRes.ok) {
+            const original = await evRes.json();
+            if (!/\[SCHEDULED\]/i.test(original.summary || '')) {
+              await fetch(
+                `${GCAL}/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}`,
+                {
+                  method: 'PATCH',
+                  headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ summary: `[SCHEDULED] ${original.summary || ''}` }),
+                }
+              );
+            }
+          }
+        } catch (e) { console.warn('Could not tag original event as scheduled (non-fatal):', e.message); }
+      }
+
       onScheduled();
     } catch (e) { setErr(e.message || 'Failed to schedule'); }
     setSaving(false);

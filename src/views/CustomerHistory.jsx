@@ -117,7 +117,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
     (async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('id, name, short_code, cs_number, address')
+        .select('id, name, short_code, cs_number, cms_account_id, address, phone, system_type, monitoring_tier, service_tier, package, gate_code, key_location, alula_username, has_cms_monitoring')
         .is('merged_into', null)
         .order('name');
       if (error) setErr(error.message);
@@ -346,11 +346,58 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
         {selected && (
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
             <span style={{ color: '#00c8e8', fontWeight: 700 }}>{selected.short_code}</span>
-            {selected.cs_number && <span> · CS# {selected.cs_number}</span>}
-            {selected.address && <span> · {selected.address}</span>}
+            {(selected.cs_number || selected.cms_account_id) && (
+              <span> · CS# {selected.cs_number || selected.cms_account_id}</span>
+            )}
           </div>
         )}
       </div>
+
+      {selected && (
+        <div style={{ margin: '0 14px 14px', background: '#111827', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+          {selected.address && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ flexShrink: 0 }}>📍</span>
+              <span style={{ color: '#e2e8f0' }}>{selected.address}</span>
+            </div>
+          )}
+          {selected.phone && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ flexShrink: 0 }}>📞</span>
+              <a href={`tel:${selected.phone}`} style={{ color: '#00c8e8', textDecoration: 'none' }}>{selected.phone}</a>
+            </div>
+          )}
+          {(selected.system_type || selected.monitoring_tier || selected.service_tier || selected.package) && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ flexShrink: 0 }}>🛡️</span>
+              <span style={{ color: '#94a3b8' }}>
+                {[selected.system_type, selected.monitoring_tier, selected.service_tier, selected.package].filter(Boolean).join(' · ')}
+              </span>
+            </div>
+          )}
+          {selected.alula_username && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ flexShrink: 0 }}>👤</span>
+              <span style={{ color: '#94a3b8' }}>Alula: {selected.alula_username}</span>
+            </div>
+          )}
+          {(selected.gate_code || selected.key_location) && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ flexShrink: 0 }}>🔑</span>
+              <span style={{ color: '#94a3b8' }}>
+                {selected.gate_code && <>Gate: {selected.gate_code}</>}
+                {selected.gate_code && selected.key_location && ' · '}
+                {selected.key_location && <>Key: {selected.key_location}</>}
+              </span>
+            </div>
+          )}
+          {!selected.address && !selected.phone && !selected.system_type && !selected.monitoring_tier &&
+            !selected.service_tier && !selected.package && !selected.alula_username &&
+            !selected.gate_code && !selected.key_location && (
+            <div style={{ color: '#475569', fontStyle: 'italic' }}>No stored details on file for this customer.</div>
+          )}
+        </div>
+      )}
 
       <div style={{ padding: 14 }}>
         {err && <div style={{ background: '#ef444420', border: '1px solid #ef444440', color: '#fca5a5', borderRadius: 10, padding: 12, fontSize: 13, marginBottom: 12 }}>{err}</div>}

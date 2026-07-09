@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.1.2',
+    date: '2026-07-09',
+    label: 'Customer Lookup shows stored details',
+    changes: [
+      'Selecting a customer now shows a details card: address, phone, system/monitoring info, alula username, gate code/key location',
+      'Notes stay separate, further down — this is just the stored record fields',
+    ],
+  },
+  {
     version: '9.1.1',
     date: '2026-07-09',
     label: 'Merged/duplicate customers hidden from search (corrected)',

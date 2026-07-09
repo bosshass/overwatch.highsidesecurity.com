@@ -118,6 +118,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken }) {
       const { data, error } = await supabase
         .from('customers')
         .select('id, name, short_code, cs_number, address')
+        .is('merged_into', null)
         .order('name');
       if (error) setErr(error.message);
       else setRegistry(data || []);

@@ -119,7 +119,7 @@ export default function CustomerAudit({ onBack }) {
     setLoading(true); setErr(null);
     try {
       const [{ data: reg, error: e1 }, { data: ev, error: e2 }, { data: jobs, error: e3 }] = await Promise.all([
-        supabase.from('customers').select('id, name, short_code, cs_number, address').order('name'),
+        supabase.from('customers').select('id, name, short_code, cs_number, address').is('merged_into', null).order('name'),
         supabase.from('time_entries')
           .select('id, event_title, event_start, created_at, calendar_event_id, customer_id, tech_name, total_minutes, disposition, materials, notes, customer_name_raw')
           .gte('created_at', SINCE).limit(2000),

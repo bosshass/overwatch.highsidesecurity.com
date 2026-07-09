@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.1.1',
+    date: '2026-07-09',
+    label: 'Merged/duplicate customers hidden from search (corrected)',
+    changes: [
+      'Customer search now uses a dedicated merged_into flag to hide consolidated duplicates',
+      'Removed an incorrect is_active filter from customer search that was hiding ~41% of real, non-monitored customers from every tech search — this was very likely the root cause driving repeated duplicate-customer creation',
+    ],
+  },
+  {
     version: '9.1.0',
     date: '2026-07-08',
     label: 'Customer lookup fix — one source of truth',

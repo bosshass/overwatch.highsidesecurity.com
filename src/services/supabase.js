@@ -129,7 +129,7 @@ export const techsApi = {
 
 export const customersApi = {
   async getAll() {
-    const { data, error } = await supabase.from('customers').select('*').eq('is_active', true).order('name');
+    const { data, error } = await supabase.from('customers').select('*').is('merged_into', null).order('name');
     if (error) throw error;
     return data || [];
   },
@@ -154,7 +154,7 @@ export const customersApi = {
     const { data, error } = await supabase
       .from('customers')
       .select('*')
-      .eq('is_active', true)
+      .is('merged_into', null)
       .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,address.ilike.%${safe}%,cms_account_id.ilike.%${safe}%`)
       .order('name')
       .limit(50);

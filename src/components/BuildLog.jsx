@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.3.2',
+    date: '2026-07-09',
+    label: 'Billed/dead/lost jobs now visible under Done',
+    changes: [
+      'Customer Lookup\'s Done section now shows everything terminal — billed, dead, lost, archived — not just archived. Billed and dead jobs were previously invisible everywhere in a customer\'s history',
+      'Each Done item shows its real outcome (Billed/Dead/Lost/Archived) instead of a flat generic "Done" label',
+    ],
+  },
+  {
     version: '9.3.1',
     date: '2026-07-09',
     label: 'Global search no longer shows dead/billed jobs',

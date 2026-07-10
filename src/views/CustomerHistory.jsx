@@ -100,7 +100,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [tagged, setTagged]       = useState([]);
   const [suggested, setSuggested] = useState([]);
   const [openWork, setOpenWork]   = useState([]);
-  const [showDone, setShowDone]   = useState(false);
+  const [showDone, setShowDone]   = useState(true);
   const [loading, setLoading]     = useState(false);
   const [err, setErr]             = useState('');
 
@@ -364,7 +364,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
           <Badge color={t.color}>{t.label}</Badge>
           {!done && <Badge color={s.color}>{s.label}</Badge>}
-          {done && <Badge color="#64748b">Done</Badge>}
+          {done && <Badge color="#64748b">{jobChip(j.status).label}</Badge>}
           {j.created_at && <span style={{ fontSize: 12, color: '#64748b' }}>📅 {fmtDate(j.created_at)}</span>}
         </div>
         {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none' }}>{j.issue}</div>}
@@ -570,7 +570,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                 {/* open work + collapsed done */}
                 {(() => {
                   const openItems = openWork.filter(j => !TERMINAL.includes(j.status));
-                  const doneItems = openWork.filter(j => j.status === JOB_STATUS.ARCHIVED);
+                  const doneItems = openWork.filter(j => TERMINAL.includes(j.status));
                   return (
                     <>
                       {openItems.length > 0 && (

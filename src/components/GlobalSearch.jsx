@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../services/supabase.js';
+import { supabase, STATUS_INFO } from '../services/supabase.js';
 
 const TODOS_KEY = 'juce_things_to_do';
 
@@ -78,6 +78,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
           .from('jobs')
           .select('id, customer_name, customer_phone, p_number, status, customer_address, created_at')
           .or(`p_number.ilike.%${safe}%,customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
+          .not('status', 'in', '(dead,billed,archived,lost)')
           .order('created_at', { ascending: false })
           .limit(20);
         jobs = (data || []).map(j => ({ ...j, job_number: j.p_number }));
@@ -168,7 +169,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{j.customer_name}</div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   {j.job_number && <Chip color="#3b82f6">{j.job_number}</Chip>}
-                  {j.status    && <Chip color="#64748b">{j.status}</Chip>}
+                  {j.status    && <Chip color={STATUS_INFO[j.status]?.color || '#64748b'}>{STATUS_INFO[j.status]?.icon} {STATUS_INFO[j.status]?.label || j.status}</Chip>}
                   {j.customer_phone && <span style={{ color: '#64748b', fontSize: 11 }}>📞 {j.customer_phone}</span>}
                 </div>
                 {j.customer_address && (

@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.3.1',
+    date: '2026-07-09',
+    label: 'Global search no longer shows dead/billed jobs',
+    changes: [
+      'Search results now exclude dead, billed, archived, and lost jobs — was showing every job regardless of status, cluttering results with dead ends',
+      'Status chip now shows real color/icon instead of a flat gray label',
+    ],
+  },
+  {
     version: '9.3.0',
     date: '2026-07-09',
     label: 'Estimate Needed jobs now route to Estimates only',

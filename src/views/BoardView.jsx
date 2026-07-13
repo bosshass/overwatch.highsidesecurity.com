@@ -13,6 +13,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR } from '../utils/staleness.js';
+import { jobLink as boardJobLink } from '../config/appBase.js';
+import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
@@ -496,7 +498,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
       )}`
     : null;
 
-  const jobLink = `${window.location.origin}/board?job=${job.id}`;
+  const jobLink = boardJobLink(job.id);
   const smsMessage = `You've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}. ${jobLink}`;
   const smsHref = phoneInput ? `sms:${phoneInput.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(smsMessage)}` : null;
 
@@ -547,7 +549,10 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               </h3>
             )}
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'#cbd5e1', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
+          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <CopyJobLink job={job} />
+            <button onClick={onClose} style={{ background:'none', border:'none', color:'#cbd5e1', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
+          </div>
         </div>
 
         {/* UUID linker */}
@@ -778,6 +783,33 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
+// ── CopyJobLink ───────────────────────────────────────────────────────────────
+// Hands you a shareable link to THIS job, anchored on its UUID. Works for
+// anything on the board — a scheduled install, a return, or "JR to sign his
+// taxes" that has no calendar event at all. Anyone who opens it lands on this
+// job's drawer with its full note thread.
+function CopyJobLink({ job }) {
+  const [copied, setCopied] = useState(false);
+  const url = boardJobLink(job.id);
+  const copy = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // clipboard API is blocked on some in-app browsers — fall back to a prompt
+      window.prompt('Copy this link:', url);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  return (
+    <button onClick={copy} title="Copy a link to this job"
+      style={{ background:'none', border:'1px solid #334155', borderRadius:6, color: copied ? '#22c55e' : '#94a3b8', fontSize:12, fontWeight:600, padding:'5px 9px', cursor:'pointer', whiteSpace:'nowrap' }}>
+      {copied ? '✓ Copied' : '🔗 Link'}
+    </button>
+  );
+}
+
 // ── Job card ──────────────────────────────────────────────────────────────────
 function JobCard({ job, onSelect, onQuickMove, moving }) {
   const si = STATUS_INFO[job.status] || {};
@@ -803,9 +835,16 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
         <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>URGENT</span>}
           {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>HIGH</span>}
-          {!hasUUID && <span style={{ background:'#451a03', color:'#fb923c', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>NO UUID</span>}
+          {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:800, padding:'2px 6px', borderRadius:4 }}>⚠️ NO CLIENT</span>}
         </div>
       </div>
+
+      {!hasUUID && (
+        <div style={{ background:'#78350f44', border:'1px solid #f59e0b', borderRadius:6, padding:'6px 9px', marginBottom:8 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#fbbf24' }}>Not linked to a customer</div>
+          <div style={{ fontSize:12, color:'#fcd34d' }}>{missingLabel(job)}</div>
+        </div>
+      )}
 
       <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{job.issue||'no issue noted'}</div>
 
@@ -962,6 +1001,26 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, []);
 
   useEffect(() => { loadJobs(); loadTechs(); }, [loadJobs, loadTechs]);
+
+  // ── Deep link: /board?job=<jobs.id> ─────────────────────────────────────
+  // The UUID is the universal anchor. A calendar event is NOT — plenty of real
+  // work ("JR to sign his taxes") never has one, and notes hang off the job,
+  // not off a calendar event. So the link is to the job.
+  //
+  // Fetched DIRECTLY by id rather than looked up in `jobs` state, because
+  // loadJobs only pulls ACTIVE statuses capped at 500 — a link to a billed,
+  // dead, or older job would otherwise silently open nothing.
+  const deepJobId = new URLSearchParams(location.search).get('job');
+  const [deepLinkTried, setDeepLinkTried] = useState(false);
+  useEffect(() => {
+    if (!deepJobId || deepLinkTried) return;
+    setDeepLinkTried(true);
+    (async () => {
+      const { data, error } = await supabase.from('jobs').select('*').eq('id', deepJobId).maybeSingle();
+      if (error || !data) { showToast('That job could not be found'); return; }
+      setSelectedJob(data);
+    })();
+  }, [deepJobId, deepLinkTried]);
 
   // Deep link — /board?job=<id> (used by the assign-to SMS/email notify links).
   // Opens straight to that job's card once the list has loaded.

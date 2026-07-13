@@ -33,8 +33,9 @@ import CustomerAudit from './views/CustomerAudit.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
+import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.4.2';
+const APP_VERSION = '9.4.5';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -105,7 +106,6 @@ export default function App() {
 
   const runBackfill = async () => {
     const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
-    const JUCE_BASE = 'https://juc-e-v2.vercel.app';
     const CALS = [
       { id: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com', name: 'Tentatively Scheduled' },
       { id: 'drhservicetech1@gmail.com', name: 'Austin' },
@@ -132,7 +132,7 @@ export default function App() {
           if (event.status === 'cancelled') continue;
           const desc = event.description || '';
           if (desc.includes('juc-e-v2.vercel.app') && !desc.includes('overwatch.highsidesecurity.com')) { skipped++; continue; }
-          const deepLink = `${JUCE_BASE}/?cal=${encodeURIComponent(cal.id)}&job=${encodeURIComponent(event.id)}`;
+          const deepLink = jobDeepLink(cal.id, event.id);
           const stripped = desc.replace(/\n*🔗 OPEN IN OVERWATCH:.*$/s, '').replace(/\n*📱 Open in Overwatch:.*$/s, '').trimEnd();
           const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
           const pr = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(cal.id)}/events/${event.id}`, {

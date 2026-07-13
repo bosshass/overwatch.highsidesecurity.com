@@ -4,6 +4,7 @@
 import { supabase } from '../services/supabase.js';
 import { CALENDARS } from '../config/calendars.js';
 import { STALE_HOURS, hoursSince } from './staleness.js';
+import { missingLabel } from './completeness.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -22,7 +23,31 @@ function hoursOld(iso) {
 export async function fetchStuckAlerts(accessToken) {
   const alerts = [];
 
-  // ── 0. Board jobs with no update in 72h ─────────────────────
+  // ── 0a. Work not attached to a real customer ────────────────
+  // Sara's rule: techs are NEVER blocked in the field for this — but the
+  // moment a job is finished without a customer UUID it surfaces here, and
+  // it says exactly what's missing rather than a useless "incomplete".
+  try {
+    const { data } = await supabase
+      .from('jobs')
+      .select('id, customer_name, customer_phone, customer_address, issue, status, tech_name, created_at, updated_at')
+      .is('customer_id', null)
+      .not('status', 'in', '(billed,archived,dead,lost)')
+      .order('created_at', { ascending: true })
+      .limit(50);
+
+    (data || []).forEach(j => alerts.push({
+      type:      'orphan',
+      icon:      '🔗',
+      label:     'NOT LINKED TO A CUSTOMER',
+      customer:  j.customer_name || 'Unnamed',
+      detail:    missingLabel(j) || 'needs a customer link',
+      hoursOld:  Math.round(hoursSince(j.created_at)),
+      threshold: 0,
+    }));
+  } catch { /**/ }
+
+  // ── 0b. Board jobs with no update in 72h ────────────────────
   // The 72-hour rule, same threshold the Board card rails use
   // (src/utils/staleness.js). A job nobody has touched in 3 days is a
   // job nobody is working — surface it here instead of hoping someone

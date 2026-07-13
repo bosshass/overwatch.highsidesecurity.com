@@ -9,6 +9,41 @@
 
 export const BUILDS = [
   {
+    version: '9.4.5',
+    date: '2026-07-13',
+    label: 'Every job has to land on a real client — loudly',
+    changes: [
+      'Calendar events now call out the CUSTOMER_ID at the very top. If a job has NO client linked, the event says "⚠️ NO CUSTOMER LINKED — it will not bill" instead of quietly saying nothing',
+      'Board cards show a loud "Not linked to a customer" banner naming exactly what is missing (customer link, phone, address) instead of a small NO UUID badge',
+      'The finish sheet warns loudly when nothing is linked — but NEVER blocks a tech from finishing. Nobody gets stranded in a truck. The job just stays flagged',
+      'Unlinked jobs now surface in the Stuck/Unactioned panel so the office can work them, rather than being found months later in a billing audit',
+      'Right now there are 8 active jobs with no client linked',
+    ],
+  },
+  {
+    version: '9.4.4',
+    date: '2026-07-13',
+    label: 'You can now link to ANY job — calendar event or not',
+    changes: [
+      'Every job now has a shareable link, anchored on its UUID. Open a job on the Board and hit 🔗 Link to copy it',
+      'This works for work that has no calendar event at all — "JR to sign his taxes" and every other quick-capture note. Notes hang off the job, so a job link is a note link',
+      'FIXED: the assign-by-text feature was already sending /board?job= links, but the Board never read that parameter — so every one of those texts dumped the tech on a generic board. It now opens the actual job',
+      'Assignment emails now include a working link to the job',
+      'Deep-linked jobs are fetched directly by ID, so a link to a billed, dead, or older job still opens instead of silently doing nothing',
+      'Deep links written into new calendar events now point at Overwatch instead of the old juc-e-v2 app',
+    ],
+  },
+  {
+    version: '9.4.3',
+    date: '2026-07-13',
+    label: 'Deep links now open the job instead of the old app',
+    changes: [
+      'FIXED: every "Open in Overwatch" link written into a calendar event pointed at juc-e-v2.vercel.app — the OLD app. Clicking one dropped you into a different deployment on its generic board, so the job was never dispositioned and never reached Event Audit or Billing',
+      'Links are now derived from whatever domain you are actually on, so they cannot silently break again if the domain changes',
+      'This fixes links written from now on. Calendar events created BEFORE this still carry the old link — repairing those is a separate job',
+    ],
+  },
+  {
     version: '9.4.2',
     date: '2026-07-13',
     label: 'Board cards rebuilt around who owns it and how long it has sat',

@@ -100,7 +100,7 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
   if (colorId) event.colorId = colorId;
   const created = await apiCreate(accessToken, calendarId, event);
   try {
-    const deepLink = `https://juc-e-v2.vercel.app/?cal=${encodeURIComponent(calendarId)}&job=${encodeURIComponent(created.id)}`;
+    const deepLink = jobDeepLink(calendarId, created.id);
     const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;
     await apiPatch(accessToken, calendarId, created.id, { description: updatedDesc });
     created.description = updatedDesc;
@@ -143,11 +143,21 @@ export function buildEventTitle(job, tag) {
 // Build event description with just the latest note
 export function buildEventDescription(job, latestNote) {
   let desc = '';
-  // Stamped first so CustomerLookup's extractStoredCustomerId finds it
-  // immediately when a tech opens this visit -- without this, every one of
-  // the 5 scheduling paths that share this function silently dropped the
-  // customer link, forcing a manual re-search later.
-  if (job.customer_id) desc += `CUSTOMER_ID: ${job.customer_id}\n`;
+  // The customer UUID is the anchor for everything downstream — billing,
+  // Event Audit, customer history. Stamped FIRST so CustomerLookup finds it
+  // the moment a tech opens the visit. It is now called out LOUDLY rather
+  // than buried as one quiet line: if it's missing, the event says so at the
+  // very top, so an unmatched job is obvious from the calendar itself instead
+  // of being discovered months later in a billing audit.
+  if (job.customer_id) {
+    desc += `✅ CUSTOMER_ID: ${job.customer_id}\n`;
+    if (job.customer_short_code) desc += `   Client: ${job.customer_short_code}\n`;
+    desc += '\n';
+  } else {
+    desc += '⚠️⚠️ NO CUSTOMER LINKED ⚠️⚠️\n';
+    desc += 'This job is NOT attached to a client in Overwatch.\n';
+    desc += 'Open it and pick the customer, or it will not bill.\n\n';
+  }
   if (job.job_number) desc += `JOB #${job.job_number}\n`;
   if (job.customer_address) desc += `📍 ${job.customer_address}\n`;
   if (job.customer_phone) desc += `📞 ${job.customer_phone}\n`;

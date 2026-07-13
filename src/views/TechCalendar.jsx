@@ -16,6 +16,7 @@ import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
 import NewJobModal from '../components/NewJobModal.jsx';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
+import { APP_BASE } from '../config/appBase.js';
 import InboxBar from '../components/InboxBar.jsx';
 
 const CALENDAR_COLORS = {
@@ -363,8 +364,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
 
   const makeJuceJob = async (event) => {
     try {
-      const JUCE_BASE = 'https://juc-e-v2.vercel.app';
-      const deepLink = `${JUCE_BASE}/?cal=${encodeURIComponent(event.calendarId)}&job=${encodeURIComponent(event.id)}`;
+      const deepLink = `${APP_BASE}/?cal=${encodeURIComponent(event.calendarId)}&job=${encodeURIComponent(event.id)}`;
       const currentDesc = event.description || '';
       const stripped = currentDesc.replace(/\n*📱 Open in JUC-E:.*$/s, '').trimEnd();
       const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;

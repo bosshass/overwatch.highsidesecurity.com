@@ -6,6 +6,8 @@
 // in App.jsx v9.3.5) — users grant it on their next sign-in.
 // No server, no env vars, no Twilio-style config.
 
+import { jobLink } from '../config/appBase.js';
+
 // Base64url-encode a UTF-8 string (Gmail requires base64url, not plain base64)
 function b64url(str) {
   const bytes = new TextEncoder().encode(str);
@@ -58,6 +60,7 @@ export function assignmentEmail(techName, job) {
     body: `Hi ${techName},\n\nYou've been assigned to ${job.customer_name || 'a job'}${when}.` +
       (job.issue ? `\n\nIssue: ${job.issue}` : '') +
       (job.customer_address ? `\nAddress: ${job.customer_address}` : '') +
+      (job.id ? `\n\nOpen it: ${jobLink(job.id)}` : '') +
       `\n\n— Overwatch`,
   };
 }

@@ -283,6 +283,22 @@ export default function JobFinishSheet({
   // ── The actual form content (customer + time + notes + materials + buttons) ──
   const formContent = (
     <>
+      {/* NOT LINKED TO A CUSTOMER — loud, first, and never blocking.
+          Blocking a tech in the field creates worse problems than a dirty row,
+          so they can still finish. But this job stays flagged on the Board and
+          lands in JR's alert panel until someone matches it. */}
+      {!linkedCustomer && (
+        <div style={{ background:'#fffbeb', border:'2px solid #f59e0b', borderRadius:12, padding:'10px 12px', marginBottom:12 }}>
+          <div style={{ fontSize:14, fontWeight:800, color:'#92400e', marginBottom:2 }}>
+            ⚠️ Not linked to a customer
+          </div>
+          <div style={{ fontSize:13, color:'#a16207', lineHeight:1.45 }}>
+            Pick the client below so this bills correctly. If they aren't in the
+            system yet, finish anyway — it'll be flagged for the office.
+          </div>
+        </div>
+      )}
+
       {/* SCOPE OF WORK — the hero. Full text, no truncation, no "Show more". */}
       {scope && (
         <div style={scopeBox}>

@@ -9,6 +9,15 @@
 
 export const BUILDS = [
   {
+    version: '9.4.8',
+    date: '2026-07-13',
+    label: 'Client search results are readable again',
+    changes: [
+      'FIXED: customer names and addresses in the Clients tab search were black-on-black. The card style set a background but never set a text color, and each result is a <button> — which does NOT inherit text color from the page, it uses the browser default (near-black). So the text was rendering in the browser\'s color, not ours',
+      'Set the color on the card itself, so every card on that screen gets it. Names and addresses bumped up a size — this list gets read on a phone',
+    ],
+  },
+  {
     version: '9.4.7',
     date: '2026-07-13',
     label: 'Event Audit shows what a job IS, not what a tech once said',

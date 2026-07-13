@@ -319,8 +319,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const bar  = { position: 'sticky', top: 0, zIndex: 10, background: '#0f1729', borderBottom: '1px solid #1e293b', padding: '12px 14px' };
   const back = { background: 'none', border: 'none', color: '#cbd5e1', fontSize: 16, cursor: 'pointer', padding: '4px 0' };
   const input = { width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0', padding: '12px 14px', fontSize: 15, outline: 'none', boxSizing: 'border-box' };
-  const card = { background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', marginBottom: 12 };
-  const sectionLabel = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0 10px' };
+  const card = { background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', marginBottom: 12, color: '#e2e8f0', fontFamily: 'inherit' };
+  const sectionLabel = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0 10px', color: '#94a3b8' };
 
   const actBtn = (bg) => ({
     flex: 1, background: `${bg}1f`, border: `1px solid ${bg}`, color: bg,
@@ -500,10 +500,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               {matches.map(c => (
                 <button key={c.id} onClick={() => pick(c)} style={{ ...card, display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{c.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9' }}>{c.name}</span>
                     <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
                   </div>
-                  {c.address && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>📍 {c.address}</div>}
+                  {c.address && <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 4 }}>📍 {c.address}</div>}
                 </button>
               ))}
             </div>

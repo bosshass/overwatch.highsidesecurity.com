@@ -31,12 +31,13 @@ import QuickNotes from './views/QuickNotes.jsx';
 import CustomerHistory from './views/CustomerHistory.jsx';
 import CustomerAudit from './views/CustomerAudit.jsx';
 import KPIDashboard from './views/KPIDashboard.jsx';
+import Unbilled from './views/Unbilled.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.6.0';
+const APP_VERSION = '9.7.1';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -714,6 +715,7 @@ export default function App() {
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
         <Route path="/kpi" element={<OperatorOnly><ViewShell><KPIDashboard onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />
@@ -879,6 +881,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
     { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
     { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+    { path: '/unbilled',   emoji: '💵', label: 'Unbilled',        sub: "Every unbilled hour and material, by customer", color: '#4ade80', dark: '#052e16', border: '#22c55e' },
     { path: '/kpi',        emoji: '📊', label: 'KPIs',            sub: "Aging, returns, who is actually moving cards", color: '#f472b6', dark: '#500724', border: '#ec4899' },
     { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
     { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },

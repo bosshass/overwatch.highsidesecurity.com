@@ -9,6 +9,31 @@
 
 export const BUILDS = [
   {
+    version: '9.7.1',
+    date: '2026-07-13',
+    label: 'Archive junk out of Billing and Event Audit',
+    changes: [
+      'Archive button on Unbilled and on every Event Audit row. Test data, duplicates and mistakes can now leave the queue',
+      'CRUCIALLY: archived is NOT the same as billed. Flagging test data as billed would put it in the books as revenue that was never invoiced, and every future "what did we actually bill" question would come back wrong. Junk gets its own exit, away from the money',
+      'Nothing is ever deleted. It records who archived it, when, and why (test / duplicate / mistake / not_billable) — and it can be brought straight back',
+      'Requires migration 023',
+    ],
+  },
+  {
+    version: '9.7.0',
+    date: '2026-07-13',
+    label: 'Billing was reading the wrong table. 315 hours were invisible',
+    changes: [
+      'THE BUG: the finish sheet writes every visit to `time_entries` — 310 rows, 728 hours. The Billing screen read hours from `job_assignments.actual_hours`, a table with 18 rows in it. Two different tables. Billing had never once looked at the one the techs actually fill in',
+      'Sitting unbilled and invisible: 120 visits, 315 hours, and 62 visits carrying materials that Billing never displayed at all',
+      'NEW "Unbilled" screen: every unbilled hour and material grouped BY CUSTOMER, not by job',
+      'That distinction is the whole point. Nordic went visit → return → return → estimate → won, and each of those wrote its OWN time entry. When you finally bill, you need all five in front of you — the earlier trips AND the materials — not whichever single job happens to sit in To Bill',
+      'Tick the visits, add an invoice number, mark billed. Materials for the selected visits are collected in one line you can paste into the invoice',
+      'Flags visits over 12 hours — somebody never clocked out. One is sitting at 55 hours. It warns instead of quietly billing it',
+      'Flags unbilled work with no client attached — it cannot be invoiced until it is linked',
+    ],
+  },
+  {
     version: '9.6.0',
     date: '2026-07-13',
     label: 'KPI dashboard, the pulse, and a staleness wall you control',

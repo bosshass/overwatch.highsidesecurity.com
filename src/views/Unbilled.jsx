@@ -1,0 +1,335 @@
+// ============================================
+// Unbilled — hours and materials, by customer
+// ============================================
+// WHY THIS EXISTS
+//   The finish sheet writes every visit to `time_entries` (310 rows, 728 hours).
+//   The old Billing screen read hours from `job_assignments.actual_hours` — a
+//   table with 18 rows in it. Two different tables. Billing has never once
+//   looked at the one the techs actually fill in. 315 hours and 62 visits
+//   carrying materials were invisible.
+//
+// WHAT THIS DOES
+//   Groups every UNBILLED time entry BY CUSTOMER, not by job. That's the whole
+//   point: Nordic goes visit → return → return → estimate → won, and each of
+//   those wrote its own time_entries row. When you finally bill, you need all
+//   of them in front of you — the two earlier trips AND the materials — not
+//   whichever single job happens to be in the To Bill column.
+//
+//   Tick the visits going on the invoice, drop in the invoice ref, mark billed.
+//   That stamps billed / billed_at / invoice_ref on those rows and they leave
+//   the queue. The `billed` flag already existed; nothing was ever using it.
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { supabase } from '../services/supabase.js';
+
+// A single visit longer than this is almost certainly a tech who never clocked
+// out. Flag it — don't silently put it on an invoice.
+const SUSPICIOUS_HOURS = 12;
+
+const hrs = (mins) => (mins || 0) / 60;
+const fmtH = (h) => `${(Math.round(h * 10) / 10).toFixed(1)}h`;
+const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+
+export default function Unbilled({ onBack, userEmail }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [groups, setGroups] = useState([]);
+  const [openKey, setOpenKey] = useState(null);
+  const [picked, setPicked] = useState(() => new Set());
+  const [invoiceRef, setInvoiceRef] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+  const [search, setSearch] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr('');
+    try {
+      const { data: entries, error } = await supabase
+        .from('time_entries')
+        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, archived, job_id')
+        .or('billed.is.null,billed.eq.false')
+        .or('archived.is.null,archived.eq.false')
+        .gt('total_minutes', 0)
+        .order('event_start', { ascending: true });
+      if (error) throw error;
+
+      const ids = [...new Set((entries || []).map(e => e.customer_id).filter(Boolean))];
+      let cust = {};
+      if (ids.length) {
+        const { data: cs } = await supabase.from('customers').select('id, name, short_code').in('id', ids);
+        (cs || []).forEach(c => { cust[c.id] = c; });
+      }
+
+      const byCustomer = {};
+      (entries || []).forEach(e => {
+        // Group on the customer UUID where we have one. Where we don't, the
+        // entry is ORPHANED — it still needs billing, but it also needs a
+        // client attached, and we say so instead of quietly merging it in.
+        const key = e.customer_id || `orphan:${e.customer_name_raw || 'unknown'}`;
+        byCustomer[key] ||= {
+          key,
+          customerId: e.customer_id || null,
+          name: cust[e.customer_id]?.name || e.customer_name_raw || 'Unknown',
+          shortCode: cust[e.customer_id]?.short_code || null,
+          orphan: !e.customer_id,
+          visits: [],
+        };
+        byCustomer[key].visits.push(e);
+      });
+
+      const list = Object.values(byCustomer).map(g => ({
+        ...g,
+        hours: g.visits.reduce((s, v) => s + hrs(v.total_minutes), 0),
+        materialVisits: g.visits.filter(v => v.materials && v.materials.trim()).length,
+        suspicious: g.visits.filter(v => hrs(v.total_minutes) > SUSPICIOUS_HOURS).length,
+        oldest: g.visits[0]?.event_start,
+      })).sort((a, b) => b.hours - a.hours);
+
+      setGroups(list);
+    } catch (e) {
+      setErr(e.message || String(e));
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return groups;
+    return groups.filter(g =>
+      g.name.toLowerCase().includes(q) || (g.shortCode || '').toLowerCase().includes(q));
+  }, [groups, search]);
+
+  const totals = useMemo(() => ({
+    customers: groups.length,
+    visits: groups.reduce((s, g) => s + g.visits.length, 0),
+    hours: groups.reduce((s, g) => s + g.hours, 0),
+    materials: groups.reduce((s, g) => s + g.materialVisits, 0),
+    orphans: groups.filter(g => g.orphan).length,
+  }), [groups]);
+
+  const toggle = (id) => setPicked(p => {
+    const n = new Set(p);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+
+  const pickAll = (g) => setPicked(p => {
+    const n = new Set(p);
+    const all = g.visits.every(v => n.has(v.id));
+    g.visits.forEach(v => all ? n.delete(v.id) : n.add(v.id));
+    return n;
+  });
+
+  // Everything currently ticked, across every customer
+  const sel = useMemo(() => {
+    const rows = groups.flatMap(g => g.visits.filter(v => picked.has(v.id)).map(v => ({ ...v, _g: g })));
+    return {
+      rows,
+      hours: rows.reduce((s, v) => s + hrs(v.total_minutes), 0),
+      materials: rows.filter(v => v.materials && v.materials.trim()).map(v => v.materials.trim()),
+    };
+  }, [groups, picked]);
+
+  const markBilled = async () => {
+    if (!sel.rows.length) return;
+    const n = sel.rows.length;
+    if (!window.confirm(`Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed?\n\nThey will leave this queue. This does not create an invoice — do that in QuickBooks.`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('time_entries')
+        .update({
+          billed: true,
+          billed_at: new Date().toISOString(),
+          invoice_ref: invoiceRef.trim() || null,
+        })
+        .in('id', sel.rows.map(r => r.id));
+      if (error) throw error;
+      setToast(`${n} visit${n > 1 ? 's' : ''} marked billed ✓`);
+      setPicked(new Set());
+      setInvoiceRef('');
+      await load();
+      setTimeout(() => setToast(''), 3500);
+    } catch (e) {
+      alert('Could not mark billed: ' + (e.message || e));
+    }
+    setSaving(false);
+  };
+
+  // Archive = "this was never real work". Test entries, duplicates, mistakes.
+  // Deliberately NOT the same as billed — flagging junk as billed would put it
+  // in the books as revenue we invoiced, and it wasn't.
+  const archiveSelected = async () => {
+    if (!sel.rows.length) return;
+    const reason = window.prompt(
+      `Archive ${sel.rows.length} visit(s)?\n\n` +
+      `They leave this queue WITHOUT being marked billed — nothing enters the books.\n` +
+      `Nothing is deleted; it can be brought back.\n\n` +
+      `Why? (test / duplicate / mistake / not_billable)`,
+      'test'
+    );
+    if (!reason) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('time_entries')
+        .update({
+          archived: true,
+          archived_at: new Date().toISOString(),
+          archived_by: userEmail || null,
+          archive_reason: reason.trim(),
+        })
+        .in('id', sel.rows.map(r => r.id));
+      if (error) throw error;
+      setToast(`${sel.rows.length} visit(s) archived — not billed`);
+      setPicked(new Set());
+      await load();
+      setTimeout(() => setToast(''), 3500);
+    } catch (e) {
+      alert('Could not archive: ' + (e.message || e) + '\n\nIf this says the column does not exist, run migration 023 first.');
+    }
+    setSaving(false);
+  };
+
+  const page = { minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', paddingBottom: 160 };
+  const card = { background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: 12, marginBottom: 10 };
+
+  if (loading) return <div style={{ ...page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading unbilled work…</div>;
+  if (err) return <div style={{ ...page, padding: 20 }}>Couldn’t load: {err}</div>;
+
+  return (
+    <div style={page}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#0f172a', borderBottom: '1px solid #1e293b', padding: '12px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+          <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>← Home</button>
+          <span style={{ fontWeight: 700, fontSize: 16 }}>💵 Unbilled</span>
+          <button onClick={load} style={{ marginLeft: 'auto', background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>↻</button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { l: 'hours', v: fmtH(totals.hours), c: '#22c55e' },
+            { l: 'visits', v: totals.visits, c: '#e2e8f0' },
+            { l: 'customers', v: totals.customers, c: '#e2e8f0' },
+            { l: 'w/ materials', v: totals.materials, c: '#f59e0b' },
+            { l: 'no client', v: totals.orphans, c: totals.orphans ? '#ef4444' : '#22c55e' },
+          ].map(s => (
+            <div key={s.l} style={{ background: '#1e293b', padding: '6px 12px', borderRadius: 8 }}>
+              <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.l}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: s.c }}>{s.v}</div>
+            </div>
+          ))}
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="find a customer…"
+            style={{ marginLeft: 'auto', padding: '7px 12px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#fff', fontSize: 13, width: 190 }} />
+        </div>
+      </div>
+
+      {toast && (
+        <div style={{ background: '#166534', color: '#dcfce7', padding: '10px 14px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}>{toast}</div>
+      )}
+
+      <div style={{ padding: 14, maxWidth: 900, margin: '0 auto' }}>
+        {shown.length === 0 && (
+          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>Nothing unbilled. Genuinely nothing.</div>
+        )}
+
+        {shown.map(g => {
+          const open = openKey === g.key;
+          const allPicked = g.visits.length > 0 && g.visits.every(v => picked.has(v.id));
+          return (
+            <div key={g.key} style={{ ...card, borderColor: g.orphan ? '#f59e0b' : '#1e293b' }}>
+              <div onClick={() => setOpenKey(open ? null : g.key)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <span style={{ color: '#64748b', fontSize: 13 }}>{open ? '▾' : '▸'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {g.name} {g.shortCode && <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700 }}>{g.shortCode}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                    {g.visits.length} visit{g.visits.length > 1 ? 's' : ''} · since {fmtD(g.oldest)}
+                    {g.materialVisits > 0 && <span style={{ color: '#f59e0b' }}> · {g.materialVisits} with materials</span>}
+                    {g.suspicious > 0 && <span style={{ color: '#ef4444' }}> · ⚠️ {g.suspicious} over {SUSPICIOUS_HOURS}h — check it</span>}
+                  </div>
+                  {g.orphan && (
+                    <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>
+                      ⚠️ Not linked to a client — link it before you invoice
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontSize: 19, fontWeight: 800, color: '#22c55e', whiteSpace: 'nowrap' }}>{fmtH(g.hours)}</span>
+              </div>
+
+              {open && (
+                <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+                  <button onClick={() => pickAll(g)}
+                    style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer', marginBottom: 8 }}>
+                    {allPicked ? 'Deselect all' : 'Select all visits'}
+                  </button>
+
+                  {g.visits.map(v => {
+                    const h = hrs(v.total_minutes);
+                    const on = picked.has(v.id);
+                    const sus = h > SUSPICIOUS_HOURS;
+                    return (
+                      <div key={v.id} onClick={() => toggle(v.id)}
+                        style={{ display: 'flex', gap: 10, padding: '8px 9px', borderRadius: 8, marginBottom: 6, cursor: 'pointer',
+                          background: on ? '#0e293f' : '#0f172a', border: `1px solid ${on ? '#00c8e8' : sus ? '#ef4444' : '#1e293b'}` }}>
+                        <span style={{ color: on ? '#00c8e8' : '#475569', fontSize: 15 }}>{on ? '☑' : '☐'}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>
+                            {fmtD(v.event_start)} · {v.tech_name || 'unknown tech'}
+                            {v.disposition && <span style={{ color: '#94a3b8', fontWeight: 400 }}> · {v.disposition.replace('_', ' ')}</span>}
+                          </div>
+                          {v.event_title && <div style={{ fontSize: 12, color: '#94a3b8' }}>{v.event_title}</div>}
+                          {v.notes && <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 3, whiteSpace: 'pre-wrap' }}>{v.notes}</div>}
+                          {v.materials && v.materials.trim() && (
+                            <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 3, background: '#78350f33', borderRadius: 5, padding: '4px 7px' }}>
+                              🔧 {v.materials.trim()}
+                            </div>
+                          )}
+                          {sus && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 3 }}>⚠️ {fmtH(h)} on one visit — somebody probably never clocked out</div>}
+                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: sus ? '#ef4444' : '#22c55e', whiteSpace: 'nowrap' }}>{fmtH(h)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selection bar — everything ticked, across every customer */}
+      {sel.rows.length > 0 && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 64, background: '#1a1a2e', borderTop: '2px solid #22c55e', padding: '12px 14px', zIndex: 20 }}>
+          <div style={{ maxWidth: 900, margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: '#22c55e' }}>
+                {sel.rows.length} visit{sel.rows.length > 1 ? 's' : ''} · {fmtH(sel.hours)}
+              </span>
+              <input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="invoice # (optional)"
+                style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 13, width: 150 }} />
+              <button onClick={() => setPicked(new Set())}
+                style={{ background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>Clear</button>
+              <button onClick={archiveSelected} disabled={saving}
+                title="Junk / test data. Leaves the queue WITHOUT being marked billed."
+                style={{ background: 'none', border: '1px solid #64748b', color: '#cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
+                🗑️ Archive (not billable)
+              </button>
+              <button onClick={markBilled} disabled={saving}
+                style={{ marginLeft: 'auto', background: '#22c55e', border: 'none', color: '#052e16', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>
+                {saving ? 'Saving…' : 'Mark billed'}
+              </button>
+            </div>
+            {sel.materials.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#fbbf24', background: '#78350f33', borderRadius: 6, padding: '6px 9px' }}>
+                🔧 <b>Materials on this invoice:</b> {sel.materials.join(' · ')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

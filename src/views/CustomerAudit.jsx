@@ -142,6 +142,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
         supabase.from('customers').select('id, name, short_code, cs_number, address').is('merged_into', null).order('name'),
         supabase.from('time_entries')
           .select('id, event_title, event_start, created_at, calendar_event_id, customer_id, tech_name, total_minutes, disposition, materials, notes, customer_name_raw')
+          .or('archived.is.null,archived.eq.false')
           .gte('created_at', SINCE).limit(2000),
         supabase.from('jobs').select('id, status, calendar_event_id').not('calendar_event_id', 'is', null).limit(3000),
       ]);
@@ -187,6 +188,32 @@ export default function CustomerAudit({ onBack, accessToken }) {
       alert('Scan failed: ' + (e.message || e));
     }
     setScanning(false);
+  }
+
+  // Archive = "this was never real work" — test data, duplicates, mistakes.
+  // Deliberately NOT 'billed'. Flagging junk as billed would put it in the
+  // books as revenue that was never invoiced. Nothing is deleted.
+  async function archiveEntry(entryId, title) {
+    const reason = window.prompt(
+      `Archive "${title || 'this entry'}"?\n\n` +
+      `It leaves the audit WITHOUT being marked billed — nothing enters the books.\n` +
+      `Nothing is deleted; it can be brought back.\n\n` +
+      `Why? (test / duplicate / mistake / not_billable)`,
+      'test'
+    );
+    if (!reason) return;
+    try {
+      const { error } = await supabase.from('time_entries').update({
+        archived: true,
+        archived_at: new Date().toISOString(),
+        archived_by: userEmail || null,
+        archive_reason: reason.trim(),
+      }).eq('id', entryId);
+      if (error) throw error;
+      setEvents(prev => prev.filter(e => e.id !== entryId));
+    } catch (e) {
+      alert('Could not archive: ' + (e.message || e) + '\n\nIf this says the column does not exist, run migration 023 first.');
+    }
   }
 
   async function changeDispo(entryId, dispo) {
@@ -407,6 +434,11 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   : <Chip color="#94a3b8">not on the board</Chip>}
                 {/* The disposition is history — what the tech said that day. Demoted. */}
                 <span style={{ color: '#94a3b8', fontSize: 11 }}>tech said: {d.label}</span>
+                <button onClick={(ev2) => { ev2.stopPropagation(); archiveEntry(e.id, e.event_title); }}
+                  title="Test data / junk. Leaves the audit WITHOUT being marked billed."
+                  style={{ marginLeft: 'auto', background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 6, fontSize: 11, padding: '2px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  🗑️ Archive
+                </button>
                 {e.tech_name && <span style={{ color: '#cbd5e1', fontSize: 11 }}>👷 {e.tech_name}</span>}
                 <span style={{ color: '#cbd5e1', fontSize: 11 }}>📅 {fmtDate(e.event_start || e.created_at)}</span>
                 {hrs(e.total_minutes) && <span style={{ color: '#00c8e8', fontSize: 11 }}>⏱ {hrs(e.total_minutes)}</span>}

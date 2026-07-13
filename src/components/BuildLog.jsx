@@ -9,6 +9,28 @@
 
 export const BUILDS = [
   {
+    version: '9.4.7',
+    date: '2026-07-13',
+    label: 'Event Audit shows what a job IS, not what a tech once said',
+    changes: [
+      'FIXED: every row in Event Audit read "Bill it" forever, even after the work was billed and closed. That is the DISPOSITION — a historical fact about what the tech said that day. It never changes',
+      'Rows now lead with the job\'s CURRENT status. Finished work shows a green "✓ Done" and dims. The disposition is demoted to a quiet "tech said: Bill it"',
+      'New Done hidden / Done shown toggle — finished work is hidden by default so the audit only shows you what still needs doing',
+      'Anything with no job on the board at all now says so, instead of silently looking finished',
+    ],
+  },
+  {
+    version: '9.4.6',
+    date: '2026-07-13',
+    label: 'Event Audit is now the orphan queue — all bad data in one place',
+    changes: [
+      'Event Audit opens with a loud BAD DATA banner counting everything that is not attached to a real client',
+      'It now shows all THREE piles, not one: time entries with no client, JOBS with no client (these never appeared here — they are not calendar-backed), and calendar events created BY HAND that Overwatch never made',
+      'Hand-made calendar events are found by the missing "Managed by JUC-E" marker in the description — if Overwatch did not write the event, that marker is not there. Hit scan to find them. They never entered Overwatch and will not bill',
+      'Each orphaned job says exactly what is missing (customer link, phone, address) and links straight to its card on the Board',
+    ],
+  },
+  {
     version: '9.4.5',
     date: '2026-07-13',
     label: 'Every job has to land on a real client — loudly',

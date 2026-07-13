@@ -8,8 +8,10 @@
 // ============================================================
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS } from '../services/supabase.js';
-import { archiveEvent } from '../services/calendarSync.js';
+import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
+import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
+import { missingLabel } from '../utils/completeness.js';
+import { jobLink as boardJobLink } from '../config/appBase.js';
 
 const SINCE = '2026-01-01';
 
@@ -20,6 +22,9 @@ const DISPO = {
   in_progress: { label: 'In progress', color: '#3b82f6' },
 };
 const DISPO_KEYS = ['bill_it', 'return', 'estimate', 'in_progress'];
+
+// Terminal — the work is finished. Everything else is still live.
+const DONE_STATUSES = ['billed', 'complete', 'archived', 'dead', 'lost', 'won'];
 
 // disposition -> the board status a ticket should land in
 const DISPO_STATUS = {
@@ -103,6 +108,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
   const [err, setErr] = useState(null);
   const [search, setSearch] = useState('');
   const [unassignedOnly, setUnassignedOnly] = useState(true);
+  const [hideDone, setHideDone] = useState(true);   // finished work is noise by default
 
   const [openPickerId, setOpenPickerId] = useState(null);
   const [savingId, setSavingId] = useState(null);
@@ -111,6 +117,19 @@ export default function CustomerAudit({ onBack, accessToken }) {
   const [ticketBusyId, setTicketBusyId] = useState(null);
   const [openHistoryId, setOpenHistoryId] = useState(null);
   const [historyById, setHistoryById] = useState({}); // entryId -> { loading, rows, hasJob }
+
+  // Event Audit is now THE orphan queue. Three separate piles of bad data used
+  // to live in three places nobody looked at:
+  //   1. time_entries with no customer_id  (already here)
+  //   2. jobs with no customer_id          (was only on the Board)
+  //   3. calendar events created BY HAND   (was buried in the Calendar tab)
+  // #3 is detected by the absence of the "Managed by JUC-E" / "Open in JUC-E"
+  // marker in the event description — if Overwatch didn't write the event,
+  // Overwatch didn't put that marker there.
+  const [orphanJobs, setOrphanJobs] = useState([]);
+  const [manualEvents, setManualEvents] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(false);
 
   const byId = useMemo(() => { const m = {}; for (const c of registry) m[c.id] = c; return m; }, [registry]);
 
@@ -132,6 +151,15 @@ export default function CustomerAudit({ onBack, accessToken }) {
       for (const j of (jobs || [])) if (j.calendar_event_id) map[j.calendar_event_id] = { id: j.id, status: j.status };
       setJobByEvent(map);
       setEvents((ev || []).sort((a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at)));
+
+      // Pile 2 — jobs with no client attached (excluding finished work).
+      const { data: oj } = await supabase
+        .from('jobs')
+        .select('id, customer_name, customer_phone, customer_address, issue, status, tech_name, created_at')
+        .is('customer_id', null)
+        .not('status', 'in', '(billed,archived,dead,lost)')
+        .order('created_at', { ascending: true });
+      setOrphanJobs(oj || []);
     } catch (e) { setErr(e.message || String(e)); }
     setLoading(false);
   }
@@ -145,6 +173,20 @@ export default function CustomerAudit({ onBack, accessToken }) {
       setOpenPickerId(null);
     } catch (e) { alert('Could not save: ' + (e.message || e)); }
     setSavingId(null);
+  }
+
+  // Pile 3 — calendar events Overwatch never created. Hits Google, so it runs
+  // on demand rather than blocking the page load.
+  async function scanManual() {
+    if (!accessToken) { alert('Not signed in to Google — cannot scan the calendars.'); return; }
+    setScanning(true);
+    try {
+      const res = await scanForOrphans(accessToken);
+      setManualEvents(res.orphans || []);
+    } catch (e) {
+      alert('Scan failed: ' + (e.message || e));
+    }
+    setScanning(false);
   }
 
   async function changeDispo(entryId, dispo) {
@@ -221,6 +263,10 @@ export default function CustomerAudit({ onBack, accessToken }) {
     const s = search.trim().toLowerCase();
     return events.filter(e => {
       if (unassignedOnly && e.customer_id) return false;
+      if (hideDone) {
+        const j = e.calendar_event_id ? jobByEvent[e.calendar_event_id] : null;
+        if (j && DONE_STATUSES.includes(j.status)) return false;
+      }
       if (!s) return true;
       const cust = byId[e.customer_id];
       return (e.event_title || '').toLowerCase().includes(s) || (e.customer_name_raw || '').toLowerCase().includes(s) ||
@@ -228,9 +274,10 @@ export default function CustomerAudit({ onBack, accessToken }) {
         (e.tech_name || '').toLowerCase().includes(s) || (cust?.name || '').toLowerCase().includes(s) ||
         (cust?.short_code || '').toLowerCase().includes(s);
     });
-  }, [events, search, unassignedOnly, byId]);
+  }, [events, search, unassignedOnly, hideDone, jobByEvent, byId]);
 
   const assignedCount = events.filter(e => e.customer_id).length;
+  const unassignedEntries = events.filter(e => !e.customer_id).length;
   const total = events.length;
 
   const btn = (active, color) => ({
@@ -252,6 +299,67 @@ export default function CustomerAudit({ onBack, accessToken }) {
         <div style={{ height: 4, background: '#1e293b', borderRadius: 4, overflow: 'hidden', marginBottom: 10 }}>
           <div style={{ height: '100%', width: total ? `${(assignedCount / total) * 100}%` : '0%', background: '#22c55e' }} />
         </div>
+
+        {/* DATA PROBLEMS — loud, top of the audit. This is the orphan queue. */}
+        {(unassignedEntries > 0 || orphanJobs.length > 0 || manualEvents.length > 0) && (
+          <div style={{ background: '#78350f33', border: '2px solid #f59e0b', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#fbbf24', marginBottom: 6 }}>
+              ⚠️ Bad data — {unassignedEntries + orphanJobs.length + manualEvents.length} items need a client
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: '#fcd34d' }}>
+              <span><b style={{ color: '#fbbf24' }}>{unassignedEntries}</b> time entries with no client</span>
+              <span><b style={{ color: '#fbbf24' }}>{orphanJobs.length}</b> jobs with no client</span>
+              <span>
+                <b style={{ color: '#fbbf24' }}>{manualEvents.length}</b> hand-made calendar events
+                {!scanned && (
+                  <button onClick={() => { setScanned(true); scanManual(); }} disabled={scanning}
+                    style={{ marginLeft: 6, background: 'none', border: '1px solid #f59e0b', borderRadius: 6, color: '#fbbf24', fontSize: 12, fontWeight: 700, padding: '2px 8px', cursor: 'pointer' }}>
+                    {scanning ? 'scanning…' : 'scan'}
+                  </button>
+                )}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Jobs with no client — not calendar-backed, so they never showed here before */}
+        {orphanJobs.length > 0 && (
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
+              {orphanJobs.length} jobs with no client →
+            </summary>
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {orphanJobs.map(j => (
+                <div key={j.id} style={{ background: '#1e293b', border: '1px solid #f59e0b55', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{j.customer_name || 'Unnamed'}</div>
+                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>{j.issue || 'no issue noted'}</div>
+                  <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>{missingLabel(j)}</div>
+                  <a href={boardJobLink(j.id)} style={{ fontSize: 12, color: '#00c8e8', textDecoration: 'none' }}>open on board →</a>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        {/* Calendar events Overwatch never created — no "Managed by JUC-E" marker */}
+        {manualEvents.length > 0 && (
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
+              {manualEvents.length} calendar events made by hand (not in Overwatch) →
+            </summary>
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {manualEvents.map(o => (
+                <div key={o.event.id} style={{ background: '#1e293b', border: '1px solid #f59e0b55', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{o.event.summary || '(no title)'}</div>
+                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+                    {o.calendar?.name} · {o.event.start?.dateTime ? new Date(o.event.start.dateTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>never entered Overwatch — will not bill</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter by title, note, tech, customer…"
             style={{ flex: 1, background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0', fontSize: 14, padding: '9px 12px', outline: 'none', fontFamily: 'inherit' }} />
@@ -259,6 +367,11 @@ export default function CustomerAudit({ onBack, accessToken }) {
             background: unassignedOnly ? '#00c8e820' : '#1e293b', border: `1px solid ${unassignedOnly ? '#00c8e8' : '#334155'}`,
             color: unassignedOnly ? '#00c8e8' : '#64748b', borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             {unassignedOnly ? 'Unassigned only' : 'All events'}
+          </button>
+          <button onClick={() => setHideDone(v => !v)} style={{
+            background: hideDone ? '#22c55e20' : '#1e293b', border: `1px solid ${hideDone ? '#22c55e' : '#334155'}`,
+            color: hideDone ? '#22c55e' : '#94a3b8', borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {hideDone ? 'Done hidden' : 'Done shown'}
           </button>
         </div>
         <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 6 }}>Events since Jan 1, 2026</div>
@@ -279,12 +392,21 @@ export default function CustomerAudit({ onBack, accessToken }) {
           const job = e.calendar_event_id ? jobByEvent[e.calendar_event_id] : null;
           const target = DISPO_STATUS[e.disposition] || JOB_STATUS.SCHEDULED;
           const onBoardSynced = job && job.status === target;
+          // "Done" = the job reached a terminal state. Billed, complete, archived,
+          // dead, lost, won. Anything else is still live work.
+          const isDone = job && DONE_STATUSES.includes(job.status);
+          const si = job ? STATUS_INFO[job.status] : null;
           const hist = historyById[e.id];
           return (
-            <div key={e.id} style={{ background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
-              <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{e.event_title || e.customer_name_raw || '(untitled event)'}</div>
+            <div key={e.id} style={{ background: '#1a1a2e', border: `1px solid ${isDone ? '#22c55e40' : '#1e293b'}`, borderRadius: 12, padding: '12px 14px', marginBottom: 12, opacity: isDone ? 0.7 : 1 }}>
+              <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14, opacity: isDone ? 0.65 : 1 }}>{e.event_title || e.customer_name_raw || '(untitled event)'}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Chip color={d.color}>{d.label}</Chip>
+                {/* CURRENT STATE first — this is what actually moves */}
+                {si
+                  ? <Chip color={isDone ? '#22c55e' : si.color}>{isDone ? '✓ Done' : `${si.icon} ${si.label}`}</Chip>
+                  : <Chip color="#94a3b8">not on the board</Chip>}
+                {/* The disposition is history — what the tech said that day. Demoted. */}
+                <span style={{ color: '#94a3b8', fontSize: 11 }}>tech said: {d.label}</span>
                 {e.tech_name && <span style={{ color: '#cbd5e1', fontSize: 11 }}>👷 {e.tech_name}</span>}
                 <span style={{ color: '#cbd5e1', fontSize: 11 }}>📅 {fmtDate(e.event_start || e.created_at)}</span>
                 {hrs(e.total_minutes) && <span style={{ color: '#00c8e8', fontSize: 11 }}>⏱ {hrs(e.total_minutes)}</span>}

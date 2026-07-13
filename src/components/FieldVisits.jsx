@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
+import { reasonLabel, reasonColor, isRealCost } from '../config/archiveReasons.js';
 
 function fmtDateTime(iso) {
   if (!iso) return '';
@@ -51,7 +52,7 @@ function parseIssueNotes(issue) {
 const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const FIELDS =
-  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, calendar_event_id, customer_id, created_at';
+  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, calendar_event_id, customer_id, created_at, archived, archived_at, archived_by, archive_reason';
 
 const PREVIEW = 3;
 
@@ -114,7 +115,23 @@ export default function FieldVisits({ job }) {
       {shownVisits.map(e => {
         const d = dispo(e.disposition);
         return (
-          <div key={e.id} style={card}>
+          <div key={e.id} style={{ ...card, opacity: e.archived ? 0.78 : 1, borderColor: e.archived ? (isRealCost(e.archive_reason) ? '#f59e0b55' : '#47556955') : '#1e293b' }}>
+            {e.archived && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+                background: `${reasonColor(e.archive_reason)}1a`, border: `1px solid ${reasonColor(e.archive_reason)}55`,
+                borderRadius: 6, padding: '4px 8px', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: reasonColor(e.archive_reason) }}>
+                  🗑️ NOT BILLED — {reasonLabel(e.archive_reason).toUpperCase()}
+                </span>
+                {isRealCost(e.archive_reason) && (
+                  <span style={{ fontSize: 11, color: '#fbbf24' }}>· DRH absorbed this cost</span>
+                )}
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  {e.archived_by ? `· ${String(e.archived_by).split('@')[0]}` : ''}
+                  {e.archived_at ? ` · ${new Date(e.archived_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                </span>
+              </div>
+            )}
             {e.event_title && <div style={{ fontWeight: 700, fontSize: 13.5, color: '#e2e8f0', marginBottom: 6 }}>{e.event_title}</div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: '#94a3b8', marginBottom: (e.materials || e.notes) ? 8 : 0 }}>
               <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${d.color}20`, color: d.color, border: `1px solid ${d.color}40` }}>{d.label}</span>

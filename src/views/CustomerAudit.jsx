@@ -11,6 +11,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
 import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
 import { missingLabel } from '../utils/completeness.js';
+import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
 
 const SINCE = '2026-01-01';
@@ -130,6 +131,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
   const [manualEvents, setManualEvents] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState(null);   // the entry being archived
 
   const byId = useMemo(() => { const m = {}; for (const c of registry) m[c.id] = c; return m; }, [registry]);
 
@@ -190,29 +192,25 @@ export default function CustomerAudit({ onBack, accessToken }) {
     setScanning(false);
   }
 
-  // Archive = "this was never real work" — test data, duplicates, mistakes.
-  // Deliberately NOT 'billed'. Flagging junk as billed would put it in the
-  // books as revenue that was never invoiced. Nothing is deleted.
-  async function archiveEntry(entryId, title) {
-    const reason = window.prompt(
-      `Archive "${title || 'this entry'}"?\n\n` +
-      `It leaves the audit WITHOUT being marked billed — nothing enters the books.\n` +
-      `Nothing is deleted; it can be brought back.\n\n` +
-      `Why? (test / duplicate / mistake / not_billable)`,
-      'test'
-    );
-    if (!reason) return;
+  // Archive — the class matters (see config/archiveReasons.js). A test entry and
+  // a warranty callback both leave this queue, but one never happened and the
+  // other is real cost DRH absorbed with no revenue. Never collapse them.
+  async function doArchive(reason) {
+    const entryId = archiveTarget?.id;
+    if (!entryId) return;
     try {
       const { error } = await supabase.from('time_entries').update({
         archived: true,
         archived_at: new Date().toISOString(),
         archived_by: userEmail || null,
-        archive_reason: reason.trim(),
+        archive_reason: reason,
       }).eq('id', entryId);
       if (error) throw error;
       setEvents(prev => prev.filter(e => e.id !== entryId));
+      setArchiveTarget(null);
     } catch (e) {
       alert('Could not archive: ' + (e.message || e) + '\n\nIf this says the column does not exist, run migration 023 first.');
+      setArchiveTarget(null);
     }
   }
 
@@ -327,6 +325,15 @@ export default function CustomerAudit({ onBack, accessToken }) {
           <div style={{ height: '100%', width: total ? `${(assignedCount / total) * 100}%` : '0%', background: '#22c55e' }} />
         </div>
 
+        {archiveTarget && (
+          <ArchiveModal
+            count={1}
+            hours={archiveTarget.total_minutes ? `${(archiveTarget.total_minutes / 60).toFixed(1)}h` : ''}
+            onCancel={() => setArchiveTarget(null)}
+            onConfirm={doArchive}
+          />
+        )}
+
         {/* DATA PROBLEMS — loud, top of the audit. This is the orphan queue. */}
         {(unassignedEntries > 0 || orphanJobs.length > 0 || manualEvents.length > 0) && (
           <div style={{ background: '#78350f33', border: '2px solid #f59e0b', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
@@ -434,7 +441,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   : <Chip color="#94a3b8">not on the board</Chip>}
                 {/* The disposition is history — what the tech said that day. Demoted. */}
                 <span style={{ color: '#94a3b8', fontSize: 11 }}>tech said: {d.label}</span>
-                <button onClick={(ev2) => { ev2.stopPropagation(); archiveEntry(e.id, e.event_title); }}
+                <button onClick={(ev2) => { ev2.stopPropagation(); setArchiveTarget(e); }}
                   title="Test data / junk. Leaves the audit WITHOUT being marked billed."
                   style={{ marginLeft: 'auto', background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 6, fontSize: 11, padding: '2px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   🗑️ Archive

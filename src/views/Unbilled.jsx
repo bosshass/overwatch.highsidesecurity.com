@@ -21,6 +21,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
+import ArchiveModal from '../components/ArchiveModal.jsx';
 
 // A single visit longer than this is almost certainly a tech who never clocked
 // out. Flag it — don't silently put it on an invoice.
@@ -40,6 +41,7 @@ export default function Unbilled({ onBack, userEmail }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [search, setSearch] = useState('');
+  const [archiving, setArchiving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -158,20 +160,11 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
-  // Archive = "this was never real work". Test entries, duplicates, mistakes.
-  // Deliberately NOT the same as billed — flagging junk as billed would put it
-  // in the books as revenue we invoiced, and it wasn't.
-  const archiveSelected = async () => {
-    if (!sel.rows.length) return;
-    const reason = window.prompt(
-      `Archive ${sel.rows.length} visit(s)?\n\n` +
-      `They leave this queue WITHOUT being marked billed — nothing enters the books.\n` +
-      `Nothing is deleted; it can be brought back.\n\n` +
-      `Why? (test / duplicate / mistake / not_billable)`,
-      'test'
-    );
-    if (!reason) return;
-    setSaving(true);
+  // Archive — the REASON matters more than the act. See config/archiveReasons.js:
+  // "test" and "warranty" both leave the billing queue, but one never happened
+  // and the other is real cost DRH absorbed. Collapsing them would silently
+  // make unprofitable customers look profitable. So the class is captured here.
+  const doArchive = async (reason) => {
     try {
       const { error } = await supabase
         .from('time_entries')
@@ -179,18 +172,19 @@ export default function Unbilled({ onBack, userEmail }) {
           archived: true,
           archived_at: new Date().toISOString(),
           archived_by: userEmail || null,
-          archive_reason: reason.trim(),
+          archive_reason: reason,
         })
         .in('id', sel.rows.map(r => r.id));
       if (error) throw error;
       setToast(`${sel.rows.length} visit(s) archived — not billed`);
       setPicked(new Set());
+      setArchiving(false);
       await load();
       setTimeout(() => setToast(''), 3500);
     } catch (e) {
       alert('Could not archive: ' + (e.message || e) + '\n\nIf this says the column does not exist, run migration 023 first.');
+      setArchiving(false);
     }
-    setSaving(false);
   };
 
   const page = { minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', paddingBottom: 160 };
@@ -300,6 +294,15 @@ export default function Unbilled({ onBack, userEmail }) {
         })}
       </div>
 
+      {archiving && (
+        <ArchiveModal
+          count={sel.rows.length}
+          hours={fmtH(sel.hours)}
+          onCancel={() => setArchiving(false)}
+          onConfirm={doArchive}
+        />
+      )}
+
       {/* Selection bar — everything ticked, across every customer */}
       {sel.rows.length > 0 && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 64, background: '#1a1a2e', borderTop: '2px solid #22c55e', padding: '12px 14px', zIndex: 20 }}>
@@ -312,7 +315,7 @@ export default function Unbilled({ onBack, userEmail }) {
                 style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 13, width: 150 }} />
               <button onClick={() => setPicked(new Set())}
                 style={{ background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>Clear</button>
-              <button onClick={archiveSelected} disabled={saving}
+              <button onClick={() => setArchiving(true)} disabled={saving}
                 title="Junk / test data. Leaves the queue WITHOUT being marked billed."
                 style={{ background: 'none', border: '1px solid #64748b', color: '#cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 🗑️ Archive (not billable)

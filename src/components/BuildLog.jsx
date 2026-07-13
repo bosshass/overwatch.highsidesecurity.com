@@ -9,6 +9,18 @@
 
 export const BUILDS = [
   {
+    version: '9.7.2',
+    date: '2026-07-13',
+    label: 'Archive now asks WHY — and the answer decides your margins',
+    changes: [
+      'Archiving is no longer a free-text box. You pick a reason, and the reason falls into one of two classes that matter enormously',
+      'IT NEVER HAPPENED (test / duplicate / data mistake): no truck rolled, no hours were spent. Excluded from revenue AND cost — it vanishes from profitability entirely',
+      'IT HAPPENED AND WE ATE IT (warranty / rework / goodwill / covered by contract): the truck rolled, a tech spent hours. This is REAL COST with ZERO REVENUE — the number that makes an unprofitable customer look profitable if you hide it',
+      'This is captured at archive time on purpose. Nobody remembers in six months whether an archived visit was a test entry or a warranty callback DRH ate — and once it is lost, it cannot be reconstructed',
+      'Archived visits now show in customer history with a NOT BILLED tag, the reason, who archived it and when. Absorbed cost is flagged amber with "DRH absorbed this cost". An archived visit can never again look like a normal one',
+    ],
+  },
+  {
     version: '9.7.1',
     date: '2026-07-13',
     label: 'Archive junk out of Billing and Event Audit',

@@ -34,7 +34,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '9.3.2';
+const APP_VERSION = '9.3.4';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
 
@@ -711,7 +711,7 @@ export default function App() {
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />
-        <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}
         <Route path="/admin/gap" element={<OperatorOnly><AdminGap onBack={() => navigate('/')} /></OperatorOnly>} />

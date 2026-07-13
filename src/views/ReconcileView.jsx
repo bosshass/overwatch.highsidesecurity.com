@@ -20,9 +20,9 @@ import { jobsApi, JOB_STATUS } from '../services/supabase.js';
 import { ignoreAllOrphans, isOrphanIgnored, syncIgnoredOrphansFromSupabase } from '../services/calendarSync.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
-const CUTOFF = new Date('2026-07-01T00:00:00');          // June only — nothing in July+
-const SWEEP_FROM = new Date('2026-06-01T00:00:00');      // June only — don't look before June 1 2026
-const COMPLETED_FROM = new Date('2026-06-01T00:00:00');  // June only
+const CUTOFF = new Date();                               // through today — the underlying stranding bug was active in July too
+const SWEEP_FROM = new Date('2026-06-01T00:00:00');      // still starts June 1, widen further if needed
+const COMPLETED_FROM = new Date('2026-06-01T00:00:00');
 
 // Calendars to sweep — Sara's list. Completed + Sales excluded.
 const SWEEP = [

@@ -690,10 +690,10 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
         <MergeTool job={job} allJobs={allJobs} onMerge={onMerge} accessToken={accessToken} userEmail={userEmail} />
 
         {/* Optional scheduler for ready/return */}
-        {(job.status==='ready_to_schedule'||job.status==='return_pending') && (
+        {(job.status==='ready_to_schedule'||job.status==='return_pending'||job.status==='scheduled') && (
           <button onClick={() => { onSchedule(job); }}
             style={{ width:'100%', padding:12, borderRadius:8, border:'none', background:'#8b5cf6', color:'#fff', fontWeight:600, fontSize:14, cursor:'pointer', marginBottom:10 }}>
-            📅 Open Scheduler (pick tech + time)
+            {job.status==='scheduled' ? '🔁 Reschedule (pick new tech + time)' : '📅 Open Scheduler (pick tech + time)'}
           </button>
         )}
 

@@ -78,14 +78,24 @@ async function apiMove(accessToken, sourceCalendarId, eventId, destinationCalend
 // TOOLKIT FUNCTIONS (views call these)
 // ============================================
 
+// Format a Date as local wall-clock "YYYY-MM-DDTHH:mm:ss" (no Z, no offset)
+// so Google honors the timeZone field alongside it.
+function toWallClock(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+}
+
 // Create a new event on any calendar. Returns the created event.
 export async function createEventOnCalendar(accessToken, calendarId, { title, description, location, startTime, endTime, colorId }) {
   const event = {
     summary: title,
     description: description || '',
     location: location || '',
-    start: { dateTime: new Date(startTime).toISOString(), timeZone: 'America/Denver' },
-    end: { dateTime: new Date(endTime || new Date(startTime).getTime() + 2 * 60 * 60 * 1000).toISOString(), timeZone: 'America/Denver' },
+    // Wall-clock local time + explicit timeZone. NEVER toISOString() here:
+    // an ISO string ends in Z (UTC) and Google IGNORES the timeZone field
+    // when the dateTime carries an offset — that was the timezone bug.
+    start: { dateTime: toWallClock(new Date(startTime)), timeZone: 'America/Denver' },
+    end: { dateTime: toWallClock(new Date(endTime || new Date(startTime).getTime() + 2 * 60 * 60 * 1000)), timeZone: 'America/Denver' },
   };
   if (colorId) event.colorId = colorId;
   const created = await apiCreate(accessToken, calendarId, event);

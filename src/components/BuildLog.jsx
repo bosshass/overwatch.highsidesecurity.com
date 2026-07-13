@@ -9,6 +9,42 @@
 
 export const BUILDS = [
   {
+    version: '9.3.6',
+    date: '2026-07-09',
+    label: 'Event Audit: Done now always checks the calendar',
+    changes: [
+      'Selecting Done in Event Audit now always checks that the calendar event moved to Completed — previously this only happened as a side effect of a separate confirm action, so it usually never fired',
+      'If the move fails for any reason, you now get a visible alert telling you to check it manually, instead of a silent console warning',
+    ],
+  },
+  {
+    version: '9.3.5',
+    date: '2026-07-09',
+    label: 'Reconcile sweep now covers July too',
+    changes: [
+      'Admin > Reconcile was hard-capped to only look at June 2026 — now sweeps through today automatically (and stays current every day going forward, no more manual date bumps)',
+      'Catches the backlog of "Bill it"/"Billed"/"Complete" jobs stranded off the Completed calendar from the calendar_id bug that was active through July',
+    ],
+  },
+  {
+    version: '9.3.4',
+    date: '2026-07-09',
+    label: 'Fixed silently broken calendar sync (missing column)',
+    changes: [
+      'jobs.calendar_id never existed as a real column — the merge tool\'s "move to Completed calendar" step and the Visual Scheduler\'s Queue-sync tagging were silently no-op\'ing this whole time',
+      'Both now derive the correct calendar from the job\'s assigned tech instead',
+    ],
+  },
+  {
+    version: '9.3.3',
+    date: '2026-07-09',
+    label: 'View Client link on job cards + photo links',
+    changes: [
+      'Job cards (Board detail + disposition screen) now show a "View Full Client History" link when a customer is attached',
+      'Added a Photos field (Google Drive link) on disposition and new job creation — paste a share link, it saves into the notes automatically',
+    ],
+  },
+  {
     version: '9.3.2',
     date: '2026-07-09',
     label: 'Billed/dead/lost jobs now visible under Done',

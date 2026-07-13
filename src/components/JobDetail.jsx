@@ -10,6 +10,7 @@
 //   Nothing else. Zero clutter.
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES } from '../utils/statusMachine.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
@@ -21,6 +22,7 @@ import RescheduleModal from './RescheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
 
 export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userEmail, userRole }) {
+  const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -706,6 +708,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </h1>
           {job.job_number && (
             <div style={{ color: '#38bdf8', fontSize: '14px', fontWeight: '500', marginTop: '6px' }}>{job.job_number}</div>
+          )}
+          {job.customer_id && (
+            <button
+              onClick={() => navigate(`/customers?customerId=${encodeURIComponent(job.customer_id)}&returnTo=${encodeURIComponent(window.location.pathname)}`)}
+              style={{ marginTop: 8, background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#00c8e8', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+              👤 View Full Client History
+            </button>
           )}
 
           {/* Badges */}

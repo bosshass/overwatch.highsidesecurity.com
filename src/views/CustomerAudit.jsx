@@ -8,7 +8,8 @@
 // ============================================================
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { supabase, jobsApi, notesApi, JOB_STATUS } from '../services/supabase.js';
+import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS } from '../services/supabase.js';
+import { archiveEvent } from '../services/calendarSync.js';
 
 const SINCE = '2026-01-01';
 
@@ -92,7 +93,7 @@ function CustomerPicker({ registry, onPick, onClose }) {
   );
 }
 
-export default function CustomerAudit({ onBack }) {
+export default function CustomerAudit({ onBack, accessToken }) {
   const userEmail = (typeof localStorage !== 'undefined' && localStorage.getItem('juce_v4_email')) || 'audit';
 
   const [registry, setRegistry] = useState([]);
@@ -176,6 +177,26 @@ export default function CustomerAudit({ onBack }) {
         };
         const created = await jobsApi.create(job, userEmail);
         if (ev.calendar_event_id && created?.id) setJobByEvent(m => ({ ...m, [ev.calendar_event_id]: { id: created.id, status: target } }));
+      }
+
+      // v9.3.6 fix: when the disposition is Bill It (work is DONE), move the
+      // source calendar event to the Completed calendar — same pattern as
+      // BoardView/Billing. Event Audit was the one screen that never got this
+      // wiring, leaving done events stranded on tech calendars.
+      // Calendar is derived from the assigned tech's techs.calendar_id
+      // (the 9.3.4 pattern). Best-effort, never blocks the status change.
+      if (target === JOB_STATUS.TO_BILL && ev.calendar_event_id && accessToken) {
+        try {
+          const techs = await techsApi.getAll();
+          const tech = (techs || []).find(t =>
+            t.calendar_id && ev.tech_name &&
+            (t.name || '').toLowerCase() === ev.tech_name.toLowerCase());
+          if (tech) {
+            await archiveEvent(accessToken, tech.calendar_id, ev.calendar_event_id);
+          } else {
+            console.warn('Event Audit: no tech calendar match for', ev.tech_name, '— event not moved');
+          }
+        } catch (e) { console.warn('Event Audit calendar move failed (non-fatal):', e.message); }
       }
     } catch (e) { alert('Could not push to board: ' + (e.message || e)); }
     setTicketBusyId(null);

@@ -62,6 +62,7 @@ export default function JobFinishSheet({
 }) {
   const [notes, setNotes]               = useState('');
   const [materials, setMaterials]       = useState('');
+  const [photoLink, setPhotoLink]       = useState('');
   const [timeEntry, setTimeEntry]       = useState(emptyTimeEntry());
   const [linkedCustomer, setLinkedCust] = useState(prefillCustomer);
   const [returnReason, setReturnReason] = useState('');
@@ -188,7 +189,7 @@ export default function JobFinishSheet({
       total_minutes:      payload.total_minutes,
       entry_method:       payload.entry_method,
       disposition,
-      notes:              notes.trim() || null,
+      notes:              [notes.trim(), photoLink.trim() ? `📎 Photos: ${photoLink.trim()}` : ''].filter(Boolean).join('\n\n') || null,
       materials:          materials.trim() || null,
     });
   };
@@ -259,6 +260,14 @@ export default function JobFinishSheet({
         value={linkedCustomer}
         onChange={setLinkedCust}
       />
+      {linkedCustomer?.id && (
+        <button
+          type="button"
+          onClick={() => window.open(`/customers?customerId=${encodeURIComponent(linkedCustomer.id)}`, '_blank')}
+          style={{ marginTop: -8, marginBottom: 12, background: 'none', border: '1px solid #e5e7eb', borderRadius: 8, color: '#0891b2', padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start' }}>
+          👤 View Full Client History
+        </button>
+      )}
 
       {/* Time entry (required) */}
       <TimeEntryBlock
@@ -277,6 +286,18 @@ export default function JobFinishSheet({
         onChange={e => setNotes(e.target.value)}
         placeholder="What was done / what's needed — required to finish"
         style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
+      />
+
+      {/* Photos — no native upload yet, so a Drive link is the practical path for now */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
+        📎 Photos (Google Drive link)
+      </div>
+      <input
+        type="text"
+        value={photoLink}
+        onChange={e => setPhotoLink(e.target.value)}
+        placeholder="Paste a Google Drive share link with your photos"
+        style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: '#f9fafb', color: '#1B2A4A' }}
       />
 
       {/* Materials */}

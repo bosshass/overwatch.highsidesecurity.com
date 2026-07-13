@@ -19,6 +19,25 @@ import { buildEventTitle, buildEventDescription, getLatestNote, createEventOnCal
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 const DAYS_AHEAD = 14;
+
+// LOCAL date string (YYYY-MM-DD) — never toISOString(), which is UTC and
+// rolls to the wrong day after ~6pm Denver time. This was the root cause
+// of events landing on the wrong day / wrong timezone.
+function localDateStr(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+// Parse "YYYY-MM-DD" as LOCAL midnight (new Date("YYYY-MM-DD") parses as UTC — wrong).
+function parseLocalDate(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+// Which local day does a calendar event fall on? All-day events carry a bare
+// date string — use it directly (parsing it would shift a day).
+function eventLocalDay(ev) {
+  if (ev.start?.date && !ev.start?.dateTime) return ev.start.date;
+  return localDateStr(new Date(ev.start?.dateTime));
+}
 const WORK_START_HOUR = 9;
 const WORK_END_HOUR = 18;
 
@@ -73,13 +92,10 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
         for (let d = 0; d < DAYS_AHEAD; d++) {
           const day = new Date(today); day.setDate(day.getDate() + d);
-          const dayStr = day.toISOString().split('T')[0];
+          const dayStr = localDateStr(day);
           const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
-          const dayEvents = items.filter(ev => {
-            const s = new Date(ev.start?.dateTime || ev.start?.date);
-            return s.toISOString().split('T')[0] === dayStr;
-          });
+          const dayEvents = items.filter(ev => eventLocalDay(ev) === dayStr);
 
           const workStart = new Date(day); workStart.setHours(WORK_START_HOUR, 0, 0, 0);
           const workEnd = new Date(day); workEnd.setHours(WORK_END_HOUR, 0, 0, 0);
@@ -140,8 +156,10 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
-    const start = new Date(selectedDay.date); start.setHours(sh, sm, 0, 0);
-    const end = new Date(selectedDay.date); end.setHours(eh, em, 0, 0);
+    // parseLocalDate: "YYYY-MM-DD" as LOCAL midnight, not UTC — this was
+    // the wrong-day bug.
+    const start = parseLocalDate(selectedDay.date); start.setHours(sh, sm, 0, 0);
+    const end = parseLocalDate(selectedDay.date); end.setHours(eh, em, 0, 0);
     if (end <= start) { setErr('End time must be after start time'); return; }
 
     setSaving(true); setErr('');
@@ -155,14 +173,36 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
       }).eq('id', job.id);
       if (dbErr) throw dbErr;
 
+      // RESCHEDULE: if a previous scheduling created a tech-calendar event,
+      // delete it first so we don't leave a ghost booking behind.
+      if (job.scheduled_event_id && job.scheduled_calendar_id) {
+        try {
+          await fetch(
+            `${GCAL}/calendars/${encodeURIComponent(job.scheduled_calendar_id)}/events/${encodeURIComponent(job.scheduled_event_id)}`,
+            { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+        } catch (e) { console.warn('Old scheduled event delete failed (non-fatal):', e.message); }
+      }
+
       const latestNote = await getLatestNote(job.id);
-      await createEventOnCalendar(accessToken, tech.calendar_id, {
+      const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
         title: buildEventTitle(job),
         description: buildEventDescription(job, latestNote),
         location: job.customer_address,
         startTime: start,
         endTime: end,
       });
+
+      // Remember which event we created so this job can be RESCHEDULED later.
+      // Separate try — if the columns don't exist yet (migration 021 not run),
+      // scheduling still succeeds, we just can't clean up on reschedule.
+      if (created?.id) {
+        const { error: memErr } = await supabase.from('jobs').update({
+          scheduled_event_id: created.id,
+          scheduled_calendar_id: tech.calendar_id,
+        }).eq('id', job.id);
+        if (memErr) console.warn('Could not store scheduled event id (run migration 021):', memErr.message);
+      }
 
       // Tag the job's ORIGINAL source event (if any) as [SCHEDULED] --
       // this is the same tag Queue.jsx's own exclusion list already checks

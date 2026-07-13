@@ -68,6 +68,7 @@ Scope of Work: `;
     job_type: prefill?.jobType || 'service_res',
     priority: 'normal',
     issue: prefill?.issue || INTAKE_TEMPLATE,
+    photoLink: '',
     gate_code: '',
     panel_password: '',
     cms_account_id: ''
@@ -248,7 +249,8 @@ Scope of Work: `;
       const willSchedule = assignedTo && scheduleDate && scheduleTime;
       const job = await jobsApi.create({
         customer_id: customerId, customer_name: form.customer_name.trim(), customer_address: form.customer_address,
-        customer_phone: form.customer_phone, job_type: form.job_type, priority: form.priority, issue: form.issue,
+        customer_phone: form.customer_phone, job_type: form.job_type, priority: form.priority,
+        issue: [form.issue, form.photoLink.trim() ? `📎 Photos: ${form.photoLink.trim()}` : ''].filter(Boolean).join('\n\n'),
         gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id,
         status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW
       }, userEmail);
@@ -615,6 +617,7 @@ Scope of Work: `;
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Issue / Description</label>
           <textarea value={form.issue} onChange={e => setForm(f => ({ ...f, issue: e.target.value }))} placeholder="What's the job?" rows={8} style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+          <input value={form.photoLink} onChange={e => setForm(f => ({ ...f, photoLink: e.target.value }))} placeholder="📎 Photos — paste a Google Drive share link (optional)" style={fieldStyle} />
         </div>
 
 

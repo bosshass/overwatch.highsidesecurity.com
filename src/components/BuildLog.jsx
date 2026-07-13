@@ -9,6 +9,18 @@
 
 export const BUILDS = [
   {
+    version: '9.3.7',
+    date: '2026-07-13',
+    label: 'Scheduler timezone fix, reschedule, real email sends',
+    changes: [
+      'FIXED: scheduling put events on the wrong day/timezone — the app was sending Google a UTC timestamp, which Google then ignored the timezone on. Now sends real Denver wall-clock time. Affects every screen that creates a calendar event, not just the Scheduler',
+      'Jobs already scheduled can now be RESCHEDULED from the Board — pick a new tech/time and the old calendar event is deleted instead of left behind as a ghost booking',
+      'The ✉️ Email button on an assignment now actually SENDS the email (through your Google login) and confirms it with a green "Email sent" — it used to just open your mail app and hope',
+      'Every sent assignment email is logged as a note on the job',
+      'NOTE: you must sign out and back in once to grant Google send permission',
+    ],
+  },
+  {
     version: '9.3.6',
     date: '2026-07-09',
     label: 'Event Audit: Done now always checks the calendar',

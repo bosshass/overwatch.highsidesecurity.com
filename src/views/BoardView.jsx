@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
-import { stalenessOf, ageLabel, STALE_COLOR } from '../utils/staleness.js';
+import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink } from '../config/appBase.js';
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
@@ -826,7 +826,9 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
 
   return (
     <div onClick={() => onSelect(job)}
-      style={{ background:'#1e293b', borderRadius:8, padding:13, marginBottom:8, borderLeft:`4px solid ${rail}`, cursor:'pointer', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+      style={{ position:'relative', background:'#1e293b', borderRadius:8, padding:13, paddingLeft:17, marginBottom:8, cursor:'pointer', overflow:'hidden', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+      <div className={stale.level === 'very_stale' ? 'ow-verystale' : stale.level === 'stale' ? 'ow-stale' : undefined}
+        style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:rail }} />
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:5 }}>
         <div style={{ fontSize:16, fontWeight:600, color:'#fff', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
@@ -854,7 +856,8 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
           : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>}
         <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
         {staleColor && (
-          <span style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+          <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
+            style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
             ⏱ {stale.label}
           </span>
         )}
@@ -937,6 +940,12 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════════════════════
+const STALE_PULSE_CSS = `
+@keyframes ow-stale-pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+.ow-stale     { animation: ow-stale-pulse 2.4s ease-in-out infinite; }
+.ow-verystale { animation: ow-stale-pulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ow-stale, .ow-verystale { animation:none; } }`;
+
 export default function BoardView({ accessToken, onBack, userEmail, userName }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -948,6 +957,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   // Refs so tapping a stat card (e.g. "returns") actually moves the board to
   // that column instead of just tinting a tab somewhere off-screen.
   const colRefs = useRef({});
+  // The staleness wall — Sara's, not mine. Persisted per-person.
+  const [staleDays, setStaleDaysState] = useState(() => {
+    const d = getStaleDays();
+    return d === null ? 'off' : String(d);
+  });
+  const changeStaleWall = (key) => { setStaleDays(key); setStaleDaysState(key); };
   const focusColumn = (key) => {
     setActiveCol(key);
     setExpandedCol(key);                       // mobile: open the accordion
@@ -977,7 +992,20 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       const ACTIVE = ['new','needs_details','needs_parts','pending_materials','pending_decision','blocked','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill','won'];
       const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:false}).limit(500);
       if (error) throw error;
-      setJobs(data||[]);
+      // last_note_at — the last time a human actually SAID something about this
+      // job. This is what the staleness rule measures, NOT updated_at.
+      const ids = (data || []).map(x => x.id);
+      let lastNote = {};
+      if (ids.length) {
+        const { data: notes } = await supabase
+          .from('job_history')
+          .select('job_id, changed_at')
+          .in('job_id', ids)
+          .not('notes', 'is', null)
+          .order('changed_at', { ascending: false });
+        (notes || []).forEach(n => { if (!lastNote[n.job_id]) lastNote[n.job_id] = n.changed_at; });
+      }
+      setJobs((data || []).map(j => ({ ...j, last_note_at: lastNote[j.id] || null })));
       const j = data||[];
       setStats({
         total_open: j.length,
@@ -1097,6 +1125,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
 
   return (
     <div style={{ minHeight:'100vh', background:'#0f172a', color:'#fff', display:'flex', flexDirection:'column' }}>
+      <style>{STALE_PULSE_CSS}</style>
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'1px solid #1e293b' }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1122,8 +1151,17 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
             <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.val}</div>
           </button>
         ))}
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
-          style={{ marginLeft:'auto', padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:220 }} />
+        <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
+          <label style={{ display:'flex', alignItems:'center', gap:6, background:'#1e293b', borderRadius:8, padding:'6px 10px' }}>
+            <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4, whiteSpace:'nowrap' }}>flag silent after</span>
+            <select value={staleDays} onChange={e => changeStaleWall(e.target.value)}
+              style={{ background:'#0f172a', border:'1px solid #334155', borderRadius:6, color:'#e2e8f0', fontSize:13, padding:'3px 6px', cursor:'pointer' }}>
+              {STALE_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+          </label>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
+            style={{ padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:200 }} />
+        </div>
       </div>
 
       {!isMobile && (

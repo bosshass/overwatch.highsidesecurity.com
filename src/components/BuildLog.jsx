@@ -9,6 +9,22 @@
 
 export const BUILDS = [
   {
+    version: '9.6.0',
+    date: '2026-07-13',
+    label: 'KPI dashboard, the pulse, and a staleness wall you control',
+    changes: [
+      'NEW: KPIs screen (operators only). Read-only — it writes nothing and creates no cards',
+      'Built on AGING, not averages. The board gets worked in bursts, so the median time-in-status is near zero while a few cards rot for 60 days. An "average" would read 2.4 days and look healthy while something sat at day 60. You get the p90 and the worst case instead',
+      'Worst offenders listed BY NAME and clickable — not a number you cannot act on',
+      'Returns: count, jobs affected, and return rate as a share of scheduled work',
+      'Estimate won → on the calendar, including the number that matters: work the customer said YES to that never got scheduled',
+      'Cards assigned to JR, how long they have been silent, and who actually moves them',
+      'Cards nobody has COMMENTED on now pulse amber (red past a week). This measures the last real note — not updated_at, which bumps every time a card is dragged, so a job could be moved all week and never look stale',
+      'NEW "flag silent after" control in the Board header — 1 / 3 / 7 / 14 days / Off. The wall is yours and does not change what anyone else sees',
+      'Fixed a silent bug: tech_name stores JR, jr and Jr as three different people. Every assignee metric was splitting him',
+    ],
+  },
+  {
     version: '9.5.0',
     date: '2026-07-13',
     label: 'Board slimmed to 5 columns and the stat cards actually do something',

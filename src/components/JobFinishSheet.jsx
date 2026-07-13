@@ -69,6 +69,11 @@ export default function JobFinishSheet({
   const [returnExpanded, setRetExp]     = useState(false);
   const [acting, setActing]             = useState(false);
   const [error, setError]               = useState('');
+  // v9.4.0: disposition is now a SELECTION made up top (before notes), and a
+  // single "Finish job" button commits it. Previously the 4 disposition
+  // buttons were buried under Notes+Materials and doubled as the submit,
+  // so the tech had to scroll past everything to say what happened.
+  const [selectedDispo, setSelectedDispo] = useState(null);
 
   // If the parent passes a different prefill customer mid-life, follow it.
   useEffect(() => { if (prefillCustomer) setLinkedCust(prefillCustomer); }, [prefillCustomer]);
@@ -237,45 +242,105 @@ export default function JobFinishSheet({
     }
   };
 
-  const handleBillIt   = () => finish('bill_it');
-  const handleEstimate = () => finish('estimate');
-  const handleProgress = () => finish('in_progress');
-  const handleReturn   = () => {
-    if (!returnReason.trim()) {
-      setError('Please add a reason for the return visit.');
+  // Single commit path. In 'bill-only' mode the disposition is forced.
+  const effectiveDispo = mode === 'full' ? selectedDispo : 'bill_it';
+  const needsReason    = effectiveDispo === 'return';
+  const reasonOk       = !needsReason || returnReason.trim().length > 0;
+  const readyToFinish  = canFinish && !!effectiveDispo && reasonOk;
+
+  const handleFinish = () => {
+    if (!effectiveDispo) { setError('Pick how the job ended first.'); return; }
+    if (needsReason && !returnReason.trim()) {
+      setError('Add a reason for the return visit.');
       return;
     }
-    finish('return', { reason: returnReason.trim() });
+    finish(effectiveDispo, needsReason ? { reason: returnReason.trim() } : {});
   };
 
   if (!event) return null;
 
+  // ── Scope of work — what the tech is walking into ──────────────────
+  // Pulled straight off the calendar event description, stripped of the
+  // machine noise (deep link, CUSTOMER_ID stamp) and of previously-appended
+  // field notes (📝 lines). Shown IN FULL — no "Show more" truncation. This
+  // is the single most important thing on the screen and it used to be
+  // collapsed behind a link.
+  const scope = (event.description || '')
+    .replace(/📱.*|Open in JUC-E.*/g, '')
+    .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
+    .split('\n')
+    .filter(l => !l.trim().startsWith('📝'))
+    .join('\n')
+    .trim();
+
+  const DISPOS = [
+    { key: 'bill_it',     label: '✅ Done — bill it',   accent: '#1B2A4A', tint: '#eef2ff' },
+    { key: 'return',      label: '🔄 Return visit',     accent: '#d97706', tint: '#fffbeb' },
+    { key: 'in_progress', label: '🛠️ In progress',      accent: '#0e7490', tint: '#ecfeff' },
+    { key: 'estimate',    label: '💰 Needs estimate',   accent: '#6d28d9', tint: '#f5f3ff' },
+  ];
+
   // ── The actual form content (customer + time + notes + materials + buttons) ──
   const formContent = (
     <>
-      {/* Customer link — optional now, not a blocker. Still saved when set. */}
-      <CustomerLookup
-        event={event}
-        accessToken={accessToken}
-        value={linkedCustomer}
-        onChange={setLinkedCust}
-      />
-      {linkedCustomer?.id && (
-        <button
-          type="button"
-          onClick={() => window.open(`/customers?customerId=${encodeURIComponent(linkedCustomer.id)}`, '_blank')}
-          style={{ marginTop: -8, marginBottom: 12, background: 'none', border: '1px solid #e5e7eb', borderRadius: 8, color: '#0891b2', padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start' }}>
-          👤 View Full Client History
-        </button>
+      {/* SCOPE OF WORK — the hero. Full text, no truncation, no "Show more". */}
+      {scope && (
+        <div style={scopeBox}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
+            📋 Scope of work
+          </div>
+          <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+            {scope}
+          </div>
+        </div>
       )}
 
-      {/* Time entry (required) */}
-      <TimeEntryBlock
-        value={timeEntry}
-        onChange={setTimeEntry}
-        eventDate={eventDate}
-        required={false}
-      />
+      {/* HOW DID IT END — moved ABOVE notes. Pick first, then write. */}
+      {mode === 'full' && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            How did it end? {selectedDispo ? '✓' : '— required'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            {DISPOS.map(d => {
+              const on = selectedDispo === d.key;
+              return (
+                <button key={d.key}
+                  onClick={() => { setSelectedDispo(d.key); setError(''); if (d.key !== 'return') setReturnReason(''); }}
+                  style={{
+                    padding: '13px 8px', borderRadius: 12, cursor: 'pointer',
+                    background: on ? d.tint : '#ffffff',
+                    border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
+                    color: on ? d.accent : '#475569',
+                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'center',
+                  }}>
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Return reason — only when Return is the pick */}
+          {needsReason && (
+            <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, padding: 10, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                Why is a return visit needed?
+              </div>
+              <textarea
+                value={returnReason}
+                onChange={e => setReturnReason(e.target.value)}
+                placeholder="Missing part, customer not home, needs follow-up…"
+                autoFocus
+                style={{
+                  width: '100%', padding: 8, fontSize: 15, color: '#1B2A4A',
+                  background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
+                  resize: 'none', height: 54, boxSizing: 'border-box', fontFamily: 'inherit',
+                }}
+              />
+            </div>
+          )}
+        </>
+      )}
 
       {/* Notes (required — blocks finish until filled) */}
       <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
@@ -288,18 +353,6 @@ export default function JobFinishSheet({
         style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
-      {/* Photos — no native upload yet, so a Drive link is the practical path for now */}
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 10, marginBottom: 4 }}>
-        📎 Photos (Google Drive link)
-      </div>
-      <input
-        type="text"
-        value={photoLink}
-        onChange={e => setPhotoLink(e.target.value)}
-        placeholder="Paste a Google Drive share link with your photos"
-        style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: '#f9fafb', color: '#1B2A4A' }}
-      />
-
       {/* Materials */}
       <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
         🔧 Materials
@@ -308,50 +361,36 @@ export default function JobFinishSheet({
         value={materials}
         onChange={e => setMaterials(e.target.value)}
         placeholder="Parts, supplies, equipment used or needed..."
-        style={{ ...textareaStyle, background: '#fffbeb', border: '1px solid #fcd34d' }}
+        style={{ ...textareaStyle, background: '#fffbeb', border: '1px solid #fcd34d', height: 56 }}
       />
 
-      {/* Gate hint when not ready */}
-      {!canFinish && !acting && (
-        <div style={hintBox}>
-          To finish, add notes.
-        </div>
-      )}
+      {/* Time entry */}
+      <TimeEntryBlock
+        value={timeEntry}
+        onChange={setTimeEntry}
+        eventDate={eventDate}
+        required={false}
+      />
+
+      {/* Customer link — optional, saved when set */}
+      <CustomerLookup
+        event={event}
+        accessToken={accessToken}
+        value={linkedCustomer}
+        onChange={setLinkedCust}
+      />
 
       {error && <div style={errorBox}>{error}</div>}
 
-      {/* Disposition buttons */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-        {mode === 'full' ? (
-          <>
-            <button onClick={handleProgress} disabled={!canFinish} style={btnInProgress(canFinish)}>
-              🛠️ In Progress
-            </button>
-
-            <ReturnButtonWithReason
-              canFinish={canFinish}
-              acting={acting}
-              expanded={returnExpanded}
-              setExpanded={setRetExp}
-              reason={returnReason}
-              setReason={setReturnReason}
-              onConfirm={handleReturn}
-            />
-
-            <button onClick={handleEstimate} disabled={!canFinish} style={btnEstimate(canFinish)}>
-              💰 Needs Estimate
-            </button>
-
-            <button onClick={handleBillIt} disabled={!canFinish} style={btnBillIt(canFinish)}>
-              {acting ? 'Saving…' : '✅ Done — Bill It'}
-            </button>
-          </>
-        ) : (
-          <button onClick={handleBillIt} disabled={!canFinish} style={btnBillIt(canFinish)}>
-            {acting ? 'Saving…' : '✅ Done — Bill It'}
-          </button>
-        )}
-
+      {/* Single commit button */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+        <button onClick={handleFinish} disabled={!readyToFinish} style={btnFinish(readyToFinish)}>
+          {acting ? 'Saving…'
+            : !effectiveDispo ? 'Pick an outcome above'
+            : !notesValid ? 'Add notes to finish'
+            : needsReason && !reasonOk ? 'Add a return reason'
+            : 'Finish job'}
+        </button>
         <button onClick={onCancel} style={btnCancel}>Cancel</button>
       </div>
     </>
@@ -500,3 +539,13 @@ const btnCancel = {
   padding: 13, background: 'none', border: '1px solid #e5e7eb',
   borderRadius: 12, color: '#9ca3af', fontSize: 15, cursor: 'pointer',
 };
+
+const scopeBox = {
+  background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12,
+  padding: '10px 12px', marginBottom: 12,
+};
+const btnFinish = (on) => ({
+  padding: 16, background: on ? '#1B2A4A' : '#cbd5e1', border: 'none',
+  borderRadius: 12, color: '#ffffff', fontSize: 16, fontWeight: 800,
+  cursor: on ? 'pointer' : 'not-allowed',
+});

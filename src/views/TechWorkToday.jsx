@@ -348,31 +348,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               </div>
             )}
 
-            {/* Job Details — collapsed by default, "more" reveals the rest */}
-            {selected.description && (() => {
-              const cleaned = selected.description
-                .replace(/📱.*|Open in JUC-E.*/g, '')
-                .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
-                .trim();
-              if (!cleaned) return null;
-              const long = cleaned.length > 140;
-              const display = !long || detailsExpanded ? cleaned : cleaned.slice(0, 140).trimEnd() + '…';
-              return (
-                <div style={{ background: '#f9fafb', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Job Details</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                    {display}
-                  </div>
-                  {long && (
-                    <button onClick={() => setDetailsExpanded(v => !v)}
-                      style={{ marginTop: 4, padding: 0, background: 'none', border: 'none', color: '#2563eb', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                      {detailsExpanded ? 'Show less' : 'Show more'}
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* Finish form — customer link, time entry, notes, materials, disposition buttons.
                 Lives in src/components/JobFinishSheet.jsx and is the SINGLE canonical
                 "tech finishes a job" UI used everywhere in the app. */}

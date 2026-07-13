@@ -9,6 +9,18 @@
 
 export const BUILDS = [
   {
+    version: '9.4.0',
+    date: '2026-07-13',
+    label: 'Finish-a-job screen rebuilt around the tech',
+    changes: [
+      'SCOPE OF WORK is now the first thing you see on a job — full text, no more "Show more". What you are walking into should never be hidden behind a link',
+      'How did it end? moved ABOVE the notes — pick the outcome first, then write. It used to sit buried under Notes and Materials',
+      'One "Finish job" button commits your choice, instead of four buttons that were both the choice and the submit',
+      'The button tells you exactly what is missing (pick an outcome / add notes / add a return reason) instead of just sitting there dead',
+      'The Calendar tab and Today now open the exact same finish form — the Calendar was showing an older version of it',
+    ],
+  },
+  {
     version: '9.3.7',
     date: '2026-07-13',
     label: 'Scheduler timezone fix, reschedule, real email sends',

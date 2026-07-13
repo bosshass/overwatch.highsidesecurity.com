@@ -76,7 +76,7 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
               )}
             </div>
             {job.location && (
-              <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>📍 {job.location}</div>
+              <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>📍 {job.location}</div>
             )}
           </div>
           {age > 0 && (
@@ -122,7 +122,7 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
             </span>
           )}
           {job.job_number && (
-            <span style={{ color: '#475569', fontSize: '11px' }}>{job.job_number}</span>
+            <span style={{ color: '#94a3b8', fontSize: '11px' }}>{job.job_number}</span>
           )}
         </div>
       </div>
@@ -172,7 +172,7 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
 
       {/* Row 3: Note preview */}
       {truncatedNote && !compact && (
-        <div style={{ color: '#64748b', fontSize: '12px', lineHeight: '1.4', marginTop: '2px' }}>
+        <div style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: '1.4', marginTop: '2px' }}>
           {truncatedNote}
         </div>
       )}

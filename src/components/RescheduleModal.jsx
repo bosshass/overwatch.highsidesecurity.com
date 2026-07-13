@@ -354,7 +354,7 @@ export default function RescheduleModal({ job, assignments, onClose, onReschedul
               cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
             }}>
             <span>🕐 {selectedTime}</span>
-            <span style={{ color: '#64748b' }}>{showTimePicker ? '▲' : '▼'}</span>
+            <span style={{ color: '#cbd5e1' }}>{showTimePicker ? '▲' : '▼'}</span>
           </button>
           {showTimePicker && (
             <div style={{ marginTop: '6px', background: '#1e293b', borderRadius: '10px', padding: '6px', maxHeight: '160px', overflow: 'auto', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3px' }}>

@@ -96,7 +96,7 @@ const PAGES = [
       <div style={{ textAlign: 'center', padding: '10px 0' }}>
         <div style={{ fontSize: '52px', marginBottom: '8px' }}>🛡️</div>
         <div style={{ color: '#00c8e8', fontSize: '26px', fontWeight: '800' }}>Overwatch</div>
-        <div style={{ color: '#475569', fontSize: '12px', marginBottom: '20px' }}>DRH Security Operations</div>
+        <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '20px' }}>DRH Security Operations</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left', padding: '0 20px' }}>
           {[
             ['📅', 'Calendar', 'your schedule'],
@@ -108,7 +108,7 @@ const PAGES = [
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontSize: '18px', width: '24px', textAlign: 'center' }}>{icon}</span>
               <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{label}</span>
-              <span style={{ color: '#64748b', fontSize: '11px' }}>— {sub}</span>
+              <span style={{ color: '#cbd5e1', fontSize: '11px' }}>— {sub}</span>
             </div>
           ))}
         </div>
@@ -128,26 +128,26 @@ const PAGES = [
             <div style={{ position: 'relative' }}>
               <div style={{ background: `${TECH_COLORS.Austin}15`, borderLeft: `3px solid ${TECH_COLORS.Austin}`, borderRadius: '5px', padding: '5px 7px', marginBottom: '3px' }}>
                 <div style={{ color: '#e2e8f0', fontSize: '9px', fontWeight: '600' }}>9:00 — Johnson Residence</div>
-                <div style={{ color: '#64748b', fontSize: '7px' }}>Fire panel inspection · Austin</div>
+                <div style={{ color: '#cbd5e1', fontSize: '7px' }}>Fire panel inspection · Austin</div>
               </div>
               <Callout text="Tap → opens job" top="-2px" right="-4px" color="#22c55e" arrow="left" />
             </div>
             <div style={{ background: `${TECH_COLORS.JR}15`, borderLeft: `3px solid ${TECH_COLORS.JR}`, borderRadius: '5px', padding: '5px 7px', marginBottom: '3px' }}>
               <div style={{ color: '#e2e8f0', fontSize: '9px', fontWeight: '600' }}>11:30 — Tooth Zone</div>
-              <div style={{ color: '#64748b', fontSize: '7px' }}>Camera install · JR</div>
+              <div style={{ color: '#cbd5e1', fontSize: '7px' }}>Camera install · JR</div>
             </div>
             <div style={{ background: `${TECH_COLORS.Shana}15`, borderLeft: `3px solid ${TECH_COLORS.Shana}`, borderRadius: '5px', padding: '5px 7px', marginBottom: '6px' }}>
               <div style={{ color: '#e2e8f0', fontSize: '9px', fontWeight: '600' }}>2:00 — Eisenhower LLC</div>
-              <div style={{ color: '#64748b', fontSize: '7px' }}>Access control · Shana</div>
+              <div style={{ color: '#cbd5e1', fontSize: '7px' }}>Access control · Shana</div>
             </div>
             <div style={{ background: '#1e293b', borderRadius: '6px', padding: '5px 7px', border: '1px dashed #f59e0b30' }}>
               <span style={{ color: '#f59e0b', fontSize: '8px' }}>⚠️ No match?</span>
-              <span style={{ color: '#64748b', fontSize: '8px' }}> → Create Job or Open Calendar</span>
+              <span style={{ color: '#cbd5e1', fontSize: '8px' }}> → Create Job or Open Calendar</span>
             </div>
           </div>
           <Nav active="calendar" />
         </Phone>
-        <div style={{ textAlign: 'center', color: '#64748b', fontSize: '11px', marginTop: '8px' }}>Events link directly to job forms</div>
+        <div style={{ textAlign: 'center', color: '#cbd5e1', fontSize: '11px', marginTop: '8px' }}>Events link directly to job forms</div>
       </div>
     )
   },
@@ -196,7 +196,7 @@ const PAGES = [
         <Phone>
           <div style={{ padding: '5px 8px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: '#94a3b8', fontSize: '9px' }}>← Back</span>
-            <span style={{ color: '#475569', fontSize: '8px' }}>DRH-0847</span>
+            <span style={{ color: '#94a3b8', fontSize: '8px' }}>DRH-0847</span>
           </div>
           <div style={{ padding: '8px' }}>
             <div style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: '700', marginBottom: '2px' }}>Johnson Residence</div>
@@ -215,13 +215,13 @@ const PAGES = [
               ].map(([label, color, dest], i) => (
                 <div key={i} style={{ background: `${color}10`, border: `1px solid ${color}40`, borderRadius: '5px', padding: '5px 7px', marginBottom: '3px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color, fontSize: '9px', fontWeight: '700' }}>{label}</span>
-                  <span style={{ color: '#475569', fontSize: '7px' }}>{dest}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '7px' }}>{dest}</span>
                 </div>
               ))}
             </div>
           </div>
         </Phone>
-        <div style={{ textAlign: 'center', color: '#64748b', fontSize: '11px', marginTop: '8px' }}>
+        <div style={{ textAlign: 'center', color: '#cbd5e1', fontSize: '11px', marginTop: '8px' }}>
           Opens time entry → one submit does everything
         </div>
       </div>
@@ -237,7 +237,7 @@ const PAGES = [
           <div style={{ background: 'rgba(0,0,0,0.85)', padding: '14px 8px' }}>
             <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', borderTop: '3px solid #22c55e' }}>
               <div style={{ color: '#e2e8f0', fontSize: '11px', fontWeight: '700' }}>✅ All Fixed</div>
-              <div style={{ color: '#64748b', fontSize: '9px', marginBottom: '10px' }}>Johnson Residence</div>
+              <div style={{ color: '#cbd5e1', fontSize: '9px', marginBottom: '10px' }}>Johnson Residence</div>
               <div style={{ position: 'relative' }}>
                 <div style={{ marginBottom: '8px' }}>
                   <div style={{ color: '#94a3b8', fontSize: '8px', marginBottom: '2px' }}>🕐 Arrived</div>
@@ -261,7 +261,7 @@ const PAGES = [
             </div>
           </div>
         </Phone>
-        <div style={{ textAlign: 'center', color: '#64748b', fontSize: '11px', marginTop: '8px' }}>
+        <div style={{ textAlign: 'center', color: '#cbd5e1', fontSize: '11px', marginTop: '8px' }}>
           Time + notes + status change — one tap
         </div>
       </div>
@@ -282,13 +282,13 @@ const PAGES = [
           null,
           ['🔧', 'COMPLETE', '#10b981', 'tech picks outcome ↓'],
         ].map((item, i) => {
-          if (!item) return <div key={i} style={{ textAlign: 'center', color: '#334155', fontSize: '12px', lineHeight: '1.2' }}>↓</div>;
+          if (!item) return <div key={i} style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12px', lineHeight: '1.2' }}>↓</div>;
           const [icon, label, color, note] = item;
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: `${color}08`, border: `1px solid ${color}25`, borderRadius: '6px', padding: '5px 8px', marginBottom: '1px' }}>
               <span style={{ fontSize: '13px' }}>{icon}</span>
               <span style={{ color, fontSize: '11px', fontWeight: '700', flex: 1 }}>{label}</span>
-              <span style={{ color: '#475569', fontSize: '9px' }}>{note}</span>
+              <span style={{ color: '#94a3b8', fontSize: '9px' }}>{note}</span>
             </div>
           );
         })}
@@ -302,15 +302,15 @@ const PAGES = [
             <div key={i} style={{ background: `${color}08`, border: `1px solid ${color}25`, borderRadius: '5px', padding: '4px 6px', textAlign: 'center' }}>
               <span style={{ fontSize: '12px' }}>{icon}</span>
               <div style={{ color, fontSize: '8px', fontWeight: '700' }}>{label}</div>
-              <div style={{ color: '#475569', fontSize: '7px' }}>→ {dest}</div>
+              <div style={{ color: '#94a3b8', fontSize: '7px' }}>→ {dest}</div>
             </div>
           ))}
         </div>
-        <div style={{ textAlign: 'center', color: '#334155', fontSize: '12px', marginTop: '2px' }}>↓</div>
+        <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>↓</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#6b728008', border: '1px solid #6b728025', borderRadius: '6px', padding: '5px 8px' }}>
           <span style={{ fontSize: '13px' }}>📁</span>
           <span style={{ color: '#6b7280', fontSize: '11px', fontWeight: '700', flex: 1 }}>ARCHIVED</span>
-          <span style={{ color: '#475569', fontSize: '9px' }}>🔒 operator only</span>
+          <span style={{ color: '#94a3b8', fontSize: '9px' }}>🔒 operator only</span>
         </div>
       </div>
     )
@@ -377,19 +377,19 @@ const PAGES = [
                 <span style={{ fontSize: '14px' }}>{r.icon}</span>
                 <span style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: '700' }}>{r.role}</span>
               </div>
-              <span style={{ color: '#64748b', fontSize: '9px' }}>{r.who}</span>
+              <span style={{ color: '#cbd5e1', fontSize: '9px' }}>{r.who}</span>
             </div>
             <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
               {r.tags.map((t, j) => (
                 <span key={j} style={{ background: `${r.color}12`, color: r.color, padding: '1px 5px', borderRadius: '3px', fontSize: '8px', fontWeight: '600' }}>{t}</span>
               ))}
-              {r.pin && <span style={{ color: '#475569', fontSize: '8px', marginLeft: '2px' }}>🔑 {r.pin}</span>}
+              {r.pin && <span style={{ color: '#94a3b8', fontSize: '8px', marginLeft: '2px' }}>🔑 {r.pin}</span>}
             </div>
           </div>
         ))}
         <div style={{ background: '#1e293b', borderRadius: '8px', padding: '10px', textAlign: 'center', marginTop: '8px' }}>
           <div style={{ color: '#94a3b8', fontSize: '11px' }}>Tap <span style={{ color: '#00c8e8', fontWeight: '700' }}>?</span> anytime to reopen this</div>
-          <div style={{ color: '#64748b', fontSize: '10px', marginTop: '3px' }}>💬 HelpBot has wellness resources too</div>
+          <div style={{ color: '#cbd5e1', fontSize: '10px', marginTop: '3px' }}>💬 HelpBot has wellness resources too</div>
         </div>
       </div>
     )
@@ -411,10 +411,10 @@ export default function QuickGuide({ onClose }) {
         width: '100%', maxWidth: '340px', position: 'relative', border: '1px solid #1e293b'
       }}>
         {/* Close */}
-        <button onClick={onClose} style={{ position: 'absolute', top: '10px', right: '12px', background: 'none', border: 'none', color: '#475569', fontSize: '16px', cursor: 'pointer', zIndex: 10 }}>✕</button>
+        <button onClick={onClose} style={{ position: 'absolute', top: '10px', right: '12px', background: 'none', border: 'none', color: '#94a3b8', fontSize: '16px', cursor: 'pointer', zIndex: 10 }}>✕</button>
 
         {/* Title */}
-        <div style={{ color: '#334155', fontSize: '9px', letterSpacing: '0.5px' }}>{page + 1} / {PAGES.length}</div>
+        <div style={{ color: '#94a3b8', fontSize: '9px', letterSpacing: '0.5px' }}>{page + 1} / {PAGES.length}</div>
         <h2 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: '800', margin: '2px 0 12px 0' }}>{current.title}</h2>
 
         {/* Content */}

@@ -25,7 +25,7 @@ const TECH_CALS = [
 ];
 
 const TASK_TYPES = [
-  { key: 'internal',  label: '📝 Internal To-Do',           color: '#64748b' },
+  { key: 'internal',  label: '📝 Internal To-Do',           color: '#cbd5e1' },
   { key: 'parts',     label: '📦 Warehouse / Parts Needed',  color: '#f59e0b' },
   { key: 'followup',  label: '📞 Follow Up — Sales/Service', color: '#3b82f6' },
   { key: 'mgmt',      label: '⚠️ Management Needed',         color: '#ef4444' },
@@ -210,13 +210,13 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <div style={{ flex: 1, paddingRight: 12 }}>
             <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 700, lineHeight: 1.2 }}>{event.summary}</div>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>
               {event.start?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
               {!event.isAllDay && event.start && ` · ${event.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
             </div>
-            {event.location && <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>📍 {event.location}</div>}
+            {event.location && <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>📍 {event.location}</div>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer' }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 22, cursor: 'pointer' }}>×</button>
         </div>
 
         <div style={{ height: 1, background: '#334155', margin: '12px 0' }} />
@@ -226,11 +226,11 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <button onClick={() => setMode('schedule')} style={{ background: '#0f2820', border: '2px solid #16a34a', borderRadius: 12, padding: '16px', textAlign: 'left', cursor: 'pointer' }}>
               <div style={{ color: '#22c55e', fontSize: 15, fontWeight: 700 }}>📅 Schedule This Job</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>Assign to a tech, pick a time, send to their calendar</div>
+              <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>Assign to a tech, pick a time, send to their calendar</div>
             </button>
             <button onClick={() => setMode('task')} style={{ background: '#0f1729', border: '2px solid #334155', borderRadius: 12, padding: '16px', textAlign: 'left', cursor: 'pointer' }}>
               <div style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700 }}>➕ Add to Task List</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>Log this as an internal to-do, parts request, follow-up, or escalation</div>
+              <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>Log this as an internal to-do, parts request, follow-up, or escalation</div>
             </button>
           </div>
         )}
@@ -238,7 +238,7 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
         {/* ── TASK MODE ── */}
         {mode === 'task' && !taskSaved && (
           <div>
-            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>What kind of task?</div>
+            <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>What kind of task?</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               {TASK_TYPES.map(t => (
                 <button key={t.key} onClick={() => setTaskType(t.key)} style={{
@@ -267,7 +267,7 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
           <div style={{ textAlign: 'center', padding: '24px 0' }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
             <div style={{ color: '#22c55e', fontSize: 16, fontWeight: 700 }}>Task saved</div>
-            <div style={{ color: '#64748b', fontSize: 13, marginTop: 6 }}>You can view all tasks in the Office tab.</div>
+            <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 6 }}>You can view all tasks in the Office tab.</div>
             <button onClick={onClose} style={{ marginTop: 20, background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#94a3b8', padding: '10px 24px', fontSize: 13, cursor: 'pointer' }}>Close</button>
           </div>
         )}
@@ -276,7 +276,7 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
         {mode === 'schedule' && !schedDone && (
           <div>
             {/* Tech picker */}
-            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Assign to</div>
+            <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Assign to</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
               {TECH_CALS.map(t => (
                 <button key={t.name} onClick={() => setSelectedTech(t)} style={{
@@ -300,9 +300,9 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
               <div style={{ marginBottom: 14, background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <span style={{ color: '#00c8e8', fontSize: 13, fontWeight: 700 }}>💡 Suggested Times</span>
-                  <span style={{ color: '#475569', fontSize: 11 }}>— {selectedTech.name} · {new Date(schedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                  <span style={{ color: '#94a3b8', fontSize: 11 }}>— {selectedTech.name} · {new Date(schedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                 </div>
-                {availLoading && <div style={{ color: '#475569', fontSize: 12 }}>Checking calendar...</div>}
+                {availLoading && <div style={{ color: '#94a3b8', fontSize: 12 }}>Checking calendar...</div>}
                 {!availLoading && suggestions.length === 0 && <div style={{ color: '#ef4444', fontSize: 12 }}>No open windows found this day.</div>}
                 {!availLoading && suggestions.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -335,7 +335,7 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
               <textarea value={schedNotes} onChange={e => setSchedNotes(e.target.value)} rows={3}
                 placeholder="Any instructions, entry codes, context..."
                 style={{ ...inputStyle, resize: 'none' }} />
-              <div style={{ color: '#475569', fontSize: 11, marginTop: 4 }}>Source event notes will be attached as a link — not copied inline.</div>
+              <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Source event notes will be attached as a link — not copied inline.</div>
             </div>
 
             {error && <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 12 }}>{error}</div>}
@@ -356,8 +356,8 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
           <div style={{ textAlign: 'center', padding: '24px 0' }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>📅</div>
             <div style={{ color: '#22c55e', fontSize: 16, fontWeight: 700 }}>Scheduled</div>
-            <div style={{ color: '#64748b', fontSize: 13, marginTop: 6 }}>Event added to {selectedTech?.name}'s calendar.</div>
-            <div style={{ color: '#475569', fontSize: 12, marginTop: 6 }}>Source event moved to Completed with timestamp + link.</div>
+            <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 6 }}>Event added to {selectedTech?.name}'s calendar.</div>
+            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 6 }}>Source event moved to Completed with timestamp + link.</div>
             <button onClick={onClose} style={{ marginTop: 20, background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#94a3b8', padding: '10px 24px', fontSize: 13, cursor: 'pointer' }}>Close</button>
           </div>
         )}
@@ -378,13 +378,13 @@ function EventCard({ event, onAction }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{event.summary}</div>
-          <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 4 }}>
             {event.start?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
             {!event.isAllDay && event.start && ` · ${event.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
           </div>
-          {event.location && <div style={{ color: '#475569', fontSize: 11, marginTop: 3 }}>📍 {event.location}</div>}
+          {event.location && <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>📍 {event.location}</div>}
           {event.description && (
-            <div style={{ color: '#475569', fontSize: 11, marginTop: 4, lineHeight: 1.4, maxHeight: 40, overflow: 'hidden' }}>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, lineHeight: 1.4, maxHeight: 40, overflow: 'hidden' }}>
               {event.description.replace(/📱 Open in JUC-E:.*/g, '').trim().slice(0, 120)}
             </div>
           )}
@@ -547,7 +547,7 @@ export default function CommandCenter({ accessToken, userEmail }) {
               ← Back to Command Center
             </button>
             <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>📊 Install Capacity</div>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Next 14 business days — avoid overbooking</div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 2 }}>Next 14 business days — avoid overbooking</div>
           </div>
           <button onClick={fetchCapacity} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
             ↺ Refresh
@@ -566,7 +566,7 @@ export default function CommandCenter({ accessToken, userEmail }) {
         {/* Capacity grid */}
         <div style={{ padding: '0 16px 100px' }}>
           {capacityData.loading ? (
-            <div style={{ color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 40 }}>Loading capacity...</div>
+            <div style={{ color: '#cbd5e1', fontSize: 14, textAlign: 'center', marginTop: 40 }}>Loading capacity...</div>
           ) : (
             capacityData.days.map((day, i) => {
               const totalHours = day.techs.reduce((sum, t) => sum + t.hours, 0);
@@ -604,7 +604,7 @@ export default function CommandCenter({ accessToken, userEmail }) {
                         }}>
                           {tech.hours.toFixed(1)}h
                         </div>
-                        <div style={{ color: '#64748b', fontSize: 10, marginTop: 2 }}>
+                        <div style={{ color: '#cbd5e1', fontSize: 10, marginTop: 2 }}>
                           {tech.eventCount} event{tech.eventCount !== 1 ? 's' : ''}
                           {tech.hasInstall && <span style={{ color: '#f59e0b' }}> • 📦 Install</span>}
                         </div>
@@ -636,7 +636,7 @@ export default function CommandCenter({ accessToken, userEmail }) {
       <div style={{ padding: '16px 16px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>Command Center</div>
-          <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Schedule, task, and dispatch from here</div>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 2 }}>Schedule, task, and dispatch from here</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setCapacityView(true)} style={{ 
@@ -676,9 +676,9 @@ export default function CommandCenter({ accessToken, userEmail }) {
 
       {/* Event list */}
       <div style={{ padding: '0 16px 100px' }}>
-        {loading && <div style={{ color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 40 }}>Loading...</div>}
+        {loading && <div style={{ color: '#cbd5e1', fontSize: 14, textAlign: 'center', marginTop: 40 }}>Loading...</div>}
         {!loading && filtered.length === 0 && (
-          <div style={{ color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 40 }}>No events in this section.</div>
+          <div style={{ color: '#cbd5e1', fontSize: 14, textAlign: 'center', marginTop: 40 }}>No events in this section.</div>
         )}
         {!loading && filtered.map(e => (
           <EventCard key={`${e.calendarId}-${e.id}`} event={e} onAction={setActiveEvent} />

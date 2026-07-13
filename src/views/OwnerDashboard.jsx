@@ -107,13 +107,13 @@ function GapReportWidget({ onDrilldown }) {
           <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             💰 Revenue Gap
           </div>
-          <span style={{ color: '#475569', fontSize: '12px' }}>{expanded ? '▼' : '▶'}</span>
+          <span style={{ color: '#94a3b8', fontSize: '12px' }}>{expanded ? '▼' : '▶'}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <div style={{ color: gapData.total > 50000 ? '#dc2626' : '#f59e0b', fontSize: '28px', fontWeight: '800' }}>
             ${gapData.total.toLocaleString()}
           </div>
-          <div style={{ color: '#64748b', fontSize: '12px' }}>
+          <div style={{ color: '#cbd5e1', fontSize: '12px' }}>
             {gapData.count} job{gapData.count !== 1 ? 's' : ''} with remaining balance
           </div>
         </div>
@@ -138,7 +138,7 @@ function GapReportWidget({ onDrilldown }) {
                 <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '500' }}>
                   {job.customer_name}
                 </div>
-                <div style={{ color: '#64748b', fontSize: '11px' }}>
+                <div style={{ color: '#cbd5e1', fontSize: '11px' }}>
                   {job.job_number} • {job.issue?.slice(0, 40)}...
                 </div>
               </div>
@@ -146,7 +146,7 @@ function GapReportWidget({ onDrilldown }) {
                 <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: '700' }}>
                   ${parseFloat(job.remaining_amount).toLocaleString()}
                 </div>
-                <div style={{ color: '#475569', fontSize: '10px' }}>
+                <div style={{ color: '#94a3b8', fontSize: '10px' }}>
                   of ${parseFloat(job.estimate_amount || 0).toLocaleString()}
                 </div>
               </div>
@@ -236,7 +236,7 @@ function SchedulingPipeline({ stats, onJobClick, onBack }) {
       <div style={{ color: '#e2e8f0', fontSize: '20px', fontWeight: '800', marginBottom: '4px' }}>
         📊 Scheduling Pipeline
       </div>
-      <div style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px' }}>
+      <div style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '16px' }}>
         {stats.pipelineValue > 0 && (
           <span style={{ color: '#22c55e', fontWeight: '700' }}>
             ${stats.pipelineValue.toLocaleString()} potential
@@ -292,7 +292,7 @@ function SchedulingPipeline({ stats, onJobClick, onBack }) {
       </div>
 
       {/* Tab description */}
-      <div style={{ color: '#64748b', fontSize: '12px', marginBottom: '12px' }}>
+      <div style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '12px' }}>
         {activeTabData?.description}
       </div>
 
@@ -325,7 +325,7 @@ function SchedulingPipeline({ stats, onJobClick, onBack }) {
                     )}
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       {job.job_number && (
-                        <span style={{ color: '#475569', fontSize: '11px', fontFamily: 'monospace' }}>
+                        <span style={{ color: '#94a3b8', fontSize: '11px', fontFamily: 'monospace' }}>
                           {job.job_number}
                         </span>
                       )}
@@ -334,21 +334,21 @@ function SchedulingPipeline({ stats, onJobClick, onBack }) {
                           ${parseFloat(job.estimate_amount).toLocaleString()}
                         </span>
                       )}
-                      <span style={{ color: '#475569', fontSize: '11px' }}>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>
                         Created {formatDate(job.created_at)}
                       </span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', marginLeft: '12px' }}>
                     <AgeBadge days={age} />
-                    <span style={{ color: '#475569', fontSize: '11px' }}>→</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>→</span>
                   </div>
                 </div>
               </div>
             );
           })
         ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+          <div style={{ textAlign: 'center', padding: '40px', color: '#cbd5e1' }}>
             <div style={{ fontSize: '32px', marginBottom: '8px' }}>✓</div>
             <div>Nothing in this stage</div>
           </div>
@@ -410,7 +410,7 @@ function TodaySchedule({ stats }) {
       </div>
       {Object.entries(byTech).map(([techName, jobs]) => (
         <div key={techName} style={{ marginBottom: '8px' }}>
-          <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+          <div style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
             {techName} ({jobs.length})
           </div>
           {jobs.map(j => (
@@ -419,7 +419,7 @@ function TodaySchedule({ stats }) {
               padding: '4px 0', borderBottom: '1px solid #0f1729'
             }}>
               <span style={{ color: '#e2e8f0', fontSize: '13px' }}>{j.customer_name}</span>
-              <span style={{ color: '#64748b', fontSize: '12px' }}>
+              <span style={{ color: '#cbd5e1', fontSize: '12px' }}>
                 {j.scheduled_for ? new Date(j.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
               </span>
             </div>
@@ -636,7 +636,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
   if (loading) {
     return (
       <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', marginBottom: '16px', border: '1px solid #334155' }}>
-        <div style={{ color: '#64748b', fontSize: '13px' }}>Loading from calendars...</div>
+        <div style={{ color: '#cbd5e1', fontSize: '13px' }}>Loading from calendars...</div>
       </div>
     );
   }
@@ -669,7 +669,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
                     transition: 'width 0.3s',
                   }} />
                 </div>
-                <div style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
+                <div style={{ color: '#cbd5e1', fontSize: '11px', marginTop: '4px' }}>
                   {data.availableHours || 0}h available / {data.totalCapacity || 0}h
                 </div>
               </div>
@@ -685,7 +685,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             <div style={{ color: '#3b82f6', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
               {calendarStats.openTasks}
             </div>
-            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Open Tasks</div>
+            <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>Open Tasks</div>
           </div>
         </a>
         <a href="/board" style={{ textDecoration: 'none' }}>
@@ -697,7 +697,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             <div style={{ color: '#22c55e', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
               {calendarStats.readyToSchedule}
             </div>
-            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Ready to Schedule</div>
+            <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>Ready to Schedule</div>
           </div>
         </a>
         <a href="/board" style={{ textDecoration: 'none' }}>
@@ -709,7 +709,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             <div style={{ color: '#ef4444', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
               {calendarStats.blocked}
             </div>
-            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>Blocked</div>
+            <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>Blocked</div>
           </div>
         </a>
         <a href="/billing" style={{ textDecoration: 'none' }}>
@@ -721,7 +721,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             <div style={{ color: '#8b5cf6', fontSize: '36px', fontWeight: '800', lineHeight: 1 }}>
               {calendarStats.toBill}
             </div>
-            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>To Bill</div>
+            <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px' }}>To Bill</div>
           </div>
         </a>
       </div>
@@ -773,7 +773,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
           <div style={{ color: '#22c55e', fontSize: '28px', fontWeight: '800' }}>
             ${calendarStats.pipelineValue.toLocaleString()}
           </div>
-          <div style={{ color: '#64748b', fontSize: '12px' }}>
+          <div style={{ color: '#cbd5e1', fontSize: '12px' }}>
             {calendarStats.estimatesSent} estimates out
           </div>
         </div>
@@ -800,7 +800,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             <div style={{ color: '#22c55e', fontSize: '28px', fontWeight: '800' }}>
               ${calendarStats.projectsValue.toLocaleString()}
             </div>
-            <div style={{ color: '#64748b', fontSize: '12px' }}>
+            <div style={{ color: '#cbd5e1', fontSize: '12px' }}>
               {calendarStats.estimatesWon} active projects
             </div>
           </div>
@@ -850,7 +850,7 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
 
   if (isLoading || !stats) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+      <div style={{ padding: '40px', textAlign: 'center', color: '#cbd5e1' }}>
         <PullIndicator />
         <div style={{ fontSize: '32px', marginBottom: '12px' }}>📊</div>
         Loading dashboard...
@@ -1008,7 +1008,7 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
         <div style={{ color: '#e2e8f0', fontSize: '20px', fontWeight: '800' }}>
           {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         </div>
-        <div style={{ color: '#64748b', fontSize: '13px', marginTop: '2px' }}>
+        <div style={{ color: '#cbd5e1', fontSize: '13px', marginTop: '2px' }}>
           DRH Security — Owner View
         </div>
       </div>
@@ -1040,7 +1040,7 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
                 <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1, fontWeight: alert.urgency === 'critical' ? '600' : '400' }}>
                   {alert.text}
                 </span>
-                <span style={{ color: '#475569', fontSize: '14px' }}>→</span>
+                <span style={{ color: '#94a3b8', fontSize: '14px' }}>→</span>
               </div>
             ))}
           </div>

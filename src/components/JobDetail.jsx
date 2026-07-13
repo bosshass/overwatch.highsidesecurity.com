@@ -397,7 +397,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   if (isLoading) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: '#0f1729', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#64748b' }}>Loading...</div>
+        <div style={{ color: '#cbd5e1' }}>Loading...</div>
       </div>
     );
   }
@@ -435,7 +435,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     <>
       {!showStatusPicker ? (
         <button onClick={() => setShowStatusPicker(true)}
-          style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', color: '#64748b', padding: '10px 16px', fontSize: '13px', cursor: 'pointer', width: '100%', textAlign: 'center' }}>
+          style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', color: '#cbd5e1', padding: '10px 16px', fontSize: '13px', cursor: 'pointer', width: '100%', textAlign: 'center' }}>
           Change status manually...
         </button>
       ) : (
@@ -469,7 +469,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         <div style={{ background: '#1e293b', borderRadius: '16px', width: '100%', maxWidth: '400px', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div style={{ color: '#f59e0b', fontWeight: '700', fontSize: '16px' }}>📦 What parts are needed?</div>
-            <button onClick={() => setShowPartsForm(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            <button onClick={() => setShowPartsForm(false)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '24px', cursor: 'pointer' }}>×</button>
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '6px' }}>Parts Needed *</label>
@@ -511,9 +511,9 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           <div style={{ padding: '16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ color: '#e2e8f0', fontWeight: '700', fontSize: '16px' }}>🔗 Merge Duplicate</div>
-              <div style={{ color: '#64748b', fontSize: '12px' }}>Select job to merge this into</div>
+              <div style={{ color: '#cbd5e1', fontSize: '12px' }}>Select job to merge this into</div>
             </div>
-            <button onClick={() => setShowDuplicateModal(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            <button onClick={() => setShowDuplicateModal(false)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '24px', cursor: 'pointer' }}>×</button>
           </div>
           <div style={{ padding: '12px 16px', background: '#0f172a', borderBottom: '1px solid #334155' }}>
             <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>THIS JOB (will be archived):</div>
@@ -522,7 +522,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
             {potentialDuplicates.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>No potential duplicates found.</div>
+              <div style={{ textAlign: 'center', color: '#cbd5e1', padding: '20px' }}>No potential duplicates found.</div>
             ) : (
               <>
                 <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>Found {potentialDuplicates.length} job(s):</div>
@@ -538,7 +538,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                         {STATUS_INFO[dupe.status]?.label || dupe.status}
                       </span>
                     </div>
-                    <div style={{ color: '#64748b', fontSize: '11px', marginTop: '6px' }}>#{dupe.job_number || dupe.id.slice(0,8)} · {new Date(dupe.created_at).toLocaleDateString()}</div>
+                    <div style={{ color: '#cbd5e1', fontSize: '11px', marginTop: '6px' }}>#{dupe.job_number || dupe.id.slice(0,8)} · {new Date(dupe.created_at).toLocaleDateString()}</div>
                   </div>
                 ))}
               </>
@@ -621,7 +621,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: '#0f1729', borderRadius: '20px', padding: '24px', width: '100%', maxWidth: '380px', border: '1px solid #8b5cf640' }}>
             <h3 style={{ color: '#8b5cf6', fontSize: '18px', fontWeight: '700', margin: '0 0 4px 0' }}>💰 Mark as Billed</h3>
-            <div style={{ color: '#64748b', fontSize: '13px', marginBottom: '20px' }}>
+            <div style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '20px' }}>
               {job?.customer_name} — {job?.job_number}
             </div>
 
@@ -699,7 +699,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         <div style={{ padding: '20px 20px 0', textAlign: 'center' }}>
           {/* Back — subtle */}
           <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '8px' }}>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '14px', cursor: 'pointer', padding: '4px 0' }}>← Back</button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', cursor: 'pointer', padding: '4px 0' }}>← Back</button>
           </div>
 
           {/* Customer — BIG */}
@@ -758,13 +758,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
               {job.gate_code && (
                 <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '14px 18px' }}>
-                  <div style={{ color: '#64748b', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Gate Code</div>
+                  <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Gate Code</div>
                   <div style={{ color: '#f59e0b', fontSize: '20px', fontWeight: '700', marginTop: '4px' }}>{job.gate_code}</div>
                 </div>
               )}
               {job.panel_password && (
                 <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '14px 18px' }}>
-                  <div style={{ color: '#64748b', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Panel</div>
+                  <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Panel</div>
                   <div style={{ color: '#f59e0b', fontSize: '20px', fontWeight: '700', marginTop: '4px' }}>{job.panel_password}</div>
                 </div>
               )}
@@ -774,7 +774,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           {/* Issue */}
           {job.issue && (
             <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', marginBottom: '20px' }}>
-              <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>Issue</div>
+              <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>Issue</div>
               <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.5 }}>{job.issue}</div>
             </div>
           )}
@@ -829,7 +829,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           {isOperator && (
             <>
               <button onClick={() => setShowAdminSection(!showAdminSection)}
-                style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', color: '#475569', padding: '10px', fontSize: '12px', cursor: 'pointer', width: '100%', textAlign: 'center', marginTop: '16px' }}>
+                style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', color: '#94a3b8', padding: '10px', fontSize: '12px', cursor: 'pointer', width: '100%', textAlign: 'center', marginTop: '16px' }}>
                 {showAdminSection ? 'Hide admin controls ▲' : 'Admin controls ▼'}
               </button>
               {showAdminSection && (
@@ -950,13 +950,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
             {job.gate_code && (
               <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '12px 16px' }}>
-                <div style={{ color: '#64748b', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Gate Code</div>
+                <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Gate Code</div>
                 <div style={{ color: '#f59e0b', fontSize: '18px', fontWeight: '700', marginTop: '4px' }}>{job.gate_code}</div>
               </div>
             )}
             {job.panel_password && (
               <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '12px 16px' }}>
-                <div style={{ color: '#64748b', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Panel Password</div>
+                <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Panel Password</div>
                 <div style={{ color: '#f59e0b', fontSize: '18px', fontWeight: '700', marginTop: '4px' }}>{job.panel_password}</div>
               </div>
             )}
@@ -966,7 +966,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         {/* Issue */}
         {job.issue && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '16px' }}>
-            <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Issue</div>
+            <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Issue</div>
             <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}>{job.issue}</div>
           </div>
         )}
@@ -1004,13 +1004,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                       {checked ? '✓' : ''}
                     </div>
                     <span style={{ color: checked ? '#94a3b8' : '#e2e8f0', fontSize: '13px', textDecoration: checked ? 'line-through' : 'none', opacity: checked ? 0.7 : 1 }}>
-                      {item.label}{isAuto && <span style={{ color: '#475569', fontSize: '10px', marginLeft: '6px' }}>auto</span>}
+                      {item.label}{isAuto && <span style={{ color: '#94a3b8', fontSize: '10px', marginLeft: '6px' }}>auto</span>}
                     </span>
                   </div>
                 );
               })}
               {JOB_TYPE_INFO[job.job_type]?.minutes && (
-                <div style={{ color: '#64748b', fontSize: '11px', marginTop: '8px', textAlign: 'right' }}>⏱ Expected: {JOB_TYPE_INFO[job.job_type].minutes} min</div>
+                <div style={{ color: '#cbd5e1', fontSize: '11px', marginTop: '8px', textAlign: 'right' }}>⏱ Expected: {JOB_TYPE_INFO[job.job_type].minutes} min</div>
               )}
             </div>
           );
@@ -1019,7 +1019,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         {/* Estimate */}
         {job.estimate_amount && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px' }}>
-            <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Estimate</div>
+            <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Estimate</div>
             <div style={{ color: '#22c55e', fontSize: '22px', fontWeight: '700' }}>${parseFloat(job.estimate_amount).toLocaleString()}</div>
           </div>
         )}
@@ -1035,7 +1035,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         {/* Time log */}
         {assignments.length > 0 && assignments.some(a => a.time_in || a.time_out || a.actual_hours || a.is_complete) && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px' }}>
-            <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Time Log</div>
+            <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Time Log</div>
             {assignments.filter(a => a.time_in || a.time_out || a.actual_hours || a.is_complete).map(a => (
               <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #0f1729' }}>
                 <div>
@@ -1055,7 +1055,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         {/* Time log fallback — job-row time when no assignment carries it (NakedPM) */}
         {!assignments.some(a => a.time_in || a.time_out || a.actual_hours) && (job.time_in || job.time_out || job.actual_hours) && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px' }}>
-            <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Time Log</div>
+            <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Time Log</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
               <div>
                 <span style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{job.tech_assigned || 'Logged'}</span>
@@ -1072,7 +1072,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         {/* Quick actions */}
         {quickActions.length > 0 && (
           <div style={{ marginBottom: '16px' }}>
-            <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Actions</div>
+            <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '8px' }}>Actions</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {quickActions.map((action, i) => (
                 <button key={i}
@@ -1115,12 +1115,12 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
 
         {/* Timestamps */}
         <div style={{ marginTop: '20px', padding: '12px', background: '#1a2332', borderRadius: '8px' }}>
-          <div style={{ color: '#475569', fontSize: '11px' }}>Created: {formatDateTime(job.created_at)}</div>
-          {job.scheduled_at && <div style={{ color: '#475569', fontSize: '11px' }}>Scheduled: {formatDateTime(job.scheduled_at)}</div>}
-          {job.completed_at && <div style={{ color: '#475569', fontSize: '11px' }}>Completed: {formatDateTime(job.completed_at)}</div>}
-          {job.billed_at && <div style={{ color: '#475569', fontSize: '11px' }}>Billed: {formatDateTime(job.billed_at)}</div>}
+          <div style={{ color: '#94a3b8', fontSize: '11px' }}>Created: {formatDateTime(job.created_at)}</div>
+          {job.scheduled_at && <div style={{ color: '#94a3b8', fontSize: '11px' }}>Scheduled: {formatDateTime(job.scheduled_at)}</div>}
+          {job.completed_at && <div style={{ color: '#94a3b8', fontSize: '11px' }}>Completed: {formatDateTime(job.completed_at)}</div>}
+          {job.billed_at && <div style={{ color: '#94a3b8', fontSize: '11px' }}>Billed: {formatDateTime(job.billed_at)}</div>}
           {job.billed_amount > 0 && <div style={{ color: '#22c55e', fontSize: '13px', fontWeight: '700' }}>💰 ${parseFloat(job.billed_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}{job.billing_notes ? ` — ${job.billing_notes}` : ''}</div>}
-          <div style={{ color: '#475569', fontSize: '11px' }}>Updated: {formatDateTime(job.updated_at)} by {job.updated_by?.split('@')[0]}</div>
+          <div style={{ color: '#94a3b8', fontSize: '11px' }}>Updated: {formatDateTime(job.updated_at)} by {job.updated_by?.split('@')[0]}</div>
         </div>
       </div>
 
@@ -1181,7 +1181,7 @@ function InlineTimeGate({
           <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>
             {pendingAction?.label || 'Complete Job'}
           </div>
-          <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
+          <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 4 }}>
             {job?.customer_name} {job?.job_number ? `· ${job.job_number}` : ''}
           </div>
         </div>

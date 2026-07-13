@@ -1025,7 +1025,7 @@ export default function HelpBot({ userEmail, currentView, userName, userRole }) 
           {mode === 'quiz' && ' · Getting to Know You'}
           {mode === 'trivia' && ` · Trivia ${triviaScore.correct}/${triviaScore.total}`}
         </span>
-        <button onClick={() => setIsOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        <button onClick={() => setIsOpen(false)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '18px', cursor: 'pointer' }}>×</button>
       </div>
 
       {/* Messages */}
@@ -1042,7 +1042,7 @@ export default function HelpBot({ userEmail, currentView, userName, userRole }) 
             {msg.content}
           </div>
         ))}
-        {isLoading && <div style={{ alignSelf: 'flex-start', color: '#64748b', fontSize: '13px', padding: '8px' }}>...</div>}
+        {isLoading && <div style={{ alignSelf: 'flex-start', color: '#cbd5e1', fontSize: '13px', padding: '8px' }}>...</div>}
         <div ref={messagesEndRef} />
       </div>
 

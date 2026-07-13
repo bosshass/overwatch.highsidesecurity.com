@@ -120,7 +120,7 @@ export default function PreviewChanges({ accessToken, userEmail, onBack }) {
         <div style={{ fontSize: 20, fontWeight: 800 }}>🔬 Preview changes</div>
         <button onClick={load} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>↻ Rescan</button>
       </div>
-      <div style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+      <div style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
         Everything the preview build touched in June. <b>Revert</b> un-stamps the event, moves anything that went to Completed back where it came from, and deletes the matching preview job. Nothing is lost.
       </div>
 
@@ -132,10 +132,10 @@ export default function PreviewChanges({ accessToken, userEmail, onBack }) {
         </button>
       )}
 
-      {loading && <div style={{ color: '#64748b', fontSize: 14, padding: 20, textAlign: 'center' }}>Scanning for OW-PREVIEW changes…</div>}
+      {loading && <div style={{ color: '#cbd5e1', fontSize: 14, padding: 20, textAlign: 'center' }}>Scanning for OW-PREVIEW changes…</div>}
 
       {!loading && total === 0 && (
-        <div style={{ color: '#475569', fontSize: 14, padding: 30, textAlign: 'center', border: '1px dashed #1e293b', borderRadius: 10 }}>
+        <div style={{ color: '#94a3b8', fontSize: 14, padding: 30, textAlign: 'center', border: '1px dashed #1e293b', borderRadius: 10 }}>
           No preview changes found in June. Clean slate.
         </div>
       )}
@@ -149,7 +149,7 @@ export default function PreviewChanges({ accessToken, userEmail, onBack }) {
               <div key={item.ev.id} style={{ background: '#0c1322', border: '1px solid #1e293b', borderRadius: 10, padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>{cleanTitle(item.ev.summary)}</div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>
                     {item.calName} · {p.ow_preview_action || 'modified'}{p.ow_preview_ts ? ` · ${fmt(p.ow_preview_ts)}` : ''}
                   </div>
                 </div>
@@ -169,7 +169,7 @@ export default function PreviewChanges({ accessToken, userEmail, onBack }) {
             <div key={job.id} style={{ background: '#0c1322', border: '1px solid #1e293b', borderRadius: 10, padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>{job.customer_name || '(no name)'}</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{job.status}{job.created_at ? ` · ${fmt(job.created_at)}` : ''}</div>
+                <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>{job.status}{job.created_at ? ` · ${fmt(job.created_at)}` : ''}</div>
               </div>
               <button onClick={() => revertJob(job)} disabled={busy === job.id} style={{ flexShrink: 0, background: 'none', border: '1px solid #7f1d1d', borderRadius: 7, color: '#fca5a5', padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: busy === job.id ? 0.5 : 1 }}>
                 {busy === job.id ? '…' : 'Delete'}

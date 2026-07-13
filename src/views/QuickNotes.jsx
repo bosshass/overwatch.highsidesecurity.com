@@ -229,7 +229,7 @@ export default function QuickNotes({ accessToken, onBack }) {
               {showDone ? `✓ Hide Done` : `Done (${doneCount})`}
             </button>
           )}
-          <button onClick={load} style={{ background: 'none', border: 'none', color: '#475569', fontSize: 18, cursor: 'pointer' }}>↺</button>
+          <button onClick={load} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>↺</button>
         </div>
       </div>
 
@@ -245,10 +245,10 @@ export default function QuickNotes({ accessToken, onBack }) {
 
       {/* Notes list */}
       <div style={{ padding: '12px 16px 96px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {loading && <div style={{ textAlign: 'center', padding: 48, color: '#475569' }}>Loading…</div>}
+        {loading && <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>Loading…</div>}
 
         {!loading && visible.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 60, color: '#334155', fontSize: 14 }}>
+          <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 14 }}>
             No notes — tap <strong style={{ color: '#00c8e8' }}>+</strong> to create one
           </div>
         )}
@@ -284,14 +284,14 @@ export default function QuickNotes({ accessToken, onBack }) {
                     <div style={{ color: note.isDone ? '#475569' : '#e2e8f0', fontSize: 14, fontWeight: 700, lineHeight: 1.3 }}>
                       {stripDone(note.title)}
                     </div>
-                    <div style={{ color: '#475569', fontSize: 11, marginTop: 3 }}>{formatDate(note.start)}</div>
+                    <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>{formatDate(note.start)}</div>
                     {!isExpanded && note.description && (
-                      <div style={{ color: '#334155', fontSize: 12, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {note.description.split('\n')[0]}
                       </div>
                     )}
                   </div>
-                  <span style={{ color: '#334155', fontSize: 14, flexShrink: 0, marginTop: 2 }}>
+                  <span style={{ color: '#94a3b8', fontSize: 14, flexShrink: 0, marginTop: 2 }}>
                     {isExpanded ? '▲' : '▼'}
                   </span>
                 </div>
@@ -336,7 +336,7 @@ export default function QuickNotes({ accessToken, onBack }) {
                         >{isBusy ? '…' : 'Save Note'}</button>
                         <button
                           onClick={() => { setAddingNote(null); setNoteText(''); }}
-                          style={{ padding: '8px 12px', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#475569', fontSize: 12, cursor: 'pointer' }}
+                          style={{ padding: '8px 12px', background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}
                         >Cancel</button>
                       </div>
                     </div>
@@ -404,7 +404,7 @@ export default function QuickNotes({ accessToken, onBack }) {
               />
 
               <div>
-                <div style={{ color: '#475569', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Calendar</div>
+                <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Calendar</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {SOURCES.map(s => (
                     <button
@@ -423,7 +423,7 @@ export default function QuickNotes({ accessToken, onBack }) {
               </div>
 
               <div>
-                <div style={{ color: '#475569', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Date (optional)</div>
+                <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Date (optional)</div>
                 <input
                   type="date"
                   value={cDate}
@@ -433,7 +433,7 @@ export default function QuickNotes({ accessToken, onBack }) {
               </div>
 
               <div>
-                <div style={{ color: '#475569', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes</div>
+                <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes</div>
                 <textarea
                   value={cNotes}
                   onChange={e => setCNotes(e.target.value)}

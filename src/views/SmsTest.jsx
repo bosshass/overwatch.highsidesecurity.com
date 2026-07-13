@@ -45,7 +45,7 @@ export default function SmsTest({ onBack }) {
         <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, marginBottom: 20 }}>← Home</button>
 
         <h2 style={{ fontSize: 20, marginBottom: 4 }}>📱 SMS Test</h2>
-        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>
+        <p style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 20 }}>
           Send a text to any number to confirm Twilio is wired up. On a trial account, the number must be verified in Twilio first.
         </p>
 

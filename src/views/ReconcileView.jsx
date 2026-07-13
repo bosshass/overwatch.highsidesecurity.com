@@ -225,7 +225,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
           </div>
         )}
       </div>
-      {note && <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>{note}</div>}
+      {note && <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 10 }}>{note}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map(r => {
           const isSel = selected.has(r.id);
@@ -236,7 +236,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
                 <input type="checkbox" checked={isSel} onChange={() => toggle(r.id)} style={{ marginTop: 3, width: 16, height: 16, accentColor: accent, flexShrink: 0 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700 }}>{r.title}</div>
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+                  <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>
                     {r.calName} · {fmtDate(r.start)}{r.location ? ` · ${r.location}` : ''}
                   </div>
                   {r.notes && (
@@ -251,7 +251,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
                       )}
                     </div>
                   )}
-                  {!r.notes && <div style={{ color: '#475569', fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>no notes on this event</div>}
+                  {!r.notes && <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>no notes on this event</div>}
                 </div>
                 <button onClick={() => setPickerRow(r)} title="Set a status — like the board, no hours" style={openBtn}>Set status →</button>
               </div>
@@ -272,7 +272,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
       </div>
 
       <div style={{ padding: '16px 16px 8px' }}>
-        <div style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5 }}>
+        <div style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.5 }}>
           <b style={{ color: '#00c8e8' }}>June 2026 only · preview build.</b> Every change is stamped <b>OW-PREVIEW</b> on the event (search your calendar for it) and preview-made jobs are tagged in <code>created_by</code>. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = finished → moves to Completed. <b style={{ color: '#00c8e8' }}>Set status →</b> = real but untagged → tag it like the board, no hours. Nothing is deleted.
         </div>
       </div>
@@ -280,7 +280,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
       {error && <div style={{ margin: '8px 16px', background: '#2d1416', border: '1px solid #ef4444', borderRadius: 10, padding: 12, color: '#fca5a5', fontSize: 13 }}>{error}</div>}
 
       {loading ? (
-        <div style={{ padding: 48, textAlign: 'center', color: '#475569', fontSize: 14 }}>Scanning this year's calendars… a few seconds.</div>
+        <div style={{ padding: 48, textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>Scanning this year's calendars… a few seconds.</div>
       ) : (
         <div style={{ padding: '8px 16px 120px' }}>
           {done.length === 0 && review.length === 0 ? (
@@ -307,7 +307,7 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
         <div onClick={() => !busy && setPickerRow(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 480, background: '#0f1729', borderTop: '1px solid #1e293b', borderRadius: '16px 16px 0 0', padding: '18px 18px 28px' }}>
             <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 800 }}>{pickerRow.title.replace(/\s*\[.*?\]\s*$/, '')}</div>
-            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 14 }}>{pickerRow.calName} · pick a status — no hours needed</div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 14 }}>{pickerRow.calName} · pick a status — no hours needed</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {TRIAGE.map(t => (
                 <button key={t.status} disabled={busy} onClick={() => applyStatus(t.status)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0c1322', border: `1.5px solid ${t.color}`, borderRadius: 12, padding: '14px 12px', color: '#e2e8f0', fontSize: 14, fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, textAlign: 'left' }}>

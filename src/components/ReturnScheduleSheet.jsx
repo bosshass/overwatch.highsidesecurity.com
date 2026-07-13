@@ -129,7 +129,7 @@ export default function ReturnScheduleSheet({ parentJob, returnCard, accessToken
         <div style={grabber} />
         <div style={{ marginBottom: 4 }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Schedule return</div>
-          <div style={{ fontSize: 13, color: '#475569' }}>{custName}{custAddr ? ` · ${custAddr}` : ''}</div>
+          <div style={{ fontSize: 13, color: '#94a3b8' }}>{custName}{custAddr ? ` · ${custAddr}` : ''}</div>
         </div>
 
         <Label>1 · Tech</Label>
@@ -179,7 +179,7 @@ export default function ReturnScheduleSheet({ parentJob, returnCard, accessToken
 }
 
 function Label({ children }) {
-  return <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4, margin: '12px 0 6px' }}>{children}</div>;
+  return <div style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: 0.4, margin: '12px 0 6px' }}>{children}</div>;
 }
 
 const overlay = {
@@ -212,5 +212,5 @@ const confirmBtn = (ready) => ({
 });
 const cancelBtn = {
   width: '100%', marginTop: 8, padding: '12px', borderRadius: 12,
-  border: 'none', background: 'transparent', color: '#64748b', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+  border: 'none', background: 'transparent', color: '#cbd5e1', fontSize: 14, fontWeight: 600, cursor: 'pointer',
 };

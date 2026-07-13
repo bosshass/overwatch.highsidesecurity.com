@@ -244,7 +244,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
             <div style={{ color: '#fff', fontSize: 17, fontWeight: 700 }}>📅 Schedule</div>
             <div style={{ color: '#94a3b8', fontSize: 13 }}>{job.customer_name}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
         {loading ? (
@@ -253,7 +253,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
           <div style={{ color: '#94a3b8', textAlign: 'center', padding: 30 }}>No techs with a calendar configured.</div>
         ) : (
           <>
-            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>Tap a day to see available time slots.</div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 10 }}>Tap a day to see available time slots.</div>
             {validTechs.map(tech => (
               <div key={tech.id} style={{ marginBottom: 16 }}>
                 <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{tech.name}</div>
@@ -278,11 +278,11 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
                 {selectedDay?.techId === tech.id && (
                   <div style={{ marginTop: 8, background: '#0f172a', borderRadius: 8, padding: 10 }}>
-                    <div style={{ color: '#64748b', fontSize: 11, marginBottom: 6 }}>
+                    <div style={{ color: '#cbd5e1', fontSize: 11, marginBottom: 6 }}>
                       {selectedDay.day} {selectedDay.month} {selectedDay.dayNum} — {labelFor(selectedDay.freeHours, false)}
                     </div>
                     {selectedDay.freeSlots.length === 0 ? (
-                      <div style={{ color: '#64748b', fontSize: 12 }}>No open slots this day.</div>
+                      <div style={{ color: '#cbd5e1', fontSize: 12 }}>No open slots this day.</div>
                     ) : (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                         {selectedDay.freeSlots.map((slot, i) => (
@@ -308,11 +308,11 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
             {selectedSlot && (
               <div style={{ background: '#0f172a', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                <div style={{ color: '#64748b', fontSize: 11, marginBottom: 6 }}>Confirm time</div>
+                <div style={{ color: '#cbd5e1', fontSize: 11, marginBottom: 6 }}>Confirm time</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
                     style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '8px 10px', fontSize: 13 }} />
-                  <span style={{ color: '#64748b' }}>to</span>
+                  <span style={{ color: '#cbd5e1' }}>to</span>
                   <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
                     style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '8px 10px', fontSize: 13 }} />
                 </div>

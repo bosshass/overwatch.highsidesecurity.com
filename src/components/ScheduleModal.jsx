@@ -515,7 +515,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
             </div>
 
             {gcalLoading ? (
-              <div style={{ color: '#64748b', fontSize: '12px', padding: '12px', textAlign: 'center' }}>
+              <div style={{ color: '#cbd5e1', fontSize: '12px', padding: '12px', textAlign: 'center' }}>
                 Checking Google Calendar...
               </div>
             ) : dayIsOpen ? (
@@ -547,7 +547,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
                             {isUnavailable ? '🚫 ' : '📅 '}{event.summary || '(No title)'}
                           </div>
                           {event.location && (
-                            <div style={{ color: '#64748b', fontSize: '11px' }}>{event.location.slice(0, 50)}</div>
+                            <div style={{ color: '#cbd5e1', fontSize: '11px' }}>{event.location.slice(0, 50)}</div>
                           )}
                         </div>
                         <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '600', textAlign: 'right', whiteSpace: 'nowrap', marginLeft: '8px' }}>
@@ -573,7 +573,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
                           <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>
                             🔧 {j.customer_name}
                           </div>
-                          <div style={{ color: '#64748b', fontSize: '11px' }}>
+                          <div style={{ color: '#cbd5e1', fontSize: '11px' }}>
                             {j.issue?.slice(0, 40) || j.customer_address || 'Overwatch job'}
                           </div>
                         </div>
@@ -619,7 +619,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
             }}
           >
             <span>🕐 {selectedTime}</span>
-            <span style={{ color: '#64748b' }}>{showTimePicker ? '▲' : '▼'}</span>
+            <span style={{ color: '#cbd5e1' }}>{showTimePicker ? '▲' : '▼'}</span>
           </button>
 
           {showTimePicker && (
@@ -668,7 +668,7 @@ export default function ScheduleModal({ job, onClose, onScheduled, userEmail, us
               <div style={{ color: isTentative ? '#f59e0b' : '#e2e8f0', fontWeight: '600', fontSize: '13px' }}>
                 📌 Tentative
               </div>
-              <div style={{ color: '#64748b', fontSize: '11px' }}>
+              <div style={{ color: '#cbd5e1', fontSize: '11px' }}>
                 Assign without confirming — needs follow-up
               </div>
             </div>

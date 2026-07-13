@@ -411,7 +411,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
               <span style={{ color: '#00c8e8', fontSize: '10px', fontWeight: '600', flexShrink: 0 }}>{job.job_number}</span>
             )}
           </div>
-          <div style={{ color: '#64748b', fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ color: '#cbd5e1', fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {job.issue || 'No description'}
           </div>
           {job._scheduled_for && (
@@ -508,7 +508,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
       </div>
 
       {isLoading ? (
-        <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Loading...</div>
+        <div style={{ textAlign: 'center', padding: '40px', color: '#cbd5e1' }}>Loading...</div>
       ) : (
         <div style={{ padding: '12px' }}>
           {/* ===== BOARD TAB (Kanban by Tech) ===== */}
@@ -620,7 +620,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                                 </div>
                               );
                             }) : (
-                              <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '12px' }}>Empty</div>
+                              <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '12px' }}>Empty</div>
                             )}
                           </div>
                         </div>
@@ -682,7 +682,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '50px repeat(7, 1fr)', minWidth: '700px' }}>
                       {/* Day headers */}
-                      <div style={{ padding: '6px', color: '#475569', fontSize: '10px' }}></div>
+                      <div style={{ padding: '6px', color: '#94a3b8', fontSize: '10px' }}></div>
                       {weekDays.map((day, i) => (
                         <div key={i} style={{
                           padding: '6px', textAlign: 'center', fontSize: '11px', fontWeight: 600,
@@ -697,7 +697,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                       {CALENDAR_HOURS.map(hour => (
                         <>
                           <div key={`h${hour}`} style={{
-                            padding: '4px 6px', color: '#475569', fontSize: '10px', fontWeight: 600,
+                            padding: '4px 6px', color: '#94a3b8', fontSize: '10px', fontWeight: 600,
                             borderTop: '1px solid #1e293b15', textAlign: 'right', minHeight: '50px',
                             display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end'
                           }}>
@@ -840,7 +840,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                     return filtered.length > 0 ? (
                       filtered.map(j => <RenderJob key={j.id} job={j} showAssign />)
                     ) : (
-                      <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>
+                      <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                         {searchQuery ? 'No matching jobs' : statusFilter ? 'No matching jobs' : 'All jobs assigned'}
                       </div>
                     );
@@ -848,12 +848,12 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                 ) : (
                   (() => {
                     const lane = techLanes.find(l => l.tech.id === activeLane);
-                    if (!lane) return <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>No tech found</div>;
+                    if (!lane) return <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>No tech found</div>;
                     const filtered = filterAndSort(lane.jobs);
                     return filtered.length > 0 ? (
                       filtered.map(j => <RenderJob key={j.id} job={j} showAssign />)
                     ) : (
-                      <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>
+                      <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                         {searchQuery ? 'No matching jobs' : statusFilter ? 'No matching jobs' : `Nothing assigned to ${lane.tech.name}`}
                       </div>
                     );
@@ -893,7 +893,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                               style={{ padding: '8px 0', borderTop: '1px solid #0f3460', cursor: 'pointer' }}
                             >
                               <div style={{ fontWeight: 600, fontSize: '13px', color: '#e2e8f0' }}>{j.customer_name}</div>
-                              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                              <div style={{ fontSize: '12px', color: '#cbd5e1' }}>
                                 {j.issue || 'No details'}
                                 {j._tech_name && <span> · assigned to {j._tech_name}</span>}
                               </div>
@@ -931,7 +931,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   </div>
                 </div>
                 {allJobs.filter(j => j.status === JOB_STATUS.RETURN_PENDING).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '13px' }}>
                     ✓ No returns waiting
                   </div>
                 ) : (
@@ -952,7 +952,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                               </div>
                             )}
                             {job.parent_job_id && (
-                              <div style={{ color: '#64748b', fontSize: '10px', marginTop: '4px' }}>
+                              <div style={{ color: '#cbd5e1', fontSize: '10px', marginTop: '4px' }}>
                                 🔗 Linked to original job
                               </div>
                             )}
@@ -1002,7 +1002,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   </div>
                 </div>
                 {allJobs.filter(j => j.status === JOB_STATUS.NEEDS_PARTS).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '13px' }}>
                     ✓ No jobs waiting on parts
                   </div>
                 ) : (
@@ -1066,7 +1066,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   </div>
                 </div>
                 {allJobs.filter(j => j.status === JOB_STATUS.PENDING_MATERIALS).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '13px' }}>
                     ✓ No installs waiting on materials
                   </div>
                 ) : (
@@ -1121,7 +1121,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   </div>
                 </div>
                 {allJobs.filter(j => j.status === JOB_STATUS.READY_TO_SCHEDULE).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569', fontSize: '13px' }}>
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '13px' }}>
                     No jobs ready to schedule
                   </div>
                 ) : (
@@ -1193,7 +1193,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <div style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: '600' }}>{c.name}</div>
-                        {c.address && <div style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>{c.address}</div>}
+                        {c.address && <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '2px' }}>{c.address}</div>}
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         {jobCounts[c.id] && (
@@ -1203,12 +1203,12 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                         )}
                       </div>
                     </div>
-                    {c.phone && <div style={{ color: '#475569', fontSize: '12px', marginTop: '2px' }}>📞 {c.phone}</div>}
-                    {c.cms_account_id && <div style={{ color: '#475569', fontSize: '11px', marginTop: '2px' }}>CMS: {c.cms_account_id}</div>}
+                    {c.phone && <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>📞 {c.phone}</div>}
+                    {c.cms_account_id && <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px' }}>CMS: {c.cms_account_id}</div>}
                   </div>
                 ))}
                 {customers.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>
+                  <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                     {customerSearch.length >= 2 ? 'No customers found' : 'Loading customers...'}
                   </div>
                 )}
@@ -1293,9 +1293,9 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                       <a href={`tel:${selectedCustomer.phone}`} style={{ color: '#00c8e8', fontSize: '13px', textDecoration: 'none', display: 'block', marginBottom: '4px' }}>📞 {selectedCustomer.phone}</a>
                     )}
                     {selectedCustomer.email && <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '4px' }}>✉️ {selectedCustomer.email}</div>}
-                    {selectedCustomer.gate_code && <div style={{ color: '#64748b', fontSize: '12px' }}>🚪 Gate: {selectedCustomer.gate_code}</div>}
-                    {selectedCustomer.panel_password && <div style={{ color: '#64748b', fontSize: '12px' }}>🔐 Panel: {selectedCustomer.panel_password}</div>}
-                    {selectedCustomer.cms_account_id && <div style={{ color: '#64748b', fontSize: '12px' }}>CMS: {selectedCustomer.cms_account_id}</div>}
+                    {selectedCustomer.gate_code && <div style={{ color: '#cbd5e1', fontSize: '12px' }}>🚪 Gate: {selectedCustomer.gate_code}</div>}
+                    {selectedCustomer.panel_password && <div style={{ color: '#cbd5e1', fontSize: '12px' }}>🔐 Panel: {selectedCustomer.panel_password}</div>}
+                    {selectedCustomer.cms_account_id && <div style={{ color: '#cbd5e1', fontSize: '12px' }}>CMS: {selectedCustomer.cms_account_id}</div>}
                     {selectedCustomer.notes && <div style={{ color: '#94a3b8', fontSize: '13px', marginTop: '8px', padding: '8px', background: '#0f1729', borderRadius: '6px' }}>📝 {selectedCustomer.notes}</div>}
                   </>
                 )}
@@ -1323,7 +1323,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   {customerNotes.map(n => (
                     <div key={n.id} style={{ background: '#0f1729', borderRadius: '8px', padding: '10px 12px' }}>
                       <div style={{ color: '#e2e8f0', fontSize: '13px' }}>{n.notes}</div>
-                      <div style={{ color: '#475569', fontSize: '11px', marginTop: '4px', display: 'flex', gap: '8px' }}>
+                      <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px', display: 'flex', gap: '8px' }}>
                         <span>{n.changed_by?.split('@')[0] || 'Unknown'}</span>
                         <span>·</span>
                         <span>{new Date(n.changed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
@@ -1333,7 +1333,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                     </div>
                   ))}
                   {customerNotes.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '12px', color: '#475569', fontSize: '13px' }}>No notes yet</div>
+                    <div style={{ textAlign: 'center', padding: '12px', color: '#94a3b8', fontSize: '13px' }}>No notes yet</div>
                   )}
                 </div>
               </div>
@@ -1346,7 +1346,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   <JobCard key={j.id} job={j} onClick={() => setSelectedJobId(j.id)} />
                 ))}
                 {customerJobs.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '20px', color: '#475569' }}>No tasks for this customer</div>
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No tasks for this customer</div>
                 )}
               </div>
             </div>
@@ -1359,19 +1359,19 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
                 <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ color: '#8b5cf6', fontSize: '24px', fontWeight: '700' }}>{billingQueues.to_bill.length}</div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>To Bill</div>
+                  <div style={{ color: '#cbd5e1', fontSize: '11px' }}>To Bill</div>
                 </div>
                 <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ color: '#f59e0b', fontSize: '24px', fontWeight: '700' }}>{billingQueues.estimates.length}</div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>Need Estimates</div>
+                  <div style={{ color: '#cbd5e1', fontSize: '11px' }}>Need Estimates</div>
                 </div>
                 <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ color: '#06b6d4', fontSize: '24px', fontWeight: '700' }}>{billingQueues.pending.length}</div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>Estimates Pending</div>
+                  <div style={{ color: '#cbd5e1', fontSize: '11px' }}>Estimates Pending</div>
                 </div>
                 <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
                   <div style={{ color: '#22c55e', fontSize: '24px', fontWeight: '700' }}>{billingQueues.won.length}</div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>Won</div>
+                  <div style={{ color: '#cbd5e1', fontSize: '11px' }}>Won</div>
                 </div>
               </div>
 
@@ -1426,7 +1426,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                   </div>
                 ))}
                 {(billingQueues[billingTab]?.length || 0) === 0 && (
-                  <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>
+                  <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                     Nothing in this queue
                   </div>
                 )}

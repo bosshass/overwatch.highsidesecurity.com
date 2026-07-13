@@ -460,7 +460,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
           {/* Event info */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 700 }}>{orphan.event.summary}</div>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>
               {orphan.calendarName}
               {orphan.event.start?.dateTime && ` · ${new Date(orphan.event.start.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`}
               {orphan.event.start?.dateTime && ` @ ${new Date(orphan.event.start.dateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
@@ -479,7 +479,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               <span style={{ fontSize: 24 }}>🔗</span>
               <div>
                 <div style={{ color: '#3b82f6', fontSize: 14, fontWeight: 700 }}>Sync & Make JUC-E Job</div>
-                <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>Pulls calendar data in, stamps deep link, enables end-of-job workflow</div>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Pulls calendar data in, stamps deep link, enables end-of-job workflow</div>
               </div>
             </button>
 
@@ -492,7 +492,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               <span style={{ fontSize: 24 }}>📥</span>
               <div>
                 <div style={{ color: '#f59e0b', fontSize: 14, fontWeight: 700 }}>Add to Unassigned</div>
-                <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>Holds it for review — not a task yet, not ignored</div>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Holds it for review — not a task yet, not ignored</div>
               </div>
             </button>
 
@@ -505,18 +505,18 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               <span style={{ fontSize: 24 }}>💵</span>
               <div>
                 <div style={{ color: '#a78bfa', fontSize: 14, fontWeight: 700 }}>Needs to be Billed</div>
-                <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>Tags as NEEDS BILLING, removes from orphan list</div>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Tags as NEEDS BILLING, removes from orphan list</div>
               </div>
             </button>
 
             {/* Hide */}
             <button onClick={() => { handleIgnoreOrphan(orphan); onClose(); }} disabled={working} style={{
               background: 'none', border: '1px solid #334155',
-              borderRadius: 10, padding: '12px', cursor: 'pointer', color: '#475569', fontSize: 13
+              borderRadius: 10, padding: '12px', cursor: 'pointer', color: '#94a3b8', fontSize: 13
             }}>🙈 Hide from JUC-E</button>
           </div>
 
-          <button onClick={onClose} style={{ width: '100%', background: 'none', border: 'none', color: '#334155', padding: '12px 0 0', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ width: '100%', background: 'none', border: 'none', color: '#94a3b8', padding: '12px 0 0', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
         </div>
       </div>
     );
@@ -577,7 +577,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
           {weekDates.map((d, i) => (
             <div key={i} onClick={() => setSelectedDay(i)}
               style={{ textAlign: 'center', padding: '8px 0', cursor: 'pointer' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', letterSpacing: '0.5px' }}>{DAY_NAMES[i]}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#cbd5e1', letterSpacing: '0.5px' }}>{DAY_NAMES[i]}</div>
               <div style={{
                 fontSize: 16, fontWeight: 700,
                 color: isToday(d) ? '#fff' : '#94a3b8',
@@ -595,7 +595,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               display: 'grid', gridTemplateColumns: '50px repeat(7, 1fr)', gap: 0,
               height: 50, borderBottom: '1px solid #1e293b10'
             }}>
-              <div style={{ fontSize: 11, color: '#475569', textAlign: 'right', paddingRight: 8, marginTop: -7, fontWeight: 500 }}>
+              <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right', paddingRight: 8, marginTop: -7, fontWeight: 500 }}>
                 {formatHour(h)}
               </div>
               {weekDates.map((_, di) => (
@@ -698,7 +698,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                 background: '#1e293b', borderLeft: `4px solid ${e.color}`, cursor: 'pointer', color: '#e2e8f0'
               }}>
                 <span style={{ fontWeight: 600 }}>{e.summary}</span>
-                <span style={{ color: '#64748b', marginLeft: 8, fontSize: 11 }}>All Day · {e.calendarName}</span>
+                <span style={{ color: '#cbd5e1', marginLeft: 8, fontSize: 11 }}>All Day · {e.calendarName}</span>
               </div>
             ))}
           </div>
@@ -715,7 +715,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                 {/* Time label */}
                 <div style={{
                   width: 80, flexShrink: 0, paddingTop: hasEvents ? 18 : 14,
-                  color: '#475569', fontSize: 14, fontWeight: 500, textAlign: 'right', paddingRight: 16
+                  color: '#94a3b8', fontSize: 14, fontWeight: 500, textAlign: 'right', paddingRight: 16
                 }}>
                   {h === 12 ? '12:00 PM' : h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`}
                 </div>
@@ -773,7 +773,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
         </div>
 
         {timed.length === 0 && !allDay.length && (
-          <div style={{ textAlign: 'center', padding: 40, color: '#475569', fontSize: 14 }}>No events this day</div>
+          <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>No events this day</div>
         )}
       </div>
     );
@@ -872,7 +872,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             {searchQuery && (
               <button onClick={() => { setSearchQuery(''); setSearchResults(null); }} style={{
                 position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', color: '#64748b', fontSize: '18px', cursor: 'pointer'
+                background: 'none', border: 'none', color: '#cbd5e1', fontSize: '18px', cursor: 'pointer'
               }}>✕</button>
             )}
           </div>
@@ -880,9 +880,9 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
           {/* Search results */}
           {searchResults ? (
             <div>
-              {searchLoading && <div style={{ textAlign: 'center', padding: 20, color: '#64748b', fontSize: 13 }}>Searching...</div>}
+              {searchLoading && <div style={{ textAlign: 'center', padding: 20, color: '#cbd5e1', fontSize: 13 }}>Searching...</div>}
               {!searchLoading && searchResults.calendarEvents.length === 0 && searchResults.jobs.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 30, color: '#475569', fontSize: 13 }}>No results for "{searchQuery}"</div>
+                <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>No results for "{searchQuery}"</div>
               )}
               {searchResults.calendarEvents.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
@@ -892,7 +892,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                       background: '#1e293b', borderRadius: 8, padding: '10px 12px', marginBottom: 6, cursor: 'pointer', borderLeft: `3px solid ${e.color}`
                     }}>
                       <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{e.summary}</div>
-                      <div style={{ color: '#64748b', fontSize: 11, marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ color: e.color }}>{e.calendarName}</span>
                         {e.start && <span>{e.start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>}
                         {e.start && !e.isAllDay && <span>{e.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
@@ -925,7 +925,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                       <div style={{ color: '#e2e8f0', fontSize: 24, fontWeight: 700 }}>
                         {weekDates[selectedDay]?.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                       </div>
-                      <div style={{ color: '#64748b', fontSize: 13 }}>
+                      <div style={{ color: '#cbd5e1', fontSize: 13 }}>
                         Week {Math.ceil(((weekDates[selectedDay] - new Date(weekDates[selectedDay].getFullYear(), 0, 1)) / 86400000 + 1) / 7)} of {weekDates[selectedDay]?.getFullYear()}
                       </div>
                     </div>
@@ -964,7 +964,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               )}
 
               {calLoading ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#64748b', fontSize: 13 }}>Loading calendars...</div>
+                <div style={{ textAlign: 'center', padding: 40, color: '#cbd5e1', fontSize: 13 }}>Loading calendars...</div>
               ) : (
                 calViewMode === 'week' ? renderWeekView() : renderDayView()
               )}
@@ -1014,7 +1014,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               <span style={{ color: '#3b82f6', fontSize: 14, fontWeight: 700 }}>New Job / Task</span>
             </button>
             {isLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Loading...</div>
+              <div style={{ textAlign: 'center', padding: '40px', color: '#cbd5e1' }}>Loading...</div>
             ) : (
               <>
                 {!isRestricted && orphans.length > 0 && (
@@ -1023,7 +1023,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                       <div style={{ color: '#f59e0b', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase' }}>⚠️ Unmatched Calendar Events ({orphans.length})</div>
                       <button
                         onClick={handleIgnoreAllOrphans}
-                        style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#64748b', fontSize: 11, padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}
+                        style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#cbd5e1', fontSize: 11, padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}
                       >Dismiss All</button>
                     </div>
                     {orphans.map(o => (
@@ -1031,7 +1031,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                         background: '#f59e0b15', border: '1px solid #f59e0b30', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', cursor: 'pointer'
                       }}>
                         <div style={{ color: '#f59e0b', fontSize: '13px', fontWeight: '600' }}>{o.event.summary}</div>
-                        <div style={{ color: '#64748b', fontSize: '11px' }}>{o.calendarName} · {new Date(o.event.start?.dateTime || o.event.start?.date).toLocaleDateString()}</div>
+                        <div style={{ color: '#cbd5e1', fontSize: '11px' }}>{o.calendarName} · {new Date(o.event.start?.dateTime || o.event.start?.date).toLocaleDateString()}</div>
                       </div>
                     ))}
                   </div>
@@ -1047,7 +1047,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                         </div>
                       </div>
                     ))
-                  ) : <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>No jobs scheduled this week</div>
+                  ) : <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>No jobs scheduled this week</div>
                 ) : (
                   <>
                     {sortedScheduled.length > 0 ? (
@@ -1095,7 +1095,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                         ))}
                       </div>
                     ) : (
-                      <div style={{ textAlign: 'center', padding: '30px', color: '#475569' }}>
+                      <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
                         {taskTab === 'today' ? 'Nothing scheduled today' : 'Nothing scheduled tomorrow'}
                       </div>
                     )}
@@ -1148,7 +1148,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                 <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{eventPreview.summary}</div>
                 <div style={{ color: eventPreview.color, fontSize: 12, marginTop: 2 }}>{eventPreview.calendarName}</div>
               </div>
-              <button onClick={() => setEventPreview(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>×</button>
+              <button onClick={() => setEventPreview(null)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 20, cursor: 'pointer' }}>×</button>
             </div>
             {eventPreview.start && (
               <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
@@ -1159,13 +1159,13 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             )}
             {eventPreview.location && <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>📍 {eventPreview.location}</div>}
             {eventPreview.description && (
-              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 12, maxHeight: 80, overflow: 'auto', lineHeight: 1.4 }}>
+              <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 12, maxHeight: 80, overflow: 'auto', lineHeight: 1.4 }}>
                 {eventPreview.description.slice(0, 300)}
               </div>
             )}
             <div style={{ background: '#0f1729', borderRadius: 10, padding: '10px 14px', marginBottom: 16, border: '1px solid #334155' }}>
               <div style={{ color: '#f59e0b', fontSize: 12, fontWeight: 600 }}>⚠️ No matching JUC-E job found</div>
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>This event isn't linked to a task yet.</div>
+              <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 4 }}>This event isn't linked to a task yet.</div>
             </div>
 
             {/* Make it a JUC-E job — primary action */}
@@ -1179,7 +1179,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               <span style={{ fontSize: 20 }}>🔗</span>
               <div style={{ textAlign: 'left' }}>
                 <div style={{ color: '#3b82f6', fontSize: 14, fontWeight: 700 }}>Make This a JUC-E Job</div>
-                <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>Creates job record + stamps deep link for end-of-job workflow</div>
+                <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>Creates job record + stamps deep link for end-of-job workflow</div>
               </div>
             </button>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
@@ -1222,7 +1222,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                 } catch (err) {
                   alert('Failed: ' + err.message);
                 }
-              }} style={{ width: '100%', marginTop: 8, background: 'none', border: '1px solid #47556960', borderRadius: 10, padding: '10px', fontSize: 12, color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>
+              }} style={{ width: '100%', marginTop: 8, background: 'none', border: '1px solid #47556960', borderRadius: 10, padding: '10px', fontSize: 12, color: '#cbd5e1', fontWeight: 600, cursor: 'pointer' }}>
                 🙈 Mark Private — Hide from JUC-E
               </button>
             )}

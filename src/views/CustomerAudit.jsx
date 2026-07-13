@@ -75,17 +75,17 @@ function CustomerPicker({ registry, onPick, onClose }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
         <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, code, address…"
           style={{ flex: 1, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', fontSize: 14, padding: '8px 10px', outline: 'none', fontFamily: 'inherit' }} />
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 18, cursor: 'pointer' }}>✕</button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 18, cursor: 'pointer' }}>✕</button>
       </div>
       <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {matches.length === 0 && <div style={{ color: '#475569', fontSize: 13, padding: 12, textAlign: 'center' }}>No match for "{q}"</div>}
+        {matches.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 12, textAlign: 'center' }}>No match for "{q}"</div>}
         {matches.map(c => (
           <div key={c.id} onClick={() => onPick(c)} style={{ padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: '#1a1a2e', border: '1px solid #1e293b' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{c.name}</span>
               <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
             </div>
-            {c.address && <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>{c.address}</div>}
+            {c.address && <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>{c.address}</div>}
           </div>
         ))}
       </div>
@@ -243,9 +243,9 @@ export default function CustomerAudit({ onBack, accessToken }) {
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: 100 }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#0f1729', borderBottom: '1px solid #1e293b', padding: '12px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer', padding: '4px 0' }}>←</button>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 16, cursor: 'pointer', padding: '4px 0' }}>←</button>
           <div style={{ fontSize: 16, fontWeight: 700 }}>🔎 Event Audit</div>
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
+          <div style={{ marginLeft: 'auto', fontSize: 12, color: '#cbd5e1' }}>
             <span style={{ color: '#22c55e', fontWeight: 700 }}>{assignedCount}</span> / {total} assigned
           </div>
         </div>
@@ -261,20 +261,20 @@ export default function CustomerAudit({ onBack, accessToken }) {
             {unassignedOnly ? 'Unassigned only' : 'All events'}
           </button>
         </div>
-        <div style={{ color: '#475569', fontSize: 11, marginTop: 6 }}>Events since Jan 1, 2026</div>
+        <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 6 }}>Events since Jan 1, 2026</div>
       </div>
 
       <div style={{ padding: 14 }}>
-        {loading && <div style={{ textAlign: 'center', color: '#64748b', padding: 60, fontSize: 14 }}>Loading events…</div>}
+        {loading && <div style={{ textAlign: 'center', color: '#cbd5e1', padding: 60, fontSize: 14 }}>Loading events…</div>}
         {err && <div style={{ background: '#ef444420', border: '1px solid #ef444440', color: '#fca5a5', borderRadius: 10, padding: 14, fontSize: 13 }}>{err}</div>}
         {!loading && !err && filtered.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#334155', padding: 60, fontSize: 14 }}>
+          <div style={{ textAlign: 'center', color: '#94a3b8', padding: 60, fontSize: 14 }}>
             {unassignedOnly ? 'Nothing left to assign 🎉' : 'No events match.'}
           </div>
         )}
 
         {!loading && !err && filtered.map(e => {
-          const d = DISPO[e.disposition] || { label: e.disposition || '—', color: '#64748b' };
+          const d = DISPO[e.disposition] || { label: e.disposition || '—', color: '#cbd5e1' };
           const cust = byId[e.customer_id];
           const job = e.calendar_event_id ? jobByEvent[e.calendar_event_id] : null;
           const target = DISPO_STATUS[e.disposition] || JOB_STATUS.SCHEDULED;
@@ -285,8 +285,8 @@ export default function CustomerAudit({ onBack, accessToken }) {
               <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{e.event_title || e.customer_name_raw || '(untitled event)'}</div>
               <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Chip color={d.color}>{d.label}</Chip>
-                {e.tech_name && <span style={{ color: '#64748b', fontSize: 11 }}>👷 {e.tech_name}</span>}
-                <span style={{ color: '#64748b', fontSize: 11 }}>📅 {fmtDate(e.event_start || e.created_at)}</span>
+                {e.tech_name && <span style={{ color: '#cbd5e1', fontSize: 11 }}>👷 {e.tech_name}</span>}
+                <span style={{ color: '#cbd5e1', fontSize: 11 }}>📅 {fmtDate(e.event_start || e.created_at)}</span>
                 {hrs(e.total_minutes) && <span style={{ color: '#00c8e8', fontSize: 11 }}>⏱ {hrs(e.total_minutes)}</span>}
               </div>
 
@@ -295,8 +295,8 @@ export default function CustomerAudit({ onBack, accessToken }) {
 
               {/* Disposition changer */}
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #1e293b' }}>
-                <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                  Disposition {dispoBusyId === e.id && <span style={{ color: '#64748b' }}>· saving…</span>}
+                <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                  Disposition {dispoBusyId === e.id && <span style={{ color: '#cbd5e1' }}>· saving…</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {DISPO_KEYS.map(k => (
@@ -315,7 +315,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                       <span style={{ color: '#22c55e', fontSize: 11, fontWeight: 700, marginRight: 6 }}>✓ {cust.short_code}</span>
                       <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{cust.name}</span>
                     </div>
-                    <button onClick={() => setOpenPickerId(openPickerId === e.id ? null : e.id)} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '5px 10px', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>Change</button>
+                    <button onClick={() => setOpenPickerId(openPickerId === e.id ? null : e.id)} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#cbd5e1', padding: '5px 10px', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>Change</button>
                   </div>
                 ) : (
                   <button onClick={() => setOpenPickerId(openPickerId === e.id ? null : e.id)} disabled={savingId === e.id}
@@ -336,7 +336,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                       {job ? 'Update board ticket →' : 'Create board ticket →'} <b style={{ color: '#e2e8f0' }}>{STATUS_LABEL[target] || target}</b>?
                     </span>
                     <button onClick={() => pushToBoard(e)} style={{ background: '#22c55e25', border: '1px solid #22c55e', color: '#22c55e', borderRadius: 7, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
-                    <button onClick={() => setConfirmTicketId(null)} style={{ background: 'none', border: '1px solid #334155', color: '#64748b', borderRadius: 7, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={() => setConfirmTicketId(null)} style={{ background: 'none', border: '1px solid #334155', color: '#cbd5e1', borderRadius: 7, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
                   </div>
                 ) : (
                   <button onClick={() => setConfirmTicketId(e.id)} disabled={ticketBusyId === e.id}
@@ -345,26 +345,26 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   </button>
                 )}
 
-                <button onClick={() => toggleHistory(e)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#64748b', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>
+                <button onClick={() => toggleHistory(e)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#cbd5e1', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>
                   {openHistoryId === e.id ? 'Hide history' : 'View history'}
                 </button>
               </div>
 
               {openHistoryId === e.id && (
                 <div style={{ marginTop: 10, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: 10 }}>
-                  {hist?.loading && <div style={{ color: '#64748b', fontSize: 12 }}>Loading…</div>}
+                  {hist?.loading && <div style={{ color: '#cbd5e1', fontSize: 12 }}>Loading…</div>}
                   {hist && !hist.loading && !hist.hasJob && (
-                    <div style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>No board ticket yet — only the field note above. Create a ticket to start a history thread.</div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, fontStyle: 'italic' }}>No board ticket yet — only the field note above. Create a ticket to start a history thread.</div>
                   )}
                   {hist && !hist.loading && hist.hasJob && hist.rows.length === 0 && (
-                    <div style={{ color: '#475569', fontSize: 12, fontStyle: 'italic' }}>Ticket exists but has no notes yet.</div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, fontStyle: 'italic' }}>Ticket exists but has no notes yet.</div>
                   )}
                   {hist && !hist.loading && hist.rows.map(r => (
                     <div key={r.id} style={{ paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #1e293b' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
                         <span style={{ color: '#00c8e8', fontSize: 11, fontWeight: 700 }}>{author(r.created_by)}</span>
-                        {r.from_status && r.to_status && <span style={{ color: '#475569', fontSize: 10 }}>{r.from_status} → {r.to_status}</span>}
-                        <span style={{ color: '#475569', fontSize: 10, marginLeft: 'auto' }}>{fmtDateTime(r.created_at)}</span>
+                        {r.from_status && r.to_status && <span style={{ color: '#94a3b8', fontSize: 10 }}>{r.from_status} → {r.to_status}</span>}
+                        <span style={{ color: '#94a3b8', fontSize: 10, marginLeft: 'auto' }}>{fmtDateTime(r.created_at)}</span>
                       </div>
                       <div style={{ color: '#cbd5e1', fontSize: 12.5, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{r.text}</div>
                     </div>

@@ -123,11 +123,11 @@ export default function JobSearchModal({ returnCard, skipDbLink, onCreateNew, on
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Link to Job</div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>
               {returnCard?.customer_name_raw || 'Return card'} · {returnCard?.reason || ''}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
         {/* Search input */}
@@ -147,11 +147,11 @@ export default function JobSearchModal({ returnCard, skipDbLink, onCreateNew, on
         {/* Results */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {loading && (
-            <div style={{ color: '#64748b', textAlign: 'center', padding: 20, fontSize: 13 }}>Searching…</div>
+            <div style={{ color: '#cbd5e1', textAlign: 'center', padding: 20, fontSize: 13 }}>Searching…</div>
           )}
 
           {!loading && results.length === 0 && query.length > 0 && (
-            <div style={{ color: '#64748b', textAlign: 'center', padding: 20, fontSize: 13 }}>
+            <div style={{ color: '#cbd5e1', textAlign: 'center', padding: 20, fontSize: 13 }}>
               No jobs found. Check that the estimate was sent (to get a P-number) or the job was scheduled (S-number).
             </div>
           )}
@@ -271,7 +271,7 @@ function JobRow({ job, selected, onSelect }) {
         </div>
       )}
       {job.customer_address && (
-        <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
           {job.customer_address}
         </div>
       )}

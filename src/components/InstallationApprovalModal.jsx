@@ -81,7 +81,7 @@ export default function InstallationApprovalModal({
           }}>
             ✅ Approve Installation
           </h3>
-          <div style={{ color: '#64748b', fontSize: '14px', marginBottom: '8px' }}>
+          <div style={{ color: '#cbd5e1', fontSize: '14px', marginBottom: '8px' }}>
             {job.customer_name}
           </div>
           <div style={{ 

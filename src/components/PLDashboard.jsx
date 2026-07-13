@@ -242,9 +242,9 @@ export default function PLDashboard({ userEmail }) {
 
       {/* Data table */}
       {isLoading ? (
-        <div style={{ padding: '20px', color: '#64748b', textAlign: 'center' }}>Loading...</div>
+        <div style={{ padding: '20px', color: '#cbd5e1', textAlign: 'center' }}>Loading...</div>
       ) : viewData.length === 0 ? (
-        <div style={{ padding: '20px', color: '#64748b', textAlign: 'center' }}>
+        <div style={{ padding: '20px', color: '#cbd5e1', textAlign: 'center' }}>
           No data for this period. Upload a QBO P&L report.
         </div>
       ) : (

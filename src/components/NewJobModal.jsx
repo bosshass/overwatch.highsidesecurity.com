@@ -382,9 +382,9 @@ Scope of Work: `;
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <div style={{ color: '#00c8e8', fontSize: 18, fontWeight: 800 }}>🔗 Connect This Job</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Match this calendar event to a customer</div>
+              <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 2 }}>Match this calendar event to a customer</div>
             </div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer' }}>×</button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 22, cursor: 'pointer' }}>×</button>
           </div>
 
           {/* Locked event details */}
@@ -425,7 +425,7 @@ Scope of Work: `;
                 {customers.map(c => (
                   <div key={c.id} onClick={() => selectCustomer(c)} style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid #334155' }}>
                     <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{c.name}</div>
-                    <div style={{ color: '#64748b', fontSize: 12 }}>{c.phone} {c.address ? `· ${c.address}` : ''}</div>
+                    <div style={{ color: '#cbd5e1', fontSize: 12 }}>{c.phone} {c.address ? `· ${c.address}` : ''}</div>
                   </div>
                 ))}
               </div>
@@ -447,7 +447,7 @@ Scope of Work: `;
           {/* Availability grid */}
           {selectedTech && scheduleDate && (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ color: '#64748b', fontSize: 12, fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {availLoading ? `Checking ${selectedTech.name}'s calendar...` : `${selectedTech.name}'s Day — tap a slot`}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4 }}>
@@ -471,7 +471,7 @@ Scope of Work: `;
                   );
                 })}
               </div>
-              <div style={{ fontSize: 10, color: '#334155', marginTop: 6 }}>● busy &nbsp; ○ open</div>
+              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6 }}>● busy &nbsp; ○ open</div>
             </div>
           )}
 
@@ -499,7 +499,7 @@ Scope of Work: `;
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
         <div style={{ background: '#0f1729', borderRadius: '20px', padding: '28px 24px', width: '100%', maxWidth: '340px', border: '1px solid #1e293b' }}>
           <h2 style={{ color: '#e2e8f0', fontSize: '20px', fontWeight: '800', margin: '0 0 6px 0', textAlign: 'center' }}>What are you adding?</h2>
-          <p style={{ color: '#475569', fontSize: '13px', textAlign: 'center', margin: '0 0 24px 0' }}>Pick the right lane</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 24px 0' }}>Pick the right lane</p>
           {[
             { key: 'job', icon: '🔧', label: 'New Job', desc: 'Service call, install, estimate', color: '#3b82f6' },
             { key: 'task', icon: '📝', label: 'Quick Task', desc: 'Internal to-do, follow-up', color: '#f59e0b' },
@@ -510,11 +510,11 @@ Scope of Work: `;
               <span style={{ fontSize: '28px' }}>{opt.icon}</span>
               <div>
                 <div style={{ color: opt.color, fontWeight: '700', fontSize: '16px' }}>{opt.label}</div>
-                <div style={{ color: '#64748b', fontSize: '12px' }}>{opt.desc}</div>
+                <div style={{ color: '#cbd5e1', fontSize: '12px' }}>{opt.desc}</div>
               </div>
             </button>
           ))}
-          <button onClick={onClose} style={{ width: '100%', padding: '12px', background: 'none', border: '1px solid #334155', borderRadius: '10px', color: '#64748b', fontSize: '14px', cursor: 'pointer', marginTop: '8px' }}>Cancel</button>
+          <button onClick={onClose} style={{ width: '100%', padding: '12px', background: 'none', border: '1px solid #334155', borderRadius: '10px', color: '#cbd5e1', fontSize: '14px', cursor: 'pointer', marginTop: '8px' }}>Cancel</button>
         </div>
       </div>
     );
@@ -527,7 +527,7 @@ Scope of Work: `;
         <div style={{ background: '#0f1729', borderRadius: '20px', padding: '24px', width: '100%', maxWidth: '380px', border: '1px solid #1e293b' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h2 style={{ color: '#f59e0b', fontSize: '18px', fontWeight: '700', margin: 0 }}>📝 Quick Task</h2>
-            <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '14px', cursor: 'pointer' }}>← Back</button>
+            <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', cursor: 'pointer' }}>← Back</button>
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>What needs to be done? *</label>
@@ -549,7 +549,7 @@ Scope of Work: `;
         <div style={{ background: '#0f1729', borderRadius: '20px', padding: '24px', width: '100%', maxWidth: '380px', border: '1px solid #1e293b' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h2 style={{ color: '#10b981', fontSize: '18px', fontWeight: '700', margin: 0 }}>📌 Quick Note</h2>
-            <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '14px', cursor: 'pointer' }}>← Back</button>
+            <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', cursor: 'pointer' }}>← Back</button>
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Note *</label>
@@ -585,7 +585,7 @@ Scope of Work: `;
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid #1e293b', position: 'sticky', top: 0, background: '#0f1729', zIndex: 10 }}>
         <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '14px', cursor: 'pointer' }}>← Back</button>
         <span style={{ color: '#e2e8f0', fontWeight: '700', fontSize: '16px' }}>New Job</span>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '20px', cursor: 'pointer' }}>×</button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '20px', cursor: 'pointer' }}>×</button>
       </div>
 
       {/* Scrollable form */}
@@ -603,13 +603,13 @@ Scope of Work: `;
                 <div key={c.id} onClick={() => selectCustomer(c)}
                   style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #0f1729', background: selectedCustomer?.id === c.id ? '#00c8e815' : 'transparent' }}>
                   <div style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: '500' }}>{c.name}</div>
-                  {c.address && <div style={{ color: '#64748b', fontSize: '12px' }}>{c.address}</div>}
+                  {c.address && <div style={{ color: '#cbd5e1', fontSize: '12px' }}>{c.address}</div>}
                 </div>
               ))}
             </div>
           )}
           {showCustomerSearch && searchQuery.length >= 2 && customers.length === 0 && (
-            <div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px', padding: '8px' }}>No match — will create new customer.</div>
+            <div style={{ color: '#cbd5e1', fontSize: '12px', marginTop: '4px', padding: '8px' }}>No match — will create new customer.</div>
           )}
         </div>
 
@@ -636,7 +636,7 @@ Scope of Work: `;
                   {selectedTech?.name}'s Schedule
                 </span>
               </div>
-              {availLoading && <span style={{ color: '#64748b', fontSize: '11px' }}>Loading...</span>}
+              {availLoading && <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Loading...</span>}
             </div>
 
             {/* Date pills */}
@@ -661,7 +661,7 @@ Scope of Work: `;
                 {/* Hour labels */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', padding: '0 2px' }}>
                   {[7, 9, 11, 13, 15, 17, 19].map(h => (
-                    <span key={h} style={{ color: '#475569', fontSize: '10px', fontWeight: '500' }}>
+                    <span key={h} style={{ color: '#94a3b8', fontSize: '10px', fontWeight: '500' }}>
                       {h > 12 ? `${h-12}p` : h === 12 ? '12p' : `${h}a`}
                     </span>
                   ))}
@@ -713,14 +713,14 @@ Scope of Work: `;
 
                 {/* Legend */}
                 <div style={{ display: 'flex', gap: '16px', marginTop: '6px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#64748b' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#cbd5e1' }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: '#22c55e40', border: '1px solid #22c55e60' }} /> Open
                   </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#64748b' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#cbd5e1' }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: '#ef444490' }} /> Busy
                   </span>
                   {scheduleTime && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#64748b' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#cbd5e1' }}>
                       <span style={{ width: 8, height: 8, borderRadius: 2, background: techColor, border: `1px solid ${techColor}` }} /> Selected
                     </span>
                   )}
@@ -742,7 +742,7 @@ Scope of Work: `;
                   <div style={{ color: techColor, fontSize: '14px', fontWeight: '700' }}>
                     Suggested: {formatSlotLabel(suggestedTime)}
                   </div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>
+                  <div style={{ color: '#cbd5e1', fontSize: '11px' }}>
                     First open {Math.round((JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60 * 10) / 10}hr slot
                   </div>
                 </div>
@@ -780,7 +780,7 @@ Scope of Work: `;
             {/* Busy event list */}
             {busyBlocks.length > 0 && (
               <div style={{ marginTop: '14px', borderTop: '1px solid #334155', paddingTop: '12px' }}>
-                <div style={{ color: '#64748b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>
+                <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>
                   {busyBlocks.length} event{busyBlocks.length > 1 ? 's' : ''} on this day
                 </div>
                 {busyBlocks.map((b, i) => {
@@ -791,7 +791,7 @@ Scope of Work: `;
                       <div style={{ width: 4, height: 24, borderRadius: 2, background: '#ef4444', flexShrink: 0 }} />
                       <div>
                         <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{b.summary}</div>
-                        <div style={{ color: '#64748b', fontSize: '11px' }}>{startTime} – {endTime}</div>
+                        <div style={{ color: '#cbd5e1', fontSize: '11px' }}>{startTime} – {endTime}</div>
                       </div>
                     </div>
                   );
@@ -815,7 +815,7 @@ Scope of Work: `;
 
         {/* Expandable details */}
         <button onClick={() => setShowMore(!showMore)}
-          style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '12px', color: '#64748b', fontSize: '13px', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '12px', color: '#cbd5e1', fontSize: '13px', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <span>{showMore ? '▾' : '▸'} Priority, Address, Access Codes</span>
           {(form.priority !== 'normal' || form.gate_code || form.panel_password) && <span style={{ color: '#f59e0b', fontSize: '11px' }}>●</span>}
         </button>

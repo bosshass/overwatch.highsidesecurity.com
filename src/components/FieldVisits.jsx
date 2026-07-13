@@ -28,7 +28,7 @@ const DISPO = {
   estimate:    { label: 'Estimate',    color: '#3b82f6' },
   in_progress: { label: 'In progress', color: '#00c8e8' },
 };
-const dispo = d => DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#64748b' };
+const dispo = d => DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#cbd5e1' };
 
 // Pull 📝-tagged notes out of the issue field. Splits on the 📝 marker, dedupes
 // exact repeats (the data has them), and parses an optional "[date tech]" header.
@@ -107,7 +107,7 @@ export default function FieldVisits({ job }) {
     <div style={wrap}>
       <div style={header}>
         <span>📝 Field notes</span>
-        <span style={{ color: '#475569', fontWeight: 600 }}>({total})</span>
+        <span style={{ color: '#94a3b8', fontWeight: 600 }}>({total})</span>
       </div>
 
       {/* notes captured on Work Today (time_entries) */}

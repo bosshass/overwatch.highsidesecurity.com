@@ -510,7 +510,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
             <div>
               <h3 style={{ margin: 0, color: '#fff', fontSize: 18 }}>📅 Schedule Return</h3>
               <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 14 }}>{extractCustomerName(scheduling.title)}</p>
-              {scheduling.location && <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: 12 }}>📍 {scheduling.location}</p>}
+              {scheduling.location && <p style={{ margin: '2px 0 0', color: '#cbd5e1', fontSize: 12 }}>📍 {scheduling.location}</p>}
             </div>
             <button onClick={() => { setScheduling(null); setSelectedDay(null); setSelectedSlot(null); }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 24, cursor: 'pointer' }}>✕</button>
           </div>
@@ -526,11 +526,11 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <div style={{ width: 12, height: 12, borderRadius: '50%', background: TECHS.find(t => t.name === selectedSlot.tech)?.color }} />
                   <span style={{ color: '#fff', fontWeight: 600 }}>{selectedSlot.tech}</span>
-                  <span style={{ color: '#64748b' }}>·</span>
+                  <span style={{ color: '#cbd5e1' }}>·</span>
                   <span style={{ color: '#94a3b8' }}>{new Date(selectedSlot.slot.start).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
                 </div>
                 
-                <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 16 }}>
                   Available: {selectedSlot.slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {selectedSlot.slot.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} ({selectedSlot.slot.hours.toFixed(1)}h)
                 </div>
                 
@@ -599,12 +599,12 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                       <div style={{ width: 12, height: 12, borderRadius: '50%', background: tech.color }} />
                       <span style={{ color: '#fff', fontWeight: 600 }}>{tech.name}</span>
-                      <span style={{ color: '#64748b', fontSize: 13 }}>{dayData.freeHours.toFixed(1)}h free</span>
+                      <span style={{ color: '#cbd5e1', fontSize: 13 }}>{dayData.freeHours.toFixed(1)}h free</span>
                     </div>
                     
                     {dayData.events.length > 0 && (
                       <div style={{ marginBottom: 12, paddingLeft: 20 }}>
-                        <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Booked:</div>
+                        <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>Booked:</div>
                         {dayData.events.map((ev, i) => (
                           <div key={i} style={{ color: '#94a3b8', fontSize: 13, padding: '4px 0' }}>
                             {new Date(ev.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - {new Date(ev.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {ev.title}
@@ -636,7 +636,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
           ) : (
             /* CALENDAR GRID VIEW */
             <div>
-              <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>Tap a day to see available time slots</p>
+              <p style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 16 }}>Tap a day to see available time slots</p>
               
               {TECHS.map(tech => (
                 <div key={tech.name} style={{ marginBottom: 24 }}>
@@ -716,13 +716,13 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
                   <span style={{ background: ev.calendarColor, color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{ev.calendarName}</span>
                   <span style={{ color: '#fff', fontWeight: 500 }}>{ev.title}</span>
                 </div>
-                <div style={{ color: '#64748b', fontSize: 13 }}>{formatDate(ev.start)}</div>
-                {ev.location && <div style={{ color: '#64748b', fontSize: 13 }}>📍 {ev.location}</div>}
+                <div style={{ color: '#cbd5e1', fontSize: 13 }}>{formatDate(ev.start)}</div>
+                {ev.location && <div style={{ color: '#cbd5e1', fontSize: 13 }}>📍 {ev.location}</div>}
               </div>
               
               {expanded === ev.id && (
                 <div style={{ padding: '0 16px 16px', borderTop: '1px solid #334155' }}>
-                  {ev.description ? <div style={{ color: '#94a3b8', fontSize: 14, whiteSpace: 'pre-wrap', marginTop: 12 }}>{ev.description}</div> : <div style={{ color: '#64748b', fontSize: 14, fontStyle: 'italic', marginTop: 12 }}>No notes yet</div>}
+                  {ev.description ? <div style={{ color: '#94a3b8', fontSize: 14, whiteSpace: 'pre-wrap', marginTop: 12 }}>{ev.description}</div> : <div style={{ color: '#cbd5e1', fontSize: 14, fontStyle: 'italic', marginTop: 12 }}>No notes yet</div>}
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                     <input type="text" value={addingNote} onChange={e => setAddingNote(e.target.value)} placeholder="Add a note..." style={{ flex: 1, background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', color: '#fff' }} />
                     <button onClick={() => addNote(ev)} disabled={savingNote || !addingNote.trim()} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>💾</button>
@@ -736,7 +736,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #334155' }}>
                 <button onClick={() => markNeedsParts(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#f59e0b', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>🔧 Needs Parts</button>
-                <button onClick={() => markIgnore(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#64748b', padding: 12, cursor: 'pointer' }}>🗑️ Ignore</button>
+                <button onClick={() => markIgnore(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#cbd5e1', padding: 12, cursor: 'pointer' }}>🗑️ Ignore</button>
               </div>
             </div>
           ))
@@ -746,7 +746,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
           <div>
             <input type="text" value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs..." style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: '12px 16px', color: '#fff', marginBottom: 16 }} />
             {jobsLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Loading...</div> :
-             jobs.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>No jobs found</div> :
+             jobs.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: '#cbd5e1' }}>No jobs found</div> :
              jobs.map(job => (
               <div key={job.id} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 }}>
                 <div style={{ fontWeight: 500 }}>{job.customer_name}</div>
@@ -766,7 +766,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
             customers.map(c => (
               <div key={c.id} onClick={() => onOpenCustomer(c.id)} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12, cursor: 'pointer' }}>
                 <div style={{ fontWeight: 500 }}>{c.name}</div>
-                {c.phone && <div style={{ color: '#64748b', fontSize: 13 }}>📞 {c.phone}</div>}
+                {c.phone && <div style={{ color: '#cbd5e1', fontSize: 13 }}>📞 {c.phone}</div>}
               </div>
             ))}
           </div>
@@ -777,12 +777,12 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
           <div>
             <div style={{ marginBottom: 24 }}>
               <h3 style={{ color: '#f59e0b', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>🔄 Returns Pending<span style={{ background: '#f59e0b', color: '#000', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}>{countReturns}</span></h3>
-              {scheduleEvents.returns.length === 0 ? <div style={{ color: '#64748b', fontStyle: 'italic' }}>No returns pending</div> :
+              {scheduleEvents.returns.length === 0 ? <div style={{ color: '#cbd5e1', fontStyle: 'italic' }}>No returns pending</div> :
               scheduleEvents.returns.map((group, i) => (
                 <div key={i} style={{ background: '#1e293b', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
                   <div style={{ padding: 16, borderBottom: '1px solid #334155' }}>
                     <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>📦 {group.customerName}</div>
-                    {group.location && <div style={{ color: '#64748b', fontSize: 13 }}>📍 {group.location}</div>}
+                    {group.location && <div style={{ color: '#cbd5e1', fontSize: 13 }}>📍 {group.location}</div>}
                   </div>
                   {group.events.map((ev, j) => (
                     <div key={j} style={{ padding: '12px 16px', borderBottom: '1px solid #334155', background: '#0f172a' }}>
@@ -792,7 +792,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
                           <span style={{ color: '#94a3b8', fontSize: 13 }}>{formatDate(ev.start)}</span>
                         </div>
                       </div>
-                      {ev.description && <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{ev.description.slice(0, 100)}...</div>}
+                      {ev.description && <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 4 }}>{ev.description.slice(0, 100)}...</div>}
                     </div>
                   ))}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
@@ -805,12 +805,12 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
 
             <div>
               <h3 style={{ color: '#f59e0b', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>🔧 Parts Waiting<span style={{ background: '#f59e0b', color: '#000', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}>{countParts}</span></h3>
-              {scheduleEvents.parts.length === 0 ? <div style={{ color: '#64748b', fontStyle: 'italic' }}>No parts waiting</div> :
+              {scheduleEvents.parts.length === 0 ? <div style={{ color: '#cbd5e1', fontStyle: 'italic' }}>No parts waiting</div> :
               scheduleEvents.parts.map((group, i) => (
                 <div key={i} style={{ background: '#1e293b', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
                   <div style={{ padding: 16, borderBottom: '1px solid #334155' }}>
                     <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>📦 {group.customerName}</div>
-                    {group.location && <div style={{ color: '#64748b', fontSize: 13 }}>📍 {group.location}</div>}
+                    {group.location && <div style={{ color: '#cbd5e1', fontSize: 13 }}>📍 {group.location}</div>}
                   </div>
                   {group.events.map((ev, j) => (
                     <div key={j} style={{ padding: '12px 16px', borderBottom: '1px solid #334155', background: '#0f172a' }}>

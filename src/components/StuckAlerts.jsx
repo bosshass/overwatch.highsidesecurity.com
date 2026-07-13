@@ -37,7 +37,7 @@ export function StuckAlertsPanel({ accessToken }) {
           onClick={() => setExpanded(e => !e)}
           style={{
             marginTop: 8, background: 'none', border: 'none',
-            color: '#64748b', fontSize: 12, cursor: 'pointer', padding: 0
+            color: '#cbd5e1', fontSize: 12, cursor: 'pointer', padding: 0
           }}
         >
           {expanded ? '▲ Show less' : `▼ Show ${alerts.length - 3} more`}
@@ -68,7 +68,7 @@ function AlertRow({ alert }) {
         <div style={{ color: '#cbd5e1', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {alert.customer}
         </div>
-        <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+        <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>
           {alert.detail}
         </div>
       </div>
@@ -226,7 +226,7 @@ export function StuckAlertGate({ accessToken, userEmail, onDismiss }) {
           I See It — I'm On It
         </button>
 
-        <div style={{ marginTop: 14, color: '#475569', fontSize: 11, textAlign: 'center' }}>
+        <div style={{ marginTop: 14, color: '#94a3b8', fontSize: 11, textAlign: 'center' }}>
           This will reappear in 6 hours if items remain unresolved.
         </div>
       </div>
@@ -268,7 +268,7 @@ function GateAlertCard({ alert }) {
       }}>
         {alert.hoursOld}h
         <br />
-        <span style={{ fontSize: 10, color: '#64748b', fontWeight: 400 }}>old</span>
+        <span style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 400 }}>old</span>
       </div>
     </div>
   );

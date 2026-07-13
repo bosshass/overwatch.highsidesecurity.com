@@ -27,7 +27,7 @@ function Chip({ color, children }) {
 function Section({ label, children }) {
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ color: '#475569', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+      <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
         {label}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>
@@ -125,7 +125,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         style={{ background: '#0f1729', padding: '14px 14px 0', borderBottom: '1px solid #1e293b', flexShrink: 0 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <span style={{ color: '#64748b', fontSize: 18, flexShrink: 0 }}>🔍</span>
+          <span style={{ color: '#cbd5e1', fontSize: 18, flexShrink: 0 }}>🔍</span>
           <input
             ref={inputRef}
             value={query}
@@ -137,7 +137,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
               fontFamily: 'inherit'
             }}
           />
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', padding: 4, flexShrink: 0 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 22, cursor: 'pointer', padding: 4, flexShrink: 0 }}>✕</button>
         </div>
       </div>
 
@@ -147,17 +147,17 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         style={{ flex: 1, overflowY: 'auto', padding: 14, WebkitOverflowScrolling: 'touch' }}
       >
         {loading && (
-          <div style={{ textAlign: 'center', color: '#475569', padding: 32, fontSize: 13 }}>Searching…</div>
+          <div style={{ textAlign: 'center', color: '#94a3b8', padding: 32, fontSize: 13 }}>Searching…</div>
         )}
 
         {!loading && hasQuery && total === 0 && (
-          <div style={{ textAlign: 'center', color: '#334155', padding: 48, fontSize: 14 }}>
+          <div style={{ textAlign: 'center', color: '#94a3b8', padding: 48, fontSize: 14 }}>
             No results for "{query}"
           </div>
         )}
 
         {!hasQuery && (
-          <div style={{ textAlign: 'center', color: '#334155', padding: 48, fontSize: 13 }}>
+          <div style={{ textAlign: 'center', color: '#94a3b8', padding: 48, fontSize: 13 }}>
             Type at least 2 characters to search
           </div>
         )}
@@ -170,12 +170,12 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   {j.job_number && <Chip color="#3b82f6">{j.job_number}</Chip>}
                   {j.status    && <Chip color={STATUS_INFO[j.status]?.color || '#64748b'}>{STATUS_INFO[j.status]?.icon} {STATUS_INFO[j.status]?.label || j.status}</Chip>}
-                  {j.customer_phone && <span style={{ color: '#64748b', fontSize: 11 }}>📞 {j.customer_phone}</span>}
+                  {j.customer_phone && <span style={{ color: '#cbd5e1', fontSize: 11 }}>📞 {j.customer_phone}</span>}
                 </div>
                 {j.customer_address && (
-                  <div style={{ color: '#475569', fontSize: 11, marginTop: 3 }}>📍 {j.customer_address}</div>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>📍 {j.customer_address}</div>
                 )}
-                <div style={{ color: '#334155', fontSize: 10, marginTop: 4 }}>Tap to view full history →</div>
+                <div style={{ color: '#94a3b8', fontSize: 10, marginTop: 4 }}>Tap to view full history →</div>
               </ResultCard>
             ))}
           </Section>
@@ -194,7 +194,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                   {(e.project_ref || extractProjRef(e.event_title)) && (
                     <Chip color="#3b82f6">{e.project_ref || extractProjRef(e.event_title)}</Chip>
                   )}
-                  <span style={{ color: '#475569', fontSize: 11 }}>
+                  <span style={{ color: '#94a3b8', fontSize: 11 }}>
                     {new Date(e.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 </div>
@@ -204,7 +204,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                   </div>
                 )}
                 {e.notes && (
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+                  <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>
                     {e.notes.length > 80 ? e.notes.slice(0, 80) + '…' : e.notes}
                   </div>
                 )}
@@ -221,7 +221,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   {t.assignedTo && <Chip color="#f59e0b">{t.assignedTo}</Chip>}
                   {t.status     && <Chip color="#475569">{t.status}</Chip>}
-                  {t.location   && <span style={{ color: '#64748b', fontSize: 11 }}>📍 {t.location.slice(0, 40)}</span>}
+                  {t.location   && <span style={{ color: '#cbd5e1', fontSize: 11 }}>📍 {t.location.slice(0, 40)}</span>}
                 </div>
                 {t.materials && (
                   <div style={{ color: '#f59e0b', fontSize: 11, marginTop: 3 }}>🔧 {t.materials.slice(0, 70)}</div>

@@ -74,7 +74,7 @@ export default function SchedulerModal({ job, techs, accessToken, onScheduled, o
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
           {techs.map(t => (
             <button key={t.id} onClick={() => setTechId(t.id)}
-              style={{ padding:'8px 14px', borderRadius:8, border:`2px solid ${techId===t.id?t.color:'#334155'}`, background:techId===t.id?`${t.color}22`:'#0f172a', color:techId===t.id?t.color:'#64748b', fontWeight:600, cursor:'pointer', fontSize:13 }}>
+              style={{ padding:'8px 14px', borderRadius:8, border:`2px solid ${techId===t.id?t.color:'#94a3b8'}`, background:techId===t.id?`${t.color}22`:'#0f172a', color:techId===t.id?t.color:'#cbd5e1', fontWeight:600, cursor:'pointer', fontSize:13 }}>
               {t.name}
             </button>
           ))}

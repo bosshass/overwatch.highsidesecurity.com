@@ -154,7 +154,7 @@ export default function InboxBar({ userEmail, onConvertToJob, onRefresh }) {
             </span>
           )}
         </div>
-        <span style={{ color: '#64748b', fontSize: '12px' }}>{expanded ? '▾' : '▸'}</span>
+        <span style={{ color: '#cbd5e1', fontSize: '12px' }}>{expanded ? '▾' : '▸'}</span>
       </button>
 
       {/* Expanded items */}
@@ -167,7 +167,7 @@ export default function InboxBar({ userEmail, onConvertToJob, onRefresh }) {
           {items.length > 1 && (
             <div style={{ padding: '8px 16px', borderBottom: '1px solid #0f1729', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={dismissAll}
-                style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+                style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
                 Acknowledge All ({items.length})
               </button>
             </div>
@@ -195,10 +195,10 @@ export default function InboxBar({ userEmail, onConvertToJob, onRefresh }) {
                     <span style={{ color: isNote ? '#10b981' : '#f59e0b', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>
                       {isNote ? 'Note' : 'Task'}
                     </span>
-                    <span style={{ color: '#334155' }}>·</span>
-                    <span style={{ color: '#64748b', fontSize: '11px' }}>from {creator}</span>
+                    <span style={{ color: '#94a3b8' }}>·</span>
+                    <span style={{ color: '#cbd5e1', fontSize: '11px' }}>from {creator}</span>
                   </div>
-                  <span style={{ color: '#475569', fontSize: '11px' }}>{getTimeSince(item.created_at)}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{getTimeSince(item.created_at)}</span>
                 </div>
 
                 {/* Content */}

@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
+import { stalenessOf, ageLabel, STALE_COLOR } from '../utils/staleness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
@@ -63,7 +64,7 @@ const LANE_MOVES = [
   { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', target:'to_bill',           statuses:['complete','to_bill','billed'] },
   // Not a billing outcome — for test entries, dupes handled outside the merge tool, or
   // anything that just needs to leave the active board without touching money.
-  { key:'clear',     label:'🗑️ Clear (not billable)', color:'#64748b', target:'archived', statuses:['archived','dead'] },
+  { key:'clear',     label:'🗑️ Clear (not billable)', color:'#cbd5e1', target:'archived', statuses:['archived','dead'] },
 ];
 
 // Estimate sub-stages, revealed when Estimates is tapped.
@@ -152,22 +153,22 @@ function UUIDLinker({ job, onLinked }) {
     <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:12, border:'1px solid #334155' }} onClick={e => e.stopPropagation()}>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
         <span style={{ fontSize:11, color:'#94a3b8', fontWeight:600, textTransform:'uppercase' }}>link customer</span>
-        <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:14 }}>✕</button>
+        <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:14 }}>✕</button>
       </div>
       {!createMode ? (
         <>
           <input value={query} onChange={e => search(e.target.value)} placeholder="search by name, phone, CMS…"
             style={{ width:'100%', padding:'8px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box', marginBottom:6 }} />
-          {searching && <div style={{ color:'#475569', fontSize:11, padding:'4px 0' }}>searching…</div>}
+          {searching && <div style={{ color:'#94a3b8', fontSize:11, padding:'4px 0' }}>searching…</div>}
           {results.map(c => (
             <button key={c.id} onClick={() => link(c.id)} disabled={saving}
               style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', background:'#1e293b', border:'0.5px solid #334155', borderRadius:6, color:'#fff', fontSize:12, cursor:'pointer', marginBottom:4 }}>
               <div style={{ fontWeight:600 }}>{c.name}</div>
-              <div style={{ fontSize:10, color:'#64748b' }}>{[c.phone, c.address?.split(',')[0], c.cms_account_id].filter(Boolean).join(' · ')}</div>
+              <div style={{ fontSize:11, color:'#cbd5e1' }}>{[c.phone, c.address?.split(',')[0], c.cms_account_id].filter(Boolean).join(' · ')}</div>
             </button>
           ))}
           <button onClick={() => setCreateMode(true)}
-            style={{ width:'100%', marginTop:6, padding:'7px 0', borderRadius:6, border:'1px dashed #475569', background:'transparent', color:'#64748b', fontSize:12, cursor:'pointer' }}>
+            style={{ width:'100%', marginTop:6, padding:'7px 0', borderRadius:6, border:'1px dashed #475569', background:'transparent', color:'#cbd5e1', fontSize:12, cursor:'pointer' }}>
             + create new customer
           </button>
         </>
@@ -175,7 +176,7 @@ function UUIDLinker({ job, onLinked }) {
         <>
           {[['Name *',newName,setNewName],['Phone',newPhone,setNewPhone],['Address',newAddr,setNewAddr]].map(([label,val,set])=>(
             <div key={label} style={{ marginBottom:6 }}>
-              <div style={{ fontSize:10, color:'#64748b', marginBottom:2 }}>{label}</div>
+              <div style={{ fontSize:11, color:'#cbd5e1', marginBottom:2 }}>{label}</div>
               <input value={val} onChange={e => set(e.target.value)}
                 style={{ width:'100%', padding:'7px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:12, boxSizing:'border-box' }} />
             </div>
@@ -337,7 +338,7 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
 
   if (!open) return (
     <button onClick={() => setOpen(true)}
-      style={{ width:'100%', padding:'7px 12px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#64748b', fontSize:11, cursor:'pointer', textAlign:'left', marginBottom:8 }}>
+      style={{ width:'100%', padding:'7px 12px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#cbd5e1', fontSize:11, cursor:'pointer', textAlign:'left', marginBottom:8 }}>
       🔁 mark as duplicate / merge
     </button>
   );
@@ -346,12 +347,12 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
     <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:12, border:'1px solid #334155' }}>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
         <span style={{ fontSize:11, color:'#94a3b8', fontWeight:600, textTransform:'uppercase' }}>find duplicate to merge into</span>
-        <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:14 }}>✕</button>
+        <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:14 }}>✕</button>
       </div>
       <input value={query} onChange={e => setQuery(e.target.value)} placeholder="search by customer name…"
         style={{ width:'100%', padding:'8px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box', marginBottom:8 }} />
       {candidates.length === 0
-        ? <div style={{ color:'#475569', fontSize:12, padding:'8px 0' }}>no matches found</div>
+        ? <div style={{ color:'#94a3b8', fontSize:12, padding:'8px 0' }}>no matches found</div>
         : candidates.map(c => {
           const si = STATUS_INFO[c.status] || {};
           return (
@@ -359,9 +360,9 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
               style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', background:'#1e293b', border:'0.5px solid #334155', borderRadius:6, color:'#fff', fontSize:12, cursor:'pointer', marginBottom:4 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <span style={{ fontWeight:600 }}>{c.customer_name}</span>
-                <span style={{ fontSize:10, color:si.color||'#64748b' }}>{si.label||c.status}</span>
+                <span style={{ fontSize:11, color:si.color||'#64748b' }}>{si.label||c.status}</span>
               </div>
-              <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>
+              <div style={{ fontSize:11, color:'#cbd5e1', marginTop:2 }}>
                 {c.issue?.slice(0,60) || 'no issue'} · {fmtDate(c.created_at)}
               </div>
             </button>
@@ -542,11 +543,11 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             ) : (
               <h3 onClick={() => setEditingTitle(true)} title="Tap to rename"
                 style={{ margin:'4px 0 0', color:'#fff', fontSize:17, cursor:'text' }}>
-                {job.customer_name||'—'} <span style={{ fontSize:12, color:'#64748b' }}>✎</span>
+                {job.customer_name||'—'} <span style={{ fontSize:12, color:'#cbd5e1' }}>✎</span>
               </h3>
             )}
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'#64748b', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'#cbd5e1', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
         </div>
 
         {/* UUID linker */}
@@ -566,13 +567,13 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             ['updated', job.updated_at !== job.created_at ? fmtDate(job.updated_at) : null],
           ].filter(([,v]) => v).map(([label,val]) => (
             <div key={label}>
-              <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>{label}</div>
+              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>{label}</div>
               <div style={{ color:'#cbd5e1' }}>{val}</div>
             </div>
           ))}
           {job.estimate_amount > 0 && (
             <div style={{ gridColumn:'1/-1' }}>
-              <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>estimate</div>
+              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>estimate</div>
               <div style={{ color:'#22c55e', fontWeight:600, fontSize:14 }}>{fmtMoney(job.estimate_amount)}</div>
             </div>
           )}
@@ -580,14 +581,14 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
 
         {job.issue && (
           <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:14 }}>
-            <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
+            <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
             <div style={{ color:'#e2e8f0', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{job.issue}</div>
           </div>
         )}
 
         {/* Add a note — works on any job */}
         <div style={{ marginBottom:14 }}>
-          <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>add note</div>
+          <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>add note</div>
           <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={2} placeholder="Type a note…"
             style={{ width:'100%', padding:10, borderRadius:8, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
           <button onClick={addNote} disabled={savingNote||!noteText.trim()}
@@ -601,7 +602,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               {jobNotes.map(n => (
                 <div key={n.id} style={{ background:'#0f172a', borderRadius:8, padding:'8px 10px', borderLeft:'2px solid #3b82f6' }}>
                   <div style={{ color:'#cbd5e1', fontSize:12, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.text}</div>
-                  <div style={{ color:'#475569', fontSize:9, marginTop:3 }}>
+                  <div style={{ color:'#94a3b8', fontSize:11, marginTop:3 }}>
                     {n.created_by || 'unknown'} · {fmtDate(n.created_at)}
                   </div>
                 </div>
@@ -612,7 +613,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
 
         {/* Assign to a user — emphasized when Blocked */}
         <div style={{ marginBottom:14, padding:job.status==='blocked'?'12px':'0', borderRadius:8, background:job.status==='blocked'?'#dc262615':'transparent', border:job.status==='blocked'?'1px solid #dc262640':'none' }}>
-          <div style={{ color:job.status==='blocked'?'#dc2626':'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6, fontWeight:600 }}>
+          <div style={{ color:job.status==='blocked'?'#dc2626':'#475569', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6, fontWeight:600 }}>
             {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
           </div>
           <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
@@ -703,7 +704,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               </div>
 
               <button onClick={() => { setNotifyTarget(null); setTextResult(null); setEmailResult(null); }}
-                style={{ marginTop:8, padding:'4px 8px', borderRadius:6, border:'none', background:'transparent', color:'#64748b', fontSize:11, cursor:'pointer' }}>
+                style={{ marginTop:8, padding:'4px 8px', borderRadius:6, border:'none', background:'transparent', color:'#cbd5e1', fontSize:11, cursor:'pointer' }}>
                 dismiss
               </button>
             </div>
@@ -723,7 +724,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
 
         {/* Move to a lane — the 6 board buckets, not 15 raw statuses */}
         <div>
-          <div style={{ color:'#475569', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6 }}>move to</div>
+          <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6 }}>move to</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
             {LANE_MOVES.map(lane => {
               const isHere = lane.statuses.includes(job.status);
@@ -760,7 +761,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           {/* Estimates sub-stages — revealed on tap */}
           {showEstStages && (
             <div style={{ marginTop:8, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #f59e0b40' }}>
-              <div style={{ color:'#f59e0b', fontSize:10, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:700 }}>Estimate stage</div>
+              <div style={{ color:'#f59e0b', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:700 }}>Estimate stage</div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                 {EST_STAGES.map(st => (
                   <button key={st.status} onClick={() => onStatusMove(job.id, st.status)} disabled={moving||job.status===st.status}
@@ -785,32 +786,55 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
   const hasUUID = !!job.customer_id;
   const quickVerbs = SUGGESTED_NEXT[job.status] ? [SUGGESTED_NEXT[job.status]] : [];
 
+  // 72h rule — see src/utils/staleness.js. A card nobody has touched in 3 days
+  // gets an amber rail; a week gets red. The status chip used to be the loudest
+  // thing on the card, but "New" tells you nothing you can act on. WHO owns it,
+  // HOW LONG it's been sitting, and WHETHER IT'S ROTTING do.
+  const stale = stalenessOf(job);
+  const staleColor = STALE_COLOR[stale.level];
+  const rail = isUrgent ? '#ef4444' : (staleColor || si.color || '#334155');
+
   return (
     <div onClick={() => onSelect(job)}
-      style={{ background:'#1e293b', borderRadius:8, padding:12, marginBottom:8, borderLeft:`3px solid ${isUrgent?'#ef4444':(si.color||'#334155')}`, cursor:'pointer', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:4 }}>
-        <div style={{ fontSize:14, fontWeight:500, color:'#fff', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
+      style={{ background:'#1e293b', borderRadius:8, padding:13, marginBottom:8, borderLeft:`4px solid ${rail}`, cursor:'pointer', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:5 }}>
+        <div style={{ fontSize:16, fontWeight:600, color:'#fff', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
         <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-          {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4 }}>URGENT</span>}
-          {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4 }}>HIGH</span>}
-          {!hasUUID && <span style={{ background:'#451a03', color:'#fb923c', fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4 }}>NO UUID</span>}
+          {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>URGENT</span>}
+          {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>HIGH</span>}
+          {!hasUUID && <span style={{ background:'#451a03', color:'#fb923c', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>NO UUID</span>}
         </div>
       </div>
-      <div style={{ fontSize:12, color:'#64748b', marginBottom:6, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.issue||'no issue noted'}</div>
+
+      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{job.issue||'no issue noted'}</div>
+
+      {/* THE STICKY LINE — who owns it, when it hit the board, how stale it is.
+          This never truncates and never collapses; it's the whole point of the card. */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+        {job.tech_name
+          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{job.tech_name}</span>
+          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>}
+        <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
+        {staleColor && (
+          <span style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+            ⏱ {stale.label}
+          </span>
+        )}
+      </div>
+
+      {/* Status + money demoted to the quiet row */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
-        <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
-          {/* CURRENT status — the prominent tag */}
-          <span style={{ fontSize:10, fontWeight:700, color:si.color||'#94a3b8', background:`${si.color||'#334155'}22`, padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+          <span style={{ fontSize:12, fontWeight:600, color:si.color||'#94a3b8', background:`${si.color||'#334155'}18`, padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
             {si.icon} {si.label||job.status}
           </span>
-          {job.tech_name && <span style={{ fontSize:10, color:'#3b82f6' }}>· {job.tech_name}</span>}
-          {job.estimate_amount>0 && <span style={{ fontSize:10, color:'#22c55e' }}>· {fmtMoney(job.estimate_amount)}</span>}
-          <span style={{ fontSize:10, color:'#334155' }}>· {fmtDate(job.created_at)}</span>
+          {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
         </div>
         {quickVerbs.length > 0 && (
           <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
             title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-            style={{ padding:'3px 8px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:10, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, opacity:0.8 }}>
+            style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
             move → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
           </button>
         )}
@@ -831,7 +855,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
           borderLeft: `4px solid ${col.color}`,
         }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: '#64748b', fontSize: 12, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>▶</span>
+          <span style={{ color: '#cbd5e1', fontSize: 12, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>▶</span>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{col.label}</span>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -842,7 +866,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
       {expanded && (
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
-            ? <div style={{ color: '#334155', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
+            ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
             : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} />)
           }
         </div>
@@ -865,7 +889,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       </div>
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
-          ? <div style={{ color:'#334155', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
+          ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
           : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} />)
         }
       </div>
@@ -1020,9 +1044,9 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       </div>
 
       <div style={{ display:'flex', gap:10, padding:'10px 16px', borderBottom:'1px solid #1e293b', flexWrap:'wrap', alignItems:'center' }}>
-        {[{label:'open',val:stats.total_open,color:'#64748b'},{label:'needs action',val:stats.needs_action,color:'#ef4444'},{label:'to bill',val:stats.to_bill,color:'#8b5cf6'},{label:'returns',val:stats.returns_pending,color:'#06b6d4'}].map(s=>(
+        {[{label:'open',val:stats.total_open,color:'#cbd5e1'},{label:'needs action',val:stats.needs_action,color:'#ef4444'},{label:'to bill',val:stats.to_bill,color:'#8b5cf6'},{label:'returns',val:stats.returns_pending,color:'#06b6d4'}].map(s=>(
           <div key={s.label} style={{ background:'#1e293b', padding:'6px 14px', borderRadius:8 }}>
-            <div style={{ fontSize:10, color:'#475569', textTransform:'uppercase', letterSpacing:0.4 }}>{s.label}</div>
+            <div style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>{s.label}</div>
             <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.val}</div>
           </div>
         ))}
@@ -1034,7 +1058,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <div style={{ display:'flex', overflowX:'auto', borderBottom:'1px solid #1e293b' }}>
           {COLUMNS.map(col => (
             <button key={col.key} onClick={() => setActiveCol(col.key)}
-              style={{ padding:'10px 14px', background:'none', border:'none', whiteSpace:'nowrap', borderBottom:activeCol===col.key?`2px solid ${col.color}`:'2px solid transparent', color:activeCol===col.key?col.color:'#475569', cursor:'pointer', fontSize:12, fontWeight:activeCol===col.key?700:400 }}>
+              style={{ padding:'10px 14px', background:'none', border:'none', whiteSpace:'nowrap', borderBottom:activeCol===col.key?`2px solid ${col.color}`:'2px solid transparent', color:activeCol===col.key?col.color:'#94a3b8', cursor:'pointer', fontSize:12, fontWeight:activeCol===col.key?700:400 }}>
               {col.label} <span style={{ background:'#1e293b', padding:'1px 6px', borderRadius:10, fontSize:10 }}>{buckets[col.key]?.length||0}</span>
             </button>
           ))}
@@ -1042,7 +1066,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       )}
 
       {loading ? (
-        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#334155', fontSize:14 }}>Loading from Supabase…</div>
+        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', fontSize:14 }}>Loading from Supabase…</div>
       ) : isMobile ? (
         <div style={{ flex:1, overflowY:'auto' }}>
           {COLUMNS.map(col => (

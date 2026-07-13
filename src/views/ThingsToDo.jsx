@@ -201,7 +201,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
             background: '#334155', border: '1px solid #475569',
             borderRadius: 8, padding: '5px 10px', marginBottom: 8
           }}>
-            <span style={{ color: '#64748b', fontSize: 12, fontWeight: 600 }}>⚠ UNASSIGNED</span>
+            <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 600 }}>⚠ UNASSIGNED</span>
           </div>
         )}
 
@@ -213,18 +213,18 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
             </div>
           )}
           {item.location && (
-            <div style={{ color: '#64748b', fontSize: 11 }}>📍 {item.location}</div>
+            <div style={{ color: '#cbd5e1', fontSize: 11 }}>📍 {item.location}</div>
           )}
           {item.calendarName && (
-            <div style={{ color: '#475569', fontSize: 11 }}>From: {item.calendarName}</div>
+            <div style={{ color: '#94a3b8', fontSize: 11 }}>From: {item.calendarName}</div>
           )}
-          <div style={{ color: '#334155', fontSize: 10 }}>Added {formatAdded(item.created_at)}</div>
+          <div style={{ color: '#94a3b8', fontSize: 10 }}>Added {formatAdded(item.created_at)}</div>
         </div>
 
         {/* Assign picker */}
         {showPicker && (
           <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-            <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8, fontWeight: 600 }}>ASSIGN TO</div>
+            <div style={{ color: '#cbd5e1', fontSize: 11, marginBottom: 8, fontWeight: 600 }}>ASSIGN TO</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {techs.map(t => (
                 <button key={t.id} onClick={() => assignItem(item, t.name)} style={{
@@ -234,7 +234,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
                 }}>{t.name}</button>
               ))}
             </div>
-            <button onClick={() => setAssignPicker(null)} style={{ marginTop: 8, background: 'none', border: 'none', color: '#475569', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setAssignPicker(null)} style={{ marginTop: 8, background: 'none', border: 'none', color: '#94a3b8', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
           </div>
         )}
 
@@ -270,7 +270,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
               }}>Save</button>
               <button onClick={() => setEditingMaterials(null)} style={{
                 padding: '7px 12px', background: 'none', border: '1px solid #334155',
-                borderRadius: 8, color: '#475569', fontSize: 11, cursor: 'pointer'
+                borderRadius: 8, color: '#94a3b8', fontSize: 11, cursor: 'pointer'
               }}>Cancel</button>
             </div>
           </div>
@@ -293,7 +293,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
           {item.assignedTo && (
             <button onClick={() => unassignItem(item)} style={{
               padding: '8px 10px', background: '#1e293b', border: '1px solid #334155',
-              borderRadius: 8, color: '#64748b', fontSize: 11, cursor: 'pointer'
+              borderRadius: 8, color: '#cbd5e1', fontSize: 11, cursor: 'pointer'
             }}>✕ Unassign</button>
           )}
           <button onClick={() => { setMaterialsText(item.materials || ''); setEditingMaterials(showMaterials ? null : item.id); }} style={{
@@ -308,7 +308,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
           </button>
           <button onClick={() => removeItem(item)} style={{
             padding: '8px 10px', background: 'none', border: '1px solid #334155',
-            borderRadius: 8, color: '#475569', fontSize: 11, cursor: 'pointer'
+            borderRadius: 8, color: '#94a3b8', fontSize: 11, cursor: 'pointer'
           }}>🗑</button>
         </div>
       </div>
@@ -324,7 +324,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
           <span style={{ color: '#e2e8f0', fontWeight: 800, fontSize: 16 }}>✅ Things To Do</span>
           <span style={{ background: '#f59e0b', color: '#000', padding: '1px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>{items.length}</span>
         </div>
-        <button onClick={load} style={{ background: 'none', border: 'none', color: '#475569', fontSize: 13, cursor: 'pointer' }}>↺</button>
+        <button onClick={load} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>↺</button>
       </div>
 
       {/* 3-column board */}
@@ -341,7 +341,7 @@ export default function ThingsToDo({ accessToken, userEmail, onBack }) {
             {/* Column body */}
             <div style={{ background: '#0f172a', borderRadius: '0 0 10px 10px', flex: 1, overflowY: 'auto', padding: 8 }}>
               {col.items.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 24, color: '#334155', fontSize: 12 }}>
+                <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: 12 }}>
                   {col.key === 'todo' ? 'Nothing to do 🎉' : col.key === 'inprogress' ? 'Nothing in progress' : 'Nothing overdue ✓'}
                 </div>
               ) : (

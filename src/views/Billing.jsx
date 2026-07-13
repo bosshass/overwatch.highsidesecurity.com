@@ -86,7 +86,7 @@ function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail,
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ color:'#fff', fontSize:15, fontWeight:600 }}>{job.customer_name || '—'}</div>
-          <div style={{ color:'#64748b', fontSize:11, marginTop:2 }}>
+          <div style={{ color:'#cbd5e1', fontSize:11, marginTop:2 }}>
             {job.cms_account_id ? `CMS ${job.cms_account_id} · ` : ''}{fmtDate(job.created_at)}
           </div>
           {totalHours > 0 && (
@@ -126,7 +126,7 @@ function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail,
       {/* Issue — visible until billed. Not a note; the customer-reported problem. */}
       {!isBilled && job.issue && (
         <div style={{ marginTop:10, background:'#0f172a', borderRadius:8, padding:10 }}>
-          <div style={{ color:'#475569', fontSize:9, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
+          <div style={{ color:'#94a3b8', fontSize:9, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
           <div style={{ color:'#cbd5e1', fontSize:12, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{job.issue}</div>
         </div>
       )}
@@ -151,7 +151,7 @@ function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail,
       {/* Send back into the board workflow — pulls the card out of Billing */}
       {showMove && (
         <div style={{ marginTop:10, background:'#0f172a', borderRadius:8, padding:10 }}>
-          <div style={{ color:'#475569', fontSize:9, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8 }}>move back to board</div>
+          <div style={{ color:'#94a3b8', fontSize:9, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8 }}>move back to board</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
             {BOARD_LANES.map(lane => (
               <button key={lane.target} onClick={() => onSendToBoard(job.id, lane.target)} disabled={busy}
@@ -170,11 +170,11 @@ function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail,
           concept), but this is your record of exactly what you invoiced. */}
       {showBillConfirm && (
         <div style={{ marginTop:10, background:'#0f172a', borderRadius:8, padding:10 }}>
-          <div style={{ color:'#475569', fontSize:9, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8 }}>
+          <div style={{ color:'#94a3b8', fontSize:9, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8 }}>
             which hours are on this invoice?
           </div>
           {hourEntries.length === 0 ? (
-            <div style={{ color:'#64748b', fontSize:12, marginBottom:8 }}>No logged hours found on this job — billing will proceed with no hour entries selected.</div>
+            <div style={{ color:'#cbd5e1', fontSize:12, marginBottom:8 }}>No logged hours found on this job — billing will proceed with no hour entries selected.</div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:10 }}>
               {hourEntries.map(a => (
@@ -185,7 +185,7 @@ function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail,
                       <span style={{ color:'#fff', fontSize:13, fontWeight:600 }}>{a.tech?.name || 'Unassigned'}</span>
                       <span style={{ color:'#06b6d4', fontSize:13, fontWeight:700, whiteSpace:'nowrap' }}>{fmtHours(a.actual_hours)}</span>
                     </div>
-                    <div style={{ color:'#64748b', fontSize:11, marginTop:1 }}>
+                    <div style={{ color:'#cbd5e1', fontSize:11, marginTop:1 }}>
                       {fmtDate(a.scheduled_for || a.time_out || a.created_at)}
                       {a.completion_notes ? ` · ${a.completion_notes.slice(0, 60)}${a.completion_notes.length > 60 ? '…' : ''}` : ''}
                     </div>
@@ -375,7 +375,7 @@ export default function Billing({ accessToken, userEmail, onBack }) {
         <div style={{ display:'flex', gap:6, overflowX:'auto' }}>
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              style={{ padding:'8px 14px', borderRadius:8, border:`1px solid ${tab===t.key?t.color:'#334155'}`, background:tab===t.key?`${t.color}22`:'transparent', color:tab===t.key?t.color:'#94a3b8', fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+              style={{ padding:'8px 14px', borderRadius:8, border:`1px solid ${tab===t.key?t.color:'#94a3b8'}`, background:tab===t.key?`${t.color}22`:'transparent', color:tab===t.key?t.color:'#94a3b8', fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
               {t.emoji} {t.label}
             </button>
           ))}
@@ -384,14 +384,14 @@ export default function Billing({ accessToken, userEmail, onBack }) {
 
       <div style={{ padding:16, maxWidth:600, margin:'0 auto' }}>
         {fmtMoney(total) && (
-          <div style={{ marginBottom:12, color:'#64748b', fontSize:13 }}>
+          <div style={{ marginBottom:12, color:'#cbd5e1', fontSize:13 }}>
             {jobs.length} {jobs.length===1?'job':'jobs'} · pipeline <span style={{ color:'#22c55e', fontWeight:700 }}>{fmtMoney(total)}</span>
           </div>
         )}
         {loading ? (
-          <div style={{ textAlign:'center', color:'#64748b', padding:40 }}>Loading…</div>
+          <div style={{ textAlign:'center', color:'#cbd5e1', padding:40 }}>Loading…</div>
         ) : jobs.length === 0 ? (
-          <div style={{ textAlign:'center', color:'#64748b', padding:40 }}>{activeTab.emoji} Nothing in {activeTab.label}</div>
+          <div style={{ textAlign:'center', color:'#cbd5e1', padding:40 }}>{activeTab.emoji} Nothing in {activeTab.label}</div>
         ) : (
           jobs.map(job => (
             <BillingCard key={job.id} job={job} assignments={assignmentsByJob[job.id]} onMarkBilled={markBilled} onSendToBoard={sendToBoard} userEmail={userEmail} accessToken={accessToken} busy={busy} />

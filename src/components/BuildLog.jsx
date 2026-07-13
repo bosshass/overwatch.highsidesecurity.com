@@ -9,6 +9,28 @@
 
 export const BUILDS = [
   {
+    version: '9.4.2',
+    date: '2026-07-13',
+    label: 'Board cards rebuilt around who owns it and how long it has sat',
+    changes: [
+      'Card text is bigger and the issue no longer truncates to one line — you get two',
+      'WHO IT IS ASSIGNED TO is now the loudest thing on the card, in blue. Unassigned jobs show a hard-to-miss amber "Unassigned" chip',
+      'Every card shows how long it has been on the board ("on board 5d") right next to the assignee — that line never truncates or collapses',
+      'The status chip ("New") is demoted to the quiet row. It was the biggest thing on the card and it told you nothing you could act on',
+      'THE 72-HOUR RULE: any job nobody has touched in 3 days gets an amber rail and a "⏱ 4d no update" flag. A full week turns it red',
+      'Those same stale jobs now appear in the dashboard Stuck/Unactioned panel, so they get chased instead of quietly rotting on the board',
+    ],
+  },
+  {
+    version: '9.4.1',
+    date: '2026-07-13',
+    label: 'Readability — text is no longer gray-on-black',
+    changes: [
+      'Every dim text color across the app (Board cards, Customer Lookup, Triage, Queue, Billing) was failing contrast on the dark background — some of it was effectively invisible. All of it lifted to readable levels',
+      'The smallest type (status chips, timestamps, phone/address lines) bumped up so it can actually be read on a phone in the field',
+    ],
+  },
+  {
     version: '9.4.0',
     date: '2026-07-13',
     label: 'Finish-a-job screen rebuilt around the tech',

@@ -144,7 +144,7 @@ export default function NotificationBell({ userEmail }) {
               }}>⚙️</button>
               {notifications.length > 0 && (
                 <button onClick={clearAll} style={{
-                  background: 'none', border: 'none', color: '#64748b',
+                  background: 'none', border: 'none', color: '#cbd5e1',
                   fontSize: '11px', cursor: 'pointer', padding: 0,
                 }}>Clear</button>
               )}
@@ -196,7 +196,7 @@ export default function NotificationBell({ userEmail }) {
 
           {/* Notification list */}
           {notifications.length === 0 ? (
-            <div style={{ padding: '30px', textAlign: 'center', color: '#475569', fontSize: '13px' }}>
+            <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
               No notifications yet
             </div>
           ) : (
@@ -207,7 +207,7 @@ export default function NotificationBell({ userEmail }) {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{n.title}</div>
-                  <span style={{ color: '#475569', fontSize: '10px', flexShrink: 0, marginLeft: '8px' }}>
+                  <span style={{ color: '#94a3b8', fontSize: '10px', flexShrink: 0, marginLeft: '8px' }}>
                     {timeAgo(n.time)}
                   </span>
                 </div>

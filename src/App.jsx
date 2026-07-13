@@ -34,7 +34,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 
-const APP_VERSION = '9.4.0';
+const APP_VERSION = '9.4.2';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -636,7 +636,7 @@ export default function App() {
         }}>← Home</button>
         <img src="/overwatch-logo.png" alt="" style={{ width: 26, height: 26, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
-        <span style={{ color: '#475569', fontSize: 11 }}>V{APP_VERSION}</span>
+        <span style={{ color: '#94a3b8', fontSize: 11 }}>V{APP_VERSION}</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
           {isOperator && (
@@ -696,7 +696,7 @@ export default function App() {
             <div style={{ padding: 24, textAlign: 'center', marginTop: 60 }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>🔴</div>
               <div style={{ color: '#e2e8f0', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Lifeline</div>
-              <div style={{ color: '#64748b', fontSize: 14 }}>Coming soon.</div>
+              <div style={{ color: '#cbd5e1', fontSize: 14 }}>Coming soon.</div>
             </div>
           </ViewShell>
         } />
@@ -845,13 +845,13 @@ export default function App() {
               <h2 style={{ color: '#00c8e8', fontSize: '16px', fontWeight: '700', margin: 0 }}>🔗 Backfill Deep Links</h2>
               <button onClick={() => setShowBackfill(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>×</button>
             </div>
-            <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 16px 0' }}>Patches "📱 Open in Overwatch" into all non-completed events from the last 60 days.</p>
+            <p style={{ color: '#cbd5e1', fontSize: '12px', margin: '0 0 16px 0' }}>Patches "📱 Open in Overwatch" into all non-completed events from the last 60 days.</p>
             <button onClick={runBackfill} disabled={backfillRunning}
               style={{ background: backfillRunning ? '#334155' : '#00c8e8', color: backfillRunning ? '#64748b' : '#000', border: 'none', borderRadius: '8px', padding: '12px', fontSize: '14px', fontWeight: '700', cursor: backfillRunning ? 'not-allowed' : 'pointer', marginBottom: '12px' }}>
               {backfillRunning ? 'Running...' : 'Run Backfill'}
             </button>
             <div style={{ flex: 1, overflowY: 'auto', background: '#0f1729', borderRadius: '8px', padding: '12px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.8' }}>
-              {backfillLog.length === 0 && <span style={{ color: '#475569' }}>Log will appear here...</span>}
+              {backfillLog.length === 0 && <span style={{ color: '#94a3b8' }}>Log will appear here...</span>}
               {backfillLog.map((entry, i) => (
                 <div key={i} style={{ color: entry.type === 'ok' ? '#22c55e' : entry.type === 'err' ? '#ef4444' : entry.type === 'cal' ? '#00c8e8' : entry.type === 'dim' ? '#475569' : '#e2e8f0' }}>{entry.msg}</div>
               ))}
@@ -890,7 +890,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
-          <span style={{ color: '#475569', fontSize: 11 }}>V{APP_VERSION}</span>
+          <span style={{ color: '#94a3b8', fontSize: 11 }}>V{APP_VERSION}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
@@ -906,7 +906,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
       </div>
 
       <div style={{ padding: '20px 20px 8px', textAlign: 'center' }}>
-        <div style={{ color: '#64748b', fontSize: 13 }}>Good to see you,</div>
+        <div style={{ color: '#cbd5e1', fontSize: 13 }}>Good to see you,</div>
         <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
       </div>
 
@@ -917,7 +917,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
           padding: '12px 16px', cursor: 'pointer', textAlign: 'left'
         }}>
           <span style={{ fontSize: 16 }}>🔍</span>
-          <span style={{ color: '#475569', fontSize: 14 }}>Search customers, jobs, materials…</span>
+          <span style={{ color: '#94a3b8', fontSize: 14 }}>Search customers, jobs, materials…</span>
         </button>
       </div>
 
@@ -932,7 +932,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
             <span style={{ fontSize: 36 }}>{emoji}</span>
             <div>
               <div style={{ color, fontSize: 18, fontWeight: 700 }}>{label}</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{sub}</div>
+              <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>{sub}</div>
             </div>
             <span style={{ marginLeft: 'auto', color: border, fontSize: 20 }}>›</span>
           </button>
@@ -947,7 +947,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
           ]).map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{
               flex: 1, background: '#1e293b', border: '1px solid #334155',
-              borderRadius: 10, padding: '10px 8px', color: '#475569',
+              borderRadius: 10, padding: '10px 8px', color: '#94a3b8',
               fontSize: 12, fontWeight: 600, cursor: 'pointer'
             }}>{label}</button>
           ))}
@@ -991,7 +991,7 @@ function DeepLinkFinish({ calendarId, eventId, accessToken, userEmail, userName,
       <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24 }}>
         <div style={{ fontSize: 48 }}>⚠️</div>
         <div style={{ color: '#e2e8f0', fontSize: 16 }}>Could not load this job.</div>
-        <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center' }}>{error}</div>
+        <div style={{ color: '#cbd5e1', fontSize: 13, textAlign: 'center' }}>{error}</div>
         <button onClick={onDone} style={{ marginTop: 12, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '10px 20px', cursor: 'pointer' }}>
           Back to home
         </button>
@@ -1002,7 +1002,7 @@ function DeepLinkFinish({ calendarId, eventId, accessToken, userEmail, userName,
   if (!event) {
     return (
       <div style={{ minHeight: '100vh', background: '#0f1729', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#64748b', fontSize: 14 }}>Loading job…</div>
+        <div style={{ color: '#cbd5e1', fontSize: 14 }}>Loading job…</div>
       </div>
     );
   }

@@ -132,7 +132,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         {compact && (
           <button
             onClick={() => setExpanded(false)}
-            style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '14px', cursor: 'pointer' }}
+            style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', cursor: 'pointer' }}
           >
             ×
           </button>
@@ -168,7 +168,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
 
       {/* Notes list */}
       {isLoading ? (
-        <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'center', padding: '8px' }}>Loading...</div>
+        <div style={{ color: '#cbd5e1', fontSize: '12px', textAlign: 'center', padding: '8px' }}>Loading...</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {displayNotes.map(note => (
@@ -178,7 +178,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             }}>
               {/* Status change indicator */}
               {note.from_status && note.to_status && note.from_status !== note.to_status && (
-                <div style={{ fontSize: '10px', color: '#475569', marginBottom: '4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <div style={{ fontSize: '10px', color: '#94a3b8', marginBottom: '4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
                   <span style={{ color: STATUS_INFO[note.from_status]?.color }}>{STATUS_INFO[note.from_status]?.label}</span>
                   <span>→</span>
                   <span style={{ color: STATUS_INFO[note.to_status]?.color }}>{STATUS_INFO[note.to_status]?.label}</span>
@@ -210,13 +210,13 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
                 <>
                   <div style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.4' }}>{note.text}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                    <span style={{ color: '#475569', fontSize: '11px' }}>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>
                       {formatAuthor(note.created_by)} · {formatTime(note.created_at)}
                     </span>
                     {note.editable && (
                       <button
                         onClick={() => { setEditingId(note.id); setEditText(note.text); }}
-                        style={{ background: 'none', border: 'none', color: '#475569', fontSize: '11px', cursor: 'pointer' }}
+                        style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}
                       >
                         edit
                       </button>
@@ -227,7 +227,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             </div>
           ))}
           {maxNotes && notes.length > maxNotes && (
-            <div style={{ color: '#475569', fontSize: '11px', textAlign: 'center', padding: '4px' }}>
+            <div style={{ color: '#94a3b8', fontSize: '11px', textAlign: 'center', padding: '4px' }}>
               +{notes.length - maxNotes} more
             </div>
           )}

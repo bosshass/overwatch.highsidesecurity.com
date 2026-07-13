@@ -40,14 +40,14 @@ const DISPO = {
   in_progress: { label: 'In progress', color: '#00c8e8' },
 };
 function dispo(d) {
-  return DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#64748b' };
+  return DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#cbd5e1' };
 }
 
 // Open-work status chip colors (jobs.status)
 function jobChip(status) {
   const map = {
-    new:            { label: 'New',           color: '#64748b' },
-    needs_details:  { label: 'Needs details', color: '#64748b' },
+    new:            { label: 'New',           color: '#cbd5e1' },
+    needs_details:  { label: 'Needs details', color: '#cbd5e1' },
     needs_parts:    { label: 'Needs parts',   color: '#eab308' },
     pending_materials: { label: 'Pending materials', color: '#eab308' },
     ready_to_schedule: { label: 'Ready',      color: '#3b82f6' },
@@ -59,7 +59,7 @@ function jobChip(status) {
     to_bill:        { label: 'To bill',       color: '#22c55e' },
     complete:       { label: 'Complete',      color: '#22c55e' },
   };
-  return map[status] || { label: (status || '—').replace(/_/g, ' '), color: '#64748b' };
+  return map[status] || { label: (status || '—').replace(/_/g, ' '), color: '#cbd5e1' };
 }
 function typeBadge(job) {
   if (job.job_type === 'note') return { label: 'Note', color: '#5dcaa5' };
@@ -86,7 +86,7 @@ function nameTokens(name) {
 const TIME_FIELDS =
   'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, customer_id';
 
-const editLabel = { display: 'flex', flexDirection: 'column', gap: 3, color: '#64748b', fontSize: 11 };
+const editLabel = { display: 'flex', flexDirection: 'column', gap: 3, color: '#cbd5e1', fontSize: 11 };
 const editInput = { background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', fontSize: 13, padding: '7px 9px', outline: 'none', fontFamily: 'inherit' };
 
 // ── component ────────────────────────────────────────────────
@@ -317,7 +317,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   // ── styles ──
   const page = { minHeight: '100vh', background: '#0f1729', color: '#e2e8f0', paddingBottom: 100 };
   const bar  = { position: 'sticky', top: 0, zIndex: 10, background: '#0f1729', borderBottom: '1px solid #1e293b', padding: '12px 14px' };
-  const back = { background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer', padding: '4px 0' };
+  const back = { background: 'none', border: 'none', color: '#cbd5e1', fontSize: 16, cursor: 'pointer', padding: '4px 0' };
   const input = { width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0', padding: '12px 14px', fontSize: 15, outline: 'none', boxSizing: 'border-box' };
   const card = { background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', marginBottom: 12 };
   const sectionLabel = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0 10px' };
@@ -365,7 +365,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
           <Badge color={t.color}>{t.label}</Badge>
           {!done && <Badge color={s.color}>{s.label}</Badge>}
           {done && <Badge color="#64748b">{jobChip(j.status).label}</Badge>}
-          {j.created_at && <span style={{ fontSize: 12, color: '#64748b' }}>📅 {fmtDate(j.created_at)}</span>}
+          {j.created_at && <span style={{ fontSize: 12, color: '#cbd5e1' }}>📅 {fmtDate(j.created_at)}</span>}
         </div>
         {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none' }}>{j.issue}</div>}
         {actionable && (
@@ -392,7 +392,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
           {selected ? selected.name : 'Customer Lookup'}
         </div>
         {selected && (
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>
             <span style={{ color: '#00c8e8', fontWeight: 700 }}>{selected.short_code}</span>
             {(selected.cs_number || selected.cms_account_id) && (
               <span> · CS# {selected.cs_number || selected.cms_account_id}</span>
@@ -405,10 +405,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
         <div style={{ margin: '0 14px 14px', background: '#111827', border: '1px solid #1e293b', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: editingDetails ? 4 : -4 }}>
             {!editingDetails ? (
-              <button onClick={startEditDetails} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>✏️ Edit details</button>
+              <button onClick={startEditDetails} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#cbd5e1', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>✏️ Edit details</button>
             ) : (
               <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setEditingDetails(false)} disabled={savingDetails} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#64748b', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => setEditingDetails(false)} disabled={savingDetails} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#cbd5e1', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
                 <button onClick={saveDetails} disabled={savingDetails} style={{ background: '#00c8e8', border: 'none', borderRadius: 8, color: '#0f1729', fontWeight: 700, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>{savingDetails ? 'Saving…' : 'Save'}</button>
               </div>
             )}
@@ -422,7 +422,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               <label style={editLabel}>Key location<input style={editInput} value={editForm.key_location} onChange={e => setEditForm(f => ({ ...f, key_location: e.target.value }))} /></label>
               <label style={editLabel}>QuickBooks customer ID<input style={editInput} placeholder="leave blank if not captured" value={editForm.qbo_customer_id} onChange={e => setEditForm(f => ({ ...f, qbo_customer_id: e.target.value }))} /></label>
               <label style={editLabel}>QuickBooks customer name<input style={editInput} placeholder="leave blank if not captured" value={editForm.qbo_customer_name} onChange={e => setEditForm(f => ({ ...f, qbo_customer_name: e.target.value }))} /></label>
-              <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>CS# and system/monitoring fields aren't editable here.</div>
+              <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>CS# and system/monitoring fields aren't editable here.</div>
             </>
           ) : (
             <>
@@ -471,7 +471,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               {!selected.address && !selected.phone && !selected.system_type && !selected.monitoring_tier &&
                 !selected.service_tier && !selected.package && !selected.alula_username &&
                 !selected.gate_code && !selected.key_location && !selected.qbo_customer_id && (
-                <div style={{ color: '#475569', fontStyle: 'italic' }}>No stored details on file for this customer.</div>
+                <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>No stored details on file for this customer.</div>
               )}
             </>
           )}
@@ -492,7 +492,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               style={input}
             />
             {query.trim() && matches.length === 0 && (
-              <div style={{ color: '#64748b', fontSize: 13, marginTop: 14 }}>
+              <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 14 }}>
                 No customer matches “{query.trim()}”. (Customer lookup searches all customers.)
               </div>
             )}
@@ -563,7 +563,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               </div>
             )}
 
-            {loading && <div style={{ color: '#64748b', fontSize: 13, marginTop: 6 }}>Loading…</div>}
+            {loading && <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 6 }}>Loading…</div>}
 
             {!loading && (
               <>
@@ -581,7 +581,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                       )}
                       {doneItems.length > 0 && (
                         <>
-                          <button onClick={() => setShowDone(v => !v)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', padding: '6px 0', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          <button onClick={() => setShowDone(v => !v)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', padding: '6px 0', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                             {showDone ? '▾ Hide done' : `▸ Done (${doneItems.length})`}
                           </button>
                           {showDone && doneItems.map(j => <WorkCard key={j.id} j={j} done />)}
@@ -592,11 +592,11 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                 })()}
 
                 {/* finished visits */}
-                <div style={{ ...sectionLabel, color: '#64748b', marginTop: openWork.length ? 18 : 4 }}>
+                <div style={{ ...sectionLabel, color: '#cbd5e1', marginTop: openWork.length ? 18 : 4 }}>
                   Calendar events ({tagged.length})
                 </div>
                 {tagged.length === 0 && (
-                  <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                  <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 16 }}>
                     Nothing tagged to this account yet. Any look-alikes below can be assigned with one tap.
                   </div>
                 )}

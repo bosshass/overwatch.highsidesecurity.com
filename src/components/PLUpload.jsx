@@ -245,13 +245,13 @@ export default function PLUpload({ userEmail, onUploadComplete }) {
                   <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
                     <td style={{ padding: '8px', color: '#e2e8f0' }}>{p.period_label}</td>
                     <td style={{ padding: '8px', textAlign: 'right', color: '#4ade80' }}>{fmt(p.total_revenue)}</td>
-                    {preview.hasPY && <td style={{ padding: '8px', textAlign: 'right', color: '#64748b' }}>{fmt(p.py_total_revenue)}</td>}
+                    {preview.hasPY && <td style={{ padding: '8px', textAlign: 'right', color: '#cbd5e1' }}>{fmt(p.py_total_revenue)}</td>}
                     <td style={{ padding: '8px', textAlign: 'right', color: p.net_amount >= 0 ? '#4ade80' : '#f87171' }}>{fmt(p.net_amount)}</td>
-                    {preview.hasPY && <td style={{ padding: '8px', textAlign: 'right', color: '#64748b' }}>{fmt(p.py_net_amount)}</td>}
+                    {preview.hasPY && <td style={{ padding: '8px', textAlign: 'right', color: '#cbd5e1' }}>{fmt(p.py_net_amount)}</td>}
                   </tr>
                 ))}
                 {preview.periods.length > 6 && (
-                  <tr><td colSpan={preview.hasPY ? 5 : 3} style={{ padding: '8px', color: '#64748b', textAlign: 'center' }}>...and {preview.periods.length - 6} more</td></tr>
+                  <tr><td colSpan={preview.hasPY ? 5 : 3} style={{ padding: '8px', color: '#cbd5e1', textAlign: 'center' }}>...and {preview.periods.length - 6} more</td></tr>
                 )}
               </tbody>
             </table>

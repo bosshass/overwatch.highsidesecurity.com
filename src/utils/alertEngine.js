@@ -3,6 +3,7 @@
 
 import { supabase } from '../services/supabase.js';
 import { CALENDARS } from '../config/calendars.js';
+import { STALE_HOURS, hoursSince } from './staleness.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -20,6 +21,32 @@ function hoursOld(iso) {
 
 export async function fetchStuckAlerts(accessToken) {
   const alerts = [];
+
+  // ── 0. Board jobs with no update in 72h ─────────────────────
+  // The 72-hour rule, same threshold the Board card rails use
+  // (src/utils/staleness.js). A job nobody has touched in 3 days is a
+  // job nobody is working — surface it here instead of hoping someone
+  // notices the amber rail.
+  try {
+    const cutoff = new Date(Date.now() - STALE_HOURS * 3600000).toISOString();
+    const { data } = await supabase
+      .from('jobs')
+      .select('id, customer_name, issue, status, tech_name, updated_at, created_at')
+      .not('status', 'in', '(complete,billed,archived,dead,lost,won)')
+      .lt('updated_at', cutoff)
+      .order('updated_at', { ascending: true })
+      .limit(50);
+
+    (data || []).forEach(j => alerts.push({
+      type:      'stale',
+      icon:      '⏱',
+      label:     'NO UPDATE IN 72H',
+      customer:  j.customer_name || 'Unknown customer',
+      detail:    `${j.tech_name ? j.tech_name : 'Unassigned'} · ${j.issue || 'no issue noted'}`,
+      hoursOld:  Math.round(hoursSince(j.updated_at || j.created_at)),
+      threshold: STALE_HOURS,
+    }));
+  } catch { /**/ }
 
   // ── 1. Returns past 3 days (72h) ────────────────────────────
   try {

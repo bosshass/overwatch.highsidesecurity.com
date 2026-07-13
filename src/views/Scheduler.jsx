@@ -13,7 +13,7 @@ const JOB_TYPES = {
   SVC: { label: 'Service Call', duration: 2, color: '#3b82f6' },
   RTN: { label: 'Return Visit', duration: 4, color: '#06b6d4' },
   TRB: { label: 'Troubleshoot', duration: 2, color: '#8b5cf6' },
-  EST: { label: 'Estimate/Walk', duration: 1, color: '#64748b' },
+  EST: { label: 'Estimate/Walk', duration: 1, color: '#cbd5e1' },
   'INS-S': { label: 'Install - Small', duration: 4, color: '#22c55e' },
   'INS-M': { label: 'Install - Medium', duration: 8, color: '#f59e0b' },
   'INS-L': { label: 'Install - Large', duration: 16, color: '#ef4444' },
@@ -525,7 +525,7 @@ export default function Scheduler({ accessToken, onBack }) {
       <div style={{ minHeight: '100vh', background: '#0a0f1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16, animation: 'pulse 2s infinite' }}>📅</div>
-          <div style={{ color: '#64748b', fontSize: 14 }}>Loading scheduler...</div>
+          <div style={{ color: '#cbd5e1', fontSize: 14 }}>Loading scheduler...</div>
         </div>
       </div>
     );
@@ -536,10 +536,10 @@ export default function Scheduler({ accessToken, onBack }) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>←</button>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 20, cursor: 'pointer' }}>←</button>
           <div>
             <h1 style={{ color: '#e2e8f0', fontSize: 20, fontWeight: 700, margin: 0 }}>📅 Scheduler</h1>
-            <p style={{ color: '#64748b', fontSize: 12, margin: 0 }}>Classify jobs & generate schedule</p>
+            <p style={{ color: '#cbd5e1', fontSize: 12, margin: 0 }}>Classify jobs & generate schedule</p>
           </div>
         </div>
         <button
@@ -563,27 +563,27 @@ export default function Scheduler({ accessToken, onBack }) {
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
         <div style={{ background: '#1e293b', borderRadius: 12, padding: 16 }}>
-          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Backlog Items</div>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>Backlog Items</div>
           <div style={{ color: '#e2e8f0', fontSize: 24, fontWeight: 700 }}>{backlogItems.length}</div>
         </div>
         <div style={{ background: '#1e293b', borderRadius: 12, padding: 16 }}>
-          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Backlog Hours</div>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>Backlog Hours</div>
           <div style={{ color: '#e2e8f0', fontSize: 24, fontWeight: 700 }}>{totalBacklogHours}</div>
         </div>
         <div style={{ background: '#1e293b', borderRadius: 12, padding: 16 }}>
-          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Austin Available</div>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>Austin Available</div>
           <div style={{ color: '#3b82f6', fontSize: 24, fontWeight: 700 }}>{austinAvail.availableHours}h</div>
-          <div style={{ color: '#64748b', fontSize: 11 }}>{austinAvail.utilization}% booked</div>
+          <div style={{ color: '#cbd5e1', fontSize: 11 }}>{austinAvail.utilization}% booked</div>
         </div>
         <div style={{ background: '#1e293b', borderRadius: 12, padding: 16 }}>
-          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>JR Available</div>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>JR Available</div>
           <div style={{ color: '#22c55e', fontSize: 24, fontWeight: 700 }}>{jrAvail.availableHours}h</div>
-          <div style={{ color: '#64748b', fontSize: 11 }}>{jrAvail.utilization}% booked</div>
+          <div style={{ color: '#cbd5e1', fontSize: 11 }}>{jrAvail.utilization}% booked</div>
         </div>
         <div style={{ background: '#1e293b', borderRadius: 12, padding: 16 }}>
-          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 4 }}>Brian Available</div>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>Brian Available</div>
           <div style={{ color: '#3F51B5', fontSize: 24, fontWeight: 700 }}>{brianAvail.availableHours}h</div>
-          <div style={{ color: '#64748b', fontSize: 11 }}>{brianAvail.utilization}% booked</div>
+          <div style={{ color: '#cbd5e1', fontSize: 11 }}>{brianAvail.utilization}% booked</div>
         </div>
       </div>
 
@@ -606,9 +606,9 @@ export default function Scheduler({ accessToken, onBack }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🔮</span>
           <span style={{ color: '#8b5cf6', fontWeight: 600, fontSize: 14 }}>Capacity Forecast</span>
-          <span style={{ color: '#64748b', fontSize: 12 }}>What-if scenarios</span>
+          <span style={{ color: '#cbd5e1', fontSize: 12 }}>What-if scenarios</span>
         </div>
-        <span style={{ color: '#64748b' }}>{showForecast ? '▼' : '▶'}</span>
+        <span style={{ color: '#cbd5e1' }}>{showForecast ? '▼' : '▶'}</span>
       </button>
 
       {/* Forecast Panel */}
@@ -624,7 +624,7 @@ export default function Scheduler({ accessToken, onBack }) {
               <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Total Available Capacity</span>
               <span style={{ color: '#22c55e', fontSize: 15, fontWeight: 700 }}>{austinAvail.availableHours + jrAvail.availableHours + brianAvail.availableHours}h</span>
             </div>
-            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#64748b' }}>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#cbd5e1' }}>
               <span>Austin: {austinAvail.availableHours}h</span>
               <span>JR: {jrAvail.availableHours}h</span>
               <span>Brian: {brianAvail.availableHours}h</span>
@@ -639,30 +639,30 @@ export default function Scheduler({ accessToken, onBack }) {
             {/* Projects */}
             <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #22c55e' }}>
               <div style={{ color: '#22c55e', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🔨 Projects</div>
-              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.projects.count} items</div>
+              <div style={{ color: '#cbd5e1', fontSize: 10, marginBottom: 6 }}>{forecastData.projects.count} items</div>
               <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.projects.hours}h</div>
             </div>
 
             {/* Service Calls */}
             <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #8b5cf6' }}>
               <div style={{ color: '#8b5cf6', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🔧 Service Calls</div>
-              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.serviceCalls.count} items</div>
+              <div style={{ color: '#cbd5e1', fontSize: 10, marginBottom: 6 }}>{forecastData.serviceCalls.count} items</div>
               <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.serviceCalls.hours}h</div>
             </div>
 
             {/* Returns */}
             <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #06b6d4' }}>
               <div style={{ color: '#06b6d4', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🔄 Returns</div>
-              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.returns.count} items</div>
+              <div style={{ color: '#cbd5e1', fontSize: 10, marginBottom: 6 }}>{forecastData.returns.count} items</div>
               <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.returns.hours}h</div>
             </div>
 
             {/* Blocked */}
             <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: '3px solid #ef4444' }}>
               <div style={{ color: '#ef4444', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>🚫 Blocked</div>
-              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6 }}>{forecastData.blocked.count} items waiting</div>
+              <div style={{ color: '#cbd5e1', fontSize: 10, marginBottom: 6 }}>{forecastData.blocked.count} items waiting</div>
               <div style={{ color: '#e2e8f0', fontSize: 18, fontWeight: 700 }}>{forecastData.blocked.hours}h</div>
-              <div style={{ color: '#64748b', fontSize: 9 }}>when unblocked</div>
+              <div style={{ color: '#cbd5e1', fontSize: 9 }}>when unblocked</div>
             </div>
           </div>
 
@@ -674,7 +674,7 @@ export default function Scheduler({ accessToken, onBack }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ color: '#3b82f6', fontSize: 11, fontWeight: 600, marginBottom: 2 }}>📋 Open Tasks (on tech calendars)</div>
-                <div style={{ color: '#64748b', fontSize: 10 }}>{forecastData.openTasks.count} items already scheduled</div>
+                <div style={{ color: '#cbd5e1', fontSize: 10 }}>{forecastData.openTasks.count} items already scheduled</div>
               </div>
               <div style={{ color: '#3b82f6', fontSize: 22, fontWeight: 700 }}>{forecastData.openTasks.hours}h</div>
             </div>
@@ -705,7 +705,7 @@ export default function Scheduler({ accessToken, onBack }) {
                   {forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours + forecastData.blocked.hours + (forecastData.serviceCalls.count * 4)}h
                 </span>
               </div>
-              <div style={{ color: '#64748b', fontSize: 10, textAlign: 'right' }}>
+              <div style={{ color: '#cbd5e1', fontSize: 10, textAlign: 'right' }}>
                 {Math.round(((forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours + forecastData.blocked.hours + (forecastData.serviceCalls.count * 4)) / (austinAvail.availableHours + jrAvail.availableHours + brianAvail.availableHours)) * 100)}% of 2-week capacity
               </div>
             </div>
@@ -719,13 +719,13 @@ export default function Scheduler({ accessToken, onBack }) {
           <h2 style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, margin: 0 }}>
             Ready to Schedule ({backlogItems.length})
           </h2>
-          <div style={{ color: '#64748b', fontSize: 12 }}>
+          <div style={{ color: '#cbd5e1', fontSize: 12 }}>
             Click to edit classification
           </div>
         </div>
 
         {backlogItems.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
+          <div style={{ padding: 40, textAlign: 'center', color: '#cbd5e1' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
             <div>No items in backlog!</div>
           </div>
@@ -748,7 +748,7 @@ export default function Scheduler({ accessToken, onBack }) {
                     {item.title.replace(/\[.*?\]/g, '').trim().substring(0, 50)}
                     {item.title.length > 50 && '...'}
                   </div>
-                  <div style={{ color: '#64748b', fontSize: 11 }}>
+                  <div style={{ color: '#cbd5e1', fontSize: 11 }}>
                     {item.source === 'queue' ? '📋 Queue' : '🔄 Returns'}
                     {item.location && ` • ${item.location.split(',')[0]}`}
                   </div>
@@ -799,7 +799,7 @@ export default function Scheduler({ accessToken, onBack }) {
                 </select>
 
                 {/* Hours */}
-                <div style={{ color: '#64748b', fontSize: 12, fontWeight: 600 }}>
+                <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 600 }}>
                   {item.estimatedHours}h
                 </div>
                 </div>
@@ -817,15 +817,15 @@ export default function Scheduler({ accessToken, onBack }) {
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <h2 style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 700, margin: 0 }}>🤖 Recommended Schedule</h2>
-                <p style={{ color: '#64748b', fontSize: 12, margin: '4px 0 0 0' }}>{recommendations.length} items scheduled</p>
+                <p style={{ color: '#cbd5e1', fontSize: 12, margin: '4px 0 0 0' }}>{recommendations.length} items scheduled</p>
               </div>
-              <button onClick={() => setShowRecommendations(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 24, cursor: 'pointer' }}>×</button>
+              <button onClick={() => setShowRecommendations(false)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 24, cursor: 'pointer' }}>×</button>
             </div>
 
             {/* Recommendations List */}
             <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
               {recommendations.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                <div style={{ textAlign: 'center', padding: 40, color: '#cbd5e1' }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>🤷</div>
                   <div>No slots available for remaining items</div>
                 </div>
@@ -889,7 +889,7 @@ export default function Scheduler({ accessToken, onBack }) {
                         </div>
                       </div>
 
-                      <div style={{ color: '#64748b', fontSize: 11, marginTop: 8 }}>
+                      <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 8 }}>
                         💡 {rec.reason}
                       </div>
                     </div>

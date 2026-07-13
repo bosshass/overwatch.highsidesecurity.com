@@ -148,7 +148,7 @@ export default function AdminGap({ onBack }) {
             {f === 'all' ? 'All QBO' : f}
           </button>
         ))}
-        <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 12 }}>{filtered.length} showing</span>
+        <span style={{ marginLeft: 'auto', color: '#cbd5e1', fontSize: 12 }}>{filtered.length} showing</span>
       </div>
 
       {/* TABLE */}
@@ -175,10 +175,10 @@ export default function AdminGap({ onBack }) {
           </tbody>
         </table>
         {filtered.length === 0 && !loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>No jobs match filters</div>
+          <div style={{ padding: 40, textAlign: 'center', color: '#cbd5e1' }}>No jobs match filters</div>
         )}
         {loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading...</div>
+          <div style={{ padding: 40, textAlign: 'center', color: '#cbd5e1' }}>Loading...</div>
         )}
       </div>
     </div>
@@ -240,7 +240,7 @@ function JobRow({ job, expanded, onExpand, onUpdate, saving }) {
             <button onClick={e => { e.stopPropagation(); setLinkMode(!linkMode); onExpand(); }} style={S.linkBtn}>+ Link</button>
           )}
         </td>
-        <td style={S.td}>{saving && <span style={{ color: '#64748b', fontSize: 11 }}>saving...</span>}</td>
+        <td style={S.td}>{saving && <span style={{ color: '#cbd5e1', fontSize: 11 }}>saving...</span>}</td>
       </tr>
 
       {expanded && (
@@ -339,7 +339,7 @@ const S = {
   page: { maxWidth: 1280, margin: '0 auto', padding: '16px 16px 80px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', color: '#e2e8f0', fontSize: 14, minHeight: '100vh', background: '#0f1729' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   h1: { fontSize: 20, fontWeight: 700, margin: 0, color: '#00c8e8' },
-  sub: { color: '#64748b', fontSize: 12, margin: '2px 0 0' },
+  sub: { color: '#cbd5e1', fontSize: 12, margin: '2px 0 0' },
   backBtn: { background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 14, padding: '4px 0' },
   refreshBtn: { padding: '8px 14px', border: '1px solid #334155', borderRadius: 6, background: '#1a1f2e', color: '#94a3b8', cursor: 'pointer', fontSize: 13 },
   statRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 },
@@ -348,14 +348,14 @@ const S = {
   pill: { padding: '4px 12px', border: '1px solid #334155', borderRadius: 4, background: '#1a1f2e', color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontWeight: 500 },
   tableWrap: { border: '1px solid #1e293b', borderRadius: 8, overflow: 'hidden' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { padding: '10px 12px', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', borderBottom: '2px solid #1e293b', background: '#111827' },
+  th: { padding: '10px 12px', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#cbd5e1', borderBottom: '2px solid #1e293b', background: '#111827' },
   tr: { borderBottom: '1px solid #1e293b', transition: 'background 0.1s' },
   td: { padding: '10px 12px', verticalAlign: 'middle', color: '#94a3b8' },
   badge: { padding: '2px 8px', borderRadius: 3, background: '#1e293b', fontSize: 11, color: '#94a3b8' },
   select: { padding: '4px 8px', border: '1px solid #334155', borderRadius: 4, fontSize: 12, background: '#1a1f2e', color: '#e2e8f0', cursor: 'pointer' },
-  linkBtn: { padding: '3px 10px', border: '1px dashed #475569', borderRadius: 4, background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#64748b' },
+  linkBtn: { padding: '3px 10px', border: '1px dashed #475569', borderRadius: 4, background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#cbd5e1' },
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, padding: '16px 20px' },
-  dLabel: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', marginBottom: 4 },
+  dLabel: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#cbd5e1', marginBottom: 4 },
   dVal: { fontSize: 15, fontFamily: 'monospace', color: '#e2e8f0', marginBottom: 8 },
   check: { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', cursor: 'pointer', fontSize: 13, color: '#94a3b8' },
   textarea: { width: '100%', padding: 8, border: '1px solid #334155', borderRadius: 4, fontSize: 13, fontFamily: 'inherit', background: '#1a1f2e', color: '#e2e8f0', resize: 'vertical', boxSizing: 'border-box' },

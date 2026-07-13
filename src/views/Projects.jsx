@@ -161,14 +161,14 @@ export default function Projects({ accessToken, onBack }) {
           <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>← Home</button>
           <h2 style={{ margin: 0 }}>🔨 Projects</h2>
         </div>
-        <span style={{ color: '#64748b', fontSize: 12 }}>{rows.length} projects</span>
+        <span style={{ color: '#cbd5e1', fontSize: 12 }}>{rows.length} projects</span>
       </div>
 
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {loading && <div style={{ color: '#64748b', textAlign: 'center', padding: 40 }}>Loading…</div>}
+        {loading && <div style={{ color: '#cbd5e1', textAlign: 'center', padding: 40 }}>Loading…</div>}
         {error && <div style={{ color: '#ef4444', padding: 12, background: '#7f1d1d22', borderRadius: 8 }}>Error: {error}</div>}
         {!loading && !error && rows.length === 0 && (
-          <div style={{ color: '#64748b', textAlign: 'center', padding: 40 }}>No projects yet. Tag a time entry or a calendar event with a P-code.</div>
+          <div style={{ color: '#cbd5e1', textAlign: 'center', padding: 40 }}>No projects yet. Tag a time entry or a calendar event with a P-code.</div>
         )}
         {!loading && !error && rows.map(r => {
           const isOpen = expanded === r.ref;
@@ -188,7 +188,7 @@ export default function Projects({ accessToken, onBack }) {
                       <span style={{ fontSize: 9, color: '#fbbf24', background: '#78350f40', padding: '2px 6px', borderRadius: 4 }}>NO JOB ROW</span>
                     )}
                   </div>
-                  {r.address && <div style={{ fontSize: 11, color: '#64748b' }}>{r.address}</div>}
+                  {r.address && <div style={{ fontSize: 11, color: '#cbd5e1' }}>{r.address}</div>}
                 </div>
                 <div style={{ textAlign: 'right', minWidth: 150 }}>
                   {r.budget != null && <div style={{ fontSize: 13, color: '#22c55e', fontWeight: 600 }}>{formatMoney(r.budget)} budget</div>}
@@ -213,7 +213,7 @@ export default function Projects({ accessToken, onBack }) {
 
                   {/* Logged time entries — billed and unbilled */}
                   {entryCount === 0 && r.scheduled.length === 0 && (
-                    <div style={{ color: '#64748b', fontSize: 12, fontStyle: 'italic' }}>No time entries logged yet.</div>
+                    <div style={{ color: '#cbd5e1', fontSize: 12, fontStyle: 'italic' }}>No time entries logged yet.</div>
                   )}
                   {r.entries.map(e => {
                     const isNC = e.invoice_ref === 'NC-ARCHIVED';
@@ -228,10 +228,10 @@ export default function Projects({ accessToken, onBack }) {
                           <span style={{ color: '#cbd5e1' }}>{e.tech_name || e.tech_email?.split('@')[0] || 'Unknown'} · {formatHours(e.total_minutes)}</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: badge.bg, color: badge.c }}>{badge.t}</span>
-                            <span style={{ color: '#64748b' }}>{fmtDay(e.time_in)}</span>
+                            <span style={{ color: '#cbd5e1' }}>{fmtDay(e.time_in)}</span>
                           </span>
                         </div>
-                        {e.event_title && <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{e.event_title}</div>}
+                        {e.event_title && <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>{e.event_title}</div>}
                         {e.materials && <div style={{ color: '#f59e0b', fontSize: 11, marginTop: 2 }}>🔧 {e.materials}</div>}
                         {e.invoice_ref && !isNC && <div style={{ color: '#4ade80', fontSize: 11, marginTop: 2 }}>Invoice #{e.invoice_ref}</div>}
                       </div>
@@ -248,7 +248,7 @@ export default function Projects({ accessToken, onBack }) {
                         <div key={ev.id} style={{ background: '#0c1a3d', borderRadius: 6, padding: '8px 10px', marginBottom: 4, fontSize: 12, border: '1px solid #1e3a5f' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: '#93c5fd' }}>📅 {ev.calendarName}</span>
-                            <span style={{ color: '#64748b' }}>{fmtDay(ev.start)}</span>
+                            <span style={{ color: '#cbd5e1' }}>{fmtDay(ev.start)}</span>
                           </div>
                           <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>{ev.summary}</div>
                         </div>

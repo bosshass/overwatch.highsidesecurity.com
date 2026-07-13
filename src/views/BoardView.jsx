@@ -78,13 +78,11 @@ const EST_STAGES = [
 ];
 
 const COLUMNS = [
-  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision'] },
-  { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', statuses:['blocked'] },
-  { key:'ready',     label:'✅ Ready',      color:'#22c55e', statuses:['ready_to_schedule'] },
-  { key:'returns',   label:'🔄 Returns',    color:'#06b6d4', statuses:['return_pending'] },
-  { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
-  { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', statuses:['complete','to_bill'] },
+  { key:'triage',    label:'📝 New / Notes',       color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
+  { key:'ready',     label:'✅ Ready to Schedule',  color:'#22c55e', statuses:['ready_to_schedule','return_pending'] },
+  { key:'scheduled', label:'📅 Scheduled',         color:'#3b82f6', statuses:['scheduled'] },
+  { key:'estimates', label:'📋 Estimates',         color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
+  { key:'tobill',    label:'💵 To Bill',           color:'#8b5cf6', statuses:['complete','to_bill'] },
 ];
 
 const fmtMoney = n => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '';
@@ -947,6 +945,15 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const [loading, setLoading] = useState(true);
   const [moving, setMoving] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
+  // Refs so tapping a stat card (e.g. "returns") actually moves the board to
+  // that column instead of just tinting a tab somewhere off-screen.
+  const colRefs = useRef({});
+  const focusColumn = (key) => {
+    setActiveCol(key);
+    setExpandedCol(key);                       // mobile: open the accordion
+    const el = colRefs.current[key];
+    if (el) el.scrollIntoView({ behavior:'smooth', inline:'start', block:'nearest' });
+  };
   const [schedulingJob, setSchedulingJob] = useState(null);
   const [showNewJob, setShowNewJob] = useState(false);
   const [activeCol, setActiveCol] = useState('triage');
@@ -1103,11 +1110,17 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       </div>
 
       <div style={{ display:'flex', gap:10, padding:'10px 16px', borderBottom:'1px solid #1e293b', flexWrap:'wrap', alignItems:'center' }}>
-        {[{label:'open',val:stats.total_open,color:'#cbd5e1'},{label:'needs action',val:stats.needs_action,color:'#ef4444'},{label:'to bill',val:stats.to_bill,color:'#8b5cf6'},{label:'returns',val:stats.returns_pending,color:'#06b6d4'}].map(s=>(
-          <div key={s.label} style={{ background:'#1e293b', padding:'6px 14px', borderRadius:8 }}>
+        {[
+          { label:'open',     val:stats.total_open,       color:'#cbd5e1', col:null },
+          { label:'new/notes',val:buckets.triage?.length||0,    color:'#ef4444', col:'triage' },
+          { label:'returns',  val:stats.returns_pending,  color:'#ec4899', col:'ready' },
+          { label:'to bill',  val:buckets.tobill?.length||0,    color:'#8b5cf6', col:'tobill' },
+        ].map(s=>(
+          <button key={s.label} onClick={() => s.col && focusColumn(s.col)}
+            style={{ background: activeCol===s.col && s.col ? '#334155' : '#1e293b', padding:'6px 14px', borderRadius:8, border: activeCol===s.col && s.col ? `1px solid ${s.color}` : '1px solid transparent', cursor: s.col ? 'pointer' : 'default', textAlign:'left', fontFamily:'inherit' }}>
             <div style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>{s.label}</div>
             <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.val}</div>
-          </div>
+          </button>
         ))}
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
           style={{ marginLeft:'auto', padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:220 }} />
@@ -1116,7 +1129,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       {!isMobile && (
         <div style={{ display:'flex', overflowX:'auto', borderBottom:'1px solid #1e293b' }}>
           {COLUMNS.map(col => (
-            <button key={col.key} onClick={() => setActiveCol(col.key)}
+            <button key={col.key} onClick={() => focusColumn(col.key)}
               style={{ padding:'10px 14px', background:'none', border:'none', whiteSpace:'nowrap', borderBottom:activeCol===col.key?`2px solid ${col.color}`:'2px solid transparent', color:activeCol===col.key?col.color:'#94a3b8', cursor:'pointer', fontSize:12, fontWeight:activeCol===col.key?700:400 }}>
               {col.label} <span style={{ background:'#1e293b', padding:'1px 6px', borderRadius:10, fontSize:10 }}>{buckets[col.key]?.length||0}</span>
             </button>
@@ -1127,20 +1140,24 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       {loading ? (
         <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', fontSize:14 }}>Loading from Supabase…</div>
       ) : isMobile ? (
-        <div style={{ flex:1, overflowY:'auto' }}>
+        <div style={{ flex:1, overflowY:'auto', paddingBottom:84 }}>
           {COLUMNS.map(col => (
-            <AccordionColumn
-              key={col.key} col={col} jobs={buckets[col.key]||[]}
-              expanded={expandedCol===col.key}
-              onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
-              onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
-            />
+            <div key={col.key} ref={el => { colRefs.current[col.key] = el; }}>
+              <AccordionColumn
+                col={col} jobs={buckets[col.key]||[]}
+                expanded={expandedCol===col.key}
+                onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
+                onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
+              />
+            </div>
           ))}
         </div>
       ) : (
-        <div style={{ flex:1, display:'flex', gap:12, padding:14, overflowX:'auto', overflowY:'hidden' }}>
+        <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
-            <Column key={col.key} col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} />
+            <div key={col.key} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} />
+            </div>
           ))}
         </div>
       )}

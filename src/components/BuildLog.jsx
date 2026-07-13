@@ -9,6 +9,19 @@
 
 export const BUILDS = [
   {
+    version: '9.5.0',
+    date: '2026-07-13',
+    label: 'Board slimmed to 5 columns and the stat cards actually do something',
+    changes: [
+      'SEVEN columns down to FIVE: New / Notes · Ready to Schedule · Scheduled · Estimates · To Bill',
+      'Returns folded into Ready to Schedule — same function, same buttons. A return IS something waiting to be scheduled. Cards keep their own colour, so RETURNS show PINK and newly-ready shows GREEN inside the one column',
+      'Blocked folded into New / Notes — it still needs a human decision, and it keeps its red 🚫 chip so it stays obvious',
+      'Tapping a stat card at the top (returns, to bill, new/notes) now SCROLLS the board to that column instead of doing nothing',
+      'KILLED "needs action" — it counted Triage AND Estimates together, so the number never matched any column and you could not act on it',
+      'FIXED: the sticky bottom nav was sitting on top of the board\'s horizontal scrollbar, so you could not scroll right. Reserved room for it',
+    ],
+  },
+  {
     version: '9.4.8',
     date: '2026-07-13',
     label: 'Client search results are readable again',

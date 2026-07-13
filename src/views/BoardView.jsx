@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
+import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
@@ -435,6 +436,20 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   const [editingPhone, setEditingPhone] = useState(false);
   const [sendingText, setSendingText] = useState(false);
   const [textResult, setTextResult] = useState(null); // { ok, msg }
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailResult, setEmailResult] = useState(null); // { ok, msg, reauth }
+
+  const sendAssignEmail = async () => {
+    if (!notifyTarget?.email) return;
+    setSendingEmail(true); setEmailResult(null);
+    const { subject, body } = assignmentEmail(notifyTarget.name, job);
+    const result = await sendGmail(accessToken, { to: notifyTarget.email, subject, body });
+    setEmailResult(result);
+    if (result.ok) {
+      try { await notesApi.addNote(job.id, `Assignment email sent to ${notifyTarget.name} (${notifyTarget.email})`, 'board'); } catch {}
+    }
+    setSendingEmail(false);
+  };
 
   const assignTo = async (tech) => {
     // tech === null means "assign to no one" (the unassign radio option)
@@ -451,7 +466,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
         setTypedAssignee('');
         setPhoneInput(tech.phone || '');
         setEditingPhone(!tech.phone);
-        setNotifyTarget(tech); // offer email/text notify
+        setEmailResult(null); setNotifyTarget(tech); // offer email/text notify
       } else {
         // Unassign: clear the job row AND any active (non-complete) job_assignments
         // rows tied to this job, so the person is fully off this task everywhere —
@@ -637,15 +652,24 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:600 }}>
                 Let {notifyTarget.name} know
               </div>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                {emailHref ? (
-                  <a href={emailHref} style={{ padding:'6px 12px', borderRadius:6, background:'#334155', color:'#fff', fontSize:13, fontWeight:600, textDecoration:'none' }}>
-                    ✉️ Email {notifyTarget.name}
-                  </a>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                {notifyTarget.email ? (
+                  <button onClick={sendAssignEmail} disabled={sendingEmail || emailResult?.ok}
+                    style={{ padding:'6px 12px', borderRadius:6, border:'none', background: emailResult?.ok ? '#22c55e' : '#334155', color:'#fff', fontSize:13, fontWeight:600, cursor: sendingEmail || emailResult?.ok ? 'default' : 'pointer' }}>
+                    {sendingEmail ? 'Sending…' : emailResult?.ok ? '✅ Email sent' : `✉️ Email ${notifyTarget.name}`}
+                  </button>
                 ) : (
                   <div style={{ color:'#f59e0b', fontSize:12 }}>No email on file for {notifyTarget.name}.</div>
                 )}
               </div>
+              {emailResult && (
+                <div style={{ marginTop:6, fontSize:12, color: emailResult.ok ? '#22c55e' : '#ef4444' }}>
+                  {emailResult.ok ? `✅ ${emailResult.msg}` : `⚠️ ${emailResult.msg}`}
+                  {!emailResult.ok && !emailResult.reauth && emailHref && (
+                    <> — <a href={emailHref} style={{ color:'#94a3b8' }}>open in Mail instead</a></>
+                  )}
+                </div>
+              )}
 
               <div style={{ marginTop:10 }}>
                 {editingPhone ? (
@@ -678,7 +702,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
                 )}
               </div>
 
-              <button onClick={() => { setNotifyTarget(null); setTextResult(null); }}
+              <button onClick={() => { setNotifyTarget(null); setTextResult(null); setEmailResult(null); }}
                 style={{ marginTop:8, padding:'4px 8px', borderRadius:6, border:'none', background:'transparent', color:'#64748b', fontSize:11, cursor:'pointer' }}>
                 dismiss
               </button>

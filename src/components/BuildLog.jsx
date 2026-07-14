@@ -9,6 +9,30 @@
 
 export const BUILDS = [
   {
+    version: '9.8.0',
+    date: '2026-07-13',
+    label: 'Unbilled replaces Billing — and tells you what is actually blocking each hour',
+    changes: [
+      'Of roughly 150 unbilled hours, only about 12 can actually be invoiced today. The rest are waiting on a return, sat on a job somebody marked DEAD, or belong to no job at all. Showing them in one flat list wasted your time and hid the real problem',
+      'Unbilled now buckets every hour by WHAT HAS TO HAPPEN NEXT: Ready to bill · Waiting on a return · Still in progress · Worked then killed · No job on the board · Job says billed',
+      'RETURNS GET A PRICE TAG. Each one says "customer waiting 22 days · 6.5h of work you cannot invoice until someone goes back". Sorted by hours held x days waiting, so the most expensive, longest-ignored return is always at the top',
+      '"Worked, then killed" is the bucket nobody has ever looked at — a tech spent the hours and the job was later marked dead. Somebody has to decide: bill it, or archive it as cost DRH absorbed',
+      'The Billing tile now opens Unbilled. The old Billing screen read hours from job_assignments (18 rows) while every hour a tech logs goes into time_entries (310 rows). It was reading an almost-empty table',
+      'FIXED: new home-screen tiles were being added to a HomeScreen component that is never rendered — the real home is OpsHome. That is why the Unbilled tile never appeared',
+      'The KPIs screen is now visible to Sara only',
+    ],
+  },
+  {
+    version: '9.7.3',
+    date: '2026-07-13',
+    label: 'Deep links stop flashing and vanishing',
+    changes: [
+      'FIXED: clicking a deep link opened the job for a split second and then bounced you to the board',
+      'The cause was not the deep link. On sign-in, Overwatch sends you to your default view if it thinks you are at the root — and it decided that by checking the PATHNAME only. A deep link like /?cal=X&job=Y has a pathname of exactly "/", so the redirect fired, rewrote the URL, and destroyed the query string carrying the job',
+      'It now checks whether the URL is carrying a destination before overriding it. Your default view still works everywhere else',
+    ],
+  },
+  {
     version: '9.7.2',
     date: '2026-07-13',
     label: 'Archive now asks WHY — and the answer decides your margins',

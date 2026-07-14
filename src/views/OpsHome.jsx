@@ -33,6 +33,8 @@ const fmtMoney = n => n >= 1000
   ? `$${(n/1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
   : n ? `$${n}` : '';
 
+const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
+
 export default function OpsHome({
   userName, isOperator, accessToken, userEmail,
   onNavigate, onSignOut, onSearch,
@@ -100,11 +102,11 @@ export default function OpsHome({
       wip: true,
     },
     {
-      label: 'Billing',
-      sub: stats ? `${stats.toBill} to bill${stats.toBillValue ? ' · ' + fmtMoney(stats.toBillValue) : ''}` : '—',
+      label: 'Unbilled',
+      sub: 'Every unbilled hour — and what is blocking it',
       icon: '$',
       accent: C.purple,
-      path: '/billing',
+      path: '/unbilled',
       show: true,
     },
     {
@@ -122,6 +124,16 @@ export default function OpsHome({
       accent: C.cyan,
       path: '/audit',
       show: isOperator,
+    },
+    {
+      // Names who is and isn't actioning work. That's a conversation Sara has
+      // deliberately, not a screen the team wanders into.
+      label: 'KPIs',
+      sub: 'Aging, returns, who is moving cards',
+      icon: '📊',
+      accent: C.amber,
+      path: '/kpi',
+      show: KPI_EMAILS.includes((userEmail || '').toLowerCase()),
     },
   ];
 

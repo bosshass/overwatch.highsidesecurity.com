@@ -37,9 +37,25 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.7.2';
+const APP_VERSION = '9.8.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
+
+
+// True when the URL is carrying a deep link (?cal=&job=, ?job=, ?customerId=).
+// The default-view redirect must NEVER clobber one — the pathname of a deep
+// link is still '/', which is exactly why it used to.
+// The KPI dashboard names who is and isn't actioning work. That's a
+// conversation Sara has deliberately — not a screen the team wanders into.
+const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
+function canSeeKPIs(email) {
+  return KPI_EMAILS.includes((email || '').toLowerCase());
+}
+
+function hasDeepLink() {
+  const p = new URLSearchParams(window.location.search);
+  return p.has('cal') || p.has('job') || p.has('customerId');
+}
 
 const USER_CONFIG = {
   'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
@@ -52,7 +68,7 @@ const USER_CONFIG = {
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: null },
-  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'billing' },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'unbilled' },
 };
 
 // Identity options for shared logins like info@
@@ -185,7 +201,7 @@ export default function App() {
             if (identity) {
               setUserName(identity.key);
               setDefaultCalendar(identity.defaultCalendar);
-              if (identity.defaultView && window.location.pathname === '/') {
+              if (identity.defaultView && window.location.pathname === '/' && !hasDeepLink()) {
                 window.history.replaceState(null, '', `/${identity.defaultView}`);
               }
             } else {
@@ -205,8 +221,9 @@ export default function App() {
             setShowSetup(true);
           }
           
-          // Navigate to user's default view if at root
-          if (config.defaultView && window.location.pathname === '/') {
+          // Navigate to user's default view if at root — but NOT if the URL is
+          // carrying a deep link. This line was silently eating every deep link.
+          if (config.defaultView && window.location.pathname === '/' && !hasDeepLink()) {
             window.history.replaceState(null, '', `/${config.defaultView}`);
           }
         }
@@ -714,7 +731,11 @@ export default function App() {
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
-        <Route path="/kpi" element={<OperatorOnly><ViewShell><KPIDashboard onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/kpi" element={
+          canSeeKPIs(userEmail)
+            ? <ViewShell><KPIDashboard onBack={() => navigate('/')} /></ViewShell>
+            : <Navigate to="/" replace />
+        } />
         <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}
@@ -871,7 +892,7 @@ export default function App() {
 }
 
 // ── HOME SCREEN ───────────────────────────────────────────────────────────
-function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut, onBackfill, onSearch }) {
+function HomeScreen({ userName, userEmail, isOperator, isRestricted, onNavigate, onSignOut, onBackfill, onSearch }) {
   const techButtons = [
     { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
@@ -882,11 +903,14 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
     { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
     { path: '/unbilled',   emoji: '💵', label: 'Unbilled',        sub: "Every unbilled hour and material, by customer", color: '#4ade80', dark: '#052e16', border: '#22c55e' },
-    { path: '/kpi',        emoji: '📊', label: 'KPIs',            sub: "Aging, returns, who is actually moving cards", color: '#f472b6', dark: '#500724', border: '#ec4899' },
     { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
     { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
   ];
-  const buttons = isRestricted ? techButtons : operatorButtons;
+  // KPIs tile only appears for Sara — same gate as the route.
+  const visibleOperatorButtons = canSeeKPIs(userEmail)
+    ? [...operatorButtons, { path: '/kpi', emoji: '📊', label: 'KPIs', sub: "Aging, returns, who is actually moving cards", color: '#f472b6', dark: '#500724', border: '#ec4899' }]
+    : operatorButtons;
+  const buttons = isRestricted ? techButtons : visibleOperatorButtons;
   return (
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{
@@ -948,7 +972,7 @@ function HomeScreen({ userName, isOperator, isRestricted, onNavigate, onSignOut,
           {(isRestricted ? [
             { path: '/calendar', label: '📅 Calendar' },
           ] : [
-            { path: '/billing', label: '💰 Billing' },
+            { path: '/unbilled', label: '💵 Unbilled' },
             { path: '/newjob',  label: '➕ New Job' },
           ]).map(({ path, label }) => (
             <button key={path} onClick={() => onNavigate(path)} style={{

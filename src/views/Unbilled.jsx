@@ -23,6 +23,41 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 
+
+// ── BUCKETS ──────────────────────────────────────────────────────────
+// The old screen showed every unbilled hour as if you could invoice it. You
+// can't. Of ~150 unbilled hours only ~12 are actually invoiceable — the rest
+// are waiting on a return, sat on a job somebody marked DEAD, or belong to no
+// job at all. Showing them together wastes your time and hides the real
+// problem, so an hour now goes in the bucket that says what has to happen next.
+export const BUCKETS = [
+  { key: 'ready',    label: '✅ Ready to bill',        color: '#22c55e',
+    blurb: 'The work is done and the job is closed out. Invoice these.' },
+  { key: 'return',   label: '🔄 Waiting on a return',  color: '#ec4899',
+    blurb: 'You CANNOT bill these until someone goes back. The customer is waiting, and every day this sits is a day of unbilled work AND a day of bad service.' },
+  { key: 'progress', label: '🚧 Still in progress',    color: '#3b82f6',
+    blurb: 'Scheduled, estimating, or mid-job. Not billable yet — nothing to do here.' },
+  { key: 'dead',     label: '⚠️ Worked, then killed',  color: '#f59e0b',
+    blurb: 'A tech spent these hours and the job was later marked dead, lost or archived. Somebody has to DECIDE: bill it anyway, or archive it as cost DRH absorbed. Right now it is just sitting there.' },
+  { key: 'nojob',    label: '🔗 No job on the board',  color: '#94a3b8',
+    blurb: 'Work with no job attached. It cannot be tracked, chased or invoiced until it is linked.' },
+  { key: 'mismatch', label: '❓ Job says billed',      color: '#a855f7',
+    blurb: 'The job is marked billed but this time entry never was. A reconciliation gap — check whether it made the invoice.' },
+];
+export const BUCKET_BY_KEY = Object.fromEntries(BUCKETS.map(b => [b.key, b]));
+
+function bucketOf(job) {
+  if (!job) return 'nojob';
+  const s = job.status;
+  if (s === 'complete' || s === 'to_bill') return 'ready';
+  if (s === 'return_pending') return 'return';
+  if (s === 'billed') return 'mismatch';
+  if (['dead', 'lost', 'archived'].includes(s)) return 'dead';
+  return 'progress';
+}
+
+const daysSince = (iso) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : 0;
+
 // A single visit longer than this is almost certainly a tech who never clocked
 // out. Flag it — don't silently put it on an invoice.
 const SUSPICIOUS_HOURS = 12;
@@ -48,12 +83,26 @@ export default function Unbilled({ onBack, userEmail }) {
     try {
       const { data: entries, error } = await supabase
         .from('time_entries')
-        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, archived, job_id')
+        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, archived, job_id, calendar_event_id')
         .or('billed.is.null,billed.eq.false')
         .or('archived.is.null,archived.eq.false')
         .gt('total_minutes', 0)
         .order('event_start', { ascending: true });
       if (error) throw error;
+
+      // The job's STATUS is what decides whether an hour can actually be
+      // invoiced. Most time entries have a null job_id and link through
+      // calendar_event_id instead, so we resolve both ways.
+      const { data: jobRows } = await supabase
+        .from('jobs')
+        .select('id, status, calendar_event_id, customer_name, updated_at')
+        .limit(5000);
+      const jobById = {}, jobByEvent = {};
+      (jobRows || []).forEach(j => {
+        jobById[j.id] = j;
+        if (j.calendar_event_id) jobByEvent[j.calendar_event_id] = j;
+      });
+      const jobFor = (e) => jobById[e.job_id] || jobByEvent[e.calendar_event_id] || null;
 
       const ids = [...new Set((entries || []).map(e => e.customer_id).filter(Boolean))];
       let cust = {};
@@ -63,13 +112,17 @@ export default function Unbilled({ onBack, userEmail }) {
       }
 
       const byCustomer = {};
-      (entries || []).forEach(e => {
+      (entries || []).forEach(e0 => {
+        const job = jobFor(e0);
+        const e = { ...e0, _job: job, _bucket: bucketOf(job) };
         // Group on the customer UUID where we have one. Where we don't, the
         // entry is ORPHANED — it still needs billing, but it also needs a
         // client attached, and we say so instead of quietly merging it in.
-        const key = e.customer_id || `orphan:${e.customer_name_raw || 'unknown'}`;
+        const key = `${e._bucket}::${e.customer_id || `orphan:${e.customer_name_raw || 'unknown'}`}`;
         byCustomer[key] ||= {
           key,
+          bucket: e._bucket,
+          job: e._job,
           customerId: e.customer_id || null,
           name: cust[e.customer_id]?.name || e.customer_name_raw || 'Unknown',
           shortCode: cust[e.customer_id]?.short_code || null,
@@ -81,6 +134,7 @@ export default function Unbilled({ onBack, userEmail }) {
 
       const list = Object.values(byCustomer).map(g => ({
         ...g,
+        waitingDays: g.bucket === 'return' ? daysSince(g.visits[0]?.event_start) : 0,
         hours: g.visits.reduce((s, v) => s + hrs(v.total_minutes), 0),
         materialVisits: g.visits.filter(v => v.materials && v.materials.trim()).length,
         suspicious: g.visits.filter(v => hrs(v.total_minutes) > SUSPICIOUS_HOURS).length,
@@ -97,19 +151,30 @@ export default function Unbilled({ onBack, userEmail }) {
   useEffect(() => { load(); }, [load]);
 
   const shown = useMemo(() => {
+    const inTab = byBucket[tab]?.groups || [];
     const q = search.trim().toLowerCase();
-    if (!q) return groups;
-    return groups.filter(g =>
+    if (!q) return inTab;
+    return inTab.filter(g =>
       g.name.toLowerCase().includes(q) || (g.shortCode || '').toLowerCase().includes(q));
-  }, [groups, search]);
+  }, [byBucket, tab, search]);
 
-  const totals = useMemo(() => ({
-    customers: groups.length,
-    visits: groups.reduce((s, g) => s + g.visits.length, 0),
-    hours: groups.reduce((s, g) => s + g.hours, 0),
-    materials: groups.reduce((s, g) => s + g.materialVisits, 0),
-    orphans: groups.filter(g => g.orphan).length,
-  }), [groups]);
+  const [tab, setTab] = useState('ready');
+
+  const byBucket = useMemo(() => {
+    const m = {};
+    BUCKETS.forEach(b => { m[b.key] = { hours: 0, visits: 0, groups: [] }; });
+    groups.forEach(g => {
+      const b = m[g.bucket];
+      if (!b) return;
+      b.hours += g.hours;
+      b.visits += g.visits.length;
+      b.groups.push(g);
+    });
+    // Returns sorted by what they're COSTING you: hours held x days waiting.
+    // The most expensive, longest-ignored return is always at the top.
+    m.return.groups.sort((a, b) => (b.hours * (b.waitingDays + 1)) - (a.hours * (a.waitingDays + 1)));
+    return m;
+  }, [groups]);
 
   const toggle = (id) => setPicked(p => {
     const n = new Set(p);
@@ -201,21 +266,23 @@ export default function Unbilled({ onBack, userEmail }) {
           <span style={{ fontWeight: 700, fontSize: 16 }}>💵 Unbilled</span>
           <button onClick={load} style={{ marginLeft: 'auto', background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>↻</button>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {[
-            { l: 'hours', v: fmtH(totals.hours), c: '#22c55e' },
-            { l: 'visits', v: totals.visits, c: '#e2e8f0' },
-            { l: 'customers', v: totals.customers, c: '#e2e8f0' },
-            { l: 'w/ materials', v: totals.materials, c: '#f59e0b' },
-            { l: 'no client', v: totals.orphans, c: totals.orphans ? '#ef4444' : '#22c55e' },
-          ].map(s => (
-            <div key={s.l} style={{ background: '#1e293b', padding: '6px 12px', borderRadius: 8 }}>
-              <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.l}</div>
-              <div style={{ fontSize: 17, fontWeight: 800, color: s.c }}>{s.v}</div>
-            </div>
-          ))}
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+          {BUCKETS.map(b => {
+            const d = byBucket[b.key] || { hours: 0, visits: 0 };
+            const on = tab === b.key;
+            return (
+              <button key={b.key} onClick={() => { setTab(b.key); setPicked(new Set()); setOpenKey(null); }}
+                style={{ background: on ? `${b.color}22` : '#1e293b', border: `1px solid ${on ? b.color : 'transparent'}`,
+                  borderRadius: 9, padding: '7px 11px', cursor: 'pointer', whiteSpace: 'nowrap', textAlign: 'left', fontFamily: 'inherit' }}>
+                <div style={{ fontSize: 11, color: on ? b.color : '#94a3b8', fontWeight: 600 }}>{b.label}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: on ? b.color : '#e2e8f0' }}>
+                  {fmtH(d.hours)} <span style={{ fontSize: 11, fontWeight: 500, color: '#94a3b8' }}>· {d.visits}</span>
+                </div>
+              </button>
+            );
+          })}
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="find a customer…"
-            style={{ marginLeft: 'auto', padding: '7px 12px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#fff', fontSize: 13, width: 190 }} />
+            style={{ marginLeft: 'auto', padding: '7px 12px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#fff', fontSize: 13, width: 170, flexShrink: 0 }} />
         </div>
       </div>
 
@@ -224,8 +291,12 @@ export default function Unbilled({ onBack, userEmail }) {
       )}
 
       <div style={{ padding: 14, maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ ...card, background: `${BUCKET_BY_KEY[tab].color}12`, border: `1px solid ${BUCKET_BY_KEY[tab].color}44` }}>
+          <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.55 }}>{BUCKET_BY_KEY[tab].blurb}</div>
+        </div>
+
         {shown.length === 0 && (
-          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>Nothing unbilled. Genuinely nothing.</div>
+          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>Nothing in here. Good.</div>
         )}
 
         {shown.map(g => {
@@ -239,6 +310,11 @@ export default function Unbilled({ onBack, userEmail }) {
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {g.name} {g.shortCode && <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700 }}>{g.shortCode}</span>}
                   </div>
+                  {g.bucket === 'return' && (
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#ec4899', marginTop: 2 }}>
+                      Customer waiting {g.waitingDays} day{g.waitingDays === 1 ? '' : 's'} · {fmtH(g.hours)} of work you cannot invoice until someone goes back
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>
                     {g.visits.length} visit{g.visits.length > 1 ? 's' : ''} · since {fmtD(g.oldest)}
                     {g.materialVisits > 0 && <span style={{ color: '#f59e0b' }}> · {g.materialVisits} with materials</span>}

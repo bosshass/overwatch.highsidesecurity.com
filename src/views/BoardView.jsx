@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
-import { jobLink as boardJobLink } from '../config/appBase.js';
+import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
@@ -435,6 +435,8 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   const [notifyTarget, setNotifyTarget] = useState(null);
   const [phoneInput, setPhoneInput] = useState('');
   const [editingPhone, setEditingPhone] = useState(false);
+  const [assigned, setAssigned] = useState({ id: job.tech_assigned || null, name: job.tech_name || null });
+  const [justAssigned, setJustAssigned] = useState(false);
   const [sendingText, setSendingText] = useState(false);
   const [textResult, setTextResult] = useState(null); // { ok, msg }
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -467,6 +469,9 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
         setTypedAssignee('');
         setPhoneInput(tech.phone || '');
         setEditingPhone(!tech.phone);
+        setAssigned({ id: tech.id || null, name: tech.name });
+        setJustAssigned(true);
+        setTimeout(() => setJustAssigned(false), 2600);
         setEmailResult(null); setNotifyTarget(tech); // offer email/text notify
       } else {
         // Unassign: clear the job row AND any active (non-complete) job_assignments
@@ -480,6 +485,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             .or('is_complete.is.null,is_complete.eq.false');
         } catch (e) { console.error('Could not clear job_assignments for unassign:', e); }
         try { await notesApi.addNote(job.id, `Unassigned${prevName ? ` (was ${prevName})` : ''}`, 'board'); } catch {}
+        setAssigned({ id: null, name: null });
         setNotifyTarget(null);
       }
       onRenamed?.(job.id, job.customer_name); // trigger parent refresh of this job
@@ -490,14 +496,22 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
     }
   };
 
+  // A typed-in assignee has no tech row, so id is null — match on name too,
+  // or the highlight silently never appears for them.
+  const isOn = (tech) => (tech.id && assigned.id === tech.id)
+    || (!!assigned.name && !!tech.name && assigned.name.toLowerCase() === tech.name.toLowerCase());
+  const noneOn = !assigned.id && !assigned.name;
+
   const emailHref = notifyTarget?.email
     ? `mailto:${notifyTarget.email}?subject=${encodeURIComponent(`Job assigned: ${job.customer_name || 'Job'}`)}&body=${encodeURIComponent(
-        `Hi ${notifyTarget.name},\n\nYou've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}.\n\n— Overwatch`
+        `Hi ${notifyTarget.name},\n\n${assignmentMessage(job)}\n\n— Overwatch`
       )}`
     : null;
 
-  const jobLink = boardJobLink(job.id);
-  const smsMessage = `You've been assigned to ${job.customer_name || 'a job'}${job.scheduled_date ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})})` : ''}. ${jobLink}`;
+  // Short link + the ASK. A raw UUID looks like malware in a text message and
+  // "you've been assigned to a job" tells the tech nothing they can act on.
+  const jobLink = shortJobLink(job.id);
+  const smsMessage = assignmentMessage(job);
   const smsHref = phoneInput ? `sms:${phoneInput.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(smsMessage)}` : null;
 
   const savePhoneAndSend = async () => {
@@ -616,25 +630,33 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
 
         {/* Assign to a user — emphasized when Blocked */}
         <div style={{ marginBottom:14, padding:job.status==='blocked'?'12px':'0', borderRadius:8, background:job.status==='blocked'?'#dc262615':'transparent', border:job.status==='blocked'?'1px solid #dc262640':'none' }}>
-          <div style={{ color:job.status==='blocked'?'#dc2626':'#475569', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6, fontWeight:600 }}>
-            {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap' }}>
+            <span style={{ color:job.status==='blocked'?'#dc2626':'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, fontWeight:700 }}>
+              {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
+            </span>
+            {assigned.name
+              ? <span style={{ fontSize:13, fontWeight:800, color:'#22c55e', background:'#22c55e22', border:'1px solid #22c55e', borderRadius:6, padding:'2px 9px' }}>
+                  {justAssigned ? '✓ Now assigned to ' : 'Owner: '}{assigned.name}
+                </span>
+              : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', borderRadius:6, padding:'2px 9px' }}>Unassigned</span>}
+            {assigning && <span style={{ fontSize:12, color:'#94a3b8' }}>saving…</span>}
           </div>
           <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
             {/* Unassigned / "no one" — always first */}
-            <label style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`1px solid ${!job.tech_assigned && !job.tech_name ? '#94a3b8' : '#334155'}`, background: !job.tech_assigned && !job.tech_name ? '#94a3b822' : 'transparent', cursor: assigning?'default':'pointer', fontSize:13, color: !job.tech_assigned && !job.tech_name ? '#e2e8f0' : '#94a3b8', fontWeight: !job.tech_assigned && !job.tech_name ? 600 : 400 }}>
+            <label style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`2px solid ${noneOn ? '#94a3b8' : '#334155'}`, background: noneOn ? '#94a3b822' : 'transparent', cursor: assigning?'default':'pointer', fontSize:13, color: noneOn ? '#e2e8f0' : '#94a3b8', fontWeight: noneOn ? 700 : 400 }}>
               <input type="radio" name={`assign-${job.id}`} disabled={assigning}
-                checked={!job.tech_assigned && !job.tech_name}
+                checked={noneOn}
                 onChange={() => assignTo(null)}
                 style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
-              {!job.tech_assigned && !job.tech_name ? '✓ ' : ''}Unassigned
+              {noneOn ? '✓ ' : ''}Unassigned
             </label>
             {(techs||[]).map(tech => (
-              <label key={tech.id} style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`1px solid ${job.tech_assigned===tech.id?'#22c55e':'#334155'}`, background:job.tech_assigned===tech.id?'#22c55e22':'transparent', cursor: assigning?'default':'pointer', fontSize:13, color:job.tech_assigned===tech.id?'#22c55e':'#cbd5e1', fontWeight:job.tech_assigned===tech.id?600:400 }}>
+              <label key={tech.id} style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`2px solid ${isOn(tech)?'#22c55e':'#334155'}`, background:isOn(tech)?'#22c55e28':'transparent', cursor: assigning?'default':'pointer', fontSize:13, color:isOn(tech)?'#22c55e':'#cbd5e1', fontWeight:isOn(tech)?700:400 }}>
                 <input type="radio" name={`assign-${job.id}`} disabled={assigning}
-                  checked={job.tech_assigned===tech.id}
+                  checked={isOn(tech)}
                   onChange={() => assignTo(tech)}
                   style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
-                {job.tech_assigned===tech.id ? '✓ ' : ''}{tech.name}
+                {isOn(tech) ? '✓ ' : ''}{tech.name}
               </label>
             ))}
             {(!techs || techs.length === 0) && (
@@ -788,7 +810,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
 // job's drawer with its full note thread.
 function CopyJobLink({ job }) {
   const [copied, setCopied] = useState(false);
-  const url = boardJobLink(job.id);
+  const url = shortJobLink(job.id);
   const copy = async (e) => {
     e.stopPropagation();
     try {

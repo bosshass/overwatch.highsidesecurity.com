@@ -150,14 +150,6 @@ export default function Unbilled({ onBack, userEmail }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const shown = useMemo(() => {
-    const inTab = byBucket[tab]?.groups || [];
-    const q = search.trim().toLowerCase();
-    if (!q) return inTab;
-    return inTab.filter(g =>
-      g.name.toLowerCase().includes(q) || (g.shortCode || '').toLowerCase().includes(q));
-  }, [byBucket, tab, search]);
-
   const [tab, setTab] = useState('ready');
 
   const byBucket = useMemo(() => {
@@ -175,6 +167,14 @@ export default function Unbilled({ onBack, userEmail }) {
     m.return.groups.sort((a, b) => (b.hours * (b.waitingDays + 1)) - (a.hours * (a.waitingDays + 1)));
     return m;
   }, [groups]);
+
+  const shown = useMemo(() => {
+    const inTab = byBucket[tab]?.groups || [];
+    const q = search.trim().toLowerCase();
+    if (!q) return inTab;
+    return inTab.filter(g =>
+      g.name.toLowerCase().includes(q) || (g.shortCode || '').toLowerCase().includes(q));
+  }, [byBucket, tab, search]);
 
   const toggle = (id) => setPicked(p => {
     const n = new Set(p);

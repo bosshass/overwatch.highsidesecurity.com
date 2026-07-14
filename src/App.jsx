@@ -32,12 +32,13 @@ import CustomerHistory from './views/CustomerHistory.jsx';
 import CustomerAudit from './views/CustomerAudit.jsx';
 import KPIDashboard from './views/KPIDashboard.jsx';
 import Unbilled from './views/Unbilled.jsx';
+import ShortLink from './views/ShortLink.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.8.1';
+const APP_VERSION = '9.8.3';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -736,6 +737,7 @@ export default function App() {
             ? <ViewShell><KPIDashboard onBack={() => navigate('/')} /></ViewShell>
             : <Navigate to="/" replace />
         } />
+        <Route path="/j/:code" element={<ShortLink />} />
         <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}

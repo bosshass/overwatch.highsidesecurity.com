@@ -6,7 +6,7 @@
 // in App.jsx v9.3.5) — users grant it on their next sign-in.
 // No server, no env vars, no Twilio-style config.
 
-import { jobLink } from '../config/appBase.js';
+import { assignmentMessage } from '../config/appBase.js';
 
 // Base64url-encode a UTF-8 string (Gmail requires base64url, not plain base64)
 function b64url(str) {
@@ -52,15 +52,11 @@ export async function sendGmail(accessToken, { to, subject, body }) {
 
 // Standard assignment notification body
 export function assignmentEmail(techName, job) {
-  const when = job.scheduled_date
-    ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })})`
-    : '';
   return {
     subject: `Job assigned: ${job.customer_name || 'Job'}`,
-    body: `Hi ${techName},\n\nYou've been assigned to ${job.customer_name || 'a job'}${when}.` +
-      (job.issue ? `\n\nIssue: ${job.issue}` : '') +
-      (job.customer_address ? `\nAddress: ${job.customer_address}` : '') +
-      (job.id ? `\n\nOpen it: ${jobLink(job.id)}` : '') +
+    body: `Hi ${techName},\n\n${assignmentMessage(job)}` +
+      (job.customer_address ? `\n\nAddress: ${job.customer_address}` : '') +
       `\n\n— Overwatch`,
   };
 }
+

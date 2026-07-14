@@ -9,6 +9,28 @@
 
 export const BUILDS = [
   {
+    version: '9.8.3',
+    date: '2026-07-13',
+    label: 'Fix: Unbilled was broken by 9.8.0',
+    changes: [
+      'Unbilled crashed to a blank screen. When the bucket tabs went in, the filtered list ended up reading the buckets BEFORE they were defined — a JavaScript temporal dead zone, which throws the instant the screen renders',
+      'The build passed clean on the broken version, because this is a runtime error, not a compile error. A green build proved nothing',
+      'Reordered. Unbilled loads again, with the buckets intact',
+    ],
+  },
+  {
+    version: '9.8.2',
+    date: '2026-07-13',
+    label: 'Assignment actually confirms itself, and links got short',
+    changes: [
+      'FIXED: assigning someone showed NO feedback. The highlight was keyed on the job record the drawer opened with, which never refreshed — so the database updated, the note was written, and the screen showed nothing. It now confirms instantly with "✓ Now assigned to Austin"',
+      'The owner is shown at the top of the assign box at all times — green if someone owns it, amber "Unassigned" if nobody does',
+      'Typed-in names (people not in the tech list) now highlight too. They never did, because they have no tech id',
+      'SHORT LINKS: a job link is now /j/afb2e537 instead of an 80-character UUID. A raw UUID looks like malware in a text message and techs do not tap them',
+      'Assignment texts and emails now carry THE ASK, not just the name: "You have been assigned to ECKSTEIN, NEIL/MICHELLE — Did you order these yet?" followed by the short link. Telling someone they have been assigned "a job" gives them nothing to act on',
+    ],
+  },
+  {
     version: '9.8.1',
     date: '2026-07-13',
     label: 'Deep links actually work now — two handlers were fighting',

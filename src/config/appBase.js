@@ -33,3 +33,28 @@ export function jobDeepLink(calendarId, eventId) {
 export function jobLink(jobId) {
   return `${APP_BASE}/board?job=${encodeURIComponent(jobId)}`;
 }
+
+// ── SHORT LINKS ──────────────────────────────────────────────────────
+// A raw UUID link is 80+ characters and looks like malware in a text message.
+// The first 8 hex chars of a UUID are unique across 4 billion values; DRH has
+// a few hundred jobs, so a collision is not a real concern — and the resolver
+// still verifies against the full row before opening anything.
+export function shortCode(jobId) {
+  return String(jobId || '').replace(/-/g, '').slice(0, 8);
+}
+
+export function shortJobLink(jobId) {
+  return `${APP_BASE}/j/${shortCode(jobId)}`;
+}
+
+// The message a tech actually receives. Customer, THE ASK, then the link —
+// so they know what they are being asked to do before they tap anything.
+export function assignmentMessage(job) {
+  const who  = job.customer_name || 'a job';
+  const ask  = (job.issue || '').trim();
+  const when = job.scheduled_date
+    ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+    : '';
+  const askLine = ask ? ` — ${ask.length > 90 ? ask.slice(0, 88).trimEnd() + '…' : ask}` : '';
+  return `You've been assigned to ${who}${when}${askLine}\n${shortJobLink(job.id)}`;
+}

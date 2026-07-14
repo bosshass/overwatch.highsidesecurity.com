@@ -9,6 +9,17 @@
 
 export const BUILDS = [
   {
+    version: '9.8.1',
+    date: '2026-07-13',
+    label: 'Deep links actually work now — two handlers were fighting',
+    changes: [
+      'The card always HAD a url. The Board had TWO deep-link handlers listening for ?job= — one for the 🔗 Link button and an older one built for the assign-by-text links',
+      'The old one stripped ?job= out of the URL SYNCHRONOUSLY while its own database fetch was still in flight. That URL change re-triggered both handlers, which now saw no job, and they stomped on each other. The card opened and instantly vanished. That was the flash',
+      'Now there is ONE handler. It fires once, fetches the job directly by id (so a link to a billed, dead or older job still opens), shows the card, and only THEN clears the param',
+      'This had nothing to do with old juc-e-v2 links — brand new cards were failing for exactly this reason',
+    ],
+  },
+  {
     version: '9.8.0',
     date: '2026-07-13',
     label: 'Unbilled replaces Billing — and tells you what is actually blocking each hour',

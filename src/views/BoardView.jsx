@@ -1038,42 +1038,35 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   useEffect(() => { loadJobs(); loadTechs(); }, [loadJobs, loadTechs]);
 
   // ── Deep link: /board?job=<jobs.id> ─────────────────────────────────────
-  // The UUID is the universal anchor. A calendar event is NOT — plenty of real
-  // work ("JR to sign his taxes") never has one, and notes hang off the job,
-  // not off a calendar event. So the link is to the job.
+  // ONE handler. There used to be two — one added for the 🔗 Link button and
+  // an older one for the assign-by-SMS links — and they fought. The old one
+  // called navigate('/board') to strip the ?job= param SYNCHRONOUSLY while its
+  // own fetch was still in flight, which re-triggered both effects with no
+  // param, and the card opened and then vanished. That was the "flash".
   //
-  // Fetched DIRECTLY by id rather than looked up in `jobs` state, because
-  // loadJobs only pulls ACTIVE statuses capped at 500 — a link to a billed,
-  // dead, or older job would otherwise silently open nothing.
+  // Now: fire once, fetch the job directly by id (loadJobs only pulls ACTIVE
+  // statuses capped at 500, so a link to a billed/dead/older job must not
+  // depend on the list), open it, and only THEN clear the param.
   const deepJobId = new URLSearchParams(location.search).get('job');
-  const [deepLinkTried, setDeepLinkTried] = useState(false);
+  const deepLinkDone = useRef(false);
   useEffect(() => {
-    if (!deepJobId || deepLinkTried) return;
-    setDeepLinkTried(true);
+    if (!deepJobId || deepLinkDone.current) return;
+    deepLinkDone.current = true;
+    let cancelled = false;
     (async () => {
       const { data, error } = await supabase.from('jobs').select('*').eq('id', deepJobId).maybeSingle();
-      if (error || !data) { showToast('That job could not be found'); return; }
-      setSelectedJob(data);
+      if (cancelled) return;
+      if (error || !data) {
+        showToast('That job could not be found');
+      } else {
+        setSelectedJob(data);
+      }
+      // Strip the param only AFTER the card is open, so closing it and moving
+      // around the board doesn't keep reopening the same job.
+      navigate('/board', { replace: true });
     })();
-  }, [deepJobId, deepLinkTried]);
-
-  // Deep link — /board?job=<id> (used by the assign-to SMS/email notify links).
-  // Opens straight to that job's card once the list has loaded.
-  useEffect(() => {
-    if (loading) return;
-    const jobId = new URLSearchParams(location.search).get('job');
-    if (!jobId) return;
-    const match = jobs.find(j => j.id === jobId);
-    if (match) {
-      setSelectedJob(match);
-    } else {
-      // Not in the active list (e.g. archived/billed) — fetch it directly so the link still works.
-      supabase.from('jobs').select('*').eq('id', jobId).maybeSingle()
-        .then(({ data }) => { if (data) setSelectedJob(data); });
-    }
-    // Strip the param so closing the card and navigating around doesn't keep reopening it.
-    navigate('/board', { replace: true });
-  }, [loading, jobs, location.search, navigate]);
+    return () => { cancelled = true; };
+  }, [deepJobId, navigate]);
 
   // Status move — no note required, never touches created_at
   const moveStatus = useCallback(async (jobId, newStatus) => {

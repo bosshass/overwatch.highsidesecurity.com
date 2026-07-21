@@ -344,17 +344,24 @@ export async function scanForOrphans(accessToken) {
       for (const event of events) {
         if (!event.start?.dateTime || event.status === 'cancelled') continue;
 
-        const existing = await assignmentsApi.getByCalendarEventId(event.id);
-        if (existing) {
+        // THE CARD CHECK — this is the fix. "Linked" now means exactly what
+        // the board means by it: a jobs row references this calendar event.
+        // The old check asked job_assignments (tech dispatch) instead, plus a
+        // fuzzy "isJuce" text marker in the description as a fallback — which
+        // let an event dodge the orphan list (stale marker, or tagged via the
+        // triage buttons that only rewrite titles) while still having ZERO
+        // real job behind it. That's why things could sit tagged in Triage
+        // for weeks with no board card and never once show here as a problem.
+        const { data: linkedJob } = await supabase
+          .from('jobs')
+          .select('id')
+          .eq('calendar_event_id', event.id)
+          .maybeSingle();
+
+        if (linkedJob) {
           results.synced++;
-        } else {
-          // isJuce: matches BOTH the old "Managed by JUC-E" marker AND the deeplink marker makeJuceJob writes
-          const isJuce = event.description?.includes('Managed by JUC-E') || 
-                         event.description?.includes('📱 Open in JUC-E') ||
-                         event.description?.includes('Open in JUC-E:');
-          if (!isJuce && !isOrphanIgnored(event.id)) {
-            results.orphans.push({ event, calendar: cal });
-          }
+        } else if (!isOrphanIgnored(event.id)) {
+          results.orphans.push({ event, calendar: cal });
         }
       }
     } catch (err) {

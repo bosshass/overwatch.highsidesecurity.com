@@ -23,19 +23,11 @@ export default function ShortLink() {
       const c = (code || '').toLowerCase().replace(/[^a-f0-9]/g, '');
       if (c.length < 6) { setErr('That link looks incomplete.'); return; }
 
-      // Postgres won't LIKE a uuid, and PostgREST won't carry an `id::text`
-      // cast through a filter — that produced "operator does not exist:
-      // uuid ~~ unknown" and killed every /j/ link. Resolve the hex prefix as
-      // a uuid RANGE instead; uuid supports >= / <= natively and the PK index
-      // serves it. Short codes < 8 chars pad with 0 (low) and f (high).
-      const lo = c.padEnd(8, '0');
-      const hi = c.padEnd(8, 'f');
-      const asUuid = (p, fill) => `${p}-${fill.repeat(4)}-${fill.repeat(4)}-${fill.repeat(4)}-${fill.repeat(12)}`;
+      // Postgres won't LIKE a uuid directly — cast it to text first.
       const { data, error } = await supabase
         .from('jobs')
         .select('id, customer_name')
-        .gte('id', asUuid(lo, '0'))
-        .lte('id', asUuid(hi, 'f'))
+        .filter('id::text', 'like', `${c}%`)
         .limit(2);
 
       if (error) { setErr(error.message); return; }

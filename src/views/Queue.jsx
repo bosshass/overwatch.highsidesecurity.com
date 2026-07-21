@@ -4,11 +4,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase, customersApi, jobsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
+import { customersApi, jobsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 // Accept canonical [BILL IT] and legacy [COMPLETED] / [TO BILL] equivalently.
-const SKIP_PREFIXES = ['[BILLED]','[BILL IT]','[TO BILL]','[COMPLETED]','[IGNORE]','[IGNORED]','[IGNORE] JR OFF','[ESTIMATE SENT]','[SCHEDULED]','[NEEDS NOTES]'];
+const SKIP_PREFIXES = ['[BILLED]','[BILL IT]','[TO BILL]','[COMPLETED]','[IGNORE]','[IGNORED]','[IGNORE] JR OFF','[ESTIMATE SENT]','[SCHEDULED]'];
 const QUEUE_SOURCES = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Service/Urgent', color: '#f59e0b' },
   { id: CALENDARS.AUSTIN,                name: 'Austin',         color: '#f97316' },
@@ -467,43 +467,6 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
   const markNeedsParts = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[NEEDS PARTS] ${ev.title}`)) loadQueue(); setActing(null); };
   const sendToBilling = async (ev) => { setActing(ev.id); if (await updateEventTitle(ev, `[TO BILL] ${ev.title}`)) { loadQueue(); loadScheduleQueue(); } setActing(null); };
 
-  // 🚩 "No Notes, No Money": a completed visit with no tech notes is unbilled
-  // work with unknown hours. Flagging adopts the calendar event into the jobs
-  // table if it's calendar-only (the money leak), sets needs_notes so Unbilled/
-  // Board/Tech views can surface it, and tags the event so it leaves triage.
-  const flagNeedsNotes = async (ev) => {
-    setActing(ev.id);
-    try {
-      const now = new Date().toISOString();
-      const techName = ['Austin','JR'].includes(ev.calendarName) ? ev.calendarName : null;
-      const { data: existing } = await supabase
-        .from('jobs').select('id, tech_name').eq('calendar_event_id', ev.id).maybeSingle();
-      if (existing) {
-        await supabase.from('jobs').update({
-          needs_notes: true, needs_notes_flagged_at: now,
-          ...(techName && !existing.tech_name ? { tech_name: techName } : {}),
-        }).eq('id', existing.id);
-      } else {
-        await supabase.from('jobs').insert({
-          customer_name: extractCustomerName(ev.title) || ev.title,
-          customer_address: ev.location || null,
-          calendar_event_id: ev.id,
-          status: 'complete',
-          job_type: 'service',
-          issue: (ev.description || ev.title || '').slice(0, 800),
-          created_by: 'queue · flagged needs notes',
-          needs_notes: true, needs_notes_flagged_at: now,
-          tech_name: techName,
-        });
-      }
-      await updateEventTitle(ev, `[NEEDS NOTES] ${ev.title}`);
-      loadQueue();
-    } catch (e) {
-      alert('Flag failed: ' + (e.message || e) + '\n\nIf this mentions needs_notes, run migration 024 first.');
-    }
-    setActing(null);
-  };
-
   const addNote = async (ev) => {
     if (!addingNote.trim()) return;
     setSavingNote(true);
@@ -771,9 +734,8 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
                 <button onClick={() => { setScheduling(ev); loadTechAvailability(); }} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>📅 Schedule</button>
                 <button onClick={() => markBilled(ev)} disabled={acting === ev.id} style={{ background: '#059669', border: 'none', color: '#fff', padding: 12, cursor: 'pointer' }}>💰 Bill It</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderTop: '1px solid #334155' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #334155' }}>
                 <button onClick={() => markNeedsParts(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#f59e0b', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155' }}>🔧 Needs Parts</button>
-                <button onClick={() => flagNeedsNotes(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#ef4444', padding: 12, cursor: 'pointer', borderRight: '1px solid #334155', fontWeight: 700 }}>🚩 Need Notes</button>
                 <button onClick={() => markIgnore(ev)} disabled={acting === ev.id} style={{ background: '#1e293b', border: 'none', color: '#cbd5e1', padding: 12, cursor: 'pointer' }}>🗑️ Ignore</button>
               </div>
             </div>

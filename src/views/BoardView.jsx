@@ -78,8 +78,7 @@ const EST_STAGES = [
 ];
 
 const COLUMNS = [
-  { key:'triage',    label:'📝 New',               color:'#ef4444', statuses:['new','needs_details','pending_decision'] },
-  { key:'waiting',   label:'⏳ Waiting (Parts/Blocked)', color:'#f97316', statuses:['needs_parts','pending_materials','blocked'] },
+  { key:'triage',    label:'📝 New / Notes',       color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
   { key:'ready',     label:'✅ Ready to Schedule',  color:'#22c55e', statuses:['ready_to_schedule','return_pending'] },
   { key:'scheduled', label:'📅 Scheduled',         color:'#3b82f6', statuses:['scheduled'] },
   { key:'estimates', label:'📋 Estimates',         color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
@@ -858,7 +857,6 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
         <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>URGENT</span>}
           {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>HIGH</span>}
-          {job.needs_notes && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:800, padding:'2px 6px', borderRadius:4 }}>💸 UNBILLED · ? hrs · needs notes{job.tech_name?` (${job.tech_name})`:''}</span>}
           {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:800, padding:'2px 6px', borderRadius:4 }}>⚠️ NO CLIENT</span>}
         </div>
       </div>
@@ -1135,12 +1133,8 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       )
     : jobs;
 
-  // Notes and personal tasks are not work orders — keep them out of the board
-  // columns (they belong on the customer / in task lanes). Nothing is deleted.
-  const boardJobs = filtered.filter(j => !['note','task'].includes(j.job_type));
-
   const buckets = COLUMNS.reduce((acc, col) => {
-    acc[col.key] = boardJobs.filter(j => col.statuses.includes(j.status));
+    acc[col.key] = filtered.filter(j => col.statuses.includes(j.status));
     return acc;
   }, {});
 

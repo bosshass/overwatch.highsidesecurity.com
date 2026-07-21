@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
 import { customersApi, jobsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
+import { stripIntakeTemplate } from '../utils/statusMachine.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 // Accept canonical [BILL IT] and legacy [COMPLETED] / [TO BILL] equivalently.
@@ -722,7 +723,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
               
               {expanded === ev.id && (
                 <div style={{ padding: '0 16px 16px', borderTop: '1px solid #334155' }}>
-                  {ev.description ? <div style={{ color: '#94a3b8', fontSize: 14, whiteSpace: 'pre-wrap', marginTop: 12 }}>{ev.description}</div> : <div style={{ color: '#cbd5e1', fontSize: 14, fontStyle: 'italic', marginTop: 12 }}>No notes yet</div>}
+                  {stripIntakeTemplate(ev.description) ? <div style={{ color: '#94a3b8', fontSize: 14, whiteSpace: 'pre-wrap', marginTop: 12 }}>{stripIntakeTemplate(ev.description)}</div> : <div style={{ color: '#cbd5e1', fontSize: 14, fontStyle: 'italic', marginTop: 12 }}>No notes yet</div>}
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                     <input type="text" value={addingNote} onChange={e => setAddingNote(e.target.value)} placeholder="Add a note..." style={{ flex: 1, background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', color: '#fff' }} />
                     <button onClick={() => addNote(ev)} disabled={savingNote || !addingNote.trim()} style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>💾</button>
@@ -750,7 +751,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
              jobs.map(job => (
               <div key={job.id} style={{ background: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 }}>
                 <div style={{ fontWeight: 500 }}>{job.customer_name}</div>
-                <div style={{ color: '#94a3b8', fontSize: 13 }}>{job.issue}</div>
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>{stripIntakeTemplate(job.issue)}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <span style={{ background: STATUS_INFO[job.status]?.color || '#64748b', color: '#fff', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{STATUS_INFO[job.status]?.label || job.status}</span>
                 </div>
@@ -792,7 +793,7 @@ export default function Queue({ accessToken, onBack, onOpenCustomer }) {
                           <span style={{ color: '#94a3b8', fontSize: 13 }}>{formatDate(ev.start)}</span>
                         </div>
                       </div>
-                      {ev.description && <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 4 }}>{ev.description.slice(0, 100)}...</div>}
+                      {stripIntakeTemplate(ev.description) && <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 4 }}>{stripIntakeTemplate(ev.description).slice(0, 100)}...</div>}
                     </div>
                   ))}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>

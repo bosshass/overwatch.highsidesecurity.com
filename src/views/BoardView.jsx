@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
+import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -596,10 +597,10 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           )}
         </div>
 
-        {job.issue && (
+        {stripIntakeTemplate(job.issue) && (
           <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:14 }}>
             <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
-            <div style={{ color:'#e2e8f0', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{job.issue}</div>
+            <div style={{ color:'#e2e8f0', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{stripIntakeTemplate(job.issue)}</div>
           </div>
         )}
 
@@ -868,7 +869,7 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
         </div>
       )}
 
-      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{job.issue||'no issue noted'}</div>
+      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{stripIntakeTemplate(job.issue)||'no issue noted'}</div>
 
       {/* THE STICKY LINE — who owns it, when it hit the board, how stale it is.
           This never truncates and never collapses; it's the whole point of the card. */}

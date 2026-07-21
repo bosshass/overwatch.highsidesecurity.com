@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
-import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES } from '../utils/statusMachine.js';
+import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate } from '../utils/statusMachine.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
@@ -431,6 +431,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   }
 
   const typeInfo = JOB_TYPE_INFO[job.job_type] || JOB_TYPE_INFO.service;
+  // Strip the intake form's fixed header — see stripIntakeTemplate for why.
+  // If the whole "issue" was nothing but that template, this is '' and the
+  // Issue box below doesn't render at all rather than showing an empty shell.
+  const cleanIssue = stripIntakeTemplate(job.issue);
   const statusInfo = STATUS_INFO[job.status] || {};
   const quickActions = getQuickActions();
   const validNextStatuses = VALID_TRANSITIONS[job.status] || [];
@@ -799,10 +803,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           )}
 
           {/* Issue */}
-          {job.issue && (
+          {cleanIssue && (
             <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', marginBottom: '20px' }}>
               <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>Issue</div>
-              <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.5 }}>{job.issue}</div>
+              <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.5 }}>{cleanIssue}</div>
             </div>
           )}
 
@@ -994,10 +998,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Issue */}
-        {job.issue && (
+        {cleanIssue && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '16px' }}>
             <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Issue</div>
-            <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}>{job.issue}</div>
+            <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}>{cleanIssue}</div>
           </div>
         )}
 

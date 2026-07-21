@@ -139,3 +139,18 @@ export function getAgeUrgency(days) {
   if (days >= 2) return { level: 'attention', color: '#eab308', label: '2-3 days' };
   return { level: 'fresh', color: '#22c55e', label: 'Fresh' };
 }
+
+// The Service/Urgent intake form's fixed header ("Name: / Phone: / On-Site
+// Contact: / Contact Phone: / CMS #: / Access: ☐.../ Scope of Work:") gets
+// copied verbatim into job.issue / the calendar event description whenever a
+// job is created from that intake flow. Most of it duplicates fields already
+// shown elsewhere on the card (name, phone, CMS id) and the rest is unfilled
+// placeholder scaffolding — it's noise in every description preview, not
+// content. This strips the header, keeping only whatever real scope-of-work
+// text was actually written after it (if any).
+const INTAKE_TEMPLATE_RE = /^\s*Name:.*?\n\s*Phone:.*?\n(?:\s*On-?Site Contact:.*?\n)?(?:\s*Contact Phone:.*?\n)?(?:\s*CMS\s*#?:.*?\n)?(?:\s*Access:.*?\n)?\s*Scope of Work:\s*/is;
+
+export function stripIntakeTemplate(text) {
+  if (!text) return text;
+  return text.replace(INTAKE_TEMPLATE_RE, '').trim();
+}

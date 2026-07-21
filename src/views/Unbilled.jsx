@@ -61,6 +61,10 @@ const daysSince = (iso) => iso ? Math.floor((Date.now() - new Date(iso).getTime(
 // A single visit longer than this is almost certainly a tech who never clocked
 // out. Flag it — don't silently put it on an invoice.
 const SUSPICIOUS_HOURS = 12;
+// "No Notes, No Money" — hours are unknown on flagged jobs, so show the floor:
+// at least a trip charge is stuck, at $135/hr it's likely much more.
+const LABOR_RATE = 135;
+const TRIP_CHARGE = 102.22;
 
 const hrs = (mins) => (mins || 0) / 60;
 const fmtH = (h) => `${(Math.round(h * 10) / 10).toFixed(1)}h`;
@@ -77,10 +81,21 @@ export default function Unbilled({ onBack, userEmail }) {
   const [toast, setToast] = useState('');
   const [search, setSearch] = useState('');
   const [archiving, setArchiving] = useState(false);
+  const [notesJobs, setNotesJobs] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
     try {
+      // Jobs flagged needs_notes have no time_entries (that's why they're
+      // flagged), so the query below can't see them. Pull separately + scream.
+      try {
+        const { data: nn } = await supabase
+          .from('jobs')
+          .select('id, customer_name, tech_name, status, needs_notes_flagged_at')
+          .eq('needs_notes', true)
+          .not('status', 'in', '(billed,archived,dead,lost)');
+        setNotesJobs(nn || []);
+      } catch { setNotesJobs([]); }
       const { data: entries, error } = await supabase
         .from('time_entries')
         .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, archived, job_id, calendar_event_id')
@@ -288,6 +303,29 @@ export default function Unbilled({ onBack, userEmail }) {
 
       {toast && (
         <div style={{ background: '#166534', color: '#dcfce7', padding: '10px 14px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}>{toast}</div>
+      )}
+
+      {notesJobs.length > 0 && (
+        <div style={{ margin: '14px auto 0', maxWidth: 900, background: '#7f1d1d22', border: '1px solid #ef4444', borderRadius: 12, padding: 14 }}>
+          <div style={{ fontWeight: 800, color: '#ef4444', fontSize: 15, marginBottom: 4 }}>
+            🚩 {notesJobs.length} visit{notesJobs.length > 1 ? 's' : ''} can't be billed — no tech notes
+          </div>
+          <div style={{ fontSize: 12, color: '#fca5a5', marginBottom: 10 }}>
+            Hours unknown. At minimum <b>${(notesJobs.length * TRIP_CHARGE).toFixed(2)}</b> in trip charges stuck here — at ${LABOR_RATE}/hr likely far more. Bills the day the notes exist.
+          </div>
+          {notesJobs.map(j => {
+            const days = j.needs_notes_flagged_at ? daysSince(j.needs_notes_flagged_at) : 0;
+            return (
+              <div key={j.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#0f172a', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
+                <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.customer_name || 'Unknown'}</span>
+                <span style={{ color: '#f59e0b', fontWeight: 700 }}>? hrs</span>
+                <span style={{ color: '#fca5a5', fontWeight: 700 }}>≥${TRIP_CHARGE.toFixed(2)}</span>
+                <span style={{ background: j.tech_name ? '#334155' : '#7f1d1d', color: '#e2e8f0', padding: '2px 8px', borderRadius: 6, fontSize: 11 }}>{j.tech_name || 'no tech'}</span>
+                <span style={{ color: days >= 3 ? '#ef4444' : '#94a3b8', fontSize: 11, fontWeight: days >= 3 ? 800 : 500 }}>{days}d</span>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       <div style={{ padding: 14, maxWidth: 900, margin: '0 auto' }}>

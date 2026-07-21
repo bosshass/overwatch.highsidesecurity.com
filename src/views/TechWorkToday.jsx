@@ -1,6 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
+import { supabase } from '../services/supabase.js';
+
+// "No Notes, No Money" — dollars stuck behind missing notes.
+const LABOR_RATE = 135;
+const TRIP_CHARGE = 102.22;
+const TECH_NAME_BY_EMAIL = {
+  'austin@drhsecurityservices.com': 'Austin',
+  'drhservicetech1@gmail.com': 'Austin',
+  'jr@drhsecurityservices.com': 'JR',
+};
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -58,6 +68,24 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [notesDebt, setNotesDebt] = useState([]);
+
+  // Jobs flagged 🚩 needs-notes for THIS tech — visits DRH can't invoice until
+  // notes exist. Money talks louder than a reminder.
+  useEffect(() => {
+    (async () => {
+      try {
+        const myName = TECH_NAME_BY_EMAIL[userEmail?.toLowerCase()] || userName;
+        let q = supabase.from('jobs')
+          .select('id, customer_name, tech_name, needs_notes_flagged_at')
+          .eq('needs_notes', true)
+          .not('status', 'in', '(billed,archived,dead,lost)');
+        if (!showAllTechs && myName) q = q.eq('tech_name', myName);
+        const { data } = await q;
+        setNotesDebt(data || []);
+      } catch { setNotesDebt([]); }
+    })();
+  }, [userEmail, userName, showAllTechs]);
 
 
   // Single tech calendar OR all techs for operators
@@ -205,6 +233,21 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             ↻
           </button>
         </div>
+
+        {notesDebt.length > 0 && (() => {
+          const dOld = notesDebt.filter(j => j.needs_notes_flagged_at && (Date.now() - new Date(j.needs_notes_flagged_at)) / 86400000 >= 3);
+          const minDollars = (notesDebt.length * TRIP_CHARGE).toFixed(0);
+          return (
+            <div style={{ margin: '10px 16px 0', background: '#7f1d1d', border: '1px solid #ef4444', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>💸 ${minDollars}+ can't be billed until you write notes</div>
+              <div style={{ fontSize: 12, color: '#fecaca', marginTop: 3 }}>
+                {notesDebt.length} visit{notesDebt.length > 1 ? 's' : ''} with no notes (≥${TRIP_CHARGE.toFixed(2)} each, ${LABOR_RATE}/hr beyond)
+                {dOld.length > 0 && <b> — {dOld.length} sitting 3+ days</b>}:
+                {' '}{notesDebt.slice(0, 5).map(j => j.customer_name).filter(Boolean).join(' · ')}{notesDebt.length > 5 ? ' …' : ''}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Day nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px' }}>

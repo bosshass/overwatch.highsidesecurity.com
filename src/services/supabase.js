@@ -240,9 +240,16 @@ export const jobsApi = {
   },
 
   async getById(id) {
+    // Was: select(`*, assignments:job_assignments(*, tech:techs(*))`) — that
+    // embed requires a foreign key between jobs and job_assignments that does
+    // not exist in the schema, so this call has always 400'd with
+    // "Could not find a relationship between 'jobs' and 'job_assignments'."
+    // Every caller that needs assignments already fetches them separately via
+    // assignmentsApi.getForJob(id) (JobDetail does exactly this), so the
+    // embed was both broken and redundant.
     const { data, error } = await supabase
       .from('jobs')
-      .select(`*, assignments:job_assignments(*, tech:techs(*))`)
+      .select('*')
       .eq('id', id)
       .single();
     if (error) throw error;

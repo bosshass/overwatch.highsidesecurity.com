@@ -16,6 +16,7 @@ import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIO
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
+import MoveStatus from './MoveStatus.jsx';
 import FieldVisits from './FieldVisits.jsx';
 import ScheduleModal from './ScheduleModal.jsx';
 import RescheduleModal from './RescheduleModal.jsx';
@@ -808,6 +809,9 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
               ))}
             </div>
           </div>
+
+          {/* Move status — bidirectional, any role, note travels with the card */}
+          <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} />
 
           {/* Notes */}
           <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />

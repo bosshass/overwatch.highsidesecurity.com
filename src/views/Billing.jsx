@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, STATUS_INFO } from '../services/supabase.js';
 import NotesPanel from '../components/NotesPanel.jsx';
+import MoveStatus from '../components/MoveStatus.jsx';
 import { CALENDARS } from '../config/calendars.js';
 
 const TABS = [
@@ -51,7 +52,7 @@ function fmtHours(n) {
 // One billing card. Shows the issue until billed; notes live in NotesPanel
 // (job_history via notesApi) — the same store JobDetail and the board's merge
 // tool read from, so nothing written here gets orphaned or lost on a merge.
-function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail, accessToken, busy }) {
+function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, onMoved, userEmail, accessToken, busy }) {
   const [showNotes, setShowNotes] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [showBillConfirm, setShowBillConfirm] = useState(false);
@@ -212,6 +213,7 @@ function BillingCard({ job, assignments, onMarkBilled, onSendToBoard, userEmail,
           calendar event via appendNoteToJobEvents. */}
       {showNotes && (
         <div style={{ marginTop:10 }}>
+          <MoveStatus job={job} userEmail={userEmail} onMoved={() => onMoved?.()} />
           <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
         </div>
       )}
@@ -394,7 +396,7 @@ export default function Billing({ accessToken, userEmail, onBack }) {
           <div style={{ textAlign:'center', color:'#cbd5e1', padding:40 }}>{activeTab.emoji} Nothing in {activeTab.label}</div>
         ) : (
           jobs.map(job => (
-            <BillingCard key={job.id} job={job} assignments={assignmentsByJob[job.id]} onMarkBilled={markBilled} onSendToBoard={sendToBoard} userEmail={userEmail} accessToken={accessToken} busy={busy} />
+            <BillingCard key={job.id} job={job} assignments={assignmentsByJob[job.id]} onMarkBilled={markBilled} onSendToBoard={sendToBoard} onMoved={load} userEmail={userEmail} accessToken={accessToken} busy={busy} />
           ))
         )}
       </div>

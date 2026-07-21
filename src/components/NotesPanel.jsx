@@ -101,7 +101,10 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
     return names[email?.toLowerCase()] || email.split('@')[0];
   };
 
-  const displayNotes = maxNotes ? notes.slice(0, maxNotes) : notes;
+  // Newest comment always on top — sort explicitly so nothing (e.g. the
+  // completion-note entry) floats or sticks regardless of source.
+  const ordered = [...notes].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const displayNotes = maxNotes ? ordered.slice(0, maxNotes) : ordered;
 
   // Compact mode: just show note count + quick add
   if (compact && !expanded) {

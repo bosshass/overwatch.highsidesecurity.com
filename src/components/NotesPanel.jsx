@@ -5,7 +5,7 @@
 // Used in: JobDetail, JobCard expanded, everywhere.
 
 import { useState, useEffect, useCallback } from 'react';
-import { notesApi, STATUS_INFO } from '../services/supabase.js';
+import { notesApi, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { appendNoteToJobEvents } from '../services/calendarSync.js';
 
 export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null }) {
@@ -16,6 +16,15 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [expanded, setExpanded] = useState(!compact);
+  // What kind of entry this is when you hit save. 'note' = normal job note
+  // (unchanged default behavior). 'response' = same job note, tagged so it
+  // reads as a logged response rather than an internal note. 'customer_only'
+  // = NOT tied to this job at all — a standalone customer-service touch
+  // (a call, a question) with nothing to schedule. That creates its own
+  // lightweight job_type:'note' row against the customer, so it never shows
+  // up as work on the board, but the customer has a real record of the touch.
+  const [noteType, setNoteType] = useState('note');
+  const [savingCustomerNote, setSavingCustomerNote] = useState(false);
 
   const loadNotes = useCallback(async () => {
     if (!jobId) return;
@@ -26,7 +35,18 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       // job's history in) are an audit trail, not something a tech needs
       // cluttering their note feed -- they're still in job_history in the
       // database if ever needed directly.
-      setNotes(data.filter(n => !n.text?.startsWith('↪ from merged job')));
+      // Merge-audit entries are history, not something a tech needs cluttering
+      // their note feed. Two formats exist in the wild: the older Board-merge
+      // carry-over ("↪ from merged job") and JobDetail's own merge tool
+      // ("🔗 MERGED FROM JOB #…" / "[MERGED INTO JOB #…]"). All three, gone
+      // from the feed; still in job_history in the database if ever needed.
+      const isMergeNoise = (t) => {
+        const s = t || '';
+        return s.startsWith('↪ from merged job')
+            || s.startsWith('🔗 MERGED FROM JOB')
+            || s.startsWith('[MERGED INTO JOB');
+      };
+      setNotes(data.filter(n => !isMergeNoise(n.text)));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {
@@ -40,17 +60,42 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
     if (!newNote.trim() || isSaving) return;
     setIsSaving(true);
     try {
-      await notesApi.addNote(jobId, newNote.trim(), userEmail);
-      // Mirror the note onto the linked Google Calendar event(s). Non-fatal:
-      // the note is already saved; a calendar failure must not block the UI.
-      if (job && accessToken) {
-        try { await appendNoteToJobEvents(accessToken, job, newNote.trim(), userEmail); }
-        catch (e) { console.warn('Calendar note sync failed (non-fatal):', e); }
+      if (noteType === 'customer_only') {
+        // Not tied to THIS job — a standalone customer-service touch. Create
+        // a lightweight note-type job against the customer so it has a real
+        // home, but it's job_type:'note' so it never shows as work anywhere
+        // (the board excludes note/task job_types from its columns).
+        if (!job?.customer_id) {
+          alert('This job has no linked customer, so there\'s nowhere to file a customer-only note. Add it as a regular note instead.');
+          setIsSaving(false);
+          return;
+        }
+        const created = await jobsApi.create({
+          customer_id: job.customer_id,
+          customer_name: job.customer_name,
+          customer_address: job.customer_address || null,
+          customer_phone: job.customer_phone || null,
+          job_type: 'note',
+          status: 'complete',
+          issue: newNote.trim().slice(0, 200),
+        }, userEmail);
+        await notesApi.addNote(created.id, newNote.trim(), userEmail);
+      } else {
+        const text = noteType === 'response' ? `💬 Response: ${newNote.trim()}` : newNote.trim();
+        await notesApi.addNote(jobId, text, userEmail);
+        // Mirror the note onto the linked Google Calendar event(s). Non-fatal:
+        // the note is already saved; a calendar failure must not block the UI.
+        if (job && accessToken) {
+          try { await appendNoteToJobEvents(accessToken, job, text, userEmail); }
+          catch (e) { console.warn('Calendar note sync failed (non-fatal):', e); }
+        }
       }
       setNewNote('');
+      setNoteType('note');
       await loadNotes();
     } catch (e) {
       console.error('Note save error:', e);
+      alert('Note failed to save: ' + (e.message || e));
     } finally {
       setIsSaving(false);
     }
@@ -143,6 +188,25 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       </div>
 
       {/* Quick add */}
+      {newNote.trim() && (
+        <div style={{ display: 'flex', gap: '5px', marginBottom: '6px' }}>
+          {[
+            { v: 'note', label: '📝 Note' },
+            { v: 'response', label: '💬 Response' },
+            { v: 'customer_only', label: '🗒️ Customer note (no job)' },
+          ].map(opt => (
+            <button key={opt.v} onClick={() => setNoteType(opt.v)}
+              style={{
+                fontSize: '11px', fontWeight: 700, padding: '5px 9px', borderRadius: '14px', cursor: 'pointer',
+                border: `1px solid ${noteType === opt.v ? '#00c8e8' : '#334155'}`,
+                background: noteType === opt.v ? '#00c8e820' : 'transparent',
+                color: noteType === opt.v ? '#00c8e8' : '#94a3b8',
+              }}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '8px', marginBottom: notes.length > 0 ? '10px' : '0' }}>
         <input
           value={newNote}

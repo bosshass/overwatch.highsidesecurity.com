@@ -22,6 +22,13 @@ import ScheduleModal from './ScheduleModal.jsx';
 import RescheduleModal from './RescheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
 
+// The customer dedup effort left merge-audit text sitting directly in
+// customers.notes on ~341 rows ("MERGED FROM CS123, CS456…"). That's an audit
+// trail, not a customer-service comment, and it doesn't belong in the
+// customer-info box a tech reads on-site. Suppress it there; the raw field is
+// untouched in the database for whoever needs the audit trail directly.
+const isMergeAuditText = (text) => /merged|merge audit/i.test(text || '');
+
 export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userEmail, userRole }) {
   const navigate = useNavigate();
   const [job, setJob] = useState(null);
@@ -33,6 +40,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [showPriorityPicker, setShowPriorityPicker] = useState(false);
   const [showAdminSection, setShowAdminSection] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const [showTimeCapture, setShowTimeCapture] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
@@ -73,8 +81,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const loadJob = useCallback(async () => {
     if (!jobId) return;
     setIsLoading(true);
+    setLoadError('');
     try {
       const data = await jobsApi.getById(jobId);
+      if (!data) { setLoadError('That job could not be found.'); return; }
       setJob(data);
       const assigns = await assignmentsApi.getForJob(jobId);
       setAssignments(assigns);
@@ -89,7 +99,11 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         } catch { setLinkedCustomer(null); }
       } else { setLinkedCustomer(null); }
     } catch (e) {
+      // This used to only console.error and leave `job` null — which renders
+      // as a totally blank screen with zero indication anything went wrong.
+      // Surface it instead.
       console.error('Job load error:', e);
+      setLoadError(e.message || 'Something went wrong loading this job.');
     } finally {
       setIsLoading(false);
     }
@@ -402,7 +416,19 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       </div>
     );
   }
-  if (!job) return null;
+  if (!job) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#0f1729', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', color: '#e2e8f0' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>{loadError || 'That job could not be found.'}</div>
+          <button onClick={onClose}
+            style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 8, padding: '9px 16px', fontSize: 14, cursor: 'pointer' }}>
+            Back to board
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const typeInfo = JOB_TYPE_INFO[job.job_type] || JOB_TYPE_INFO.service;
   const statusInfo = STATUS_INFO[job.status] || {};
@@ -747,10 +773,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           )}
 
           {/* Phone */}
-          {job.customer_phone && (
+          {(job.customer_phone || linkedCustomer?.phone) && (
             <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ color: '#e2e8f0', fontSize: '15px' }}>📞 {job.customer_phone}</span>
-              <a href={`tel:${job.customer_phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+              <span style={{ color: '#e2e8f0', fontSize: '15px' }}>📞 {job.customer_phone || linkedCustomer?.phone}</span>
+              <a href={`tel:${job.customer_phone || linkedCustomer?.phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
             </div>
           )}
 
@@ -781,10 +807,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           )}
 
           {/* CMS */}
-          {linkedCustomer && (linkedCustomer.cms_account_id || linkedCustomer.notes) && (
+          {linkedCustomer && (linkedCustomer.cms_account_id || (linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes))) && (
             <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' }}>
               {linkedCustomer.cms_account_id && <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '4px' }}>📡 CMS: {linkedCustomer.cms_account_id}</div>}
-              {linkedCustomer.notes && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
+              {linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes) && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
             </div>
           )}
 
@@ -942,10 +968,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Phone */}
-        {job.customer_phone && (
+        {(job.customer_phone || linkedCustomer?.phone) && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#e2e8f0', fontSize: '14px' }}>📞 {job.customer_phone}</span>
-            <a href={`tel:${job.customer_phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+            <span style={{ color: '#e2e8f0', fontSize: '14px' }}>📞 {job.customer_phone || linkedCustomer?.phone}</span>
+            <a href={`tel:${job.customer_phone || linkedCustomer?.phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
           </div>
         )}
 
@@ -976,10 +1002,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* CMS */}
-        {linkedCustomer && (linkedCustomer.cms_account_id || linkedCustomer.notes) && (
+        {linkedCustomer && (linkedCustomer.cms_account_id || (linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes))) && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '12px 16px', marginBottom: '16px' }}>
             {linkedCustomer.cms_account_id && <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '4px' }}>📡 CMS: {linkedCustomer.cms_account_id}</div>}
-            {linkedCustomer.notes && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
+            {linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes) && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
           </div>
         )}
 

@@ -13,6 +13,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate, parsePhoneNumbers } from '../utils/statusMachine.js';
+import { findDuplicateJobs } from '../utils/fuzzyMatch.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
@@ -115,38 +116,44 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   // ACTION HANDLERS
   // ============================================
 
-  const findPotentialDuplicates = async () => {
+  const findPotentialDuplicates = useCallback(async (auto = false) => {
     if (!job) return;
     try {
-      const { data: allJobsList, error } = await supabase
-        .from('jobs').select('*').not('status', 'eq', 'archived')
-        .order('created_at', { ascending: false }).limit(500);
-      if (error) throw error;
-      const matches = (allJobsList || []).filter(j => {
-        if (j.id === job.id) return false;
-        if (job.customer_id && j.customer_id === job.customer_id) return true;
-        if (job.customer_name && j.customer_name) {
-          const name1 = job.customer_name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-          const name2 = j.customer_name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-          if (name1.length < 3 || name2.length < 3) { /* skip */ }
-          else if (name1 === name2) return true;
-          else if (name1.length > 4 && name2.length > 4 && (name1.includes(name2) || name2.includes(name1))) return true;
-        }
-        if (job.customer_address && j.customer_address) {
-          const addr1 = job.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
-          const addr2 = j.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
-          if (addr1.length > 5 && addr1 === addr2) return true;
-        }
-        return false;
-      });
+      // Was: exact-match or substring-containment only, e.g.
+      // "sainati".includes("santini") — which is false either direction, so
+      // this could never catch a phonetic near-miss or a "Jerry Allen" vs
+      // "JAllen" spelling variant. That's the actual reason duplicates have
+      // kept slipping through despite this tool existing. Now uses the same
+      // calibrated fuzzy matcher used for the automatic on-load check.
+      const dupes = await findDuplicateJobs(job.customer_name, job.id);
+      const byAddress = job.customer_address ? await (async () => {
+        const { data } = await supabase.from('jobs').select('*')
+          .not('status', 'eq', 'archived').limit(500);
+        const addr1 = job.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        return (data || []).filter(j => j.id !== job.id && j.customer_address &&
+          addr1.length > 5 && j.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) === addr1);
+      })() : [];
+      const byId = job.customer_id ? await (async () => {
+        const { data } = await supabase.from('jobs').select('*')
+          .eq('customer_id', job.customer_id).not('status', 'eq', 'archived').limit(500);
+        return (data || []).filter(j => j.id !== job.id);
+      })() : [];
+      const merged = [...dupes, ...byAddress, ...byId];
+      const seen = new Set();
+      const matches = merged.filter(j => (seen.has(j.id) ? false : (seen.add(j.id), true)));
       matches.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setPotentialDuplicates(matches);
-      setShowDuplicateModal(true);
+      if (!auto) setShowDuplicateModal(true);
     } catch (e) {
       console.error('Duplicate search error:', e);
-      alert('Error searching for duplicates: ' + e.message);
+      if (!auto) alert('Error searching for duplicates: ' + e.message);
     }
-  };
+  }, [job]);
+
+  // Force the duplicate flag automatically — this used to require someone
+  // to remember to tap "Check duplicates." Runs once per job id loaded, not
+  // on every subsequent update (notes, status changes) to the same job.
+  useEffect(() => { if (job) findPotentialDuplicates(true); }, [job?.id, findPotentialDuplicates]);
 
   const handleMerge = async () => {
     if (!selectedMergeTarget || isMerging) return;
@@ -748,6 +755,23 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             </button>
           )}
 
+          {/* Forced duplicate flag — fuzzy-matched automatically on load, not
+              waiting for anyone to remember to check. Covers "still on the
+              board" and "scheduled in the future" since both are just open
+              rows in the same jobs table. */}
+          {potentialDuplicates.length > 0 && (
+            <button onClick={() => setShowDuplicateModal(true)}
+              style={{ marginTop: 12, width: '100%', textAlign: 'left', background: '#7c2d1230', border: '2px solid #f97316', borderRadius: 12, padding: '12px 14px', cursor: 'pointer' }}>
+              <div style={{ color: '#fdba74', fontWeight: 800, fontSize: 14 }}>
+                ⚠️ Possible duplicate — {potentialDuplicates.length} similar job{potentialDuplicates.length > 1 ? 's' : ''} found
+              </div>
+              <div style={{ color: '#fed7aa', fontSize: 12, marginTop: 3 }}>
+                {potentialDuplicates.slice(0, 3).map(d => `${d.customer_name} (${STATUS_INFO[d.status]?.label || d.status})`).join(' · ')}
+                {potentialDuplicates.length > 3 ? ` +${potentialDuplicates.length - 3} more` : ''} — tap to review
+              </div>
+            </button>
+          )}
+
           {/* Badges */}
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '12px', flexWrap: 'wrap' }}>
             {job.priority && job.priority !== 'normal' && (
@@ -1139,7 +1163,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Duplicate merge */}
-        <button onClick={findPotentialDuplicates}
+        <button onClick={() => findPotentialDuplicates(false)}
           style={{ background: '#6366f115', color: '#6366f1', border: '1px solid #6366f140', borderRadius: '10px', padding: '12px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', width: '100%', textAlign: 'center', marginBottom: '12px' }}>
           🔗 Mark as Duplicate / Merge
         </button>

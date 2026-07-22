@@ -5,6 +5,7 @@
 // Views decide WHEN to call these. No state machine.
 
 import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
+import { nameSimilarity, isFuzzyMatch } from '../utils/fuzzyMatch.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -329,6 +330,18 @@ export async function onJobComplete(accessToken, job, completionType, oldCalenda
 export async function scanForOrphans(accessToken) {
   const results = { synced: 0, orphans: [], errors: [] };
 
+  // Fetched ONCE, not per-event — an in-memory fuzzy pass against every open
+  // job is what covers "or is in Event Audit" for the forced-duplicate flag.
+  // A calendar-only item that fuzzy-matches an already-open job is exactly
+  // the case that would otherwise sit here quietly and become a second
+  // ticket the moment someone adopts it — same disease as Vinyard Church's
+  // three cards, just caught one step earlier.
+  const { data: openJobs } = await supabase
+    .from('jobs')
+    .select('id, customer_name, status')
+    .not('status', 'in', '(billed,archived,dead,lost)')
+    .limit(500);
+
   const timeMin = new Date();
   timeMin.setDate(timeMin.getDate() - 7);
   const timeMax = new Date();
@@ -361,7 +374,15 @@ export async function scanForOrphans(accessToken) {
         if (linkedJob) {
           results.synced++;
         } else if (!isOrphanIgnored(event.id)) {
-          results.orphans.push({ event, calendar: cal });
+          // Force the duplicate flag here too: does this orphan's title
+          // fuzzy-match an already-open job? If so, tag it — someone
+          // reviewing Event Audit should see "this might already be a
+          // ticket" instead of adopting it blind into a second one.
+          const possibleDuplicate = (openJobs || [])
+            .map(j => ({ ...j, similarity: nameSimilarity(j.customer_name, event.summary || '') }))
+            .filter(j => isFuzzyMatch(j.customer_name, event.summary || ''))
+            .sort((a, b) => b.similarity - a.similarity)[0] || null;
+          results.orphans.push({ event, calendar: cal, possibleDuplicate });
         }
       }
     } catch (err) {

@@ -38,7 +38,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.10';
+const APP_VERSION = '9.9.11';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -540,7 +540,14 @@ export default function App() {
   }
 
   // ── BUILD LOG ───────────────────────────────────────────────────────────
-  if (showBuildLog) {
+  // Skip this gate for /j/ deep links. The gate forces a full "new build,
+  // sign in again" ceremony BEFORE any routing happens at all — meaning
+  // every deep link tap since the last visit hit this instead of the card,
+  // any time APP_VERSION had changed (which, during an active patch cycle,
+  // is most of the time). A text-message link's whole purpose is instant,
+  // single-card access; the normal board/login flow still gets the gate.
+  const isDeepLink = window.location.pathname.startsWith('/j/');
+  if (showBuildLog && !isDeepLink) {
     return <BuildLog onDismiss={handleBuildLogDismiss} />;
   }
 

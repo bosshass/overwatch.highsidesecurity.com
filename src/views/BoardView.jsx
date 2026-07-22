@@ -64,7 +64,10 @@ const LANE_MOVES = [
   { key:'ready',     label:'✅ Ready',      color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule'] },
   { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', target:'scheduled',         statuses:['scheduled'] },
   { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
-  { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', target:'to_bill',           statuses:['complete','to_bill','billed'] },
+  // Billing lives in its own screen (Unbilled/Billing.jsx) now — the board
+  // doesn't need a To Bill lane duplicating that. complete/to_bill/billed
+  // jobs still exist and are still managed there; they just don't clutter
+  // the board's active-work view anymore.
   // Not a billing outcome — for test entries, dupes handled outside the merge tool, or
   // anything that just needs to leave the active board without touching money.
   { key:'clear',     label:'🗑️ Clear (not billable)', color:'#cbd5e1', target:'archived', statuses:['archived','dead'] },
@@ -83,7 +86,6 @@ const COLUMNS = [
   { key:'ready',     label:'✅ Ready to Schedule',  color:'#22c55e', statuses:['ready_to_schedule','return_pending'] },
   { key:'scheduled', label:'📅 Scheduled',         color:'#3b82f6', statuses:['scheduled'] },
   { key:'estimates', label:'📋 Estimates',         color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
-  { key:'tobill',    label:'💵 To Bill',           color:'#8b5cf6', statuses:['complete','to_bill'] },
 ];
 
 const fmtMoney = n => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '';
@@ -1159,7 +1161,6 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           { label:'open',     val:stats.total_open,       color:'#cbd5e1', col:null },
           { label:'new/notes',val:buckets.triage?.length||0,    color:'#ef4444', col:'triage' },
           { label:'returns',  val:stats.returns_pending,  color:'#ec4899', col:'ready' },
-          { label:'to bill',  val:buckets.tobill?.length||0,    color:'#8b5cf6', col:'tobill' },
         ].map(s=>(
           <button key={s.label} onClick={() => s.col && focusColumn(s.col)}
             style={{ background: activeCol===s.col && s.col ? '#334155' : '#1e293b', padding:'6px 14px', borderRadius:8, border: activeCol===s.col && s.col ? `1px solid ${s.color}` : '1px solid transparent', cursor: s.col ? 'pointer' : 'default', textAlign:'left', fontFamily:'inherit' }}>

@@ -383,12 +383,17 @@ export default function CustomerAudit({ onBack, accessToken }) {
             </summary>
             <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {manualEvents.map(o => (
-                <div key={o.event.id} style={{ background: '#1e293b', border: '1px solid #f59e0b55', borderRadius: 8, padding: '8px 10px' }}>
+                <div key={o.event.id} style={{ background: '#1e293b', border: `1px solid ${o.possibleDuplicate ? '#f97316' : '#f59e0b55'}`, borderRadius: 8, padding: '8px 10px' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{o.event.summary || '(no title)'}</div>
                   <div style={{ fontSize: 12, color: '#cbd5e1' }}>
                     {o.calendar?.name} · {o.event.start?.dateTime ? new Date(o.event.start.dateTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
                   </div>
                   <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>never entered Overwatch — will not bill</div>
+                  {o.possibleDuplicate && (
+                    <div style={{ fontSize: 12, color: '#fdba74', fontWeight: 700, marginTop: 4, background: '#7c2d1230', borderRadius: 6, padding: '4px 8px' }}>
+                      ⚠️ Possible duplicate — already open: {o.possibleDuplicate.customer_name} ({o.possibleDuplicate.status})
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

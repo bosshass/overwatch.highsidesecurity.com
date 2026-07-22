@@ -154,3 +154,20 @@ export function stripIntakeTemplate(text) {
   if (!text) return text;
   return text.replace(INTAKE_TEMPLATE_RE, '').trim();
 }
+
+// Customer phone fields often hold more than one number in one string, e.g.
+// "(800) 787-0545 , Mobile:(970) 282-6985" — a main line plus a labeled
+// mobile. Passing that WHOLE string straight into a tel: link produces
+// garbage (the dialer tries to parse "Mobile" as digits). This pulls out
+// each real number separately, with its label if one precedes it, so each
+// can get its own clean tel: link.
+export function parsePhoneNumbers(raw) {
+  if (!raw) return [];
+  const re = /(?:([A-Za-z][A-Za-z\s]{0,12}):\s*)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(raw))) {
+    out.push({ label: m[1]?.trim() || null, digits: `${m[2]}${m[3]}${m[4]}`, display: `(${m[2]}) ${m[3]}-${m[4]}` });
+  }
+  return out;
+}

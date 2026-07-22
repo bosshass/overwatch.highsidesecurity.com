@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
-import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate } from '../utils/statusMachine.js';
+import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate, parsePhoneNumbers } from '../utils/statusMachine.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
@@ -360,13 +360,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     const actions = [];
     switch (status) {
       case JOB_STATUS.NEW:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_DETAILS, ACTIONS.COMPLETE_SALES, ACTIONS.MARK_DEAD); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_DETAILS, ACTIONS.COMPLETE_SALES, ACTIONS.MARK_DEAD); break;
       case JOB_STATUS.NEEDS_DETAILS:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.NEEDS_PARTS:
-        actions.push(ACTIONS.MATERIALS_IN); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MATERIALS_IN); break;
       case JOB_STATUS.PENDING_DECISION:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.READY_TO_SCHEDULE:
         actions.push(ACTIONS.SCHEDULE); break;
       case JOB_STATUS.SCHEDULED: break;
@@ -777,12 +777,12 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           )}
 
           {/* Phone */}
-          {(job.customer_phone || linkedCustomer?.phone) && (
-            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ color: '#e2e8f0', fontSize: '15px' }}>📞 {job.customer_phone || linkedCustomer?.phone}</span>
-              <a href={`tel:${job.customer_phone || linkedCustomer?.phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+          {parsePhoneNumbers(job.customer_phone || linkedCustomer?.phone).map((p, i) => (
+            <div key={i} style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ color: '#e2e8f0', fontSize: '15px' }}>📞 {p.display}{p.label ? ` · ${p.label}` : ''}</span>
+              <a href={`tel:${p.digits}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
             </div>
-          )}
+          ))}
 
           {/* Access codes */}
           {(job.gate_code || job.panel_password) && (
@@ -972,12 +972,12 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Phone */}
-        {(job.customer_phone || linkedCustomer?.phone) && (
-          <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#e2e8f0', fontSize: '14px' }}>📞 {job.customer_phone || linkedCustomer?.phone}</span>
-            <a href={`tel:${job.customer_phone || linkedCustomer?.phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+        {parsePhoneNumbers(job.customer_phone || linkedCustomer?.phone).map((p, i) => (
+          <div key={i} style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#e2e8f0', fontSize: '14px' }}>📞 {p.display}{p.label ? ` · ${p.label}` : ''}</span>
+            <a href={`tel:${p.digits}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
           </div>
-        )}
+        ))}
 
         {/* Access codes */}
         {(job.gate_code || job.panel_password) && (

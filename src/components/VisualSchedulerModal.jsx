@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
-import { buildEventTitle, buildEventDescription, getLatestNote, createEventOnCalendar } from '../services/calendarSync.js';
+import { book, hold, linkToEvent } from '../services/schedule.js';
 import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -219,158 +219,50 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // A hold books NOTHING on a tech's calendar. It writes a "Holding <customer>"
   // event to the Tent calendar (the team's existing convention) and stamps
   // jobs.tentative_date so the board can show it in its own column.
-  // ── Link an event that already exists ───────────────────────────────
-  // The other legitimate way a job becomes scheduled: somebody already put it
-  // on a calendar by hand. Forcing them to re-book it would create a duplicate
-  // event, which is the same disease as the 12 orphans on the home screen —
-  // work on a calendar with no job behind it, or now, two events for one job.
-  const linkExisting = async (ev, cal) => {
+  const confirm = async () => {
+    if (missing) { setErr(missing); return; }
+    const tech = validTechs.find(t => t.id === selectedTechId);
+    if (!tech) { setErr('Pick a tech'); return; }
+    const [sh, sm] = (holdStart || '09:00').split(':').map(Number);
+    const [eh, em] = (holdEnd || '17:00').split(':').map(Number);
+    const start = parseLocalDate(selectedDay.date); start.setHours(sh, sm, 0, 0);
+    const end   = parseLocalDate(selectedDay.date); end.setHours(eh, em, 0, 0);
+    if (end <= start) { setErr('End time must be after start time'); return; }
+
     setSaving(true); setErr('');
     try {
-      const start = new Date(ev.start?.dateTime || ev.start?.date);
-      const { error } = await supabase.from('jobs').update({
-        status: 'scheduled',
-        scheduled_date: localDateStr(start),
-        scheduled_event_id: ev.id,
-        scheduled_calendar_id: cal.id,
-        tech_name: cal.name || null,
-        tentative_date: null,
-        tentative_event_id: null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', job.id);
-      if (error) throw error;
+      // ONE write path (services/schedule.js). This modal used to hand-write
+      // jobs + calendar + memory columns itself — one of several writers whose
+      // subsets disagreed. Now everything that means "scheduled" changes
+      // together or not at all.
+      await book({ job, tech, start, end, accessToken });
       onScheduled();
-    } catch (e) { setErr(e.message || 'Could not link'); }
+    } catch (e) { setErr(e.message || 'Failed to schedule'); }
     setSaving(false);
   };
 
   const holdTentative = async () => {
     if (!selectedDay) { setErr('Pick a day to hold'); return; }
+    const [hsH, hsM] = (holdStart || '09:00').split(':').map(Number);
+    const [heH, heM] = (holdEnd || '17:00').split(':').map(Number);
+    const start = parseLocalDate(selectedDay.date); start.setHours(hsH, hsM, 0, 0);
+    const end   = parseLocalDate(selectedDay.date); end.setHours(heH, heM, 0, 0);
+    if (end <= start) { setErr('Hold end must be after the start'); return; }
+
     setSaving(true); setErr('');
     try {
-      const [hsH, hsM] = (holdStart || '09:00').split(':').map(Number);
-      const [heH, heM] = (holdEnd || '17:00').split(':').map(Number);
-      const start = parseLocalDate(selectedDay.date); start.setHours(hsH, hsM, 0, 0);
-      const end   = parseLocalDate(selectedDay.date); end.setHours(heH, heM, 0, 0);
-      if (end <= start) { setErr('Hold end must be after the start'); setSaving(false); return; }
-
-      let eventId = null;
-      try {
-        const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
-          title: `Holding ${job.customer_name || 'job'}`,
-          description: `Tentative hold placed in Overwatch. No tech booked.`,
-          location: job.customer_address || '',
-          startTime: start, endTime: end,
-        });
-        if (created?.id) eventId = created.id;
-      } catch (e) { console.warn('Tent event create failed (non-fatal)', e); }
-
-      const { error } = await supabase.from('jobs').update({
-        tentative_date: start.toISOString(),
-        tentative_event_id: eventId,
-        updated_at: new Date().toISOString(),
-      }).eq('id', job.id);
-      if (error) throw error;
-
+      await hold({ job, start, end, accessToken });
       onScheduled();
     } catch (e) { setErr(e.message || 'Could not hold'); }
     setSaving(false);
   };
 
-  const confirm = async () => {
-    // This used to be a bare `return`. Pick a tech, pick a day, forget the time
-    // slot, and the button did NOTHING — no error, no toast, no disabled state.
-    // Shana lost a Rick Ferreri booking to it and reasonably concluded the app
-    // was broken. Silence is the worst possible failure mode for a save button.
-    if (missing) { setErr(missing); return; }
-    if (!selectedTechId) { setErr('Pick a tech before booking'); return; }
-    const tech = validTechs.find(t => t.id === selectedTechId);
-    if (!tech) return;
-
-    // Times come from the one time-range control in the decide panel now.
-    const [sh, sm] = (holdStart || startTime || '09:00').split(':').map(Number);
-    const [eh, em] = (holdEnd || endTime || '17:00').split(':').map(Number);
-    // parseLocalDate: "YYYY-MM-DD" as LOCAL midnight, not UTC — this was
-    // the wrong-day bug.
-    const start = parseLocalDate(selectedDay.date); start.setHours(sh, sm, 0, 0);
-    const end = parseLocalDate(selectedDay.date); end.setHours(eh, em, 0, 0);
-    if (end <= start) { setErr('End time must be after start time'); return; }
-
+  const linkExisting = async (ev, cal) => {
     setSaving(true); setErr('');
     try {
-      const { error: dbErr } = await supabase.from('jobs').update({
-        status: 'scheduled',
-        scheduled_date: selectedDay.date,
-        tech_assigned: tech.id,
-        tech_name: tech.name || '',
-        // A real booking supersedes the pencil mark. Leaving both would show a
-        // card that is scheduled AND tentatively held, which reads as a conflict.
-        tentative_date: null,
-        tentative_event_id: null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', job.id);
-      if (dbErr) throw dbErr;
-
-      // RESCHEDULE: if a previous scheduling created a tech-calendar event,
-      // delete it first so we don't leave a ghost booking behind.
-      if (job.scheduled_event_id && job.scheduled_calendar_id) {
-        try {
-          await fetch(
-            `${GCAL}/calendars/${encodeURIComponent(job.scheduled_calendar_id)}/events/${encodeURIComponent(job.scheduled_event_id)}`,
-            { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-        } catch (e) { console.warn('Old scheduled event delete failed (non-fatal):', e.message); }
-      }
-
-      const latestNote = await getLatestNote(job.id);
-      const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
-        title: buildEventTitle(job),
-        description: buildEventDescription(job, latestNote),
-        location: job.customer_address,
-        startTime: start,
-        endTime: end,
-      });
-
-      // Remember which event we created so this job can be RESCHEDULED later.
-      // Separate try — if the columns don't exist yet (migration 021 not run),
-      // scheduling still succeeds, we just can't clean up on reschedule.
-      if (created?.id) {
-        const { error: memErr } = await supabase.from('jobs').update({
-          scheduled_event_id: created.id,
-          scheduled_calendar_id: tech.calendar_id,
-        }).eq('id', job.id);
-        if (memErr) console.warn('Could not store scheduled event id (run migration 021):', memErr.message);
-      }
-
-      // Tag the job's ORIGINAL source event (if any) as [SCHEDULED] --
-      // this is the same tag Queue.jsx's own exclusion list already checks
-      // for, so this job correctly disappears from Queue's Triage and
-      // Schedule tabs instead of sitting there stale while a second,
-      // duplicate event now exists on the tech's calendar.
-      if (job.calendar_event_id && job.calendar_id) {
-        try {
-          const evRes = await fetch(
-            `${GCAL}/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-          if (evRes.ok) {
-            const original = await evRes.json();
-            if (!/\[SCHEDULED\]/i.test(original.summary || '')) {
-              await fetch(
-                `${GCAL}/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}`,
-                {
-                  method: 'PATCH',
-                  headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ summary: `[SCHEDULED] ${original.summary || ''}` }),
-                }
-              );
-            }
-          }
-        } catch (e) { console.warn('Could not tag original event as scheduled (non-fatal):', e.message); }
-      }
-
+      await linkToEvent({ job, event: ev, calendarId: cal.id, techName: cal.name, accessToken });
       onScheduled();
-    } catch (e) { setErr(e.message || 'Failed to schedule'); }
+    } catch (e) { setErr(e.message || 'Could not link'); }
     setSaving(false);
   };
 

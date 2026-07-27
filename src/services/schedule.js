@@ -1,0 +1,177 @@
+// ============================================
+// schedule — the ONE way scheduling state changes.
+// ============================================
+// "Scheduled" lives in three representations that grew independently:
+//   1. jobs.status = 'scheduled'
+//   2. jobs.scheduled_date / scheduled_event_id / scheduled_calendar_id
+//   3. job_assignments rows (dispatch: tech + calendar_event_id + time)
+// ...plus tentative_date/tentative_event_id for holds, plus three fields for
+// WHO (tech_assigned, tech_name, assigned_to).
+//
+// Every scheduling UI wrote its own subset in its own order. That is how nine
+// jobs said "scheduled" while two had no date, three had no calendar event and
+// one had no tech: each writer told part of the story.
+//
+// RULE: nothing outside this file writes status='scheduled', scheduled_date,
+// scheduled_event_id, tentative_date or tentative_event_id. Screens call
+// book / hold / linkToEvent / clearHold and get every representation updated
+// together — or an error, never a partial write to the visible fields.
+//
+// The schema itself still has the redundancy. Collapsing it is a migration for
+// a maintenance window, not a Sunday 3am; until then this module IS the schema
+// as far as the app is concerned.
+
+import { supabase } from './supabase.js';
+import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote } from './calendarSync.js';
+import { CALENDARS } from '../config/calendars.js';
+
+const GCAL = 'https://www.googleapis.com/calendar/v3';
+
+function localDateStr(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+async function deleteEvent(accessToken, calendarId, eventId) {
+  if (!accessToken || !calendarId || !eventId) return;
+  try {
+    await fetch(`${GCAL}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
+  } catch (e) { console.warn('event delete failed (non-fatal)', e.message); }
+}
+
+// ── READ: one answer to "what is this job's scheduling state?" ─────────
+// Returns { kind: 'booked'|'held'|'none', date, eventId, calendarId }
+export function scheduleOf(job) {
+  if (!job) return { kind: 'none' };
+  if (job.status === 'scheduled') {
+    return { kind: 'booked', date: job.scheduled_date,
+             eventId: job.scheduled_event_id, calendarId: job.scheduled_calendar_id };
+  }
+  if (job.tentative_date) {
+    return { kind: 'held', date: job.tentative_date,
+             eventId: job.tentative_event_id, calendarId: CALENDARS.TENTATIVELY_SCHEDULED };
+  }
+  return { kind: 'none' };
+}
+
+// ── BOOK: tech + slot → every representation, in a safe order ──────────
+// DB first (source of truth), then calendar, then the event id remembered.
+// If the calendar write fails the job is still visibly scheduled and the
+// error surfaces — the reverse order is how ghosts got made.
+export async function book({ job, tech, start, end, accessToken }) {
+  if (!job?.id) throw new Error('No job');
+  if (!tech?.id || !tech?.calendar_id) throw new Error('Pick a tech');
+  if (!(start instanceof Date) || !(end instanceof Date) || end <= start) throw new Error('Bad time range');
+
+  // A booking supersedes any hold — remove the Tent event so the calendar
+  // doesn't show a hold for work that is now real.
+  if (job.tentative_event_id) {
+    await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, job.tentative_event_id);
+  }
+  // Rebooking removes the previous tech-calendar event.
+  if (job.scheduled_event_id && job.scheduled_calendar_id) {
+    await deleteEvent(accessToken, job.scheduled_calendar_id, job.scheduled_event_id);
+  }
+
+  const { error } = await supabase.from('jobs').update({
+    status: 'scheduled',
+    scheduled_date: localDateStr(start),
+    tech_assigned: tech.id,
+    tech_name: tech.name || '',
+    tentative_date: null,
+    tentative_event_id: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', job.id);
+  if (error) throw error;
+
+  const latestNote = await getLatestNote(job.id);
+  const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
+    title: buildEventTitle(job),
+    description: buildEventDescription(job, latestNote),
+    location: job.customer_address,
+    startTime: start,
+    endTime: end,
+  });
+
+  if (created?.id) {
+    const { error: memErr } = await supabase.from('jobs').update({
+      scheduled_event_id: created.id,
+      scheduled_calendar_id: tech.calendar_id,
+    }).eq('id', job.id);
+    if (memErr) console.warn('could not store scheduled event id:', memErr.message);
+  }
+
+  return { eventId: created?.id || null };
+}
+
+// ── HOLD: a day (+hours) → Tent calendar + tentative stamp ─────────────
+export async function hold({ job, start, end, accessToken, byName }) {
+  if (!job?.id) throw new Error('No job');
+  if (!(start instanceof Date)) throw new Error('Pick a day');
+
+  // Replacing an existing hold removes the old Tent event first.
+  if (job.tentative_event_id) {
+    await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, job.tentative_event_id);
+  }
+
+  let eventId = null;
+  try {
+    const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
+      title: `Holding ${job.customer_name || 'job'}`,   // the team's convention
+      description: `Tentative hold${byName ? ` placed by ${byName}` : ''} in Overwatch. No tech booked.`,
+      location: job.customer_address || '',
+      startTime: start,
+      endTime: end || new Date(start.getTime() + 2 * 3600000),
+    });
+    if (created?.id) eventId = created.id;
+  } catch (e) { console.warn('tent event create failed (non-fatal)', e); }
+
+  const { error } = await supabase.from('jobs').update({
+    tentative_date: start.toISOString(),
+    tentative_event_id: eventId,
+    updated_at: new Date().toISOString(),
+  }).eq('id', job.id);
+  if (error) throw error;
+
+  return { eventId };
+}
+
+// ── LINK: adopt an event somebody already made ─────────────────────────
+// The other legitimate way to become scheduled. No new event is created —
+// creating one is how a job ends up with two.
+export async function linkToEvent({ job, event, calendarId, techName, accessToken }) {
+  if (!job?.id) throw new Error('No job');
+  if (!event?.id) throw new Error('No event');
+
+  if (job.tentative_event_id) {
+    await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, job.tentative_event_id);
+  }
+
+  const start = new Date(event.start?.dateTime || event.start?.date);
+  const { error } = await supabase.from('jobs').update({
+    status: 'scheduled',
+    scheduled_date: localDateStr(start),
+    scheduled_event_id: event.id,
+    scheduled_calendar_id: calendarId || null,
+    tech_name: techName || job.tech_name || null,
+    tentative_date: null,
+    tentative_event_id: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', job.id);
+  if (error) throw error;
+}
+
+// ── CLEAR a hold without booking ───────────────────────────────────────
+export async function clearHold({ job, accessToken }) {
+  if (!job?.id) return;
+  if (job.tentative_event_id) {
+    await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, job.tentative_event_id);
+  }
+  const { error } = await supabase.from('jobs').update({
+    tentative_date: null,
+    tentative_event_id: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', job.id);
+  if (error) throw error;
+}

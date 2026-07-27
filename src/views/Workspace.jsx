@@ -619,6 +619,12 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            {/* There was no way back to the board from here at all — the
+                board got links to My Tasks and Who's Stuck, this side never
+                got the matching one. */}
+            <button onClick={() => navigate('/board')}
+              style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 8,
+                       padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📋 Board</button>
             <button onClick={() => navigate('/notes')}
               style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 8,
                        padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📝 Notes</button>

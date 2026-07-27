@@ -23,6 +23,7 @@ import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
+import Spotlight from '../components/Spotlight.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -590,9 +591,46 @@ const STALE_PULSE_CSS = `
 .ow-verystale { animation: ow-stale-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .ow-stale, .ow-verystale { animation:none; } }`;
 
+// Real steps against real elements — data-tour targets tagged above. Every
+// operator lands here now, so this is the walkthrough that matters most.
+const BOARD_SPOTLIGHT_STEPS = [
+  { target: 'col-triage',    title: '📝 New / Notes',
+    body: 'Not actionable yet — needs info, parts, or a decision before anyone can move it forward.' },
+  { target: 'col-ready',     title: '✅ Ready to Schedule',
+    body: 'Good to go. Someone just needs to put it on a calendar — that\'s the next lane over.' },
+  { target: 'col-tentative', title: '✏️ Tentative',
+    body: 'Pencilled in on the Tent calendar, nobody booked yet. Tapping a card here opens the scheduler, same as everywhere.' },
+  { target: 'col-scheduled', title: '📅 Scheduled',
+    body: 'A tech is booked and it\'s on their calendar. This can only get set by actually booking — never by hand.' },
+  { target: 'board-assigned-filter', title: 'Filter by person',
+    body: 'Tap a name to see just their open work, or "Nobody" to find things nobody has claimed yet.' },
+  { target: 'board-search', title: 'Search',
+    body: 'Customer name, issue text, or CMS number — whatever you remember about the job.' },
+  { target: 'whos-stuck', title: "Who's stuck",
+    body: 'Jumps to the home screen section showing who has the oldest work sitting with no movement.' },
+  { target: 'my-tasks-link', title: 'My Tasks',
+    body: 'Your own to-do list — separate from the board. Notes, hand-offs, and things you\'re personally tracking live here.' },
+];
+
+// TOUR_BUILD-style versioning, same pattern Tour.jsx already uses — bump this
+// string and everyone sees the walkthrough again next time something here
+// changes meaningfully.
+const SPOTLIGHT_BUILD = '9.11.6';
+const spotlightKey = (email) => `ow_board_spotlight_${SPOTLIGHT_BUILD}_${(email || '').toLowerCase()}`;
+
 export default function BoardView({ accessToken, onBack, userEmail, userName }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [showSpotlight, setShowSpotlight] = useState(false);
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem(spotlightKey(userEmail))) setShowSpotlight(true);
+    } catch { /* private browsing — just don't auto-show */ }
+  }, [userEmail]);
+  const closeSpotlight = () => {
+    setShowSpotlight(false);
+    try { localStorage.setItem(spotlightKey(userEmail), new Date().toISOString()); } catch {}
+  };
   const [jobs, setJobs] = useState([]);
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -830,15 +868,24 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           {/* Straight to Who's stuck. "← Home" technically got you there, but
               it drops you at the top of the page and you have to scroll past
               the warnings to find the person you were thinking about. */}
-          <button onClick={() => navigate('/?focus=people')}
+          <button data-tour="whos-stuck" onClick={() => navigate('/?focus=people')}
             style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             👥 Who's stuck
           </button>
-          <button onClick={() => navigate('/workspace')}
+          <button data-tour="my-tasks-link" onClick={() => navigate('/workspace')}
             style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             🗂️ My Tasks
+          </button>
+          {/* Real walkthrough — points at the actual buttons, not a picture of
+              them. Separate from the shared "?" (which still opens the plain
+              text guide) because "explain it" and "show me on the real
+              screen" are different asks. */}
+          <button onClick={() => setShowSpotlight(true)}
+            style={{ background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', padding:'7px 14px',
+                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:700 }}>
+            ▶ Show me around
           </button>
           <span style={{ fontWeight:700, fontSize:16 }}>📋 Board</span>
         </div>
@@ -860,7 +907,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
             <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.val}</div>
           </button>
         ))}
-        <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+        <div data-tour="board-assigned-filter" style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
           <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>assigned</span>
           {[{ key:null, label:'All' },
             ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
@@ -883,7 +930,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
               {STALE_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
           </label>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
+          <input data-tour="board-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
             style={{ padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:200 }} />
         </div>
       </div>
@@ -904,7 +951,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       ) : isMobile ? (
         <div style={{ flex:1, overflowY:'auto', paddingBottom:84 }}>
           {COLUMNS.map(col => (
-            <div key={col.key} ref={el => { colRefs.current[col.key] = el; }}>
+            <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }}>
               <AccordionColumn
                 col={col} jobs={buckets[col.key]||[]}
                 expanded={expandedCol===col.key}
@@ -917,11 +964,15 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       ) : (
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
-            <div key={col.key} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
+            <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
               <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} />
             </div>
           ))}
         </div>
+      )}
+
+      {showSpotlight && (
+        <Spotlight steps={BOARD_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
       )}
 
       {selectedJob && (

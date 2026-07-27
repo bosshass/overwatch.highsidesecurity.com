@@ -38,7 +38,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.11.5';
+const APP_VERSION = '9.11.6';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -66,7 +66,7 @@ const USER_CONFIG = {
   // It isn't shared — it's JR's. The identity prompt is gone; it just signs
   // him in as himself. Sara reaches the app on admin@jnbservice.com and
   // sara@jnbllc.com, Shana on shanaparks@, so nobody loses a way in.
-  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: null },
+  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'board' },
     // jr@ lands on HOME, not /work — he's the owner, and the tour we show him is
   // about My Tasks and the warning banner, both of which live there. NOTE his
   // role is still 'tech', so Admin Tools and the operator screens stay hidden
@@ -74,19 +74,19 @@ const USER_CONFIG = {
   // him an operator, jr@ makes him a tech, and it's the same person.
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
-  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
-  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: null },
-  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
+  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
+  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: 'work' },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
-  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: null, superAdmin: true },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'board', superAdmin: true },
 };
 
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
-  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: null },
-  { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: null },
-  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: null },
+  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: 'board' },
+  { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: 'board' },
+  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
 ];
 
 const CALENDAR_OPTIONS = [

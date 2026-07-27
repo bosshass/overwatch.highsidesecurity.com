@@ -24,7 +24,6 @@ import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
 import HelpBot from './components/HelpBot.jsx';
-import QuickGuide from './components/QuickGuide.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
@@ -39,7 +38,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.11.12';
+const APP_VERSION = '9.11.13';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -150,7 +149,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSetup, setShowSetup] = useState(false);
   const [defaultCalendar, setDefaultCalendar] = useState(null);
-  const [showGuide, setShowGuide] = useState(false);
   const [showBackfill, setShowBackfill] = useState(false);
   const [backfillLog, setBackfillLog] = useState([]);
   const [backfillRunning, setBackfillRunning] = useState(false);
@@ -402,11 +400,10 @@ export default function App() {
                 setShowSetup(true);
               }
 
-              const guideKey = `juce_guide_${email}`;
-              if (!localStorage.getItem(guideKey)) {
-                localStorage.setItem(guideKey, 'seen');
-                setShowGuide(true);
-              }
+              // QuickGuide's own first-login trigger REMOVED 9.11.13 along with
+              // the component — it used a separate flag (juce_guide_${email})
+              // from Tour's own auto-launch (shouldShowTour, elsewhere in this
+              // file), so removing it doesn't touch Tour's first-login firing.
 
               // Deep link takes priority over the normal default-view redirect.
               sessionStorage.removeItem('ow_post_login_path');
@@ -756,7 +753,14 @@ export default function App() {
               able to trigger a mass rewrite by mis-tapping. It is still
               reachable — see Admin Tools — just not by accident. */}
 
-          <button onClick={() => setShowGuide(true)} title="How this works"
+          {/* RETIRED QuickGuide 9.11.13 — 450 lines describing a PIN-entry
+              screen, an "Office" tab, and a "Stats" tab that don't exist in
+              this app anymore. It was a genuinely different, much older
+              onboarding flow that nobody had touched while everything else
+              moved on, so the "?" was teaching people to look for buttons
+              that were never there. Points at Tour now — the walkthrough
+              that's actually been kept in sync with the app tonight. */}
+          <button onClick={() => setShowTour(true)} title="How this works"
             style={{ background: '#00c8e815', border: '1px solid #00c8e8', borderRadius: 10,
                      color: '#00c8e8', width: 38, height: 38, fontSize: 20, fontWeight: 800,
                      cursor: 'pointer', lineHeight: 1, padding: 0, flexShrink: 0 }}
@@ -1016,7 +1020,6 @@ export default function App() {
       )}
 
       <HelpBot userEmail={userEmail} currentView={location.pathname} userName={getUserConfig(userEmail).name} userRole={getUserConfig(userEmail).role} />
-      {showGuide && <QuickGuide onClose={() => setShowGuide(false)} />}
     </>
   );
 }

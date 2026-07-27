@@ -18,6 +18,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
+import Spotlight from '../components/Spotlight.jsx';
 import { ASSIGNEES, assigneeOf, CLOSED_STATUSES } from '../utils/ownership.js';
 import { shortCode } from '../config/appBase.js';
 import { scanForOrphans } from '../services/calendarSync.js';
@@ -203,6 +204,29 @@ export default function OpsHome({
   // a month means nobody owns it.
   const staleColor = d => d == null ? C.muted : d >= 30 ? C.red : d >= 14 ? C.amber : d >= 7 ? C.soft : C.muted;
 
+  const HOME_SPOTLIGHT_STEPS = [
+    { target: 'home-search', title: 'Search everything',
+      body: 'Customer name, job, or CMS number — searches across the whole system, not just what\'s on screen.' },
+    { target: 'home-databad', title: 'Work that will never bill',
+      body: 'Calendar events nobody turned into a job, and jobs with no client attached. Real work, invisible to billing until someone links it.' },
+    { target: 'home-stranded', title: 'Scheduled, then nothing happened',
+      body: 'The day came and went with no disposition. These are most likely sitting on Work To Do Today doing nothing.' },
+    { target: 'home-people', title: "Who's stuck",
+      body: 'Not volume — the OLDEST untouched thing per person. That\'s what\'s quietly rotting.' },
+    { target: 'home-admin', title: 'Admin tools',
+      body: 'Event Audit, Billing, Weekly Recap, and the tour you\'re on right now — all live here.' },
+  ];
+  const SPOTLIGHT_BUILD = '9.11.13';
+  const spotlightKey = (email) => `ow_home_spotlight_${SPOTLIGHT_BUILD}_${(email || '').toLowerCase()}`;
+  const [showSpotlight, setShowSpotlight] = useState(false);
+  useEffect(() => {
+    try { if (!localStorage.getItem(spotlightKey(userEmail))) setShowSpotlight(true); } catch {}
+  }, [userEmail]);
+  const closeSpotlight = () => {
+    setShowSpotlight(false);
+    try { localStorage.setItem(spotlightKey(userEmail), new Date().toISOString()); } catch {}
+  };
+
   return (
     <div style={{ minHeight:'100vh', background: `radial-gradient(circle at top left, #10213c 0%, ${C.bg} 32%, #050912 100%)`, color: C.text, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif', display:'flex', flexDirection:'column' }}>
 
@@ -217,6 +241,8 @@ export default function OpsHome({
             </div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
+            <button onClick={() => setShowSpotlight(true)} title="Show me around"
+              style={{ width:38, height:38, borderRadius:13, background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', fontWeight:900, fontSize:15, cursor:'pointer' }}>▶</button>
             <button onClick={() => { loadPeople(); loadGap(); }}
               style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.text, fontWeight:900, fontSize:16, cursor:'pointer' }}>↻</button>
             {isOperator && (
@@ -225,15 +251,19 @@ export default function OpsHome({
             )}
           </div>
         </div>
-        <input onClick={onSearch} readOnly placeholder="Search customers, jobs, CMS…"
+        <input data-tour="home-search" onClick={onSearch} readOnly placeholder="Search customers, jobs, CMS…"
           style={{ width:'100%', background:'#111f34', border:`1px solid #293d58`, color:'#dbe7f8', borderRadius:15, padding:'11px 13px', fontSize:14, outline:'none', cursor:'pointer', boxSizing:'border-box' }} />
       </div>
 
       <div style={{ flex:1, overflowY:'auto', paddingBottom:100 }}>
 
+        {showSpotlight && (
+          <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
+        )}
+
         {/* ══ 1. THE WARNING ══ */}
         {hasGap ? (
-          <button onClick={() => go('/audit?scan=1')}
+          <button data-tour="home-databad" onClick={() => go('/audit?scan=1')}
             style={{ display:'block', width:'calc(100% - 32px)', margin:'16px', textAlign:'left',
                      background:'linear-gradient(160deg,#4a0f0f,#2a0808)', border:`2px solid ${C.red}`,
                      borderRadius:22, padding:'22px 22px 20px', cursor:'pointer', color:'#fff',
@@ -276,7 +306,7 @@ export default function OpsHome({
 
         {/* ══ 1b. STRANDED — scheduled, date passed, nobody dispositioned ══ */}
         {stranded.length > 0 && (
-          <div style={{ margin:'14px 16px 0', background:'#2a1f08', border:`1px solid ${C.amber}`,
+          <div data-tour="home-stranded" style={{ margin:'14px 16px 0', background:'#2a1f08', border:`1px solid ${C.amber}`,
                         borderRadius:18, padding:'16px 18px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
               <span style={{ fontSize:17 }}>⏰</span>
@@ -318,7 +348,7 @@ export default function OpsHome({
         )}
 
         {/* ══ 2. PEOPLE ══ */}
-        <div ref={peopleRef} style={{ padding:'6px 16px 0', scrollMarginTop:90 }}>
+        <div ref={peopleRef} data-tour="home-people" style={{ padding:'6px 16px 0', scrollMarginTop:90 }}>
           <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
             <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
               Who's stuck
@@ -414,7 +444,7 @@ export default function OpsHome({
             and Billing are where you go to FIX things, and the warning banner
             above already tells you when that's needed. */}
         {isOperator && (
-          <div style={{ padding:'22px 16px 0' }}>
+          <div data-tour="home-admin" style={{ padding:'22px 16px 0' }}>
             <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
               <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
                 Admin tools

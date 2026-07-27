@@ -36,6 +36,7 @@ import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import { techsApi } from '../services/supabase.js';
 import { createEventOnCalendar } from '../services/calendarSync.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
+import Spotlight from '../components/Spotlight.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
 import { MergeTool } from './BoardView.jsx';
 import { jobsApi } from '../services/supabase.js';
@@ -179,6 +180,30 @@ function AddWork({ owner, ownerName, onClose, onDone }) {
 }
 
 export default function Workspace({ accessToken, userEmail, userName, isOperator = false }) {
+  const WORKSPACE_SPOTLIGHT_STEPS = [
+    { target: 'wk-viewing', title: 'Whose board is this',
+      body: 'Switch between your own tasks, someone else\'s, or everyone\'s at once.' },
+    { target: 'wk-todo', title: 'To Do',
+      body: 'Assigned to you, plus your own notes and quick tasks — nothing here goes to the board.' },
+    { target: 'wk-doing', title: 'Doing',
+      body: 'Pencilled in, plus anything you\'ve pulled in to work on yourself.' },
+    { target: 'wk-watching', title: 'Watching',
+      body: 'Handed off to someone else, but you still need to know when it moves. It comes back here tinted when it does.' },
+    { target: 'wk-addwork', title: 'Add work',
+      body: 'Open jobs nobody has claimed yet. Taking one doesn\'t change its status — just puts it in your To Do.' },
+    { target: 'wk-board-link', title: 'Back to the board',
+      body: 'My Tasks is yours. The board is everyone\'s. This is the way back.' },
+  ];
+  const WK_SPOTLIGHT_BUILD = '9.11.13';
+  const wkSpotlightKey = (email) => `ow_wk_spotlight_${WK_SPOTLIGHT_BUILD}_${(email || '').toLowerCase()}`;
+  const [showWkSpotlight, setShowWkSpotlight] = useState(false);
+  useEffect(() => {
+    try { if (!localStorage.getItem(wkSpotlightKey(userEmail))) setShowWkSpotlight(true); } catch {}
+  }, [userEmail]);
+  const closeWkSpotlight = () => {
+    setShowWkSpotlight(false);
+    try { localStorage.setItem(wkSpotlightKey(userEmail), new Date().toISOString()); } catch {}
+  };
   const navigate = useNavigate();
   const { who } = useParams();
   const location = useLocation();
@@ -572,8 +597,8 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
   // Writing only (3) is what made this feel broken — she pencilled something in
   // and nothing anywhere reflected it.
 
-  const Lane = ({ label, hint, color, count, children, empty }) => (
-    <div style={{ background: SURFACE, borderRadius: 12, padding: 12, minHeight: 120 }}>
+  const Lane = ({ label, hint, color, count, children, empty, tourId }) => (
+    <div data-tour={tourId} style={{ background: SURFACE, borderRadius: 12, padding: 12, minHeight: 120 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 14, fontWeight: 700, color }}>{label}</div>
         <div style={{ fontSize: 12, color: MUTED, fontWeight: 700 }}>{count}</div>
@@ -607,6 +632,9 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
 
   return (
     <div style={{ background: BG, minHeight: '100vh', color: TEXT, paddingBottom: 60 }}>
+      {showWkSpotlight && (
+        <Spotlight steps={WORKSPACE_SPOTLIGHT_STEPS} onDone={closeWkSpotlight} onSkip={closeWkSpotlight} />
+      )}
       <div style={{ padding: '16px 16px 10px', borderBottom: `1px solid ${LINE}`,
                     position: 'sticky', top: 0, background: BG, zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
@@ -622,13 +650,13 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
             {/* There was no way back to the board from here at all — the
                 board got links to My Tasks and Who's Stuck, this side never
                 got the matching one. */}
-            <button onClick={() => navigate('/board')}
+            <button data-tour="wk-board-link" onClick={() => navigate('/board')}
               style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 8,
                        padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📋 Board</button>
             <button onClick={() => navigate('/notes')}
               style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 8,
                        padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📝 Notes</button>
-            <button onClick={() => setAddWork(true)}
+            <button data-tour="wk-addwork" onClick={() => setAddWork(true)}
               style={{ background: SURFACE, color: ACCENT, border: `1px solid ${ACCENT}55`, borderRadius: 8,
                        padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Add work</button>
             <button onClick={() => setShowNewJob(true)}
@@ -637,12 +665,15 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
             <button onClick={load} disabled={loading}
               style={{ background: SURFACE, border: 'none', color: MUTED, borderRadius: 8,
                        padding: '9px 13px', fontSize: 14, cursor: 'pointer' }}>{loading ? '…' : '↻'}</button>
+            <button onClick={() => setShowWkSpotlight(true)} title="Show me around"
+              style={{ background: `${ACCENT}22`, border: `1px solid ${ACCENT}`, color: ACCENT, borderRadius: 8,
+                       padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>▶</button>
           </div>
         </div>
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter…"
           style={{ width: '100%', boxSizing: 'border-box', background: SURFACE, border: `1px solid ${LINE}`,
                    borderRadius: 8, padding: '9px 12px', color: TEXT, fontSize: 13, outline: 'none' }} />
-        <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div data-tour="wk-viewing" style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>viewing</span>
           <button onClick={() => navigate('/workspace/all')}
             style={{ background: config.isAll ? ACCENT : SURFACE, color: config.isAll ? '#0f1729' : MUTED,
@@ -663,7 +694,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, padding: 16 }}>
 
         {/* ── TO DO — a feed. Read-only against the board. ── */}
-        <Lane label="To Do" hint="Assigned to you, plus your own notes"
+        <Lane tourId="wk-todo" label="To Do" hint="Assigned to you, plus your own notes"
           color="#f59e0b" count={todoFeed.length + todoNotes.length}
           empty={'Nothing assigned to you yet — tap "+ Add work" to claim some.'}>
           {todoNotes.map(n => (
@@ -746,7 +777,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
         </Lane>
 
         {/* ── DOING — hers alone ── */}
-        <Lane label="Doing" hint="Pencilled in, plus what you put here"
+        <Lane tourId="wk-doing" label="Doing" hint="Pencilled in, plus what you put here"
           color="#3b82f6" count={doing.length + (isOperator ? tentEvents.length : 0)}>
           {isOperator && tentErr && (
             <div style={{ background: '#3b0d0d', border: '1px solid #ef444455', borderRadius: 10,
@@ -855,7 +886,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
         </Lane>
 
         {/* ── WATCHING — handed off, blocked, or just tracking ── */}
-        <Lane label="Watching" hint="Someone else's move — you still need to know"
+        <Lane tourId="wk-watching" label="Watching" hint="Someone else's move — you still need to know"
           color="#f59e0b" count={watching.length}
           empty={'Nothing you\'re tracking. Hand a card to someone and it lands here.'}>
           {watching.map(n => {

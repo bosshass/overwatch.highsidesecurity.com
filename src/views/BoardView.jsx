@@ -381,7 +381,11 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
 // ── Scheduler modal: VisualSchedulerModal (SchedulerModal.jsx deleted 9.9.25) ──
 
 // ── Detail drawer ─────────────────────────────────────────────────────────────
-function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail }) {
+// onWatch comes in as a prop — the function lives in BoardView proper, and
+// calling it bare from in here was an out-of-scope reference that crashed the
+// "Show this in My Tasks" button. The build stayed green because Vite doesn't
+// check undefined identifiers; that's what the lint gate is for now.
+function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch }) {
   const verbs = STATUS_VERBS[job.status] || [];
   const si = STATUS_INFO[job.status] || {};
   const [editingTitle, setEditingTitle] = useState(false);
@@ -597,7 +601,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             </div>
           ))}
           <div style={{ gridColumn:'1/-1', marginTop:4 }}>
-            <button onClick={() => watchInMyTasks(job)}
+            <button onClick={() => onWatch?.(job)}
               style={{ marginBottom:12, background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
                        borderRadius:8, padding:'7px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
               👁 Show this in My Tasks
@@ -1362,7 +1366,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
 
       {selectedJob && (
         <DetailDrawer
-          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail}
+          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks}
           allJobs={jobs}
           onStatusMove={(jobId, verb) => { moveStatus(jobId, verb); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}

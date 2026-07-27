@@ -7,6 +7,7 @@
 import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
 import { nameSimilarity, isFuzzyMatch } from '../utils/fuzzyMatch.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
+import { jobDeepLink } from '../config/appBase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';

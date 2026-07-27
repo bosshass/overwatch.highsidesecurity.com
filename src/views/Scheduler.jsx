@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
+import { supabase } from '../services/supabase.js';
 import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';

@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
-import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
+import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId, CALENDARS } from '../config/calendars.js';
 
 const TECH_PILL_COLORS = {
   'Austin': '#3b82f6',
@@ -480,7 +480,7 @@ Scope of Work: `;
 
           {/* Connect button */}
           <button
-            onClick={handleSubmit}
+            onClick={handleSubmitJob}
             disabled={!selectedCustomer || isSaving}
             style={{
               width: '100%', padding: '16px', fontSize: 16, fontWeight: 700,

@@ -80,6 +80,95 @@ const fmtDay = (iso) => iso
 // picture the real scheduler already shows. Holding now lives inside
 // VisualSchedulerModal as a second button under the same grid.
 
+// ── Add work ─────────────────────────────────────────────────────────
+// RESTORED 9.10.5. The 9.9.40 TentPicker deletion swallowed this component
+// too — it sat directly below the deleted block — so "+ Add work" crashed
+// from 9.9.40 until now with a green build every time. (Vite doesn't check
+// undefined identifiers; the new lint gate does.)
+//
+// Shows every open job nobody has claimed; taking one sets assigned_to and it
+// lands in your To Do. It never changes the job's status. Jobs whose tech_name
+// already resolves to you are excluded — they're already yours.
+function AddWork({ owner, ownerName, onClose, onDone }) {
+  const [rows, setRows] = useState(null);
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(null);
+
+  useEffect(() => {
+    supabase.from('jobs')
+      .select('id, customer_name, issue, status, tech_name, created_at')
+      .in('status', ['ready_to_schedule', 'return_pending', 'won', 'needs_parts', 'pending_materials'])
+      .is('assigned_to', null)
+      .order('created_at', { ascending: true }).limit(200)
+      .then(({ data }) => setRows((data || []).filter(
+        j => (j.tech_name || '').trim().toLowerCase() !== (ownerName || '').toLowerCase()
+      )));
+  }, [ownerName]);
+
+  const hits = (rows || []).filter(r => {
+    const t = q.trim().toLowerCase();
+    return !t || `${r.customer_name} ${r.issue}`.toLowerCase().includes(t);
+  });
+
+  const take = async (job) => {
+    setBusy(job.id);
+    await supabase.from('jobs')
+      .update({ assigned_to: owner, updated_at: new Date().toISOString() })
+      .eq('id', job.id);
+    setRows(prev => prev.filter(r => r.id !== job.id));
+    setBusy(null);
+    onDone();
+  };
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1200,
+               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: SURFACE, borderRadius: 14, padding: 18, width: '100%', maxWidth: 520,
+                 maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Add work</div>
+        <div style={{ color: MUTED, fontSize: 12, margin: '3px 0 12px' }}>
+          Open jobs nobody has picked up. Taking one puts it in your To Do — it does
+          not change the job's status.
+        </div>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+          style={{ background: BG, border: `1px solid ${LINE}`, borderRadius: 8, padding: '9px 12px',
+                   color: TEXT, fontSize: 13, outline: 'none', marginBottom: 10 }} />
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {rows === null ? (
+            <div style={{ color: MUTED, fontSize: 12, padding: 20, textAlign: 'center' }}>Loading…</div>
+          ) : hits.length === 0 ? (
+            <div style={{ color: MUTED, fontSize: 12, padding: 20, textAlign: 'center' }}>
+              Nothing unassigned. Everything open already has an owner.
+            </div>
+          ) : hits.map(j => (
+            <div key={j.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
+                       borderBottom: `1px solid ${BG}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}</div>
+                <div style={{ fontSize: 11, color: MUTED }}>
+                  {statusLabel(j.status)}{j.issue ? ` · ${j.issue.slice(0, 60)}` : ''}
+                </div>
+              </div>
+              <button onClick={() => take(j)} disabled={busy === j.id}
+                style={{ background: ACCENT, color: '#0f1729', border: 'none', borderRadius: 8,
+                         padding: '7px 13px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                         whiteSpace: 'nowrap' }}>
+                {busy === j.id ? '…' : "I'll take it"}
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={onClose}
+          style={{ marginTop: 12, background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
+                   borderRadius: 8, padding: '9px 0', fontSize: 12, cursor: 'pointer' }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Workspace({ accessToken, userEmail, userName }) {
   const navigate = useNavigate();
   const { who } = useParams();

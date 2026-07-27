@@ -52,9 +52,40 @@ export default function OpsHome({
         'return_pending','scheduled','complete','to_bill','won',
       ];
       const { data } = await supabase
-        .from('jobs').select('status, estimate_amount')
+        .from('jobs').select('id, status, estimate_amount, calendar_event_id')
         .in('status', ACTIVE).limit(500);
       const j = data || [];
+
+      // ── To Bill ────────────────────────────────────────────────────────
+      // This tile used to count JOBS sitting in complete/to_bill. That number
+      // was 18 while the Unbilled screen said 2 hours, because `jobs.status`
+      // and `time_entries.billed` are independent switches and marking time
+      // billed never moved the card. Thirteen of those 18 were already paid.
+      //
+      // A job count isn't money anyway. This now reads the SAME source the
+      // Unbilled screen reads — unbilled, unarchived time entries resolved to
+      // a job in complete/to_bill — so the tile and the screen it links to can
+      // never disagree again. Entries link by job_id OR calendar_event_id;
+      // most have a null job_id, so both paths are required.
+      const billableJobIds  = new Set(j.filter(x => ['complete','to_bill'].includes(x.status)).map(x => x.id));
+      const billableEventIds = new Set(
+        j.filter(x => ['complete','to_bill'].includes(x.status) && x.calendar_event_id).map(x => x.calendar_event_id)
+      );
+
+      let toBillMinutes = 0, toBillEntries = 0;
+      try {
+        const { data: te } = await supabase
+          .from('time_entries')
+          .select('total_minutes, job_id, calendar_event_id')
+          .not('billed', 'is', true)
+          .or('archived.is.null,archived.eq.false')
+          .limit(2000);
+        (te || []).forEach(e => {
+          const linked = (e.job_id && billableJobIds.has(e.job_id))
+                      || (e.calendar_event_id && billableEventIds.has(e.calendar_event_id));
+          if (linked) { toBillMinutes += (e.total_minutes || 0); toBillEntries += 1; }
+        });
+      } catch (err) { console.warn('to-bill hours lookup failed', err); }
 
       setStats({
         needsAction: j.filter(x => ['new','needs_details','needs_parts','needs_estimate'].includes(x.status)).length,
@@ -63,8 +94,8 @@ export default function OpsHome({
         returns:     j.filter(x => x.status === 'return_pending').length,
         scheduled:   j.filter(x => x.status === 'scheduled').length,
         estimates:   j.filter(x => ['needs_estimate','estimate_sent'].includes(x.status)).length,
-        toBill:      j.filter(x => ['complete','to_bill'].includes(x.status)).length,
-        toBillValue: j.filter(x => ['complete','to_bill'].includes(x.status)).reduce((s,x) => s+(parseFloat(x.estimate_amount)||0), 0),
+        toBillHours:   Math.round(toBillMinutes / 6) / 10,
+        toBillEntries: toBillEntries,
         total:       j.length,
       });
     } catch(e) { console.error(e); }
@@ -143,7 +174,14 @@ export default function OpsHome({
     { label: 'Returns',      val: stats.returns,     accent: C.cyan },
     { label: 'Scheduled',    val: stats.scheduled,   accent: C.blue },
     { label: 'Estimates',    val: stats.estimates,   accent: C.amber },
-    { label: 'To Bill',      val: stats.toBill,      accent: C.purple, sub: fmtMoney(stats.toBillValue) },
+    // To Bill now COUNTS time entries, so it must LAND on the screen that
+    // manages them. /unbilled reads time_entries (correct); the older /billing
+    // screen reads job_assignments, which is why the two numbers never agreed.
+    // Techs can't open /unbilled (OperatorOnly bounces them), so they keep the
+    // board — better than a tap that silently throws them back to Home.
+    { label: 'To Bill',      val: `${stats.toBillHours}h`, accent: C.purple,
+      sub: stats.toBillEntries === 1 ? '1 entry' : `${stats.toBillEntries} entries`,
+      path: isOperator ? '/unbilled' : '/board' },
   ] : [];
 
   const today = new Date().toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
@@ -189,7 +227,7 @@ export default function OpsHome({
               {loading ? '—' : stats.total}
             </div>
             <div style={{ marginTop:8, fontSize:13, color:'#b1bfd0', lineHeight:1.35 }}>
-              {stats.needsAction > 0 ? `${stats.needsAction} need attention` : 'Board is clear'}{stats.toBill > 0 ? ` · ${stats.toBill} to bill` : ''}
+              {stats.needsAction > 0 ? `${stats.needsAction} need attention` : 'Board is clear'}{stats.toBillHours > 0 ? ` · ${stats.toBillHours}h to bill` : ''}
             </div>
           </div>
         )}
@@ -212,7 +250,7 @@ export default function OpsHome({
         {stats && STAT_PILLS.length > 0 && (
           <div style={{ padding:'0 16px 16px', display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8 }}>
             {STAT_PILLS.map(s => (
-              <button key={s.label} onClick={() => go('/board')}
+              <button key={s.label} onClick={() => go(s.path || '/board')}
                 style={{ background:C.card, border:`1px solid ${C.line2}`, borderRadius:15, padding:'12px 10px', textAlign:'left', cursor:'pointer', color:C.text }}>
                 <div style={{ fontSize:11, color:C.muted, marginBottom:4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.label}</div>
                 <div style={{ fontSize:20, fontWeight:900, color:s.accent }}>{s.val}</div>

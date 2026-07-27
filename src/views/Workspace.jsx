@@ -28,7 +28,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
 import { shortCode } from '../config/appBase.js';
-import { CALENDARS } from '../config/calendars.js';
+import { CALENDARS, SYNC_CALENDARS } from '../config/calendars.js';
 import { ownsJob, assigneeOf, CLOSED_STATUSES, ASSIGNEES, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { statusLabel, statusColor, statusChipStyle } from '../utils/status.js';
 import NewJobModal from '../components/NewJobModal.jsx';
@@ -75,22 +75,52 @@ const fmtDay = (iso) => iso
 // and the calendar entry can catch up.
 function TentPicker({ item, accessToken, onClose, onSave, saving }) {
   const [events, setEvents] = useState(null);
+  const [scanErr, setScanErr] = useState(null);
   const [date, setDate] = useState(item.scheduled_for ? item.scheduled_for.slice(0, 10) : '');
   const [eventId, setEventId] = useState(item.calendar_event_id || null);
 
+  // Searches EVERY calendar, not just Tent. The first version queried only
+  // TENTATIVELY_SCHEDULED and reported "nothing in the next 45 days" while the
+  // calendar was visibly full — because holds live wherever whoever made them
+  // happened to put them (Installations, a tech's own calendar, Service Queue).
+  // Telling someone their calendar is empty when they are looking at it is
+  // worse than showing nothing at all.
+  //
+  // It also now says WHY it is empty. No token, a 403, and a genuinely quiet
+  // fortnight used to render identically — all three as silence.
   useEffect(() => {
-    if (!accessToken) { setEvents([]); return; }
+    if (!accessToken) { setEvents([]); setScanErr('Not signed in to Google — reload the page.'); return; }
     const from = new Date(); from.setHours(0, 0, 0, 0);
     const to = new Date(from); to.setDate(to.getDate() + 45);
-    const params = new URLSearchParams({
-      timeMin: from.toISOString(), timeMax: to.toISOString(),
-      singleEvents: 'true', orderBy: 'startTime', maxResults: '150',
-    });
-    fetch(`${GCAL}/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events?${params}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(r => (r.ok ? r.json() : { items: [] }))
-      .then(d => setEvents((d.items || []).filter(e => e.status !== 'cancelled')))
-      .catch(() => setEvents([]));
+
+    const cals = SYNC_CALENDARS.length
+      ? SYNC_CALENDARS
+      : [{ id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Tentatively Scheduled' }];
+
+    (async () => {
+      const found = [];
+      const failed = [];
+      for (const cal of cals) {
+        try {
+          const params = new URLSearchParams({
+            timeMin: from.toISOString(), timeMax: to.toISOString(),
+            singleEvents: 'true', orderBy: 'startTime', maxResults: '250',
+          });
+          const res = await fetch(
+            `${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`,
+            { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!res.ok) { failed.push(`${cal.name} (${res.status})`); continue; }
+          const data = await res.json();
+          (data.items || [])
+            .filter(e => e.status !== 'cancelled')
+            .forEach(e => found.push({ ...e, _cal: cal.name }));
+        } catch (e) { failed.push(`${cal.name} (${e.message})`); }
+      }
+      found.sort((a, b) =>
+        new Date(a.start?.dateTime || a.start?.date) - new Date(b.start?.dateTime || b.start?.date));
+      setEvents(found);
+      if (failed.length) setScanErr(`Couldn't read: ${failed.join(', ')}`);
+    })();
   }, [accessToken]);
 
   const chosen = (events || []).find(e => e.id === eventId);
@@ -115,10 +145,16 @@ function TentPicker({ item, accessToken, onClose, onSave, saving }) {
         <div style={{ color: MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, margin: '14px 0 5px' }}>
           Link a Tent calendar event (optional)
         </div>
+        {scanErr && (
+          <div style={{ color: '#fca5a5', fontSize: 11, marginBottom: 7, lineHeight: 1.4 }}>⚠️ {scanErr}</div>
+        )}
         {events === null ? (
-          <div style={{ color: MUTED, fontSize: 12 }}>Loading Tent calendar…</div>
+          <div style={{ color: MUTED, fontSize: 12 }}>Reading calendars…</div>
         ) : events.length === 0 ? (
-          <div style={{ color: MUTED, fontSize: 12 }}>Nothing on the Tent calendar in the next 45 days.</div>
+          <div style={{ color: MUTED, fontSize: 12 }}>
+            No events found in the next 45 days across any calendar.
+            {!scanErr && ' If that looks wrong, the app may not have access to the calendar you\'re looking at.'}
+          </div>
         ) : (
           <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${LINE}`, borderRadius: 8 }}>
             {events.map(ev => (
@@ -128,7 +164,7 @@ function TentPicker({ item, accessToken, onClose, onSave, saving }) {
                          color: eventId === ev.id ? ACCENT : TEXT }}>
                 {ev.summary || '(untitled)'}
                 <span style={{ color: MUTED, marginLeft: 6, fontSize: 10 }}>
-                  {fmtDay(ev.start?.dateTime || ev.start?.date)}
+                  {fmtDay(ev.start?.dateTime || ev.start?.date)}{ev._cal ? ` · ${ev._cal}` : ''}
                 </span>
               </div>
             ))}
@@ -270,6 +306,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   // home banner counts as "will not bill".
   const [tentEvents, setTentEvents] = useState([]);
   const [tentCustomer, setTentCustomer] = useState({});
+  const [tentErr, setTentErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showNewJob, setShowNewJob] = useState(false);
@@ -342,7 +379,10 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       const res = await fetch(
         `${GCAL}/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events?${params}`,
         { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) return;
+      // Was a bare `return` — a 403 on the Tent calendar looked exactly like an
+      // empty Tent calendar, so the Doing lane would just quietly show nothing.
+      if (!res.ok) { console.warn('Tent calendar read failed:', res.status); setTentErr(`Tent calendar unreadable (${res.status})`); return; }
+      setTentErr(null);
       const data = await res.json();
       const live = (data.items || []).filter(e => e.status !== 'cancelled');
       const unlinked = [];
@@ -684,6 +724,12 @@ export default function Workspace({ accessToken, userEmail, userName }) {
         {/* ── DOING — hers alone ── */}
         <Lane label="Doing" hint="Pencilled in, plus what you put here"
           color="#3b82f6" count={doing.length + tentEvents.length}>
+          {tentErr && (
+            <div style={{ background: '#3b0d0d', border: '1px solid #ef444455', borderRadius: 10,
+                          padding: '8px 10px', marginBottom: 8, fontSize: 11, color: '#fca5a5' }}>
+              ⚠️ {tentErr} — pencilled-in work may be missing from this list.
+            </div>
+          )}
           {/* Tent commitments with no board card behind them. Real promises to
               real customers that currently exist only in Google. */}
           {tentEvents.map(ev => (

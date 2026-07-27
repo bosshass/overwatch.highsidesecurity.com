@@ -19,6 +19,7 @@ import ReconcileView from './views/ReconcileView.jsx';
 import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Workspace from './views/Workspace.jsx';
+import Notes from './views/Notes.jsx';
 import Scheduler from './views/Scheduler.jsx';
 import SmsTest from './views/SmsTest.jsx';
 import Projects from './views/Projects.jsx';
@@ -39,7 +40,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.16';
+const APP_VERSION = '9.9.18';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -821,6 +822,8 @@ export default function App() {
             userEmail stays the REAL signed-in address so writes are truthful. */}
         <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} /></ViewShell>} />
         <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} /></ViewShell>} />
+        {/* Notes are NOT jobs and deliberately have no board presence. */}
+        <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/workspace')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
@@ -998,7 +1001,11 @@ function HomeScreen({ userName, userEmail, isOperator, isRestricted, onNavigate,
     { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
     { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
     { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/quicknotes', emoji: '⚡', label: 'Quick Notes',     sub: 'Admin · Sales · Shana — capture & act',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
+    // Quick Notes RETIRED — notes now live in the `notes` table at /notes,
+    // where they can be tied to a client, archived and searched. The route
+    // still resolves so the old calendar entries stay readable by URL; it is
+    // just no longer a place anyone can start a new note from.
+    { path: '/notes', emoji: '📝', label: 'Notes',     sub: 'Reminders and client notes — never jobs',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
     { path: '/unbilled',   emoji: '💵', label: 'Unbilled',        sub: "Every unbilled hour and material, by customer", color: '#4ade80', dark: '#052e16', border: '#22c55e' },
     { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
     { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },

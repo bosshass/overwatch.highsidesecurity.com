@@ -33,11 +33,14 @@ const LANES = [
   {
     key: 'todo',
     label: 'To Do',
-    hint: 'Needs a decision or a slot',
+    hint: 'Ready, returns, won estimates, parts in',
     color: '#f59e0b',
-    statuses: ['new', 'needs_details', 'needs_parts', 'pending_materials',
-               'pending_decision', 'blocked', 'needs_estimate', 'estimate_sent',
-               'won', 'ready_to_schedule'],
+    // Shana's To Do is not "everything that isn't scheduled." It is the work
+    // where SHE is the next action: something is ready to go on the calendar,
+    // a return has to be booked, an estimate came back won, or parts landed
+    // and the job can finally move. Triage, blocked and needs-estimate are
+    // somebody else's decision and were only ever noise in her column.
+    statuses: ['ready_to_schedule', 'return_pending', 'won', 'needs_parts', 'pending_materials'],
   },
   {
     key: 'doing',
@@ -205,6 +208,10 @@ export default function Workspace({ accessToken, userEmail, userName }) {
             <div style={{ color: MUTED, fontSize: 12 }}>{config.subtitle}</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => navigate('/notes')}
+              style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 8, padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              📝 Notes
+            </button>
             <button onClick={() => setShowNewJob(true)}
               style={{ background: '#00c8e8', color: '#0f1729', border: 'none', borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
               + New

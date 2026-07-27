@@ -81,6 +81,19 @@ const MOVES = {
   ],
 };
 
+// Which swim lane each status lives in. The move buttons said things like
+// "Ready to Schedule" and "To Bill" while the board showed Triage / Ready /
+// Tentative / Scheduled / Estimates — so you had to translate between two
+// vocabularies for the same thing. Every move now names the lane it lands in.
+export const LANE_OF = {
+  new:'Triage', needs_details:'Triage', needs_parts:'Triage',
+  pending_materials:'Triage', pending_decision:'Triage', blocked:'Triage',
+  ready_to_schedule:'Ready', return_pending:'Ready',
+  scheduled:'Scheduled',
+  needs_estimate:'Estimates', estimate_sent:'Estimates', won:'Estimates',
+  complete:'Billing', to_bill:'Billing', billed:'Billing',
+};
+
 const LABEL = {
   new:'New', needs_details:'Needs Details', needs_parts:'Waiting on Parts',
   pending_decision:'Pending', pending_materials:'Waiting on Materials',
@@ -90,7 +103,7 @@ const LABEL = {
   lost:'Lost', blocked:'Blocked', dead:'Dead', archived:'Archived',
 };
 
-export default function MoveStatus({ job, userEmail, onMoved }) {
+export default function MoveStatus({ job, userEmail, onMoved, onRequestSchedule }) {
   const [picking, setPicking]   = useState(null);   // the pending move target
   const [note, setNote]         = useState('');
   const [busy, setBusy]         = useState(false);
@@ -117,6 +130,17 @@ export default function MoveStatus({ job, userEmail, onMoved }) {
     : FALLBACK;
 
   const commit = async (move) => {
+    // SCHEDULED IS NOT A STATUS YOU CAN JUST SET.
+    // Marking a job scheduled by hand produced exactly what we found in the
+    // data: nine "scheduled" jobs, two with no date at all, three whose date
+    // had passed, three with no calendar event. The status said the work was
+    // booked; nothing was booked. So this move opens the scheduler instead —
+    // pick a tech and a slot, or link the calendar event somebody already made.
+    if (move.to === JOB_STATUS.SCHEDULED) {
+      if (onRequestSchedule) { onRequestSchedule(); setPicking(null); return; }
+      setErr('Use the Schedule button — a job can only become Scheduled by booking it.');
+      return;
+    }
     // Backward / bounce moves require a note so the reason travels with the card.
     if (move.back && !note.trim()) { setErr('A note is required to send this back.'); return; }
     setBusy(true); setErr('');
@@ -150,6 +174,9 @@ export default function MoveStatus({ job, userEmail, onMoved }) {
               color: picking?.to === m.to ? '#fff' : (m.back ? '#fcd34d' : '#8497b0'),
             }}>
             {m.back ? '↩ ' : ''}{m.label}
+            {m.to === JOB_STATUS.SCHEDULED && <span style={{ opacity: 0.7, fontWeight: 500 }}> · books it</span>}
+            {LANE_OF[m.to] && LANE_OF[m.to] !== LANE_OF[job.status] && m.to !== JOB_STATUS.SCHEDULED
+              && <span style={{ opacity: 0.6, fontWeight: 500 }}> · {LANE_OF[m.to]}</span>}
           </button>
         ))}
       </div>

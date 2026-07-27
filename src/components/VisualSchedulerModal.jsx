@@ -114,6 +114,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
             end: new Date(ev.end?.dateTime || ev.end?.date),
             title: ev.summary || '(untitled)',
             allDay: !ev.start?.dateTime,
+            eventId: ev.id,
           })).sort((a, b) => a.start - b.start);
 
           let bookedHours = 0;
@@ -214,6 +215,31 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // A hold books NOTHING on a tech's calendar. It writes a "Holding <customer>"
   // event to the Tent calendar (the team's existing convention) and stamps
   // jobs.tentative_date so the board can show it in its own column.
+  // ── Link an event that already exists ───────────────────────────────
+  // The other legitimate way a job becomes scheduled: somebody already put it
+  // on a calendar by hand. Forcing them to re-book it would create a duplicate
+  // event, which is the same disease as the 12 orphans on the home screen —
+  // work on a calendar with no job behind it, or now, two events for one job.
+  const linkExisting = async (ev, cal) => {
+    setSaving(true); setErr('');
+    try {
+      const start = new Date(ev.start?.dateTime || ev.start?.date);
+      const { error } = await supabase.from('jobs').update({
+        status: 'scheduled',
+        scheduled_date: localDateStr(start),
+        scheduled_event_id: ev.id,
+        scheduled_calendar_id: cal.id,
+        tech_name: cal.name || null,
+        tentative_date: null,
+        tentative_event_id: null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', job.id);
+      if (error) throw error;
+      onScheduled();
+    } catch (e) { setErr(e.message || 'Could not link'); }
+    setSaving(false);
+  };
+
   const holdTentative = async () => {
     if (!selectedDay) { setErr('Pick a day to hold'); return; }
     setSaving(true); setErr('');
@@ -477,6 +503,29 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                                    whiteSpace: 'nowrap' }}>{b.title}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* LINK, don't duplicate. If one of the events already on that day
+                IS this job, say so instead of booking a second one. */}
+            {selectedDay && (selectedDay.busy || []).length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: '#8497b0', textTransform: 'uppercase',
+                              letterSpacing: 0.5, marginBottom: 6 }}>
+                  Already booked by hand? Link it instead of making a second event
+                </div>
+                {(selectedDay.busy || []).map((b, i) => b.eventId ? (
+                  <button key={i} disabled={saving}
+                    onClick={() => linkExisting(
+                      { id: b.eventId, start: { dateTime: b.start.toISOString() } },
+                      { id: validTechs.find(t => t.id === selectedDay.techId)?.calendar_id,
+                        name: validTechs.find(t => t.id === selectedDay.techId)?.name })}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
+                             border: '1px solid #2a3f5c', borderRadius: 8, color: '#cbd5e1',
+                             padding: '7px 10px', fontSize: 12, cursor: 'pointer', marginBottom: 5 }}>
+                    🔗 This job is “{b.title}”
+                  </button>
+                ) : null)}
               </div>
             )}
 

@@ -865,7 +865,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </div>
 
           {/* Move status — bidirectional, any role, note travels with the card */}
-          <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} />
+          <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} onRequestSchedule={attemptSchedule} />
 
           {/* Notes */}
           <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
@@ -1170,7 +1170,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             way to write a note and no visible status control beyond a collapsed
             "Change status manually…". Opening a card and being unable to say
             anything about it is the reason people stop opening cards. */}
-        <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} />
+        <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} onRequestSchedule={attemptSchedule} />
 
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
 

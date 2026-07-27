@@ -72,6 +72,10 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const [err, setErr] = useState('');
   const [holdStart, setHoldStart] = useState('09:00');
   const [holdEnd, setHoldEnd]     = useState('17:00');
+  // Which tech's calendar is OPEN. Every tech's six-week grid used to render
+  // stacked — six people × 42 days is a wall of squares you have to scroll past
+  // to reach the buttons. Pick a person, then see their calendar.
+  const [openTech, setOpenTech] = useState(null);
 
   const validTechs = (techs || []).filter(t => t.calendar_id);
 
@@ -203,7 +207,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // disabled state and the hint text.
   const missing = !selectedTechId ? 'Pick a tech'
                 : !selectedDay    ? 'Pick a day'
-                : (!startTime || !endTime) ? 'Pick a time slot'
+                : (!holdStart || !holdEnd) ? 'Set a time range'
                 : null;
 
   // ── Hold tentatively ────────────────────────────────────────────────
@@ -279,11 +283,13 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
     // Shana lost a Rick Ferreri booking to it and reasonably concluded the app
     // was broken. Silence is the worst possible failure mode for a save button.
     if (missing) { setErr(missing); return; }
+    if (!selectedTechId) { setErr('Pick a tech before booking'); return; }
     const tech = validTechs.find(t => t.id === selectedTechId);
     if (!tech) return;
 
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
+    // Times come from the one time-range control in the decide panel now.
+    const [sh, sm] = (holdStart || startTime || '09:00').split(':').map(Number);
+    const [eh, em] = (holdEnd || endTime || '17:00').split(':').map(Number);
     // parseLocalDate: "YYYY-MM-DD" as LOCAL midnight, not UTC — this was
     // the wrong-day bug.
     const start = parseLocalDate(selectedDay.date); start.setHours(sh, sm, 0, 0);
@@ -411,11 +417,40 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
             )}
 
             <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 10 }}>
-              {suggestion ? 'Or pick your own — tap a day to see available time slots.' : 'Tap a day to see available time slots.'}
+              {suggestion ? 'Or pick someone else — tap a name to open their calendar.' : 'Tap a name to open their calendar.'}
             </div>
-            {validTechs.map(tech => (
+
+            {/* WHO FIRST. Each row summarises the next day they have real room,
+                so choosing doesn't require reading six grids. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+              {validTechs.map(tech => {
+                const days = availability[tech.id] || [];
+                const next = days.find(d => !d.isWeekend && d.freeHours >= 4);
+                const isOpen = openTech === tech.id;
+                return (
+                  <button key={tech.id}
+                    onClick={() => { setOpenTech(isOpen ? null : tech.id); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
+                             background: isOpen ? '#132741' : '#0f172a',
+                             border: `1px solid ${isOpen ? '#00c8e8' : '#243a56'}`,
+                             borderRadius: 10, padding: '11px 13px', cursor: 'pointer',
+                             color: '#e2e8f0', fontFamily: 'inherit' }}>
+                    <span style={{ flex: 1 }}>
+                      <span style={{ display: 'block', fontSize: 14, fontWeight: 700 }}>{tech.name}</span>
+                      <span style={{ display: 'block', fontSize: 11, color: '#8497b0', marginTop: 2 }}>
+                        {next
+                          ? `next clear day ${next.day} ${next.month} ${next.dayNum} · ${next.freeHours.toFixed(0)}h`
+                          : 'nothing clear in the next 6 weeks'}
+                      </span>
+                    </span>
+                    <span style={{ color: '#4a5f7a', fontSize: 16 }}>{isOpen ? '▾' : '›'}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {validTechs.filter(t => t.id === openTech).map(tech => (
               <div key={tech.id} style={{ marginBottom: 16 }}>
-                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{tech.name}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
                   {(availability[tech.id] || []).map(d => (
                     <button
@@ -529,45 +564,56 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
               </div>
             )}
 
-            {/* HOLD — with real hours. A hold used to be the whole day, which is
-                useless when you're holding a two-hour service call. Defaults to
-                the slot you picked, or 9–5 if you only picked a day. */}
+            {/* ── DECIDE ────────────────────────────────────────────────
+                One panel, one summary line, two clearly different outcomes.
+                Before this, Hold and Confirm were separate blocks with their
+                own headings and time inputs, and it wasn't obvious that one
+                books a person and the other doesn't. */}
             {selectedDay && (
-              <div style={{ border: '1px solid #f59e0b44', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginBottom: 8 }}>
-                  ✏️ Tentative hold — no tech booked
+              <div style={{ background: '#0f172a', border: '1px solid #243a56', borderRadius: 12,
+                            padding: 14, marginTop: 4 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>
+                  {validTechs.find(t => t.id === selectedDay.techId)?.name} · {selectedDay.day} {selectedDay.month} {selectedDay.dayNum}
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 9 }}>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0 14px' }}>
                   <input type="time" value={holdStart} onChange={e => setHoldStart(e.target.value)}
-                    style={{ flex: 1, background: '#0f1729', border: '1px solid #2a3f5c', borderRadius: 8,
-                             color: '#e2e8f0', padding: '7px 9px', fontSize: 13, outline: 'none' }} />
+                    style={{ flex: 1, background: '#0b1420', border: '1px solid #2a3f5c', borderRadius: 8,
+                             color: '#e2e8f0', padding: '9px 10px', fontSize: 14, outline: 'none' }} />
                   <span style={{ color: '#64748b', fontSize: 12 }}>to</span>
                   <input type="time" value={holdEnd} onChange={e => setHoldEnd(e.target.value)}
-                    style={{ flex: 1, background: '#0f1729', border: '1px solid #2a3f5c', borderRadius: 8,
-                             color: '#e2e8f0', padding: '7px 9px', fontSize: 13, outline: 'none' }} />
+                    style={{ flex: 1, background: '#0b1420', border: '1px solid #2a3f5c', borderRadius: 8,
+                             color: '#e2e8f0', padding: '9px 10px', fontSize: 14, outline: 'none' }} />
                 </div>
-                <button onClick={holdTentative} disabled={saving}
-                  style={{ width: '100%', background: '#f59e0b', border: 'none',
-                           borderRadius: 8, color: '#0f1729', fontWeight: 700, padding: '10px',
-                           fontSize: 13, cursor: 'pointer' }}>
-                  Hold {selectedDay.day} {selectedDay.month} {selectedDay.dayNum} · {holdStart}–{holdEnd}
-                </button>
+
+                {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button onClick={holdTentative} disabled={saving}
+                    style={{ background: 'transparent', border: '1px solid #f59e0b',
+                             borderRadius: 10, color: '#f59e0b', padding: '12px 8px', cursor: 'pointer' }}>
+                    <span style={{ display: 'block', fontSize: 14, fontWeight: 800 }}>✏️ Hold it</span>
+                    <span style={{ display: 'block', fontSize: 10, opacity: 0.85, marginTop: 3, lineHeight: 1.3 }}>
+                      Pencilled in.<br />Nobody is booked.
+                    </span>
+                  </button>
+
+                  <button onClick={confirm} disabled={saving || (!selectedTechId || !selectedDay)}
+                    style={{ background: '#00c8e8', border: 'none', borderRadius: 10,
+                             color: '#08121f', padding: '12px 8px', cursor: 'pointer' }}>
+                    <span style={{ display: 'block', fontSize: 14, fontWeight: 800 }}>✅ Book it</span>
+                    <span style={{ display: 'block', fontSize: 10, opacity: 0.8, marginTop: 3, lineHeight: 1.3 }}>
+                      Goes on {validTechs.find(t => t.id === selectedDay.techId)?.name}'s<br />calendar now.
+                    </span>
+                  </button>
+                </div>
+
+                {saving && (
+                  <div style={{ color: '#8497b0', fontSize: 12, textAlign: 'center', marginTop: 10 }}>Working…</div>
+                )}
               </div>
             )}
 
-            {/* Always rendered, always says what it's waiting for. Previously
-                this could sit greyed and unexplained below the fold while the
-                user assumed they'd already scheduled. */}
-            <button onClick={confirm} disabled={!!missing || saving}
-              style={{
-                width: '100%', background: missing ? '#334155' : '#00c8e8', border: 'none', borderRadius: 10,
-                color: missing ? '#94a3b8' : '#0f1729', fontWeight: 700, padding: '13px', fontSize: 14,
-                cursor: missing ? 'default' : 'pointer',
-              }}>
-              {saving ? 'Scheduling…'
-                : missing ? `${missing} to continue`
-                : `✅ Confirm — ${validTechs.find(t=>t.id===selectedTechId)?.name}, ${selectedDay?.day} ${selectedDay?.month} ${selectedDay?.dayNum}`}
-            </button>
           </>
         )}
       </div>

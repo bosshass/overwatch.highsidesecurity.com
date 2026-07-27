@@ -116,8 +116,13 @@ function TentPicker({ item, accessToken, onClose, onSave, saving }) {
             .forEach(e => found.push({ ...e, _cal: cal.name }));
         } catch (e) { failed.push(`${cal.name} (${e.message})`); }
       }
-      found.sort((a, b) =>
-        new Date(a.start?.dateTime || a.start?.date) - new Date(b.start?.dateTime || b.start?.date));
+      // "Holding …" is how this team writes a hold, so those float to the top.
+      // Everything else stays available underneath — a hold can be any event.
+      const isHold = e => /^\s*holding\b/i.test(e.summary || '');
+      found.sort((a, b) => {
+        if (isHold(a) !== isHold(b)) return isHold(a) ? -1 : 1;
+        return new Date(a.start?.dateTime || a.start?.date) - new Date(b.start?.dateTime || b.start?.date);
+      });
       setEvents(found);
       if (failed.length) setScanErr(`Couldn't read: ${failed.join(', ')}`);
     })();
@@ -550,7 +555,10 @@ export default function Workspace({ accessToken, userEmail, userName }) {
         const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
         try {
           const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
-            title: `[TENT] ${job.customer_name || tentFor.body || 'Hold'}`,
+            // "Holding <customer>" — the convention the team already uses on the
+            // calendar. Inventing a [TENT] prefix would have put a second naming
+            // scheme alongside theirs for the same thing.
+            title: `Holding ${job.customer_name || tentFor.body || 'Hold'}`,
             description: `Tentative hold placed by ${NAME_BY_EMAIL[owner] || owner} in Overwatch.\nNot dispatched — no tech booked.`,
             location: job.customer_address || '',
             startTime: start, endTime: end,

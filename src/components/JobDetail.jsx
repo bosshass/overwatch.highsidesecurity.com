@@ -1067,7 +1067,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                   </div>
                 );
               })}
-              {JOB_TYPE_INFO[job.job_type]?.minutes && (
+              {Number(JOB_TYPE_INFO[job.job_type]?.minutes) > 0 && (
                 <div style={{ color: '#cbd5e1', fontSize: '11px', marginTop: '8px', textAlign: 'right' }}>⏱ Expected: {JOB_TYPE_INFO[job.job_type].minutes} min</div>
               )}
             </div>
@@ -1075,7 +1075,9 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         })()}
 
         {/* Estimate */}
-        {job.estimate_amount && (
+        {/* `&&` on a NUMBER renders the number when it's 0 — that bare 0 above
+            the merge button was an estimate_amount of zero. Compare explicitly. */}
+        {Number(job.estimate_amount) > 0 && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px' }}>
             <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Estimate</div>
             <div style={{ color: '#22c55e', fontSize: '22px', fontWeight: '700' }}>${parseFloat(job.estimate_amount).toLocaleString()}</div>
@@ -1083,7 +1085,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Parts */}
-        {job.parts_needed && (
+        {!!job.parts_needed && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px', border: '1px solid #f59e0b30' }}>
             <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>📦 Parts Needed</div>
             <div style={{ color: '#e2e8f0', fontSize: '14px' }}>{job.parts_needed}</div>
@@ -1161,6 +1163,18 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             📅 Reschedule
           </button>
         )}
+
+        {/* Move status + notes — these used to exist ONLY on the `isScheduled`
+            branch above, so every ticket that wasn't scheduled (tasks, new,
+            ready, returns, estimates — i.e. most of the board) opened with no
+            way to write a note and no visible status control beyond a collapsed
+            "Change status manually…". Opening a card and being unable to say
+            anything about it is the reason people stop opening cards. */}
+        <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} />
+
+        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+
+        <FieldVisits job={job} />
 
         {/* Duplicate merge */}
         <button onClick={() => findPotentialDuplicates(false)}

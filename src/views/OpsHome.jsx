@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import { ASSIGNEES, assigneeOf, CLOSED_STATUSES } from '../utils/ownership.js';
+import { shortCode } from '../config/appBase.js';
 import { scanForOrphans } from '../services/calendarSync.js';
 
 const C = {
@@ -52,6 +53,8 @@ export default function OpsHome({
 }) {
   const [people, setPeople] = useState(null);
   const [board, setBoard] = useState(null);
+  // Jobs marked scheduled whose day came and went with nobody dispositioning them.
+  const [stranded, setStranded] = useState([]);
   const [gap, setGap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
@@ -80,7 +83,7 @@ export default function OpsHome({
     try {
       const [{ data: jobs }, { data: notes }] = await Promise.all([
         supabase.from('jobs')
-          .select('id, customer_name, status, assigned_to, tech_name, created_at, updated_at')
+          .select('id, customer_name, status, assigned_to, tech_name, created_at, updated_at, scheduled_date')
           .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
           .limit(1000),
         supabase.from('notes')
@@ -121,6 +124,31 @@ export default function OpsHome({
       .sort((a, b) => (b.oldest?.days ?? -1) - (a.oldest?.days ?? -1));
 
       setPeople(rows);
+
+      // ── Stranded work ──────────────────────────────────────────────────
+      // A job marked `scheduled` whose date has passed, or that never got a
+      // date at all. The red banner catches work that never entered Overwatch;
+      // this is work that entered and then got stuck INSIDE it, which counted
+      // as neither. Three jobs and several billable hours were sitting in that
+      // blind spot.
+      //
+      // They're almost certainly showing on Work To Do Today with no note
+      // against them — the tech saw the job and never dispositioned it, so the
+      // hours never became billable.
+      const todayISO = new Date(); todayISO.setHours(0, 0, 0, 0);
+      setStranded((jobs || [])
+        .filter(j => j.status === 'scheduled')
+        .filter(j => !j.scheduled_date || new Date(j.scheduled_date) < todayISO)
+        .map(j => ({
+          id: j.id,
+          name: j.customer_name || 'Unnamed',
+          tech: j.tech_name,
+          date: j.scheduled_date,
+          days: j.scheduled_date
+            ? Math.floor((todayISO - new Date(j.scheduled_date)) / 86400000)
+            : null,
+        }))
+        .sort((a, b) => (b.days ?? 999) - (a.days ?? 999)));
 
       const count = (...st) => (jobs || []).filter(j => st.includes(j.status)).length;
       setBoard({
@@ -233,6 +261,44 @@ export default function OpsHome({
             <div style={{ fontSize:12, color:C.muted, marginTop:4 }}>No hand-made calendar events, no jobs without a client.</div>
           </div>
         ) : null}
+
+        {/* ══ 1b. STRANDED — scheduled, date passed, nobody dispositioned ══ */}
+        {stranded.length > 0 && (
+          <div style={{ margin:'14px 16px 0', background:'#2a1f08', border:`1px solid ${C.amber}`,
+                        borderRadius:18, padding:'16px 18px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+              <span style={{ fontSize:17 }}>⏰</span>
+              <span style={{ fontSize:12, fontWeight:900, letterSpacing:'0.08em',
+                             textTransform:'uppercase', color:C.amber }}>
+                Scheduled, then nothing happened
+              </span>
+              <Help topic="dispositions" label="What a disposition does" />
+            </div>
+            <div style={{ fontSize:12, color:'#fcd9a0', marginBottom:12, lineHeight:1.45 }}>
+              The day came and went and nobody dispositioned these. They're most likely still
+              sitting on Work To Do Today with no note against them — so any hours worked
+              will never reach an invoice.
+            </div>
+            {stranded.map(j => (
+              <button key={j.id} onClick={() => go(`/j/${shortCode(j.id)}`)}
+                style={{ display:'flex', width:'100%', alignItems:'center', gap:10, textAlign:'left',
+                         background:'transparent', border:'none', borderTop:`1px solid ${C.amber}33`,
+                         padding:'10px 0', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
+                <span style={{ flex:1, minWidth:0 }}>
+                  <span style={{ display:'block', fontSize:14, fontWeight:700, whiteSpace:'nowrap',
+                                 overflow:'hidden', textOverflow:'ellipsis' }}>{j.name}</span>
+                  <span style={{ display:'block', fontSize:11, color:C.muted, marginTop:2 }}>
+                    {j.tech || 'no tech'} ·{' '}
+                    {j.days == null
+                      ? 'never given a date'
+                      : `${j.days} day${j.days === 1 ? '' : 's'} past`}
+                  </span>
+                </span>
+                <span style={{ color:'#4a5f7a', fontSize:18 }}>›</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ══ 2. PEOPLE ══ */}
         <div style={{ padding:'6px 16px 0' }}>

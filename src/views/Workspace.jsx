@@ -1,5 +1,5 @@
 // ============================================
-// Workspace — the owner's board, not the company's
+// My Tasks — the owner's board, not the company's
 // ============================================
 // THE FIRST VERSION WAS WRONG and this comment exists so it doesn't regress.
 // v1 rendered `jobs` rows straight into To Do / Doing / Done, which made the
@@ -29,11 +29,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
 import { shortCode } from '../config/appBase.js';
 import { CALENDARS } from '../config/calendars.js';
-import { ownsJob, CLOSED_STATUSES } from '../utils/ownership.js';
+import { ownsJob, CLOSED_STATUSES, ASSIGNEES, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { statusLabel, statusColor, statusChipStyle } from '../utils/status.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
+// Watching cards are visually distinct so a card that came BACK to her never
+// reads as brand-new work. Amber, not the neutral card background.
+const WATCH_BG = '#2a1f08';
 const BG = '#0f1729', SURFACE = '#1e293b', LINE = '#334155';
 const TEXT = '#e2e8f0', MUTED = '#94a3b8', ACCENT = '#00c8e8';
 
@@ -45,11 +48,11 @@ const TEXT = '#e2e8f0', MUTED = '#94a3b8', ACCENT = '#00c8e8';
 
 
 
-const WORKSPACES = {
-  shana: { title: 'Shana', subtitle: 'Scheduling', email: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
-  sara:  { title: 'Sara',  subtitle: 'Oversight',  email: 'admin@jnbservice.com',                name: 'Sara' },
-  jr:    { title: 'JR',    subtitle: 'Rollup',     email: 'jr@drhsecurityservices.com',          name: 'JR' },
-};
+// Every person on the roster gets a My Tasks view. No per-person config to
+// maintain — adding someone to ASSIGNEES adds their view and their switcher tab.
+const WORKSPACES = Object.fromEntries(
+  ASSIGNEES.map(a => [a.name.toLowerCase(), { title: a.name, email: a.email, name: a.name }])
+);
 
 const fmtDay = (iso) => iso
   ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -244,16 +247,19 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   const { who } = useParams();
   const key = (who || userName || '').toLowerCase();
   const config = WORKSPACES[key] || WORKSPACES.shana;
+  const viewingSelf = (userName || '').toLowerCase() === config.name.toLowerCase();
   const owner = config.email;
   const ownerName = config.name;
 
   const [items, setItems] = useState([]);   // her notes — the real workspace
   const [feed, setFeed] = useState([]);     // jobs needing office action
+  const [watchedJobs, setWatchedJobs] = useState({}); // job rows behind watch cards
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showNewJob, setShowNewJob] = useState(false);
   const [tentFor, setTentFor] = useState(null);
   const [addWork, setAddWork] = useState(false);
+  const [assignFor, setAssignFor] = useState(null); // job or note being handed off
   const [toast, setToast] = useState('');
   const [query, setQuery] = useState('');
 
@@ -273,6 +279,16 @@ export default function Workspace({ accessToken, userEmail, userName }) {
           .order('created_at', { ascending: true }).limit(500),
       ]);
       setItems(notes || []);
+
+      // Watched jobs are by definition NOT hers — they won't come back in the
+      // ownership query above, so fetch them by id or the lane renders blind.
+      const watchIds = (notes || []).filter(n => n.lane === 'watching' && n.job_id).map(n => n.job_id);
+      if (watchIds.length) {
+        const { data: watched } = await supabase.from('jobs')
+          .select('id, customer_name, issue, status, assigned_to, tech_name')
+          .in('id', watchIds);
+        setWatchedJobs(Object.fromEntries((watched || []).map(j => [j.id, j])));
+      } else setWatchedJobs({});
       // The .or() above is a coarse net — it also catches jobs where tech_name
       // still says Shana but assigned_to has since been set to someone else.
       // An explicit assignment must beat a stale tech_name, so filter here.
@@ -297,6 +313,16 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   const todoNotes = items.filter(i => i.lane === 'todo'  && matches(i.body));
   const doing     = items.filter(i => i.lane === 'doing' && matches(i.body));
   const done      = items.filter(i => i.lane === 'done'  && matches(i.body));
+  const watching  = items.filter(i => i.lane === 'watching' && matches(i.body));
+
+  // A watched job that has come BACK to her shows in To Do with the watching
+  // tint, so she can tell "this returned to me" from "this is new work".
+  const watchedBackToMe = new Set(
+    watching.filter(w => {
+      const j = watchedJobs[w.job_id];
+      return j && ownsJob(j, owner);
+    }).map(w => w.job_id)
+  );
 
   // ── Mutations. None of these touch `jobs`. That is the whole point. ──
   const pullIn = async (job) => {
@@ -309,6 +335,46 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       if (error) throw error;
       await load(); say('Moved to Doing ✓');
     } catch (e) { say('Could not move: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // Hand a job to someone else. She stops owning the next action but keeps the
+  // card — in Watching, not gone. This writes jobs.assigned_to (the one place
+  // ownership lives) and parks her card, in that order.
+  const handOff = async (target, email) => {
+    setSaving(true);
+    try {
+      const jobId = target.job_id || target.id;
+      const job = watchedJobs[jobId] || feed.find(j => j.id === jobId) || {};
+      const { error } = await supabase.from('jobs')
+        .update({ assigned_to: email, updated_at: new Date().toISOString() })
+        .eq('id', jobId);
+      if (error) throw error;
+
+      if (target.job_id) {
+        await supabase.from('notes').update({
+          lane: 'watching', status: 'open', last_seen_status: job.status || null,
+        }).eq('id', target.id);
+      } else {
+        await supabase.from('notes').insert([{
+          body: `${job.customer_name || target.customer_name || 'Job'} — handed to ${NAME_BY_EMAIL[email] || email}`,
+          author_email: owner, job_id: jobId, lane: 'watching', status: 'open',
+          last_seen_status: job.status || target.status || null,
+        }]);
+      }
+      setAssignFor(null);
+      await load();
+      say(`Handed to ${NAME_BY_EMAIL[email] || email} — watching \u2713`);
+    } catch (e) { say('Could not hand off: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  const unwatch = async (item) => {
+    setSaving(true);
+    try {
+      await supabase.from('notes').delete().eq('id', item.id);
+      await load(); say('Stopped watching');
+    } catch (e) { say('Could not remove: ' + (e.message || e)); }
     setSaving(false);
   };
 
@@ -357,8 +423,8 @@ export default function Workspace({ accessToken, userEmail, userName }) {
     </div>
   );
 
-  const Card = ({ children, accent }) => (
-    <div style={{ background: BG, border: `1px solid ${LINE}`,
+  const Card = ({ children, accent, bg }) => (
+    <div style={{ background: bg || BG, border: `1px solid ${LINE}`,
                   borderLeft: `3px solid ${accent || LINE}`, borderRadius: 10,
                   padding: 10, marginBottom: 8 }}>{children}</div>
   );
@@ -381,8 +447,12 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                     position: 'sticky', top: 0, background: BG, zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 19, fontWeight: 700 }}>{config.title}'s workspace</div>
-            <div style={{ color: MUTED, fontSize: 12 }}>{config.subtitle}</div>
+            <div style={{ fontSize: 19, fontWeight: 700 }}>
+              {viewingSelf ? 'My Tasks' : `${config.title}'s Tasks`}
+            </div>
+            <div style={{ color: MUTED, fontSize: 12, maxWidth: 460, lineHeight: 1.35 }}>
+              Everything assigned to you, and somewhere to take notes.
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => navigate('/notes')}
@@ -402,6 +472,18 @@ export default function Workspace({ accessToken, userEmail, userName }) {
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter…"
           style={{ width: '100%', boxSizing: 'border-box', background: SURFACE, border: `1px solid ${LINE}`,
                    borderRadius: 8, padding: '9px 12px', color: TEXT, fontSize: 13, outline: 'none' }} />
+        <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>viewing</span>
+          {ASSIGNEES.map(a => (
+            <button key={a.email} onClick={() => navigate(`/workspace/${a.name.toLowerCase()}`)}
+              style={{ background: config.name === a.name ? ACCENT : SURFACE,
+                       color: config.name === a.name ? '#0f1729' : MUTED,
+                       border: 'none', borderRadius: 20, padding: '4px 11px',
+                       fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              {a.name}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, padding: 16 }}>
@@ -417,7 +499,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
             </Card>
           ))}
           {todoFeed.map(j => (
-            <Card key={j.id} accent={statusColor(j.status)}>
+            <Card key={j.id} accent={statusColor(j.status)} bg={watchedBackToMe.has(j.id) ? WATCH_BG : null}>
               <div onClick={() => navigate(`/j/${shortCode(j.id)}`)} style={{ cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.25 }}>{j.customer_name || 'Unnamed'}</div>
@@ -432,12 +514,20 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                   </div>
                 )}
               </div>
-              <button onClick={() => pullIn(j)} disabled={saving}
-                style={{ marginTop: 8, width: '100%', background: 'transparent', color: ACCENT,
-                         border: `1px solid ${ACCENT}55`, borderRadius: 8, padding: '6px 0',
-                         fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                → I'm working this
-              </button>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button onClick={() => pullIn(j)} disabled={saving}
+                  style={{ flex: 1, background: 'transparent', color: ACCENT,
+                           border: `1px solid ${ACCENT}55`, borderRadius: 8, padding: '6px 0',
+                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  → I'm working this
+                </button>
+                <button onClick={() => setAssignFor(j)} disabled={saving}
+                  style={{ flex: 1, background: 'transparent', color: '#f59e0b',
+                           border: '1px solid #f59e0b55', borderRadius: 8, padding: '6px 0',
+                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  Hand off →
+                </button>
+              </div>
             </Card>
           ))}
         </Lane>
@@ -469,8 +559,61 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                 {n.tentative ? 'Change tentative date' : '✏️ Tentatively schedule'}
               </button>
               <MoveBar item={n} lanes={[['todo', '← To Do'], ['done', '✓ Done']]} />
+              {n.job_id && (
+                <button onClick={() => setAssignFor(n)} disabled={saving}
+                  style={{ marginTop: 6, width: '100%', background: 'transparent', color: '#f59e0b',
+                           border: '1px solid #f59e0b55', borderRadius: 8, padding: '5px 0',
+                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  Hand off →
+                </button>
+              )}
             </Card>
           ))}
+        </Lane>
+
+        {/* ── WATCHING — handed off, blocked, or just tracking ── */}
+        <Lane label="Watching" hint="Someone else's move — you still need to know"
+          color="#f59e0b" count={watching.length}
+          empty={'Nothing you\'re tracking. Hand a card to someone and it lands here.'}>
+          {watching.map(n => {
+            const j = watchedJobs[n.job_id] || {};
+            const moved = n.last_seen_status && j.status && n.last_seen_status !== j.status;
+            return (
+              <div key={n.id}
+                style={{ background: WATCH_BG, border: `1px solid ${LINE}`,
+                         borderLeft: '3px solid #f59e0b', borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || n.body}</div>
+                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+                  {moved ? (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e' }}>
+                      {statusLabel(n.last_seen_status)} → {statusLabel(j.status)}
+                    </span>
+                  ) : (
+                    <span style={{ ...statusChipStyle(j.status) }}>{statusLabel(j.status)}</span>
+                  )}
+                  {j.assigned_to && (
+                    <span style={{ fontSize: 10, color: MUTED }}>
+                      with {NAME_BY_EMAIL[j.assigned_to] || j.assigned_to}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  {n.job_id && (
+                    <button onClick={() => navigate(`/j/${shortCode(n.job_id)}`)}
+                      style={{ flex: 1, background: 'transparent', color: ACCENT, border: `1px solid ${ACCENT}55`,
+                               borderRadius: 8, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                      Open ticket
+                    </button>
+                  )}
+                  <button onClick={() => unwatch(n)} disabled={saving}
+                    style={{ flex: 1, background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
+                             borderRadius: 8, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    Stop watching
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </Lane>
 
         {/* ── DONE — her finished work only ── */}
@@ -496,6 +639,34 @@ export default function Workspace({ accessToken, userEmail, userName }) {
           ))}
         </Lane>
       </div>
+
+      {assignFor && (
+        <div onClick={() => setAssignFor(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1200,
+                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: SURFACE, borderRadius: 14, padding: 20, width: '100%', maxWidth: 380 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Hand off to</div>
+            <div style={{ color: MUTED, fontSize: 12, margin: '3px 0 14px', lineHeight: 1.4 }}>
+              They take the next action. The card moves to your Watching column so you
+              still see it move.
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {ASSIGNEES.filter(a => a.email !== owner).map(a => (
+                <button key={a.email} onClick={() => handOff(assignFor, a.email)} disabled={saving}
+                  style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 20,
+                           padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  {a.name}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setAssignFor(null)}
+              style={{ marginTop: 16, width: '100%', background: 'transparent', color: MUTED,
+                       border: `1px solid ${LINE}`, borderRadius: 8, padding: '9px 0',
+                       fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {addWork && (
         <AddWork owner={owner} ownerName={ownerName} onClose={() => setAddWork(false)} onDone={load} />

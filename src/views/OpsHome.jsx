@@ -142,6 +142,14 @@ export default function OpsHome({
 
   const COMMAND_CARDS = [
     {
+      label: 'My Tasks',
+      sub: 'Everything assigned to you, plus your notes',
+      icon: '🗂️',
+      accent: C.cyan,
+      path: '/workspace',
+      show: true,
+    },
+    {
       label: 'Board',
       sub: stats ? `${stats.needsAction} need action` : '—',
       icon: '▤',

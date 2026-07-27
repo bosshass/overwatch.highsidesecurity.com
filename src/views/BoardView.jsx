@@ -594,6 +594,11 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             </div>
           ))}
           <div style={{ gridColumn:'1/-1', marginTop:4 }}>
+            <button onClick={() => watchInMyTasks(job)}
+              style={{ marginBottom:12, background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
+                       borderRadius:8, padding:'7px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+              👁 Show this in My Tasks
+            </button>
             <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:5 }}>assign to</div>
             <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
               {[...ASSIGNEES, { email:null, name:'Nobody' }].map(a => (
@@ -1152,6 +1157,26 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     if (assigneeFilter === '__none__') return !assigneeOf(j);
     return assigneeOf(j) === assigneeFilter;
   };
+
+  // Put a board card into MY Tasks → Watching without taking ownership. She is
+  // not the assignee and the job does not move; she just stops having to
+  // remember to come back and check on it.
+  const watchInMyTasks = useCallback(async (job) => {
+    try {
+      const { error } = await supabase.from('notes').insert([{
+        body: job.customer_name || 'Job',
+        author_email: userEmail,
+        job_id: job.id,
+        lane: 'watching',
+        status: 'open',
+        last_seen_status: job.status,
+      }]);
+      // Unique index (migration 032) means a second watch on the same job is a
+      // conflict, not a duplicate card. Say so rather than failing silently.
+      if (error) { showToast(/duplicate|unique/i.test(error.message) ? 'Already in My Tasks' : 'Could not add'); return; }
+      showToast('Watching in My Tasks ✓');
+    } catch (e) { showToast('Could not add'); }
+  }, [userEmail]);
 
   const assignTo = useCallback(async (jobId, email) => {
     const { error } = await supabase.from('jobs')

@@ -11,8 +11,6 @@ import OpsHome from './views/OpsHome.jsx';
 import ThingsToDo from './views/ThingsToDo.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
-import Queue from './views/Queue.jsx';
-import Billing from './views/Billing.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
 import AdminGap from './views/AdminGap.jsx';
 import ReconcileView from './views/ReconcileView.jsx';
@@ -20,6 +18,7 @@ import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Workspace from './views/Workspace.jsx';
 import Notes from './views/Notes.jsx';
+import Tour, { shouldShowTour, tourKey } from './components/Tour.jsx';
 import Scheduler from './views/Scheduler.jsx';
 import SmsTest from './views/SmsTest.jsx';
 import Projects from './views/Projects.jsx';
@@ -40,7 +39,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.29';
+const APP_VERSION = '9.9.34';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -61,29 +60,34 @@ function hasDeepLink() {
 }
 
 const USER_CONFIG = {
-  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
-  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
+  'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: 'work' },
+  'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: 'work' },
   // ── JR has two logins ──────────────────────────────────────────────────
   // info@ was a SHARED login that prompted "who are you?" (Sara / JR / Shana).
   // It isn't shared — it's JR's. The identity prompt is gone; it just signs
   // him in as himself. Sara reaches the app on admin@jnbservice.com and
   // sara@jnbllc.com, Shana on shanaparks@, so nobody loses a way in.
-  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'workspace' },
-  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'workspace' },
-  'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: null },
+  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: null },
+    // jr@ lands on HOME, not /work — he's the owner, and the tour we show him is
+  // about My Tasks and the warning banner, both of which live there. NOTE his
+  // role is still 'tech', so Admin Tools and the operator screens stay hidden
+  // on this login. That is the unresolved question from earlier: info@ makes
+  // him an operator, jr@ makes him a tech, and it's the same person.
+  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
+  'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
-  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'workspace' },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: null },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
-  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
-  'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: null },
-  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'unbilled', superAdmin: true },
+  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: 'work' },
+  'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: null, superAdmin: true },
 };
 
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
   { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: null },
   { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: null },
-  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'workspace' },
+  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: null },
 ];
 
 const CALENDAR_OPTIONS = [
@@ -152,6 +156,10 @@ export default function App() {
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  // First-run tour. Fires once per person per build for the people whose day
+  // actually changed; see components/Tour.jsx.
+  const [showTour, setShowTour] = useState(false);
+  const [tourTopic, setTourTopic] = useState(null);
   const [viewAs, setViewAs] = useState(() => {
     try { return sessionStorage.getItem(VIEW_AS_KEY) || null; } catch { return null; }
   });
@@ -530,6 +538,10 @@ export default function App() {
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
   const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
   const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
+  useEffect(() => {
+    if (userEmail && shouldShowTour(userEmail)) setShowTour(true);
+  }, [userEmail]);
+
   const isOperator = getUserConfig(userEmail).role === 'operator';
 
   // Super admin + the lens they're currently looking through.
@@ -775,9 +787,15 @@ export default function App() {
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Tour sits ABOVE Routes on purpose. Rendering it inside ViewShell meant
+          it never fired on the home screen, which is exactly where a first-time
+          user lands. */}
+      {showTour && (
+        <Tour email={userEmail} startKey={tourTopic} onClose={() => { setShowTour(false); setTourTopic(null); }} onNavigate={navigate} />
+      )}
       <Routes>
         <Route path="/" element={
-          <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
+          <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
@@ -791,9 +809,13 @@ export default function App() {
             showAllTechs={!isRestricted}
           />
         } />
-
-        <Route path="/queue" element={<Queue accessToken={accessToken} onBack={() => navigate('/')} onOpenCustomer={(customerId) => navigate(`/customers?customerId=${encodeURIComponent(customerId)}&returnTo=${encodeURIComponent('/queue')}`)} />} />
-        <Route path="/billing" element={<Billing accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
+        {/* Triage Queue REMOVED 9.9.30. Nothing linked to it, its scheduling
+            path was one of the duplicate schedulers, and the board's Triage
+            column already does this job. */}
+        {/* /billing REMOVED 9.9.31. It counted job_assignments — dispatch
+            records, i.e. who was SUPPOSED to show up — instead of time_entries,
+            the hours actually logged. That is why it said 18 when 2 was true.
+            /unbilled is the real billing screen. */}
         <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
 
         <Route path="/newjob" element={
@@ -992,104 +1014,9 @@ export default function App() {
 }
 
 // ── HOME SCREEN ───────────────────────────────────────────────────────────
-function HomeScreen({ userName, userEmail, isOperator, isRestricted, onNavigate, onSignOut, onBackfill, onSearch }) {
-  const techButtons = [
-    { path: '/work',    emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",  color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/newjob',  emoji: '➕', label: 'New Job',         sub: 'Capture a call or new work',          color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
-  ];
-  const operatorButtons = [
-    { path: '/work',       emoji: '📋', label: 'Work To Do Now',  sub: "Today's jobs — log notes + complete",    color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    { path: '/board',      emoji: '🗂️', label: 'Board',           sub: 'Projects · Service · Returns · Blocked', color: '#f59e0b', dark: '#2d1a00', border: '#d97706' },
-    { path: '/projects',   emoji: '🔨', label: 'Projects',        sub: 'P-numbered jobs — budget vs hours',      color: '#22c55e', dark: '#052e16', border: '#16a34a' },
-    // Quick Notes RETIRED — notes now live in the `notes` table at /notes,
-    // where they can be tied to a client, archived and searched. The route
-    // still resolves so the old calendar entries stay readable by URL; it is
-    // just no longer a place anyone can start a new note from.
-    { path: '/notes', emoji: '📝', label: 'Notes',     sub: 'Reminders and client notes — never jobs',  color: '#00c8e8', dark: '#001a1f', border: '#0891b2' },
-    { path: '/unbilled',   emoji: '💵', label: 'Unbilled',        sub: "Every unbilled hour and material, by customer", color: '#4ade80', dark: '#052e16', border: '#22c55e' },
-    { path: '/calendar',   emoji: '📅', label: 'Calendar',        sub: "See every tech · every job · right now",  color: '#60a5fa', dark: '#172554', border: '#3b82f6' },
-    { path: '/dashboard',  emoji: '📊', label: 'Dashboard',       sub: 'The big picture — at a glance',           color: '#c084fc', dark: '#2e1065', border: '#a855f7' },
-  ];
-  // KPIs tile only appears for Sara — same gate as the route.
-  const visibleOperatorButtons = canSeeKPIs(userEmail)
-    ? [...operatorButtons, { path: '/kpi', emoji: '📊', label: 'KPIs', sub: "Aging, returns, who is actually moving cards", color: '#f472b6', dark: '#500724', border: '#ec4899' }]
-    : operatorButtons;
-  const buttons = isRestricted ? techButtons : visibleOperatorButtons;
-  return (
-    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderBottom: '1px solid #1e293b'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src="/overwatch-logo.png" alt="" style={{ width: 30, height: 30, borderRadius: 7 }} />
-          <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 16 }}>Overwatch</span>
-          <span style={{ color: '#94a3b8', fontSize: 11 }}>V{APP_VERSION}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
-          {isOperator && (
-            <button onClick={onBackfill}
-              style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#f59e0b', padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
-            >🔗</button>
-          )}
-          <button onClick={onSignOut}
-            style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
-          >Out</button>
-        </div>
-      </div>
-
-      <div style={{ padding: '20px 20px 8px', textAlign: 'center' }}>
-        <div style={{ color: '#cbd5e1', fontSize: 13 }}>Good to see you,</div>
-        <div style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700, marginTop: 4 }}>{userName}</div>
-      </div>
-
-      <div style={{ padding: '0 20px 12px' }}>
-        <button onClick={onSearch} style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-          background: '#1e293b', border: '1px solid #334155', borderRadius: 12,
-          padding: '12px 16px', cursor: 'pointer', textAlign: 'left'
-        }}>
-          <span style={{ fontSize: 16 }}>🔍</span>
-          <span style={{ color: '#94a3b8', fontSize: 14 }}>Search customers, jobs, materials…</span>
-        </button>
-      </div>
-
-      <div style={{ padding: '8px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {buttons.map(({ path, emoji, label, sub, color, dark, border }) => (
-          <button key={path} onClick={() => onNavigate(path)} style={{
-            background: dark, border: `1px solid ${border}`,
-            borderRadius: 16, padding: '22px 20px',
-            textAlign: 'left', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 18,
-          }}>
-            <span style={{ fontSize: 36 }}>{emoji}</span>
-            <div>
-              <div style={{ color, fontSize: 18, fontWeight: 700 }}>{label}</div>
-              <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>{sub}</div>
-            </div>
-            <span style={{ marginLeft: 'auto', color: border, fontSize: 20 }}>›</span>
-          </button>
-        ))}
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {(isRestricted ? [
-            { path: '/calendar', label: '📅 Calendar' },
-          ] : [
-            { path: '/unbilled', label: '💵 Unbilled' },
-            { path: '/newjob',  label: '➕ New Job' },
-          ]).map(({ path, label }) => (
-            <button key={path} onClick={() => onNavigate(path)} style={{
-              flex: 1, background: '#1e293b', border: '1px solid #334155',
-              borderRadius: 10, padding: '10px 8px', color: '#94a3b8',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer'
-            }}>{label}</button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+// Legacy HomeScreen REMOVED 9.9.30 — OpsHome replaced it and nothing had
+// rendered this in months. ~120 lines of dead nav config that still listed
+// screens which no longer exist.
 
 // ── DEEP LINK FINISH ────────────────────────────────────────────────
 // Tech opens "📱 Open in Overwatch" link from a calendar event description.

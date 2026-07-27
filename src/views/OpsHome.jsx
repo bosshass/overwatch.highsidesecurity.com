@@ -48,7 +48,7 @@ const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
 
 export default function OpsHome({
   userName, isOperator, accessToken, userEmail,
-  onNavigate, onSignOut, onSearch,
+  onNavigate, onSignOut, onSearch, onShowTour,
 }) {
   const [people, setPeople] = useState(null);
   const [board, setBoard] = useState(null);
@@ -57,6 +57,18 @@ export default function OpsHome({
   const [showNewJob, setShowNewJob] = useState(false);
 
   const go = path => onNavigate(path);
+
+  // Contextual help marker. Sits next to a section and opens the walkthrough at
+  // that section's step, rather than making someone sit through a linear tour
+  // to reach the part they're actually looking at.
+  const Help = ({ topic, label }) => (
+    <button onClick={(e) => { e.stopPropagation(); onShowTour?.(topic); }}
+      aria-label={label || 'How this works'} title={label || 'How this works'}
+      style={{ width:20, height:20, borderRadius:999, background:'transparent',
+               border:`1px solid ${C.line2}`, color:C.muted, fontSize:11, fontWeight:800,
+               cursor:'pointer', lineHeight:1, padding:0, flexShrink:0,
+               fontFamily:'inherit' }}>?</button>
+  );
 
   // ── Per-person rollup ──────────────────────────────────────────────────
   // Volume is not the signal. Everyone has a pile; what matters is whether the
@@ -188,9 +200,13 @@ export default function OpsHome({
                      fontFamily:'inherit', boxShadow:'0 10px 40px rgba(255,79,94,0.18)' }}>
             <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:14 }}>
               <span style={{ fontSize:22 }}>🚨</span>
-              <span style={{ fontSize:13, fontWeight:900, letterSpacing:'0.1em', textTransform:'uppercase', color:'#ffb3ba' }}>
+              <span style={{ fontSize:13, fontWeight:900, letterSpacing:'0.1em', textTransform:'uppercase', color:'#ffb3ba', flex:1 }}>
                 Not in Overwatch — will not bill
               </span>
+              <span onClick={(e) => { e.stopPropagation(); onShowTour?.('warning'); }}
+                style={{ width:22, height:22, borderRadius:999, border:'1px solid #ffb3ba66',
+                         color:'#ffb3ba', fontSize:12, fontWeight:800, display:'grid',
+                         placeItems:'center', cursor:'pointer' }}>?</span>
             </div>
             <div style={{ display:'flex', gap:34, flexWrap:'wrap', alignItems:'flex-end' }}>
               {gap.manual > 0 && (
@@ -220,8 +236,11 @@ export default function OpsHome({
 
         {/* ══ 2. PEOPLE ══ */}
         <div style={{ padding:'6px 16px 0' }}>
-          <div style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted, marginBottom:10 }}>
-            Who's stuck
+          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+            <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
+              Who's stuck
+            </span>
+            <Help topic="tasks" label="How My Tasks works" />
           </div>
           {loading && !people ? (
             <div style={{ color:C.muted, fontSize:13, padding:'20px 0' }}>Loading…</div>
@@ -279,8 +298,11 @@ export default function OpsHome({
 
         {/* ══ 3. BOARD ROLLUP ══ */}
         <div style={{ padding:'22px 16px 0' }}>
-          <div style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted, marginBottom:10 }}>
-            The board
+          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+            <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
+              The board
+            </span>
+            <Help topic="dispositions" label="How jobs move and close" />
           </div>
           <button onClick={() => go('/board')}
             style={{ width:'100%', textAlign:'left', background:C.panel, border:`1px solid ${C.line}`,
@@ -302,6 +324,50 @@ export default function OpsHome({
             <div style={{ fontSize:12, color:C.cyan, marginTop:14 }}>Open the board →</div>
           </button>
         </div>
+
+        {/* ══ 4. ADMIN TOOLS ══ */}
+        {/* The screens you go to on purpose, not the ones that should be
+            shouting at you. Kept off the main flow deliberately — Event Audit
+            and Billing are where you go to FIX things, and the warning banner
+            above already tells you when that's needed. */}
+        {isOperator && (
+          <div style={{ padding:'22px 16px 0' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+              <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
+                Admin tools
+              </span>
+              <Help topic="warning" label="What to do with these" />
+            </div>
+            <div style={{ background:C.panel, border:`1px solid ${C.line}`, borderRadius:18, overflow:'hidden' }}>
+              {[
+                { path:'/audit?scan=1', icon:'🔍', label:'Event Audit',
+                  sub:'Calendar events with no job behind them', badge: gap?.manual || 0, badgeColor: C.red },
+                { path:'/unbilled', icon:'💵', label:'Billing',
+                  sub:'Every unbilled hour and material, by customer' },
+                { action:'tour', icon:'🎓', label:'How this works',
+                  sub:'Tasks, dispositions, Tent calendar, scheduling' },
+              ].map((t, i) => (
+                <button key={t.path || t.action}
+                  onClick={() => t.action === 'tour' ? onShowTour?.('intro') : go(t.path)}
+                  style={{ display:'flex', width:'100%', alignItems:'center', gap:13, textAlign:'left',
+                           background:'transparent', border:'none',
+                           borderTop: i ? `1px solid ${C.line}` : 'none',
+                           padding:'15px 17px', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
+                  <span style={{ fontSize:20 }}>{t.icon}</span>
+                  <span style={{ flex:1, minWidth:0 }}>
+                    <span style={{ display:'block', fontSize:15, fontWeight:700 }}>{t.label}</span>
+                    <span style={{ display:'block', fontSize:12, color:C.muted, marginTop:2 }}>{t.sub}</span>
+                  </span>
+                  {t.badge > 0 && (
+                    <span style={{ background:t.badgeColor, color:'#fff', borderRadius:20,
+                                   padding:'2px 9px', fontSize:11, fontWeight:900 }}>{t.badge}</span>
+                  )}
+                  <span style={{ color:'#4a5f7a', fontSize:20 }}>›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isOperator && (
           <div style={{ padding:'26px 16px 0', textAlign:'center' }}>

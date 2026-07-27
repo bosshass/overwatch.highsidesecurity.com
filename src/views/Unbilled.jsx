@@ -291,7 +291,7 @@ export default function Unbilled({ onBack, userEmail }) {
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#0f172a', borderBottom: '1px solid #1e293b', padding: '12px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
           <button onClick={onBack} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>← Home</button>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>💵 Unbilled</span>
+          <span style={{ fontWeight: 700, fontSize: 16 }}>💵 Billing</span>
           <button onClick={load} style={{ marginLeft: 'auto', background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>↻</button>
         </div>
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>

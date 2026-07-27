@@ -746,7 +746,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             return (
               <a
                 key={item.label}
-                href={item.label === 'To Bill' ? '/billing' : '/board'}
+                href={item.label === 'To Bill' ? '/unbilled' : '/board'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '8px',
                   padding: '7px 4px', textDecoration: 'none', borderRadius: '6px'

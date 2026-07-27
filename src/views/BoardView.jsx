@@ -59,12 +59,18 @@ const STATUS_VERBS = Object.fromEntries(
 
 // Move-to targets shown as the 6 board lanes (not 15 raw statuses).
 // Tapping a lane sends the card there. Estimates expands to its stages.
+// LABELS MUST MATCH THE COLUMN HEADERS EXACTLY. These had drifted into a
+// second vocabulary — the board showed "📝 New / Notes" and "✏️ Tentative"
+// while the move panel offered "🔥 Triage", "🚫 Blocked" and no Tentative at
+// all. Same card, two sets of words, and one destination you could see but not
+// reach. Blocked folded into New/Notes because that is the column it renders
+// in; Tentative opens the scheduler because a hold needs a date.
 const LANE_MOVES = [
-  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','pending_decision'] },
-  { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', target:'blocked',           statuses:['blocked'] },
-  { key:'ready',     label:'✅ Ready',      color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule'] },
-  { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', target:'scheduled',         statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
+  { key:'triage',    label:'📝 New / Notes',      color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
+  { key:'ready',     label:'✅ Ready to Schedule', color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule','return_pending'] },
+  { key:'tentative', label:'✏️ Tentative',        color:'#f59e0b', schedule:'hold',            statuses:[] },
+  { key:'scheduled', label:'📅 Scheduled',        color:'#3b82f6', schedule:'book',            statuses:['scheduled'] },
+  { key:'estimates', label:'📋 Estimates',        color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
   // Billing lives in its own screen (Unbilled/Billing.jsx) now — the board
   // doesn't need a To Bill lane duplicating that. complete/to_bill/billed
   // jobs still exist and are still managed there; they just don't clutter
@@ -791,6 +797,24 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
                   <button key={lane.key} onClick={() => setShowEstStages(s => !s)} disabled={moving}
                     style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:lane.color, fontWeight:700, fontSize:13, cursor:'pointer', gridColumn: showEstStages ? '1 / -1' : 'auto' }}>
                     {lane.label} ▾
+                  </button>
+                );
+              }
+              // Tentative and Scheduled both need a DATE, so they open the
+              // scheduler instead of writing a status. That is the whole point:
+              // a job cannot claim to be booked or held without one.
+              if (lane.schedule) {
+                const held = lane.key === 'tentative' && job.tentative_date;
+                return (
+                  <button key={lane.key} onClick={() => onSchedule(job)} disabled={moving}
+                    style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`,
+                             background:(isHere||held)?`${lane.color}22`:'transparent', color:lane.color,
+                             fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                    {(isHere||held) ? '● ' : ''}{lane.label}
+                    <span style={{ display:'block', fontSize:10, fontWeight:500, opacity:0.75, marginTop:2 }}>
+                      {held ? `held ${new Date(job.tentative_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
+                            : lane.key === 'tentative' ? 'pick a day to hold' : 'pick tech + time'}
+                    </span>
                   </button>
                 );
               }

@@ -32,6 +32,9 @@ import { CALENDARS } from '../config/calendars.js';
 import { ownsJob, assigneeOf, CLOSED_STATUSES, ASSIGNEES, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { statusLabel, statusColor, statusChipStyle } from '../utils/status.js';
 import NewJobModal from '../components/NewJobModal.jsx';
+import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
+import { techsApi } from '../services/supabase.js';
+import { createEventOnCalendar } from '../services/calendarSync.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 
@@ -272,6 +275,11 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   const [showNewJob, setShowNewJob] = useState(false);
   const [tentFor, setTentFor] = useState(null);
   const [addWork, setAddWork] = useState(false);
+  // THE scheduler — the same one the board uses. My Tasks previously had only
+  // TentPicker, which looked like scheduling and wasn't, so "schedule" meant
+  // two different things depending on which button you found.
+  const [schedulingJob, setSchedulingJob] = useState(null);
+  const [techs, setTechs] = useState([]);
   const [assignFor, setAssignFor] = useState(null); // job or note being handed off
   const [toast, setToast] = useState('');
   const [query, setQuery] = useState('');
@@ -303,7 +311,9 @@ export default function Workspace({ accessToken, userEmail, userName }) {
 
       // Watched jobs are by definition NOT hers — they won't come back in the
       // ownership query above, so fetch them by id or the lane renders blind.
-      const watchIds = (notes || []).filter(n => n.lane === 'watching' && n.job_id).map(n => n.job_id);
+      // Any note that points at a job needs that job loaded — Doing cards now
+      // schedule for real, and the scheduler needs the actual job row.
+      const watchIds = (notes || []).filter(n => n.job_id).map(n => n.job_id);
       if (watchIds.length) {
         const { data: watched } = await supabase.from('jobs')
           .select('id, customer_name, issue, status, assigned_to, tech_name')
@@ -343,6 +353,15 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       setTentEvents(unlinked);
     } catch (e) { console.warn('tent load failed', e); }
   }, [accessToken]);
+
+  useEffect(() => {
+    techsApi.getAll()
+      .then(setTechs)
+      .catch(async () => {
+        const { data } = await supabase.from('techs').select('*').order('name');
+        setTechs(data || []);
+      });
+  }, []);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadTent(); }, [loadTent]);
@@ -472,13 +491,55 @@ export default function Workspace({ accessToken, userEmail, userName }) {
     setSaving(false);
   };
 
+  // Tentative now does three things instead of one:
+  //   1. creates a REAL event on the Tent calendar (unless she linked an
+  //      existing one), so the hold exists where the team already looks
+  //   2. stamps jobs.tentative_date, so the board card shows the hold
+  //   3. records it on her note, as before
+  // Writing only (3) is what made this feel broken — she pencilled something in
+  // and nothing anywhere reflected it.
   const saveTent = async (patch) => {
     setSaving(true);
     try {
-      const { error } = await supabase.from('notes').update(patch).eq('id', tentFor.id);
+      const jobId = tentFor.job_id;
+      const job = watchedJobs[jobId] || feed.find(j => j.id === jobId) || {};
+      let eventId = patch.calendar_event_id;
+
+      if (patch.tentative && !eventId && patch.scheduled_for) {
+        const start = new Date(patch.scheduled_for);
+        const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+        try {
+          const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
+            title: `[TENT] ${job.customer_name || tentFor.body || 'Hold'}`,
+            description: `Tentative hold placed by ${NAME_BY_EMAIL[owner] || owner} in Overwatch.\nNot dispatched — no tech booked.`,
+            location: job.customer_address || '',
+            startTime: start, endTime: end,
+          });
+          if (created?.id) eventId = created.id;
+        } catch (e) { console.warn('Tent event create failed (non-fatal)', e); }
+      }
+
+      const { error } = await supabase.from('notes').update({
+        ...patch, calendar_event_id: eventId || null,
+        calendar_id: eventId ? CALENDARS.TENTATIVELY_SCHEDULED : null,
+      }).eq('id', tentFor.id);
       if (error) throw error;
+
+      if (jobId) {
+        // Non-fatal: if migration 033 hasn't run, the hold still lives on the
+        // note and the Tent calendar rather than failing the whole action.
+        const { error: jErr } = await supabase.from('jobs').update({
+          tentative_date: patch.tentative ? patch.scheduled_for : null,
+          tentative_event_id: patch.tentative ? (eventId || null) : null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', jobId);
+        if (jErr) console.warn('Could not stamp job (run migration 033):', jErr.message);
+      }
+
       setTentFor(null); await load();
-      say(patch.tentative ? 'Pencilled in ✓' : 'Cleared ✓');
+      say(patch.tentative
+        ? (eventId ? 'Pencilled in — on the Tent calendar ✓' : 'Pencilled in ✓')
+        : 'Hold cleared ✓');
     } catch (e) { say('Could not save: ' + (e.message || e)); }
     setSaving(false);
   };
@@ -596,7 +657,13 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button onClick={() => setSchedulingJob(j)} disabled={saving}
+                style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',
+                         border: 'none', borderRadius: 8, padding: '7px 0',
+                         fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                📅 Schedule
+              </button>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button onClick={() => pullIn(j)} disabled={saving}
                   style={{ flex: 1, background: 'transparent', color: ACCENT,
                            border: `1px solid ${ACCENT}55`, borderRadius: 8, padding: '6px 0',
@@ -662,8 +729,17 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                   </button>
                 )}
               </div>
+              {n.job_id && (
+                <button onClick={() => setSchedulingJob(watchedJobs[n.job_id] || feed.find(j => j.id === n.job_id) || { id: n.job_id })}
+                  disabled={saving}
+                  style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',
+                           border: 'none', borderRadius: 8, padding: '7px 0',
+                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  📅 Schedule for real
+                </button>
+              )}
               <button onClick={() => setTentFor(n)}
-                style={{ marginTop: 8, width: '100%', background: 'transparent', color: '#f59e0b',
+                style={{ marginTop: 6, width: '100%', background: 'transparent', color: '#f59e0b',
                          border: '1px solid #f59e0b55', borderRadius: 8, padding: '6px 0',
                          fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                 {n.tentative ? 'Change tentative date' : '✏️ Tentatively schedule'}
@@ -776,6 +852,13 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                        fontSize: 12, cursor: 'pointer' }}>Cancel</button>
           </div>
         </div>
+      )}
+
+      {schedulingJob && (
+        <VisualSchedulerModal
+          job={schedulingJob} techs={techs} accessToken={accessToken}
+          onClose={() => setSchedulingJob(null)}
+          onScheduled={() => { setSchedulingJob(null); load(); say('Scheduled — on the board ✓'); }} />
       )}
 
       {addWork && (

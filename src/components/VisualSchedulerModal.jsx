@@ -179,8 +179,19 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
     setEndTime(`${String(defEnd.getHours()).padStart(2,'0')}:${String(defEnd.getMinutes()).padStart(2,'0')}`);
   };
 
+  // What's still missing, in the order the user fills it in. Drives both the
+  // disabled state and the hint text.
+  const missing = !selectedTechId ? 'Pick a tech'
+                : !selectedDay    ? 'Pick a day'
+                : (!startTime || !endTime) ? 'Pick a time slot'
+                : null;
+
   const confirm = async () => {
-    if (!selectedTechId || !selectedDay || !startTime || !endTime) return;
+    // This used to be a bare `return`. Pick a tech, pick a day, forget the time
+    // slot, and the button did NOTHING — no error, no toast, no disabled state.
+    // Shana lost a Rick Ferreri booking to it and reasonably concluded the app
+    // was broken. Silence is the worst possible failure mode for a save button.
+    if (missing) { setErr(missing); return; }
     const tech = validTechs.find(t => t.id === selectedTechId);
     if (!tech) return;
 
@@ -199,6 +210,10 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
         scheduled_date: selectedDay.date,
         tech_assigned: tech.id,
         tech_name: tech.name || '',
+        // A real booking supersedes the pencil mark. Leaving both would show a
+        // card that is scheduled AND tentatively held, which reads as a conflict.
+        tentative_date: null,
+        tentative_event_id: null,
         updated_at: new Date().toISOString(),
       }).eq('id', job.id);
       if (dbErr) throw dbErr;
@@ -378,13 +393,18 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
             {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}
 
-            <button onClick={confirm} disabled={!selectedSlot || saving}
+            {/* Always rendered, always says what it's waiting for. Previously
+                this could sit greyed and unexplained below the fold while the
+                user assumed they'd already scheduled. */}
+            <button onClick={confirm} disabled={!!missing || saving}
               style={{
-                width: '100%', background: selectedSlot ? '#00c8e8' : '#334155', border: 'none', borderRadius: 10,
-                color: selectedSlot ? '#0f1729' : '#64748b', fontWeight: 700, padding: '13px', fontSize: 14,
-                cursor: selectedSlot ? 'pointer' : 'default',
+                width: '100%', background: missing ? '#334155' : '#00c8e8', border: 'none', borderRadius: 10,
+                color: missing ? '#94a3b8' : '#0f1729', fontWeight: 700, padding: '13px', fontSize: 14,
+                cursor: missing ? 'default' : 'pointer',
               }}>
-              {saving ? 'Scheduling…' : selectedSlot ? `✅ Confirm — ${validTechs.find(t=>t.id===selectedTechId)?.name}, ${selectedDay?.day} ${selectedDay?.month} ${selectedDay?.dayNum}` : 'Pick a time slot above'}
+              {saving ? 'Scheduling…'
+                : missing ? `${missing} to continue`
+                : `✅ Confirm — ${validTechs.find(t=>t.id===selectedTechId)?.name}, ${selectedDay?.day} ${selectedDay?.month} ${selectedDay?.dayNum}`}
             </button>
           </>
         )}

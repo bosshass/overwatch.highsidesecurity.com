@@ -582,6 +582,9 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             ['address', job.customer_address],
             ['phone', job.customer_phone],
             ['CMS', job.cms_account_id],
+            ['tentative hold', job.tentative_date
+              ? new Date(job.tentative_date).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+              : null],
             ['tech on site', job.tech_name],
             ['assigned to', assigneeOf(job)],
             ['scheduled', job.scheduled_date],
@@ -901,6 +904,15 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
           ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{job.tech_name}</span>
           : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>}
         <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
+        {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
+            scheduled date — a hold is not a booking, and the day two crews turn
+            up in one place is the day those two things looked alike. */}
+        {job.tentative_date && (
+          <span style={{ fontSize:12, fontWeight:700, color:'#f59e0b', background:'#78350f44',
+                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+            ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
+          </span>
+        )}
         {staleColor && (
           <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
             style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>

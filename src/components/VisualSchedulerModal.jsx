@@ -19,7 +19,9 @@ import { buildEventTitle, buildEventDescription, getLatestNote, createEventOnCal
 import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
-const DAYS_AHEAD = 14;
+// Six weeks, not two. Two weeks couldn't hold a job that needed a slot in
+// September, which is exactly the conversation Shana was having about a key fob.
+const DAYS_AHEAD = 42;
 
 // LOCAL date string (YYYY-MM-DD) — never toISOString(), which is UTC and
 // rolls to the wrong day after ~6pm Denver time. This was the root cause
@@ -68,6 +70,8 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const [endTime, setEndTime] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [holdStart, setHoldStart] = useState('09:00');
+  const [holdEnd, setHoldEnd]     = useState('17:00');
 
   const validTechs = (techs || []).filter(t => t.calendar_id);
 
@@ -101,9 +105,15 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
           const workStart = new Date(day); workStart.setHours(WORK_START_HOUR, 0, 0, 0);
           const workEnd = new Date(day); workEnd.setHours(WORK_END_HOUR, 0, 0, 0);
 
+          // Titles were being thrown away here and only the arithmetic kept —
+          // so the grid could say "3h free" without ever showing WHAT the other
+          // five hours were. You can't judge whether to bump something you
+          // can't see.
           const busy = dayEvents.map(ev => ({
             start: new Date(ev.start?.dateTime || ev.start?.date),
             end: new Date(ev.end?.dateTime || ev.end?.date),
+            title: ev.summary || '(untitled)',
+            allDay: !ev.start?.dateTime,
           })).sort((a, b) => a.start - b.start);
 
           let bookedHours = 0;
@@ -128,7 +138,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
             day: day.toLocaleDateString('en-US', { weekday: 'short' }),
             dayNum: day.getDate(),
             month: day.toLocaleDateString('en-US', { month: 'short' }),
-            freeHours, freeSlots, isWeekend,
+            freeHours, freeSlots, isWeekend, busy,
           });
         }
       } catch (e) { console.warn('Availability fetch failed for', tech.name, e.message); }
@@ -171,8 +181,16 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   }, [availability, isInstall, needHours, JSON.stringify(validTechs.map(t => t.id))]);
 
   const pickSlot = (techId, dayData, slot) => {
+    // Picking a slot pre-fills the hold hours as well, so holding "that gap"
+    // is one tap rather than retyping times you already chose.
+    if (slot?.start && slot?.end) {
+      const two = n => String(n).padStart(2, '0');
+      setHoldStart(`${two(slot.start.getHours())}:${two(slot.start.getMinutes())}`);
+      setHoldEnd(`${two(slot.end.getHours())}:${two(slot.end.getMinutes())}`);
+    }
     setSelectedTechId(techId);
-    setSelectedDay(dayData);
+    // Always carry techId — the event list resolves the tech name from it.
+    setSelectedDay({ ...dayData, techId });
     setSelectedSlot(slot);
     const defStart = new Date(slot.start);
     const defEnd = new Date(Math.min(slot.end.getTime(), slot.start.getTime() + 2 * 3600000));
@@ -200,9 +218,11 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
     if (!selectedDay) { setErr('Pick a day to hold'); return; }
     setSaving(true); setErr('');
     try {
-      const start = parseLocalDate(selectedDay.date);
-      start.setHours(startTime ? Number(startTime.split(':')[0]) : 9, 0, 0, 0);
-      const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+      const [hsH, hsM] = (holdStart || '09:00').split(':').map(Number);
+      const [heH, heM] = (holdEnd || '17:00').split(':').map(Number);
+      const start = parseLocalDate(selectedDay.date); start.setHours(hsH, hsM, 0, 0);
+      const end   = parseLocalDate(selectedDay.date); end.setHours(heH, heM, 0, 0);
+      if (end <= start) { setErr('Hold end must be after the start'); setSaving(false); return; }
 
       let eventId = null;
       try {
@@ -436,13 +456,54 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
             {/* Hold — available as soon as a DAY is picked, because a hold is a
                 day-level commitment. It doesn't need a tech or a slot. */}
+            {/* WHAT'S ALREADY ON THAT DAY. The grid gave a free-hours number and
+                nothing else, so you could see "3h free" without ever seeing what
+                the other five hours were — and you can't decide whether to bump
+                something you can't read. */}
+            {selectedDay && (selectedDay.busy || []).length > 0 && (
+              <div style={{ background: '#0f1729', border: '1px solid #2a3f5c', borderRadius: 10,
+                            padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: '#8497b0', textTransform: 'uppercase',
+                              letterSpacing: 0.5, marginBottom: 6 }}>
+                  Already on {validTechs.find(t => t.id === selectedDay.techId)?.name}'s calendar
+                </div>
+                {(selectedDay.busy || []).map((b, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '3px 0' }}>
+                    <span style={{ color: '#64748b', minWidth: 96, flexShrink: 0 }}>
+                      {b.allDay ? 'all day' :
+                        `${b.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}–${b.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+                    </span>
+                    <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis',
+                                   whiteSpace: 'nowrap' }}>{b.title}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* HOLD — with real hours. A hold used to be the whole day, which is
+                useless when you're holding a two-hour service call. Defaults to
+                the slot you picked, or 9–5 if you only picked a day. */}
             {selectedDay && (
-              <button onClick={holdTentative} disabled={saving}
-                style={{ width: '100%', background: 'transparent', border: '1px solid #f59e0b66',
-                         borderRadius: 10, color: '#f59e0b', fontWeight: 700, padding: '12px',
-                         fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
-                ✏️ Hold {selectedDay.day} {selectedDay.month} {selectedDay.dayNum} — tentative, no tech booked
-              </button>
+              <div style={{ border: '1px solid #f59e0b44', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginBottom: 8 }}>
+                  ✏️ Tentative hold — no tech booked
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 9 }}>
+                  <input type="time" value={holdStart} onChange={e => setHoldStart(e.target.value)}
+                    style={{ flex: 1, background: '#0f1729', border: '1px solid #2a3f5c', borderRadius: 8,
+                             color: '#e2e8f0', padding: '7px 9px', fontSize: 13, outline: 'none' }} />
+                  <span style={{ color: '#64748b', fontSize: 12 }}>to</span>
+                  <input type="time" value={holdEnd} onChange={e => setHoldEnd(e.target.value)}
+                    style={{ flex: 1, background: '#0f1729', border: '1px solid #2a3f5c', borderRadius: 8,
+                             color: '#e2e8f0', padding: '7px 9px', fontSize: 13, outline: 'none' }} />
+                </div>
+                <button onClick={holdTentative} disabled={saving}
+                  style={{ width: '100%', background: '#f59e0b', border: 'none',
+                           borderRadius: 8, color: '#0f1729', fontWeight: 700, padding: '10px',
+                           fontSize: 13, cursor: 'pointer' }}>
+                  Hold {selectedDay.day} {selectedDay.month} {selectedDay.dayNum} · {holdStart}–{holdEnd}
+                </button>
+              </div>
             )}
 
             {/* Always rendered, always says what it's waiting for. Previously

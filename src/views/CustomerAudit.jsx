@@ -134,6 +134,17 @@ export default function CustomerAudit({ onBack, accessToken }) {
   const [adoptCustomer, setAdoptCustomer] = useState({});
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+
+  // Arriving from the home banner (/audit?scan=1) runs the scan immediately.
+  // The banner already told her there are 12; making her press Scan to see the
+  // same 12 is asking her to prove she meant it.
+  useEffect(() => {
+    if (!accessToken) return;
+    const wants = new URLSearchParams(window.location.search).get('scan');
+    if (wants && !scanned) { setScanned(true); scanManual(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
   const [archiveTarget, setArchiveTarget] = useState(null);   // the entry being archived
 
   const byId = useMemo(() => { const m = {}; for (const c of registry) m[c.id] = c; return m; }, [registry]);
@@ -221,6 +232,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
     try {
       const res = await scanForOrphans(accessToken);
       setManualEvents(res.orphans || []);
+      if ((res.orphans || []).length) setManualOpen(true);
     } catch (e) {
       alert('Scan failed: ' + (e.message || e));
     }
@@ -412,9 +424,18 @@ export default function CustomerAudit({ onBack, accessToken }) {
 
         {/* Calendar events Overwatch never created — no "Managed by JUC-E" marker */}
         {manualEvents.length > 0 && (
-          <details style={{ marginBottom: 10 }}>
-            <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
-              {manualEvents.length} calendar events made by hand (not in Overwatch) →
+          // CONTROLLED, not `<details open>`. `open` as a bare attribute only
+          // sets the INITIAL state, so a section that renders after an async
+          // scan lands collapsed no matter what. Arriving from the home banner
+          // has to land on the open list — the whole point of the banner is
+          // that this work is invisible, and making someone hit Scan and then
+          // click a 13px summary to reveal it keeps it invisible.
+          <details open={manualOpen} style={{ marginBottom: 10 }}>
+            <summary
+              onClick={(e) => { e.preventDefault(); setManualOpen(o => !o); }}
+              style={{ cursor: 'pointer', fontSize: 16, color: '#fbbf24', fontWeight: 800,
+                       padding: '8px 0', listStyle: 'none' }}>
+              {manualOpen ? '▾' : '▸'} {manualEvents.length} calendar events made by hand — will not bill
             </summary>
             <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {manualEvents.map(o => (

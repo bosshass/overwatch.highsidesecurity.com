@@ -263,7 +263,7 @@ export default function OpsHome({
 
         {/* ── THE GAP — work that never made it into Overwatch ── */}
         {gap && (gap.manual > 0 || gap.orphanJobs > 0) && (
-          <button onClick={() => go('/audit')}
+          <button onClick={() => go('/audit?scan=1')}
             style={{ margin:'14px 16px 0', width:'calc(100% - 32px)', textAlign:'left',
                      background:'linear-gradient(180deg,#3b0d0d,#2a0a0a)', border:'1px solid #ef4444',
                      borderRadius:18, padding:'16px 18px', cursor:'pointer', color:'#fff',

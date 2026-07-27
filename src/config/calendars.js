@@ -17,6 +17,16 @@ export const CALENDARS = {
   JR:                    'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com',
   TECH3:                 'c_a1f0d82804a6c67b6373fa1311eef3933dc600a66617eef2b1e42dbb0670b625@group.calendar.google.com',
   SALES_ACCOUNTING:      'c_aa764bfa5d492c689c26e3ed589df2804a04ee175db1b68d48217bd18883d178@group.calendar.google.com',
+  // FOUND 9.11.9. This is de3d433f — the ID this file used to hold under
+  // TENTATIVELY_SCHEDULED before the 9.10.4 correction. It was never garbage;
+  // it's Shana's own separate calendar for return-service work, built and
+  // used entirely outside Overwatch. Nothing in this app writes to it — the
+  // return-request flow (jobs.status -> return_pending) is a pure database
+  // change with no calendar call anywhere in the code. Whatever lands here
+  // is Shana, by hand or through something else of hers, not this app.
+  // Added to SYNC_CALENDARS below so Event Audit finally sees it instead of
+  // it staying invisible. Expect a real backlog to surface once it's scanned.
+  SERVICE_URGENT:        'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
   COMPLETED:             'c_a095f8a75a8e3fb1bb4b0f3a2232962af3ab55f05a49ced1e4338abcc865d3e9@group.calendar.google.com',
   INSTALLATIONS:         'c_c84c0a24e2a7386cb519b21569fbb4b17a19214ce33744a63e06394f8c57339f@group.calendar.google.com',
   SHANA:                 'shanaparks@drhsecurityservices.com',
@@ -94,6 +104,17 @@ export const SYNC_CALENDARS = [
     name: 'Installations',
     type: 'installations',
     visibleTo: TREVOR_EMAILS,
+  },
+  {
+    id: CALENDARS.SERVICE_URGENT,
+    name: 'Service Urgent',
+    // Deliberately NOT 'queue' — that type is skipped by the orphan scan
+    // (Tent holds are pencil marks, not real work). This calendar is the
+    // opposite case: real service/return work that never entered Overwatch
+    // at all. It needs to be SCANNED, which any type other than
+    // completed/sales/installations/queue already guarantees.
+    type: 'external',
+    visibleTo: [...SHANA_EMAILS, ...JR_EMAILS],
   },
   {
     id: CALENDARS.SALES_ACCOUNTING,

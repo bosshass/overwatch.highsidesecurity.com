@@ -300,10 +300,15 @@ export default function OpsHome({
                   <span style={{ display:'block', fontSize:14, fontWeight:700, whiteSpace:'nowrap',
                                  overflow:'hidden', textOverflow:'ellipsis' }}>{j.name}</span>
                   <span style={{ display:'block', fontSize:11, color:C.muted, marginTop:2 }}>
+                    {/* Was "{tech} · never given a date" — a name glued directly
+                        to a phrase that reads as someone's personal failing.
+                        Nobody has a duty called "assign a date" that got
+                        skipped; the record just doesn't have one yet. Describe
+                        the RECORD's state, not a person's. */}
                     {j.tech || 'no tech'} ·{' '}
                     {j.days == null
-                      ? 'never given a date'
-                      : `${j.days} day${j.days === 1 ? '' : 's'} past`}
+                      ? 'no date on record'
+                      : `${j.days} day${j.days === 1 ? '' : 's'} since the scheduled date`}
                   </span>
                 </span>
                 <span style={{ color:'#4a5f7a', fontSize:18 }}>›</span>

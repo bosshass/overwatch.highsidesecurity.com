@@ -145,6 +145,10 @@ export default function JobFinishSheet({
     estimate:    JOB_STATUS.NEEDS_ESTIMATE,
     in_progress: JOB_STATUS.SCHEDULED,   // stays open / active
     return:      JOB_STATUS.RETURN_PENDING,
+    // "Couldn't do it" — no access, wrong parts, customer turned the tech away.
+    // Previously there was no button for this, so techs picked "In progress"
+    // and the job sat in Scheduled looking like it was still happening.
+    blocked:     JOB_STATUS.BLOCKED,
   };
   const DISPO_LABEL = { bill_it: 'Bill it', estimate: 'Estimate', in_progress: 'In progress', return: 'Return' };
   const ensureJobForEvent = async (disposition) => {
@@ -271,11 +275,22 @@ export default function JobFinishSheet({
     .join('\n')
     .trim();
 
+  // Same five destinations as the board and My Tasks, in the words a tech
+  // would use. The labels used to be this sheet's own invention — "Needs
+  // estimate" here, "Estimates" on the board, "Won" in the mover — so the same
+  // move had three names depending on which screen you were standing in.
+  // `means` is the question the tech is actually answering.
   const DISPOS = [
-    { key: 'bill_it',     label: '✅ Done — bill it',   accent: '#1B2A4A', tint: '#eef2ff' },
-    { key: 'return',      label: '🔄 Return visit',     accent: '#d97706', tint: '#fffbeb' },
-    { key: 'in_progress', label: '🛠️ In progress',      accent: '#0e7490', tint: '#ecfeff' },
-    { key: 'estimate',    label: '💰 Needs estimate',   accent: '#6d28d9', tint: '#f5f3ff' },
+    { key: 'bill_it',     label: '✅ Done — To Bill',     accent: '#166534', tint: '#f0fdf4',
+      means: 'Finished. Hours go to Billing.' },
+    { key: 'return',      label: '✅ Ready to Schedule',  accent: '#15803d', tint: '#f0fdf4',
+      means: "Needs another visit — put me back in the schedule queue." },
+    { key: 'in_progress', label: '📅 Still Scheduled',    accent: '#1d4ed8', tint: '#eff6ff',
+      means: 'Multi-day job. Not finished, still booked.' },
+    { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',
+      means: 'Scope changed — this needs pricing.' },
+    { key: 'blocked',     label: '📝 New / Notes',        accent: '#b91c1c', tint: '#fef2f2',
+      means: "Couldn't do it — no access, wrong parts, customer turned me away." },
   ];
 
   // ── The actual form content (customer + time + notes + materials + buttons) ──
@@ -315,7 +330,7 @@ export default function JobFinishSheet({
           <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
             How did it end? {selectedDispo ? '✓' : '— required'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 10 }}>
             {DISPOS.map(d => {
               const on = selectedDispo === d.key;
               return (
@@ -326,9 +341,15 @@ export default function JobFinishSheet({
                     background: on ? d.tint : '#ffffff',
                     border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
                     color: on ? d.accent : '#475569',
-                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'center',
+                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'left',
                   }}>
-                  {d.label}
+                  <span style={{ display: 'block' }}>{d.label}</span>
+                  {/* The question the tech is answering, in their words. A label
+                      alone made them guess which button meant "couldn't get in". */}
+                  <span style={{ display: 'block', fontSize: 11, fontWeight: 500,
+                                 color: on ? d.accent : '#94a3b8', marginTop: 3, lineHeight: 1.3 }}>
+                    {d.means}
+                  </span>
                 </button>
               );
             })}

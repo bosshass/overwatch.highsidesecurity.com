@@ -292,7 +292,7 @@ export default function OpsHome({
               will never reach an invoice.
             </div>
             {stranded.map(j => (
-              <button key={j.id} onClick={() => go(`/j/${shortCode(j.id)}`)}
+              <button key={j.id} onClick={() => go(`/j/${shortCode(j.id)}?returnTo=${encodeURIComponent('/')}`)}
                 style={{ display:'flex', width:'100%', alignItems:'center', gap:10, textAlign:'left',
                          background:'transparent', border:'none', borderTop:`1px solid ${C.amber}33`,
                          padding:'10px 0', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>

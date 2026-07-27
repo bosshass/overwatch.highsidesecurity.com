@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf } from '../utils/ownership.js';
+import { LANES, CLEAR_LANE } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -21,6 +22,7 @@ import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
+import TicketSheet from '../components/TicketSheet.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -59,26 +61,15 @@ const STATUS_VERBS = Object.fromEntries(
 
 // Move-to targets shown as the 6 board lanes (not 15 raw statuses).
 // Tapping a lane sends the card there. Estimates expands to its stages.
-// LABELS MUST MATCH THE COLUMN HEADERS EXACTLY. These had drifted into a
-// second vocabulary — the board showed "📝 New / Notes" and "✏️ Tentative"
-// while the move panel offered "🔥 Triage", "🚫 Blocked" and no Tentative at
-// all. Same card, two sets of words, and one destination you could see but not
-// reach. Blocked folded into New/Notes because that is the column it renders
-// in; Tentative opens the scheduler because a hold needs a date.
-const LANE_MOVES = [
-  { key:'triage',    label:'📝 New / Notes',      color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
-  { key:'ready',     label:'✅ Ready to Schedule', color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule','return_pending'] },
-  { key:'tentative', label:'✏️ Tentative',        color:'#f59e0b', schedule:'hold',            statuses:[] },
-  { key:'scheduled', label:'📅 Scheduled',        color:'#3b82f6', schedule:'book',            statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',        color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
-  // Billing lives in its own screen (Unbilled/Billing.jsx) now — the board
-  // doesn't need a To Bill lane duplicating that. complete/to_bill/billed
-  // jobs still exist and are still managed there; they just don't clutter
-  // the board's active-work view anymore.
-  // Not a billing outcome — for test entries, dupes handled outside the merge tool, or
-  // anything that just needs to leave the active board without touching money.
-  { key:'clear',     label:'🗑️ Clear (not billable)', color:'#cbd5e1', target:'archived', statuses:['archived','dead'] },
-];
+// Move targets are the SAME list as the columns — that is the entire point.
+const LANE_MOVES = [...LANES, CLEAR_LANE].map(l => ({
+  key: l.key,
+  label: `${l.icon} ${l.label}`,
+  color: l.color,
+  target: l.target,
+  statuses: l.statuses,
+  schedule: l.needsScheduler,
+}));
 
 // Estimate sub-stages, revealed when Estimates is tapped.
 const EST_STAGES = [
@@ -88,18 +79,15 @@ const EST_STAGES = [
   { status:'lost',           label:'Lost',   color:'#6b7280' },
 ];
 
-const COLUMNS = [
-  { key:'triage',    label:'📝 New / Notes',       color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
-  { key:'ready',     label:'✅ Ready to Schedule',  color:'#22c55e', statuses:['ready_to_schedule','return_pending'] },
-  // Tentative is a VIRTUAL column — it filters on tentative_date, not status,
-  // so it needs no new status value and no transition rules. A held job keeps
-  // whatever status it had (usually ready_to_schedule); the hold is an overlay,
-  // not a state change. Booking it for real clears the hold and it moves to
-  // Scheduled on its own.
-  { key:'tentative', label:'✏️ Tentative',        color:'#f59e0b', statuses:[], virtual:'tentative' },
-  { key:'scheduled', label:'📅 Scheduled',         color:'#3b82f6', statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',         color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
-];
+// Columns come from utils/lanes.js now. They used to be their own array that
+// drifted from LANE_MOVES — same card, two vocabularies.
+const COLUMNS = LANES.map(l => ({
+  key: l.key,
+  label: `${l.icon} ${l.label}`,
+  color: l.color,
+  statuses: l.statuses,
+  virtual: l.virtual,
+}));
 
 const fmtMoney = n => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '';
 

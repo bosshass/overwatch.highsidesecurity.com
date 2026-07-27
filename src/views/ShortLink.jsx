@@ -16,13 +16,14 @@
 // failure surface entirely: one component, one job, no relay.
 
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
 import JobDetail from '../components/JobDetail.jsx';
 
 export default function ShortLink({ accessToken, userEmail, userRole, onUpdate }) {
   const { code } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [err, setErr] = useState('');
   const [jobId, setJobId] = useState(null);
 
@@ -60,7 +61,18 @@ export default function ShortLink({ accessToken, userEmail, userRole, onUpdate }
     return (
       <JobDetail
         jobId={jobId}
-        onClose={() => navigate('/board', { replace: true })}
+        // GO BACK WHERE YOU CAME FROM. This hardcoded '/board', so opening a
+        // ticket from My Tasks — or from the home screen's stranded list, or a
+        // texted link — always dumped you on the board afterwards, having lost
+        // your filters, your scroll position and your place in the lane.
+        // returnTo is set by whoever navigated here; history.back() covers the
+        // rest; '/board' stays the fallback for a cold deep link.
+        onClose={() => {
+          const back = new URLSearchParams(location.search).get('returnTo');
+          if (back) { navigate(back, { replace: true }); return; }
+          if (window.history.length > 1) { navigate(-1); return; }
+          navigate('/board', { replace: true });
+        }}
         onUpdate={onUpdate}
         accessToken={accessToken}
         userEmail={userEmail}

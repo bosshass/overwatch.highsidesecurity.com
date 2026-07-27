@@ -25,7 +25,7 @@
 // stays the source of truth. It does not dispatch a tech or schedule a job.
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
 import { shortCode } from '../config/appBase.js';
 import { CALENDARS, SYNC_CALENDARS } from '../config/calendars.js';
@@ -36,6 +36,8 @@ import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import { techsApi } from '../services/supabase.js';
 import { createEventOnCalendar } from '../services/calendarSync.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
+import TicketSheet from '../components/TicketSheet.jsx';
+import { jobsApi } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -81,6 +83,7 @@ const fmtDay = (iso) => iso
 export default function Workspace({ accessToken, userEmail, userName }) {
   const navigate = useNavigate();
   const { who } = useParams();
+  const location = useLocation();
   const key = (who || userName || '').toLowerCase();
   const config = WORKSPACES[key] || WORKSPACES.shana;
   const viewingSelf = (userName || '').toLowerCase() === config.name.toLowerCase();
@@ -105,6 +108,10 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   // TentPicker, which looked like scheduling and wasn't, so "schedule" meant
   // two different things depending on which button you found.
   const [schedulingJob, setSchedulingJob] = useState(null);
+  // Tickets open HERE, in the same sheet the board uses, instead of navigating
+  // to /j/ and rendering a different component with a different layout. Three
+  // ways to open a ticket was three designs because it was three components.
+  const [openJob, setOpenJob] = useState(null);
   const [techs, setTechs] = useState([]);
   const [assignFor, setAssignFor] = useState(null); // job or note being handed off
   const [toast, setToast] = useState('');
@@ -435,7 +442,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
           ))}
           {todoFeed.map(j => (
             <Card key={j.id} accent={statusColor(j.status)} bg={watchedBackToMe.has(j.id) ? WATCH_BG : null}>
-              <div onClick={() => navigate(`/j/${shortCode(j.id)}`)} style={{ cursor: 'pointer' }}>
+              <div onClick={() => setOpenJob(j)} style={{ cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.25 }}>{j.customer_name || 'Unnamed'}</div>
                   <div style={{ fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap', padding: '3px 7px', borderRadius: 20,
@@ -527,7 +534,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                 )}
                 {n.calendar_event_id && <span style={{ color: MUTED, fontSize: 10 }}>🔗 calendar linked</span>}
                 {n.job_id && (
-                  <button onClick={() => navigate(`/j/${shortCode(n.job_id)}`)}
+                  <button onClick={() => setOpenJob(watchedJobs[n.job_id] || { id: n.job_id })}
                     style={{ background: 'none', border: 'none', color: ACCENT, fontSize: 10, cursor: 'pointer', padding: 0 }}>
                     open ticket →
                   </button>
@@ -583,7 +590,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                   {n.job_id && (
-                    <button onClick={() => navigate(`/j/${shortCode(n.job_id)}`)}
+                    <button onClick={() => setOpenJob(watchedJobs[n.job_id] || { id: n.job_id })}
                       style={{ flex: 1, background: 'transparent', color: ACCENT, border: `1px solid ${ACCENT}55`,
                                borderRadius: 8, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                       Open ticket
@@ -611,7 +618,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                 )}
                 <span style={{ color: MUTED, fontSize: 10 }}>{fmtDay(n.archived_at || n.updated_at)}</span>
                 {n.job_id && (
-                  <button onClick={() => navigate(`/j/${shortCode(n.job_id)}`)}
+                  <button onClick={() => setOpenJob(watchedJobs[n.job_id] || { id: n.job_id })}
                     style={{ marginLeft: 'auto', background: 'none', border: 'none', color: ACCENT,
                              fontSize: 10, cursor: 'pointer', padding: 0 }}>
                     open ticket →
@@ -648,6 +655,32 @@ export default function Workspace({ accessToken, userEmail, userName }) {
               style={{ marginTop: 16, width: '100%', background: 'transparent', color: MUTED,
                        border: `1px solid ${LINE}`, borderRadius: 8, padding: '9px 0',
                        fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* One ticket sheet, slid over — identical to the board's. */}
+      {openJob && (
+        <div onClick={() => setOpenJob(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,8,16,0.75)', zIndex: 1150,
+                   display: 'flex', justifyContent: 'flex-end' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 520, background: BG, overflowY: 'auto',
+                     borderLeft: `1px solid ${LINE}` }}>
+            <TicketSheet
+              job={openJob}
+              userEmail={userEmail}
+              accessToken={accessToken}
+              busy={saving}
+              onClose={() => setOpenJob(null)}
+              onOpenScheduler={() => { setSchedulingJob(openJob); setOpenJob(null); }}
+              onMove={async (target, moveNote) => {
+                await jobsApi.changeStatus(openJob.id, target, userEmail, moveNote);
+                setOpenJob(null);
+                await load();
+                say('Moved ✓');
+              }}
+            />
           </div>
         </div>
       )}

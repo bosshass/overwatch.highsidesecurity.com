@@ -19,6 +19,7 @@
 
 import { useState } from 'react';
 import { LANES, movesFor, laneOf } from '../utils/lanes.js';
+import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import FieldVisits from './FieldVisits.jsx';
 
@@ -57,6 +58,13 @@ export default function TicketSheet({
 
   const here = laneOf(job);
   const moves = movesFor(job);
+  // JobDetail always stripped the intake form's fixed header ("Name: Phone:
+  // ... Scope of Work:") before showing the issue text — TicketSheet never
+  // picked that up when it replaced JobDetail on every surface tonight, so
+  // any job whose scope was never filled in past the template shows the raw
+  // boilerplate verbatim. Same rule here: if nothing real was written after
+  // "Scope of Work:", there is nothing to show, and the box doesn't render.
+  const cleanIssue = stripIntakeTemplate(job.issue);
 
   const choose = async (lane) => {
     setErr('');
@@ -125,11 +133,11 @@ export default function TicketSheet({
         </div>
 
         {/* ── Issue ── */}
-        {job.issue && (
+        {cleanIssue && (
           <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
             <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase',
                           letterSpacing: 0.6, marginBottom: 6 }}>Issue</div>
-            <div style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{job.issue}</div>
+            <div style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cleanIssue}</div>
           </div>
         )}
 

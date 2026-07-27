@@ -39,7 +39,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.12';
+const APP_VERSION = '9.9.13';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -70,7 +70,7 @@ const USER_CONFIG = {
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: null },
-  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'unbilled' },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'unbilled', superAdmin: true },
 };
 
 // Identity options for shared logins like info@
@@ -96,6 +96,28 @@ function getUserConfig(email) {
   return USER_CONFIG[email?.toLowerCase()] || { name: email?.split('@')[0] || 'User', role: 'tech', defaultCalendar: null, defaultView: null };
 }
 
+// ── VIEW AS (super admin) ───────────────────────────────────────────────
+// accounting@ is the super admin: it can render any other user's view without
+// having their password. This is a LENS, not a login.
+//
+// HARD RULE: view-as changes what you SEE. It never changes what gets WRITTEN.
+// Every write still carries the real signed-in email, so job_history,
+// time_entries.tech_email, and the audit trail stay truthful. If this ever
+// starts stamping the impersonated user's address on writes, that is a bug —
+// an accounting login silently authoring records as a field tech is exactly
+// the thing an audit trail exists to prevent.
+//
+// sessionStorage, not localStorage: the lens dies with the tab. You cannot
+// walk away and leave the app pretending to be someone else.
+const VIEW_AS_KEY = 'ow_view_as';
+
+// Everyone a super admin can look through. Derived from USER_CONFIG so adding
+// a person to the app adds them here automatically.
+const VIEW_AS_OPTIONS = Object.entries(USER_CONFIG)
+  .filter(([, c]) => c.name)
+  .map(([email, c]) => ({ email, name: c.name, role: c.role }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -114,6 +136,9 @@ export default function App() {
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [viewAs, setViewAs] = useState(() => {
+    try { return sessionStorage.getItem(VIEW_AS_KEY) || null; } catch { return null; }
+  });
   const [showAlertGate, setShowAlertGate] = useState(false);
   const [showBuildLog, setShowBuildLog] = useState(false);
   const [forceReload, setForceReload] = useState(false);
@@ -491,6 +516,22 @@ export default function App() {
   const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
   const isOperator = getUserConfig(userEmail).role === 'operator';
 
+  // Super admin + the lens they're currently looking through.
+  const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
+  const viewAsConfig = viewAs ? getUserConfig(viewAs) : null;
+  // effectiveName drives which VIEW renders. userEmail (unchanged) drives every write.
+  const effectiveName = viewAsConfig?.name || userName;
+
+  const applyViewAs = (email) => {
+    if (email) sessionStorage.setItem(VIEW_AS_KEY, email);
+    else sessionStorage.removeItem(VIEW_AS_KEY);
+    setViewAs(email || null);
+    // Land on the viewed user's home so the switch is immediately visible
+    // instead of leaving them on a screen that person would never open.
+    const dest = email ? (getUserConfig(email).defaultView || '') : '';
+    navigate(`/${dest}`);
+  };
+
   // ── LOADING ─────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
@@ -666,6 +707,19 @@ export default function App() {
         <span style={{ fontWeight: 700, color: '#00c8e8', fontSize: 14 }}>Overwatch</span>
         <span style={{ color: '#94a3b8', fontSize: 11 }}>V{APP_VERSION}</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {isSuperAdmin && (
+            <select
+              value={viewAs || ''}
+              onChange={e => applyViewAs(e.target.value || null)}
+              style={{ background: viewAs ? '#f59e0b' : '#1e293b', color: viewAs ? '#0f1729' : '#e2e8f0',
+                       border: '1px solid #334155', borderRadius: 6, padding: '5px 8px',
+                       fontSize: 11, fontWeight: viewAs ? 700 : 400, cursor: 'pointer' }}>
+              <option value="">View as: me</option>
+              {VIEW_AS_OPTIONS.map(o => (
+                <option key={o.email} value={o.email}>{o.name} ({o.role})</option>
+              ))}
+            </select>
+          )}
           <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
           {isOperator && (
             <button onClick={() => { setShowBackfill(true); setBackfillLog([]); }}
@@ -680,6 +734,19 @@ export default function App() {
           >Out</button>
         </div>
       </div>
+      {viewAs && (
+        <div style={{ background: '#f59e0b', color: '#0f1729', padding: '7px 16px', fontSize: 12,
+                      fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span>
+            Viewing as {viewAsConfig?.name} — you are still signed in as {userEmail}. Anything you save is recorded under your own name.
+          </span>
+          <button onClick={() => applyViewAs(null)}
+            style={{ background: '#0f1729', color: '#f59e0b', border: 'none', borderRadius: 6,
+                     padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            Back to me
+          </button>
+        </div>
+      )}
       <div style={{ paddingBottom: 70 }}>
         {children}
       </div>
@@ -734,11 +801,11 @@ export default function App() {
         <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
-        {/* Role-based workspaces. /workspace resolves to whoever is signed in;
-            /workspace/sara etc. is the explicit form. The full 6-lane board
-            stays at /board and is untouched. */}
-        <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={userName} /></ViewShell>} />
-        <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={userName} /></ViewShell>} />
+        {/* Role-based workspaces. /workspace resolves to whoever is signed in
+            — or, for a super admin using View as, to whoever they're viewing.
+            userEmail stays the REAL signed-in address so writes are truthful. */}
+        <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} /></ViewShell>} />
+        <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />

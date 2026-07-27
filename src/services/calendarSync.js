@@ -7,6 +7,7 @@
 import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
 import { nameSimilarity, isFuzzyMatch } from '../utils/fuzzyMatch.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
+import { resolveJobForEvent } from '../utils/jobResolve.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
@@ -365,11 +366,11 @@ export async function scanForOrphans(accessToken) {
         // triage buttons that only rewrite titles) while still having ZERO
         // real job behind it. That's why things could sit tagged in Triage
         // for weeks with no board card and never once show here as a problem.
-        const { data: linkedJob } = await supabase
-          .from('jobs')
-          .select('id')
-          .eq('calendar_event_id', event.id)
-          .maybeSingle();
+        // Checks ALL THREE places an event id can live. Checking only
+        // jobs.calendar_event_id (as this did) reports events as orphans when
+        // they are linked via scheduled_event_id or a job_assignments row —
+        // inflating the "will not bill" count with work that IS tracked.
+        const linkedJob = await resolveJobForEvent(event.id);
 
         if (linkedJob) {
           results.synced++;

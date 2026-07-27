@@ -32,6 +32,8 @@ import { CALENDARS } from '../config/calendars.js';
 import { ownsJob, CLOSED_STATUSES, ASSIGNEES, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { statusLabel, statusColor, statusChipStyle } from '../utils/status.js';
 import NewJobModal from '../components/NewJobModal.jsx';
+import CustomerPicker from '../components/CustomerPicker.jsx';
+import { resolveJobForEvent } from '../utils/jobResolve.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 // Watching cards are visually distinct so a card that came BACK to her never
@@ -254,6 +256,11 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   const [items, setItems] = useState([]);   // her notes — the real workspace
   const [feed, setFeed] = useState([]);     // jobs needing office action
   const [watchedJobs, setWatchedJobs] = useState({}); // job rows behind watch cards
+  // Tent calendar events she has pencilled in that have NO job behind them.
+  // These are real commitments living only in Google — the exact population the
+  // home banner counts as "will not bill".
+  const [tentEvents, setTentEvents] = useState([]);
+  const [tentCustomer, setTentCustomer] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showNewJob, setShowNewJob] = useState(false);
@@ -297,7 +304,34 @@ export default function Workspace({ accessToken, userEmail, userName }) {
     setLoading(false);
   }, [owner, ownerName]);
 
+  // Tent events, today forward. Anything already backed by a job is dropped —
+  // it's on the board and doesn't need to sit in her Doing column twice.
+  const loadTent = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const from = new Date(); from.setHours(0, 0, 0, 0);
+      const to = new Date(from); to.setDate(to.getDate() + 120);
+      const params = new URLSearchParams({
+        timeMin: from.toISOString(), timeMax: to.toISOString(),
+        singleEvents: 'true', orderBy: 'startTime', maxResults: '250',
+      });
+      const res = await fetch(
+        `${GCAL}/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events?${params}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const live = (data.items || []).filter(e => e.status !== 'cancelled');
+      const unlinked = [];
+      for (const ev of live) {
+        const job = await resolveJobForEvent(ev.id);
+        if (!job) unlinked.push(ev);
+      }
+      setTentEvents(unlinked);
+    } catch (e) { console.warn('tent load failed', e); }
+  }, [accessToken]);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadTent(); }, [loadTent]);
 
   // A job she has already pulled in shouldn't also sit in the feed.
   const pulledJobIds = useMemo(
@@ -366,6 +400,33 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       await load();
       say(`Handed to ${NAME_BY_EMAIL[email] || email} — watching \u2713`);
     } catch (e) { say('Could not hand off: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // Turn a Tent event into a real board card, keeping the calendar event as the
+  // link. Lands in Scheduled, which is where the board expects committed work —
+  // so the thing she already promised a customer stops being invisible.
+  const makeJob = async (ev) => {
+    setSaving(true);
+    try {
+      const start = ev.start?.dateTime ? new Date(ev.start.dateTime) : null;
+      const { data, error } = await supabase.from('jobs').insert([{
+        customer_name:     (ev.summary || 'Untitled').replace(/\[[^\]]*\]\s*/g, '').trim(),
+        customer_id:       tentCustomer[ev.id] || null,
+        status:            'scheduled',
+        issue:             (ev.description || '').slice(0, 500) || ev.summary || '',
+        customer_address:  ev.location || '',
+        scheduled_date:    start ? start.toISOString() : null,
+        calendar_event_id: ev.id,
+        calendar_id:       CALENDARS.TENTATIVELY_SCHEDULED,
+        assigned_to:       owner,
+      }]).select().single();
+      if (error) throw error;
+      setTentEvents(prev => prev.filter(x => x.id !== ev.id));
+      await load();
+      say('On the board — Scheduled \u2713');
+      return data;
+    } catch (e) { say('Could not create: ' + (e.message || e)); }
     setSaving(false);
   };
 
@@ -533,7 +594,35 @@ export default function Workspace({ accessToken, userEmail, userName }) {
         </Lane>
 
         {/* ── DOING — hers alone ── */}
-        <Lane label="Doing" hint="Only what you put here" color="#3b82f6" count={doing.length}>
+        <Lane label="Doing" hint="Pencilled in, plus what you put here"
+          color="#3b82f6" count={doing.length + tentEvents.length}>
+          {/* Tent commitments with no board card behind them. Real promises to
+              real customers that currently exist only in Google. */}
+          {tentEvents.map(ev => (
+            <div key={ev.id}
+              style={{ background: WATCH_BG, border: '1px solid #f59e0b55',
+                       borderLeft: '3px solid #f59e0b', borderRadius: 10, padding: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{ev.summary || '(untitled)'}</div>
+              <div style={{ fontSize: 11, color: MUTED, marginTop: 3 }}>
+                Tent · {fmtDay(ev.start?.dateTime || ev.start?.date)}
+              </div>
+              <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700, marginTop: 4 }}>
+                not on the board yet
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <CustomerPicker compact
+                  value={tentCustomer[ev.id] || null}
+                  onChange={(id) => setTentCustomer(m => ({ ...m, [ev.id]: id }))}
+                  placeholder="Link a client (optional)" />
+              </div>
+              <button onClick={() => makeJob(ev)} disabled={saving}
+                style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',
+                         border: 'none', borderRadius: 8, padding: '7px 0',
+                         fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                Make it a job → Scheduled
+              </button>
+            </div>
+          ))}
           {doing.map(n => (
             <Card key={n.id} accent="#3b82f6">
               <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{n.body}</div>

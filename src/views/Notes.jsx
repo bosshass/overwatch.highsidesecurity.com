@@ -18,6 +18,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import { CALENDARS } from '../config/calendars.js';
+import CustomerPicker from '../components/CustomerPicker.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -33,62 +34,6 @@ function fmtDate(iso) {
   if (diff === 1) return 'Yesterday';
   if (diff > 0 && diff <= 6) return `${diff}d ago`;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-// ── Customer picker ──────────────────────────────────────────────────
-// 481 live customers, so a raw <select> is unusable. Type-to-filter, and
-// only rows that aren't merged duplicates are offered.
-function CustomerPicker({ customers, value, onChange, placeholder = 'Search clients…' }) {
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
-  const selected = customers.find(c => c.id === value);
-
-  const hits = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return customers.slice(0, 40);
-    return customers.filter(c => (c.name || '').toLowerCase().includes(s)).slice(0, 40);
-  }, [q, customers]);
-
-  if (selected) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ background: `${ACCENT}22`, color: ACCENT, borderRadius: 20,
-                       padding: '5px 11px', fontSize: 12, fontWeight: 700 }}>
-          {selected.name}
-        </span>
-        <button onClick={() => { onChange(null); setQ(''); }}
-          style={{ background: 'none', border: 'none', color: MUTED, fontSize: 12, cursor: 'pointer' }}>
-          clear
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <input
-        value={q}
-        onChange={e => { setQ(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        placeholder={placeholder}
-        style={{ width: '100%', boxSizing: 'border-box', background: BG, border: `1px solid ${LINE}`,
-                 borderRadius: 8, padding: '9px 12px', color: TEXT, fontSize: 13, outline: 'none' }}
-      />
-      {open && hits.length > 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 50,
-                      background: SURFACE, border: `1px solid ${LINE}`, borderRadius: 8,
-                      maxHeight: 220, overflowY: 'auto' }}>
-          {hits.map(c => (
-            <div key={c.id}
-              onClick={() => { onChange(c.id); setOpen(false); setQ(''); }}
-              style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${BG}` }}>
-              {c.name}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Done prompt ──────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ import { missingLabel } from '../utils/completeness.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
 import { statusLabel } from '../utils/status.js';
+import CustomerPicker from '../components/CustomerPicker.jsx';
 
 const SINCE = '2026-01-01';
 
@@ -60,7 +61,12 @@ function Chip({ color, children }) {
 }
 
 // ── Searchable customer picker ───────────────────────────────
-function CustomerPicker({ registry, onPick, onClose }) {
+// LOCAL, and different from components/CustomerPicker.jsx — this one takes a
+// preloaded `registry` and is wired into the time-entry assign flow. It is a
+// duplicate that should fold into the shared picker, but that means touching
+// the assign path, so it keeps its own name for now rather than being
+// half-migrated. Tracked as leftover from the #6 picker consolidation.
+function RegistryPicker({ registry, onPick, onClose }) {
   const [q, setQ] = useState('');
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -124,6 +130,8 @@ export default function CustomerAudit({ onBack, accessToken }) {
   // Overwatch didn't put that marker there.
   const [orphanJobs, setOrphanJobs] = useState([]);
   const [manualEvents, setManualEvents] = useState([]);
+  const [adoptBusy, setAdoptBusy] = useState(null);
+  const [adoptCustomer, setAdoptCustomer] = useState({});
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState(null);   // the entry being archived
@@ -171,6 +179,38 @@ export default function CustomerAudit({ onBack, accessToken }) {
       setOpenPickerId(null);
     } catch (e) { alert('Could not save: ' + (e.message || e)); }
     setSavingId(null);
+  }
+
+  // Adopt a hand-made calendar event into a real job, keeping the event.
+  // Until now this list was READ-ONLY: you could see 18 events that would never
+  // bill and do absolutely nothing about them. That is why the number never
+  // went down.
+  //
+  // Stamps calendar_event_id so the event stops showing as an orphan the moment
+  // the job exists, and so the tech's disposition finds it later.
+  async function adoptEvent(o) {
+    setAdoptBusy(o.event.id);
+    try {
+      const start = o.event.start?.dateTime ? new Date(o.event.start.dateTime) : null;
+      const future = start && start > new Date();
+      const created = await jobsApi.create({
+        customer_name:     (o.event.summary || 'Untitled').replace(/\[[^\]]*\]\s*/g, '').trim(),
+        customer_id:       adoptCustomer[o.event.id] || undefined,
+        // Future work is scheduled. Past work already happened, so it goes to
+        // complete where the billing flow can pick it up rather than sitting
+        // on the board pretending it is still upcoming.
+        status:            future ? 'scheduled' : 'complete',
+        issue:             (o.event.description || '').slice(0, 500) || o.event.summary || '',
+        customer_address:  o.event.location || '',
+        scheduled_date:    start ? start.toISOString() : undefined,
+        calendar_event_id: o.event.id,
+        calendar_id:       o.calendar?.id,
+      }, `${userEmail} · adopted from calendar`);
+      if (created?.id) {
+        setManualEvents(prev => prev.filter(x => x.event.id !== o.event.id));
+      }
+    } catch (e) { alert('Could not create job: ' + (e.message || e)); }
+    setAdoptBusy(null);
   }
 
   // Pile 3 — calendar events Overwatch never created. Hits Google, so it runs
@@ -353,7 +393,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
 
         {/* Jobs with no client — not calendar-backed, so they never showed here before */}
         {orphanJobs.length > 0 && (
-          <details style={{ marginBottom: 10 }}>
+          <details open style={{ marginBottom: 10 }}>
             <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
               {orphanJobs.length} jobs with no client →
             </summary>
@@ -389,6 +429,19 @@ export default function CustomerAudit({ onBack, accessToken }) {
                       ⚠️ Possible duplicate — already open: {o.possibleDuplicate.customer_name} ({o.possibleDuplicate.status})
                     </div>
                   )}
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <CustomerPicker compact
+                        value={adoptCustomer[o.event.id] || null}
+                        onChange={(id) => setAdoptCustomer(m => ({ ...m, [o.event.id]: id }))}
+                        placeholder="Link a client (optional)" />
+                    </div>
+                    <button onClick={() => adoptEvent(o)} disabled={adoptBusy === o.event.id}
+                      style={{ background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8,
+                               padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {adoptBusy === o.event.id ? 'Creating…' : 'Create job & link →'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -484,7 +537,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                     {savingId === e.id ? 'Saving…' : '+ Assign customer'}
                   </button>
                 )}
-                {openPickerId === e.id && <CustomerPicker registry={registry} onPick={c => assign(e.id, c.id)} onClose={() => setOpenPickerId(null)} />}
+                {openPickerId === e.id && <RegistryPicker registry={registry} onPick={c => assign(e.id, c.id)} onClose={() => setOpenPickerId(null)} />}
               </div>
 
               {/* Board ticket + History */}

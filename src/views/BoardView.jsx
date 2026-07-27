@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
+import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf } from '../utils/ownership.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -72,35 +73,6 @@ const LANE_MOVES = [
   // anything that just needs to leave the active board without touching money.
   { key:'clear',     label:'🗑️ Clear (not billable)', color:'#cbd5e1', target:'archived', statuses:['archived','dead'] },
 ];
-
-// ── Assignment ───────────────────────────────────────────────────────────
-// Who owns this job's NEXT ACTION. Not the same as which tech drives to site:
-// a job can be Shana's to schedule while Austin is the one dispatched. The
-// roster is people, not techs, because office staff own plenty of work and
-// were previously unrepresentable.
-const ASSIGNEES = [
-  { email: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
-  { email: 'jr@drhsecurityservices.com',          name: 'JR' },
-  { email: 'austin@drhsecurityservices.com',      name: 'Austin' },
-  { email: 'brian@drhsecurityservices.com',       name: 'Brian' },
-  { email: 'trevor@drhsecurityservices.com',      name: 'Trevor' },
-  { email: 'admin@jnbservice.com',                name: 'Sara' },
-  { email: 'subs@drhsecurityservices.com',        name: 'Subs' },
-];
-const NAME_BY_EMAIL = Object.fromEntries(ASSIGNEES.map(a => [a.email, a.name]));
-
-// assigned_to wins; tech_name is the fallback so every pre-existing job has a
-// sensible owner without needing a backfill.
-function assigneeOf(job) {
-  if (job.assigned_to) return NAME_BY_EMAIL[job.assigned_to] || job.assigned_to;
-  // tech_name is free text and the data holds 'shana' and 'Shana', 'jr' and
-  // 'JR'. Normalise to the roster spelling so the filter chips don't silently
-  // miss a third of someone's cards.
-  const raw = (job.tech_name || '').trim();
-  if (!raw) return null;
-  const known = ASSIGNEES.find(a => a.name.toLowerCase() === raw.toLowerCase());
-  return known ? known.name : raw;
-}
 
 // Estimate sub-stages, revealed when Estimates is tapped.
 const EST_STAGES = [
@@ -406,7 +378,7 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
   );
 }
 
-// ── Scheduler modal: shared component (src/components/SchedulerModal.jsx) ──────
+// ── Scheduler modal: VisualSchedulerModal (SchedulerModal.jsx deleted 9.9.25) ──
 
 // ── Detail drawer ─────────────────────────────────────────────────────────────
 function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail }) {

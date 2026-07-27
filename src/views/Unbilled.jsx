@@ -20,7 +20,8 @@
 //   the queue. The `billed` flag already existed; nothing was ever using it.
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '../services/supabase.js';
+import { supabase, jobsApi } from '../services/supabase.js';
+import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 
 
@@ -46,15 +47,6 @@ export const BUCKETS = [
 ];
 export const BUCKET_BY_KEY = Object.fromEntries(BUCKETS.map(b => [b.key, b]));
 
-function bucketOf(job) {
-  if (!job) return 'nojob';
-  const s = job.status;
-  if (s === 'complete' || s === 'to_bill') return 'ready';
-  if (s === 'return_pending') return 'return';
-  if (s === 'billed') return 'mismatch';
-  if (['dead', 'lost', 'archived'].includes(s)) return 'dead';
-  return 'progress';
-}
 
 const daysSince = (iso) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : 0;
 
@@ -214,6 +206,42 @@ export default function Unbilled({ onBack, userEmail }) {
         })
         .in('id', sel.rows.map(r => r.id));
       if (error) throw error;
+      // ── Write-through to the job card ────────────────────────────
+      // Marking time billed used to touch time_entries ONLY. The job stayed in
+      // to_bill forever, so the home screen counted 18 jobs owed while only 2
+      // hours were genuinely unbilled — 13 of those jobs were already paid.
+      // Two switches, nobody flipping both.
+      //
+      // Now: for each job these entries belong to, if NOTHING unbilled is left
+      // on it, the job moves to billed. If any unbilled time remains (partial
+      // invoice, a second visit not yet billed) the card stays put — it is
+      // still genuinely owed. changeStatus writes job_history, so it's auditable.
+      try {
+        const jobIds = [...new Set(sel.rows.map(r => r.job_id).filter(Boolean))];
+        for (const jobId of jobIds) {
+          const { data: left } = await supabase
+            .from('time_entries').select('id')
+            .eq('job_id', jobId)
+            .not('billed', 'is', true)
+            .or('archived.is.null,archived.eq.false')
+            .limit(1);
+          if (left && left.length) continue; // still owed — leave the card alone
+
+          const { data: jobRow } = await supabase
+            .from('jobs').select('status').eq('id', jobId).maybeSingle();
+          if (jobRow && ['complete', 'to_bill'].includes(jobRow.status)) {
+            await jobsApi.changeStatus(
+              jobId, 'billed', userEmail,
+              invoiceRef.trim() ? `Billed — invoice ${invoiceRef.trim()}` : 'Billed from Unbilled queue'
+            );
+          }
+        }
+      } catch (e) {
+        // Non-fatal on purpose: the time entries ARE billed at this point.
+        // A failure here leaves a stale card, not lost money.
+        console.warn('job status write-through failed', e);
+      }
+
       setToast(`${n} visit${n > 1 ? 's' : ''} marked billed ✓`);
       setPicked(new Set());
       setInvoiceRef('');

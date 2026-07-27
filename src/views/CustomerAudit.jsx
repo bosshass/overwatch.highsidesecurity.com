@@ -13,6 +13,7 @@ import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
 import { missingLabel } from '../utils/completeness.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
+import { statusLabel } from '../utils/status.js';
 
 const SINCE = '2026-01-01';
 
@@ -33,12 +34,6 @@ const DISPO_STATUS = {
   estimate:    JOB_STATUS.NEEDS_ESTIMATE,
   return:      JOB_STATUS.RETURN_PENDING,
   in_progress: JOB_STATUS.SCHEDULED,
-};
-const STATUS_LABEL = {
-  [JOB_STATUS.TO_BILL]:        'To Bill',
-  [JOB_STATUS.NEEDS_ESTIMATE]: 'Needs Estimate',
-  [JOB_STATUS.RETURN_PENDING]: 'Return Pending',
-  [JOB_STATUS.SCHEDULED]:      'Scheduled',
 };
 
 const AUTHORS = {
@@ -231,7 +226,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
     setTicketBusyId(ev.id); setConfirmTicketId(null);
     try {
       if (existing) {
-        await jobsApi.changeStatus(existing.id, target, userEmail, `Set to ${STATUS_LABEL[target] || target} from Audit`);
+        await jobsApi.changeStatus(existing.id, target, userEmail, `Set to ${statusLabel(target)} from Audit`);
         setJobByEvent(m => ({ ...m, [ev.calendar_event_id]: { ...existing, status: target } }));
       } else {
         const job = {
@@ -495,11 +490,11 @@ export default function CustomerAudit({ onBack, accessToken }) {
               {/* Board ticket + History */}
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #1e293b', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 {onBoardSynced ? (
-                  <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>✓ On board · {STATUS_LABEL[job.status] || job.status}</span>
+                  <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>✓ On board · {statusLabel(job.status)}</span>
                 ) : confirmTicketId === e.id ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ color: '#cbd5e1', fontSize: 12 }}>
-                      {job ? 'Update board ticket →' : 'Create board ticket →'} <b style={{ color: '#e2e8f0' }}>{STATUS_LABEL[target] || target}</b>?
+                      {job ? 'Update board ticket →' : 'Create board ticket →'} <b style={{ color: '#e2e8f0' }}>{statusLabel(target)}</b>
                     </span>
                     <button onClick={() => pushToBoard(e)} style={{ background: '#22c55e25', border: '1px solid #22c55e', color: '#22c55e', borderRadius: 7, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
                     <button onClick={() => setConfirmTicketId(null)} style={{ background: 'none', border: '1px solid #334155', color: '#cbd5e1', borderRadius: 7, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
@@ -507,7 +502,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                 ) : (
                   <button onClick={() => setConfirmTicketId(e.id)} disabled={ticketBusyId === e.id}
                     style={{ background: 'none', border: '1px solid #8b5cf6', color: '#a78bfa', borderRadius: 7, padding: '6px 11px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    {ticketBusyId === e.id ? 'Working…' : job ? `Update ticket → ${STATUS_LABEL[target] || target}` : `Create ticket → ${STATUS_LABEL[target] || target}`}
+                    {ticketBusyId === e.id ? 'Working…' : job ? `Update ticket → ${statusLabel(target)}` : `Create ticket → ${statusLabel(target)}`}
                   </button>
                 )}
 

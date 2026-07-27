@@ -29,6 +29,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
 import { shortCode } from '../config/appBase.js';
 import { CALENDARS } from '../config/calendars.js';
+import { ownsJob, CLOSED_STATUSES } from '../utils/ownership.js';
+import { statusLabel, statusColor, statusChipStyle } from '../utils/status.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -40,41 +42,14 @@ const TEXT = '#e2e8f0', MUTED = '#94a3b8', ACCENT = '#00c8e8';
 // job in the company was the same mistake as v1 in a smaller costume — her
 // column filled with work that was never hers and she stopped trusting it.
 // Statuses that are finished or dead never surface even when assigned.
-const DEAD_STATUSES = ['billed', 'archived', 'dead', 'lost'];
 
-const STATUS_LABEL = {
-  ready_to_schedule: 'Ready to schedule', return_pending: 'Return needed',
-  won: 'Estimate won', needs_parts: 'Needs parts', pending_materials: 'Parts ordered',
-  scheduled: 'Scheduled', complete: 'Complete', to_bill: 'To bill', billed: 'Billed',
-  new: 'New', blocked: 'Blocked', needs_estimate: 'Needs estimate', estimate_sent: 'Estimate sent',
-};
-const STATUS_COLOR = {
-  ready_to_schedule: '#22c55e', return_pending: '#8b5cf6', won: '#22c55e',
-  needs_parts: '#f97316', pending_materials: '#f97316', scheduled: '#3b82f6',
-};
+
 
 const WORKSPACES = {
   shana: { title: 'Shana', subtitle: 'Scheduling', email: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
   sara:  { title: 'Sara',  subtitle: 'Oversight',  email: 'admin@jnbservice.com',                name: 'Sara' },
   jr:    { title: 'JR',    subtitle: 'Rollup',     email: 'jr@drhsecurityservices.com',          name: 'JR' },
 };
-
-// ── Who owns a job ───────────────────────────────────────────────────
-// `assigned_to` (migration 030) is the real answer, but it's a new column and
-// most rows predate it. Meanwhile `tech_name` has been quietly doing the job
-// for months — it holds 'Shana' on 22 open jobs and 'Sara' on 4, neither of
-// whom is a field tech. People were already using it as a general assignee
-// because it was the only field available.
-//
-// So: assigned_to wins when set, tech_name is the fallback. This is the SAME
-// rule BoardView.assigneeOf() uses. Both screens must agree — the first cut of
-// this file checked only assigned_to, which is why her workspace was empty
-// while the board showed her 22 cards. Case-insensitive because the data has
-// 'shana' and 'Shana', 'jr' and 'JR'.
-function ownsJob(job, email, name) {
-  if (job.assigned_to) return job.assigned_to === email;
-  return (job.tech_name || '').trim().toLowerCase() === (name || '').toLowerCase();
-}
 
 const fmtDay = (iso) => iso
   ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -243,7 +218,7 @@ function AddWork({ owner, ownerName, onClose, onDone }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}</div>
                 <div style={{ fontSize: 11, color: MUTED }}>
-                  {STATUS_LABEL[j.status] || j.status}
+                  {statusLabel(j.status)}
                   {j.issue ? ` · ${j.issue.slice(0, 60)}` : ''}
                 </div>
               </div>
@@ -294,14 +269,14 @@ export default function Workspace({ accessToken, userEmail, userName }) {
         supabase.from('jobs')
           .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
           .or(`assigned_to.eq.${owner},tech_name.ilike.${ownerName}`)
-          .not('status', 'in', `(${DEAD_STATUSES.join(',')})`)
+          .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
           .order('created_at', { ascending: true }).limit(500),
       ]);
       setItems(notes || []);
       // The .or() above is a coarse net — it also catches jobs where tech_name
       // still says Shana but assigned_to has since been set to someone else.
       // An explicit assignment must beat a stale tech_name, so filter here.
-      setFeed((jobs || []).filter(j => ownsJob(j, owner, ownerName)));
+      setFeed((jobs || []).filter(j => ownsJob(j, owner) || ownsJob(j, ownerName)));
     } catch (e) { console.error('workspace load', e); }
     setLoading(false);
   }, [owner, ownerName]);
@@ -442,13 +417,13 @@ export default function Workspace({ accessToken, userEmail, userName }) {
             </Card>
           ))}
           {todoFeed.map(j => (
-            <Card key={j.id} accent={STATUS_COLOR[j.status] || LINE}>
+            <Card key={j.id} accent={statusColor(j.status)}>
               <div onClick={() => navigate(`/j/${shortCode(j.id)}`)} style={{ cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.25 }}>{j.customer_name || 'Unnamed'}</div>
                   <div style={{ fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap', padding: '3px 7px', borderRadius: 20,
-                                background: `${STATUS_COLOR[j.status] || LINE}22`, color: STATUS_COLOR[j.status] || MUTED }}>
-                    {STATUS_LABEL[j.status] || j.status}
+                                background: `${statusColor(j.status)}22`, color: statusColor(j.status) }}>
+                    {statusLabel(j.status)}
                   </div>
                 </div>
                 {j.issue && (

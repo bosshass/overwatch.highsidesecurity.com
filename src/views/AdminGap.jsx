@@ -7,22 +7,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
+import { statusLabel } from '../utils/status.js';
 
 const STATUS_FLOW = [
   'accepted', 'parts_ordered', 'scheduled', 'in_progress',
   'completed', 'invoiced', 'collected', 'on_hold'
 ];
 
-const STATUS_LABELS = {
-  accepted: 'Accepted',
-  parts_ordered: 'Parts Ordered',
-  scheduled: 'Scheduled',
-  in_progress: 'In Progress',
-  completed: 'Completed',
-  invoiced: 'Invoiced',
-  collected: 'Collected',
-  on_hold: 'On Hold',
-};
 
 const PRIORITY = {
   RED:    { bg: '#2d1416', border: '#ef4444', text: '#fca5a5', label: 'No calendar link' },
@@ -230,7 +221,7 @@ function JobRow({ job, expanded, onExpand, onUpdate, saving }) {
             style={S.select}
             disabled={saving}
           >
-            {STATUS_FLOW.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+            {STATUS_FLOW.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
           </select>
         </td>
         <td style={S.td}>

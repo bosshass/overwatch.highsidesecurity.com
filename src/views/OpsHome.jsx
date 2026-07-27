@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
+import { scanForOrphans } from '../services/calendarSync.js';
 
 const C = {
   bg:     '#07111f',
@@ -42,6 +43,8 @@ export default function OpsHome({
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
+  // Work that exists in the real world but not in Overwatch. Loud on purpose.
+  const [gap, setGap] = useState(null);
 
   const loadStats = useCallback(async () => {
     setLoading(true);
@@ -102,7 +105,38 @@ export default function OpsHome({
     setLoading(false);
   }, []);
 
+  // ── The gap ────────────────────────────────────────────────────────────
+  // Work that HAPPENED but that Overwatch never captured. Two piles:
+  //   • calendar events created by hand — no "Managed by JUC-E" marker, so
+  //     Overwatch never made them, nobody dispositions them, and they will
+  //     NEVER produce a time entry or an invoice
+  //   • jobs with no customer attached — real work that cannot be billed
+  //     because there is nobody to bill
+  // This was buried on /audit behind a manual scan button, which meant it was
+  // only ever seen by someone who already suspected a problem. It is money
+  // walking out the door, so it belongs at the top of the first screen anyone
+  // opens. The calendar half hits Google, so it resolves after paint rather
+  // than holding up the page.
+  const loadGap = useCallback(async () => {
+    try {
+      const { count: orphanJobs } = await supabase
+        .from('jobs').select('id', { count: 'exact', head: true })
+        .is('customer_id', null)
+        .not('status', 'in', '(billed,archived,dead,lost)');
+
+      let manual = 0;
+      if (accessToken) {
+        try {
+          const res = await scanForOrphans(accessToken);
+          manual = (res.orphans || []).length;
+        } catch (e) { console.warn('orphan scan failed', e); }
+      }
+      setGap({ manual, orphanJobs: orphanJobs || 0 });
+    } catch (e) { console.warn('gap load failed', e); }
+  }, [accessToken]);
+
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadGap(); }, [loadGap]);
 
   const go = path => onNavigate(path);
 
@@ -218,6 +252,45 @@ export default function OpsHome({
 
       {/* Scrollable body */}
       <div style={{ flex:1, overflowY:'auto', paddingBottom:100 }}>
+
+        {/* ── THE GAP — work that never made it into Overwatch ── */}
+        {gap && (gap.manual > 0 || gap.orphanJobs > 0) && (
+          <button onClick={() => go('/audit')}
+            style={{ margin:'14px 16px 0', width:'calc(100% - 32px)', textAlign:'left',
+                     background:'linear-gradient(180deg,#3b0d0d,#2a0a0a)', border:'1px solid #ef4444',
+                     borderRadius:18, padding:'16px 18px', cursor:'pointer', color:'#fff',
+                     display:'block', fontFamily:'inherit' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:8 }}>
+              <span style={{ fontSize:18 }}>🚨</span>
+              <span style={{ fontSize:12, fontWeight:900, letterSpacing:'0.09em',
+                             textTransform:'uppercase', color:'#fca5a5' }}>
+                Not in Overwatch — will not bill
+              </span>
+            </div>
+            <div style={{ display:'flex', gap:22, flexWrap:'wrap', alignItems:'flex-end' }}>
+              {gap.manual > 0 && (
+                <div>
+                  <div style={{ fontSize:34, fontWeight:900, lineHeight:1, color:'#ef4444' }}>{gap.manual}</div>
+                  <div style={{ fontSize:12, color:'#fca5a5', marginTop:3 }}>
+                    calendar event{gap.manual === 1 ? '' : 's'} made by hand
+                  </div>
+                </div>
+              )}
+              {gap.orphanJobs > 0 && (
+                <div>
+                  <div style={{ fontSize:34, fontWeight:900, lineHeight:1, color:'#f59e0b' }}>{gap.orphanJobs}</div>
+                  <div style={{ fontSize:12, color:'#fcd34d', marginTop:3 }}>
+                    job{gap.orphanJobs === 1 ? '' : 's'} with no client
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ fontSize:12, color:'#fca5a5', marginTop:11, lineHeight:1.4 }}>
+              This work happened. Nobody dispositioned it, so it will never produce a
+              time entry or an invoice. Tap to fix →
+            </div>
+          </button>
+        )}
 
         {/* Hero stat block */}
         {stats && (

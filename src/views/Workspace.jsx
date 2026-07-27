@@ -35,9 +35,12 @@ const GCAL = 'https://www.googleapis.com/calendar/v3';
 const BG = '#0f1729', SURFACE = '#1e293b', LINE = '#334155';
 const TEXT = '#e2e8f0', MUTED = '#94a3b8', ACCENT = '#00c8e8';
 
-// Jobs where the office is the next action. Triage, blocked and needs-estimate
-// are somebody else's decision and were only noise in her column.
-const FEED_STATUSES = ['ready_to_schedule', 'return_pending', 'won', 'needs_parts', 'pending_materials'];
+// A job only reaches her To Do two ways: it is ASSIGNED to her, or she pulled
+// it in herself. Status alone is not enough. Showing every ready/return/parts
+// job in the company was the same mistake as v1 in a smaller costume — her
+// column filled with work that was never hers and she stopped trusting it.
+// Statuses that are finished or dead never surface even when assigned.
+const DEAD_STATUSES = ['billed', 'archived', 'dead', 'lost'];
 
 const STATUS_LABEL = {
   ready_to_schedule: 'Ready to schedule', return_pending: 'Return needed',
@@ -182,7 +185,8 @@ export default function Workspace({ accessToken, userEmail, userName }) {
           .order('created_at', { ascending: true }).limit(500),
         supabase.from('jobs')
           .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
-          .or(`status.in.(${FEED_STATUSES.join(',')}),assigned_to.eq.${owner}`)
+          .eq('assigned_to', owner)
+          .not('status', 'in', `(${DEAD_STATUSES.join(',')})`)
           .order('created_at', { ascending: true }).limit(500),
       ]);
       setItems(notes || []);
@@ -314,7 +318,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, padding: 16 }}>
 
         {/* ── TO DO — a feed. Read-only against the board. ── */}
-        <Lane label="To Do" hint="Needs you next — tap to open the ticket"
+        <Lane label="To Do" hint="Assigned to you, plus your own notes"
           color="#f59e0b" count={todoFeed.length + todoNotes.length}>
           {todoNotes.map(n => (
             <Card key={n.id} accent={ACCENT}>

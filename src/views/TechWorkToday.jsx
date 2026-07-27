@@ -45,9 +45,14 @@ function isProjectLike(title = '', description = '') {
   ].some(k => t.includes(k));
 }
 
+// Labels match the shared lane vocabulary (utils/lanes.js). "Bill It" was this
+// screen's own phrase for what the rest of the app calls To Bill — same pile,
+// two names. Keys, tab logic and data flow are untouched on purpose: this
+// screen is half-adopted in the field and the fastest way to lose the other
+// half is to move things around under their thumbs.
 const TABS = [
-  { key: 'new',    label: 'Today',   emoji: '📋', color: '#1a8a8a' },
-  { key: 'billit', label: 'Bill It', emoji: '✅', color: '#1B2A4A' },
+  { key: 'new',    label: 'Today',    emoji: '📋', color: '#1a8a8a' },
+  { key: 'billit', label: 'To Bill',  emoji: '💵', color: '#1B2A4A' },
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
@@ -293,10 +298,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     </span>
                   )}
                   {ev.tab === 'return' && (
-                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Return</span>
+                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Ready to Schedule</span>
                   )}
                   {ev.tab === 'estimate' && (
-                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estimate</span>
+                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
                   )}
                   <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name || '(no name)'}

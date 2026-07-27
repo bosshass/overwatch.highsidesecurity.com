@@ -12,6 +12,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   const [notes, setNotes] = useState([]);
   const [activity, setActivity] = useState([]);
   const [showActivity, setShowActivity] = useState(false);
+  const [showAllNotes, setShowAllNotes] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -42,34 +43,59 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       // carry-over ("↪ from merged job") and JobDetail's own merge tool
       // ("🔗 MERGED FROM JOB #…" / "[MERGED INTO JOB #…]"). All three, gone
       // from the feed; still in job_history in the database if ever needed.
-      const isMergeNoise = (t) => {
-        const s = t || '';
-        return s.startsWith('↪ from merged job')
-            || s.startsWith('🔗 MERGED FROM JOB')
-            || s.startsWith('[MERGED INTO JOB');
+      // ── Merge carry-over ────────────────────────────────────────────
+      // Merging PREFIXES the note instead of absorbing it, and it does this
+      // every time — so a card merged three times carries
+      //   "↪ from merged job (Jul 6): ↪ from merged job: ↪ from merged job: …"
+      // in front of one line of actual content. Hiding the whole line (what we
+      // did before) threw away the real note with the wrapper. Stripping the
+      // chain keeps the content and drops the bookkeeping, which is what a
+      // merge should have done in the first place: the note becomes part of
+      // this card, nothing more.
+      const stripMergePrefix = (t) => {
+        let out = (t || '').trim();
+        let guard = 0;
+        while (guard++ < 10) {
+          const next = out.replace(/^↪\s*from merged job(\s*\([^)]*\))?\s*:\s*/i, '');
+          if (next === out) break;
+          out = next.trim();
+        }
+        return out;
       };
 
-      // SYSTEM CHATTER. The app writes a history row every time anything is
-      // assigned, emailed or moved. Those are an audit trail, not notes — and
-      // burying "Technician needs one Elk Wifi Adapter" under four lines of
-      // "Assigned to Shana" is how a real note gets missed. They stay in the
-      // database and stay visible behind the Activity toggle; they just stop
-      // competing with things a person actually wrote.
-      const isSystemChatter = (t) => {
-        const s = (t || '').trim();
-        return /^Assigned to /i.test(s)
-            || /^Assignment email sent/i.test(s)
-            || /^Unassigned\b/i.test(s)
-            || /^Status changed/i.test(s)
-            || /^Moved (to|from) /i.test(s)
-            || /^Reconciled —/i.test(s)
-            || /^Billed( —|$)/i.test(s)
-            || /^📌 TENTATIVELY assigned/i.test(s);
+      // Pure bookkeeping — no human wrote these and nobody needs them in a
+      // notes feed. They stay in job_history and behind the Activity toggle.
+      const isBookkeeping = (t) => {
+        const x = (t || '').trim();
+        return !x
+            || /^\[MERGED INTO JOB/i.test(x)
+            || /^🔗 MERGED FROM JOB/i.test(x)
+            || /^Merged into job #/i.test(x)
+            || /^Marked as duplicate/i.test(x)
+            || /^Job created$/i.test(x)
+            || /^Assigned to /i.test(x)
+            || /^Assignment email sent/i.test(x)
+            || /^Unassigned\b/i.test(x)
+            || /^Status changed/i.test(x)
+            || /^Moved (to|from) /i.test(x)
+            || /^Reconciled —/i.test(x)
+            || /^📌 TENTATIVELY assigned/i.test(x);
       };
 
-      const clean = data.filter(n => !isMergeNoise(n.text));
-      setNotes(clean.filter(n => !isSystemChatter(n.text)));
-      setActivity(clean.filter(n => isSystemChatter(n.text)));
+      const unwrapped = data.map(n => ({ ...n, text: stripMergePrefix(n.text) }));
+
+      // Merging duplicates the same note onto the survivor. Collapse identical
+      // text, keeping the earliest — that's when it was actually written.
+      const seen = new Set();
+      const deduped = unwrapped.filter(n => {
+        const k = (n.text || '').trim().toLowerCase();
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+
+      setNotes(deduped.filter(n => !isBookkeeping(n.text)));
+      setActivity(deduped.filter(n => isBookkeeping(n.text)));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {
@@ -172,7 +198,13 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   // Newest comment always on top — sort explicitly so nothing (e.g. the
   // completion-note entry) floats or sticks regardless of source.
   const ordered = [...notes].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const displayNotes = maxNotes ? ordered.slice(0, maxNotes) : ordered;
+
+  // COLLAPSED BY DEFAULT to the most recent note. A card with fourteen notes
+  // buries the one that matters — and the one that matters is almost always
+  // the last thing someone said. Everything older is one tap away.
+  const displayNotes = maxNotes
+    ? ordered.slice(0, maxNotes)
+    : (showAllNotes ? ordered : ordered.slice(0, 1));
 
   // Compact mode: just show note count + quick add
   if (compact && !expanded) {
@@ -320,6 +352,17 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             <div style={{ color: '#94a3b8', fontSize: '11px', textAlign: 'center', padding: '4px' }}>
               +{notes.length - maxNotes} more
             </div>
+          )}
+
+          {!maxNotes && ordered.length > 1 && (
+            <button onClick={() => setShowAllNotes(v => !v)}
+              style={{ width: '100%', background: 'none', border: '1px solid #1e293b',
+                       borderRadius: 8, color: '#94a3b8', fontSize: '12px', fontWeight: 600,
+                       padding: '8px 0', cursor: 'pointer', marginTop: 6, fontFamily: 'inherit' }}>
+              {showAllNotes
+                ? '▴ Show latest only'
+                : `▾ Show ${ordered.length - 1} earlier note${ordered.length - 1 === 1 ? '' : 's'}`}
+            </button>
           )}
 
           {/* Audit trail, collapsed. Still here, just not shouting over notes. */}

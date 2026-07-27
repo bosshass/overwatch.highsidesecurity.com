@@ -1015,7 +1015,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     setLoading(true);
     try {
       const ACTIVE = ['new','needs_details','needs_parts','pending_materials','pending_decision','blocked','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill','won'];
-      const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:false}).limit(500);
+      const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:true}).limit(500);
       if (error) throw error;
       // last_note_at — the last time a human actually SAID something about this
       // job. This is what the staleness rule measures, NOT updated_at.
@@ -1136,8 +1136,20 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       )
     : jobs;
 
+  // Oldest first, in every column. The board loaded newest-first, which meant
+  // the thing that landed this morning sat above the job that has been rotting
+  // for six weeks — so the work most likely to be forgotten was the work you
+  // had to scroll to find. Flipping it puts the oldest card at the top of
+  // every lane, where it is impossible to ignore.
+  //
+  // Sorted on created_at (when the job appeared), NOT last_note_at. A stale job
+  // that somebody left a comment on yesterday is still a stale job; letting a
+  // note push it down the column is exactly how it gets lost again. The
+  // staleness pulse already flags neglect separately.
+  const byOldest = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0);
+
   const buckets = COLUMNS.reduce((acc, col) => {
-    acc[col.key] = filtered.filter(j => col.statuses.includes(j.status));
+    acc[col.key] = filtered.filter(j => col.statuses.includes(j.status)).sort(byOldest);
     return acc;
   }, {});
 

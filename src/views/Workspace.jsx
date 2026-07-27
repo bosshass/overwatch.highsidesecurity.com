@@ -54,10 +54,27 @@ const STATUS_COLOR = {
 };
 
 const WORKSPACES = {
-  shana: { title: 'Shana', subtitle: 'Scheduling', email: 'shanaparks@drhsecurityservices.com' },
-  sara:  { title: 'Sara',  subtitle: 'Oversight',  email: 'admin@jnbservice.com' },
-  jr:    { title: 'JR',    subtitle: 'Rollup',     email: 'jr@drhsecurityservices.com' },
+  shana: { title: 'Shana', subtitle: 'Scheduling', email: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
+  sara:  { title: 'Sara',  subtitle: 'Oversight',  email: 'admin@jnbservice.com',                name: 'Sara' },
+  jr:    { title: 'JR',    subtitle: 'Rollup',     email: 'jr@drhsecurityservices.com',          name: 'JR' },
 };
+
+// ── Who owns a job ───────────────────────────────────────────────────
+// `assigned_to` (migration 030) is the real answer, but it's a new column and
+// most rows predate it. Meanwhile `tech_name` has been quietly doing the job
+// for months — it holds 'Shana' on 22 open jobs and 'Sara' on 4, neither of
+// whom is a field tech. People were already using it as a general assignee
+// because it was the only field available.
+//
+// So: assigned_to wins when set, tech_name is the fallback. This is the SAME
+// rule BoardView.assigneeOf() uses. Both screens must agree — the first cut of
+// this file checked only assigned_to, which is why her workspace was empty
+// while the board showed her 22 cards. Case-insensitive because the data has
+// 'shana' and 'Shana', 'jr' and 'JR'.
+function ownsJob(job, email, name) {
+  if (job.assigned_to) return job.assigned_to === email;
+  return (job.tech_name || '').trim().toLowerCase() === (name || '').toLowerCase();
+}
 
 const fmtDay = (iso) => iso
   ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -158,12 +175,102 @@ function TentPicker({ item, accessToken, onClose, onSave, saving }) {
   );
 }
 
+// ── Add work ─────────────────────────────────────────────────────────
+// Her To Do only shows jobs ASSIGNED to her, which is correct but leaves a
+// cold start: on day one nothing is assigned, so the board is empty and looks
+// broken. Making her walk to /board and tap through cards one at a time to
+// fix that is exactly the friction that sent her back to the spreadsheet.
+// This brings the unassigned pool to her instead.
+function AddWork({ owner, ownerName, onClose, onDone }) {
+  const [rows, setRows] = useState(null);
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(null);
+
+  useEffect(() => {
+    supabase.from('jobs')
+      .select('id, customer_name, issue, status, tech_name, created_at')
+      .in('status', ['ready_to_schedule', 'return_pending', 'won', 'needs_parts', 'pending_materials'])
+      .is('assigned_to', null)
+      .order('created_at', { ascending: true }).limit(200)
+      // Anything whose tech_name already resolves to her is HERS and is
+      // already in her To Do — offering it again as "unclaimed" would be a lie.
+      .then(({ data }) => setRows((data || []).filter(
+        j => (j.tech_name || '').trim().toLowerCase() !== (ownerName || '').toLowerCase()
+      )));
+  }, []);
+
+  const hits = (rows || []).filter(r => {
+    const s = q.trim().toLowerCase();
+    return !s || `${r.customer_name} ${r.issue}`.toLowerCase().includes(s);
+  });
+
+  const take = async (job) => {
+    setBusy(job.id);
+    await supabase.from('jobs')
+      .update({ assigned_to: owner, updated_at: new Date().toISOString() })
+      .eq('id', job.id);
+    setRows(prev => prev.filter(r => r.id !== job.id));
+    setBusy(null);
+    onDone();
+  };
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1200,
+               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: SURFACE, borderRadius: 14, padding: 18, width: '100%', maxWidth: 520,
+                 maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Add work</div>
+        <div style={{ color: MUTED, fontSize: 12, margin: '3px 0 12px' }}>
+          Open jobs nobody has picked up. Taking one puts it in your To Do — it does
+          not change the job's status.
+        </div>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+          style={{ background: BG, border: `1px solid ${LINE}`, borderRadius: 8, padding: '9px 12px',
+                   color: TEXT, fontSize: 13, outline: 'none', marginBottom: 10 }} />
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {rows === null ? (
+            <div style={{ color: MUTED, fontSize: 12, padding: 20, textAlign: 'center' }}>Loading…</div>
+          ) : hits.length === 0 ? (
+            <div style={{ color: MUTED, fontSize: 12, padding: 20, textAlign: 'center' }}>
+              Nothing unassigned. Everything open already has an owner.
+            </div>
+          ) : hits.map(j => (
+            <div key={j.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
+                       borderBottom: `1px solid ${BG}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}</div>
+                <div style={{ fontSize: 11, color: MUTED }}>
+                  {STATUS_LABEL[j.status] || j.status}
+                  {j.issue ? ` · ${j.issue.slice(0, 60)}` : ''}
+                </div>
+              </div>
+              <button onClick={() => take(j)} disabled={busy === j.id}
+                style={{ background: ACCENT, color: '#0f1729', border: 'none', borderRadius: 8,
+                         padding: '7px 13px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                         whiteSpace: 'nowrap' }}>
+                {busy === j.id ? '…' : "I'll take it"}
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={onClose}
+          style={{ marginTop: 12, background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
+                   borderRadius: 8, padding: '9px 0', fontSize: 12, cursor: 'pointer' }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Workspace({ accessToken, userEmail, userName }) {
   const navigate = useNavigate();
   const { who } = useParams();
   const key = (who || userName || '').toLowerCase();
   const config = WORKSPACES[key] || WORKSPACES.shana;
   const owner = config.email;
+  const ownerName = config.name;
 
   const [items, setItems] = useState([]);   // her notes — the real workspace
   const [feed, setFeed] = useState([]);     // jobs needing office action
@@ -171,6 +278,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   const [saving, setSaving] = useState(false);
   const [showNewJob, setShowNewJob] = useState(false);
   const [tentFor, setTentFor] = useState(null);
+  const [addWork, setAddWork] = useState(false);
   const [toast, setToast] = useState('');
   const [query, setQuery] = useState('');
 
@@ -185,15 +293,18 @@ export default function Workspace({ accessToken, userEmail, userName }) {
           .order('created_at', { ascending: true }).limit(500),
         supabase.from('jobs')
           .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
-          .eq('assigned_to', owner)
+          .or(`assigned_to.eq.${owner},tech_name.ilike.${ownerName}`)
           .not('status', 'in', `(${DEAD_STATUSES.join(',')})`)
           .order('created_at', { ascending: true }).limit(500),
       ]);
       setItems(notes || []);
-      setFeed(jobs || []);
+      // The .or() above is a coarse net — it also catches jobs where tech_name
+      // still says Shana but assigned_to has since been set to someone else.
+      // An explicit assignment must beat a stale tech_name, so filter here.
+      setFeed((jobs || []).filter(j => ownsJob(j, owner, ownerName)));
     } catch (e) { console.error('workspace load', e); }
     setLoading(false);
-  }, [owner]);
+  }, [owner, ownerName]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -256,7 +367,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
     setSaving(false);
   };
 
-  const Lane = ({ label, hint, color, count, children }) => (
+  const Lane = ({ label, hint, color, count, children, empty }) => (
     <div style={{ background: SURFACE, borderRadius: 12, padding: 12, minHeight: 120 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 14, fontWeight: 700, color }}>{label}</div>
@@ -265,7 +376,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       <div style={{ fontSize: 11, color: MUTED, margin: '3px 0 10px' }}>{hint}</div>
       {count === 0
         ? <div style={{ color: MUTED, fontSize: 12, padding: '18px 0', textAlign: 'center' }}>
-            {loading ? 'Loading…' : 'Nothing here.'}
+            {loading ? 'Loading…' : (empty || 'Nothing here.')}
           </div>
         : children}
     </div>
@@ -302,6 +413,9 @@ export default function Workspace({ accessToken, userEmail, userName }) {
             <button onClick={() => navigate('/notes')}
               style={{ background: SURFACE, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 8,
                        padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📝 Notes</button>
+            <button onClick={() => setAddWork(true)}
+              style={{ background: SURFACE, color: ACCENT, border: `1px solid ${ACCENT}55`, borderRadius: 8,
+                       padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Add work</button>
             <button onClick={() => setShowNewJob(true)}
               style={{ background: ACCENT, color: '#0f1729', border: 'none', borderRadius: 8,
                        padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ New</button>
@@ -319,7 +433,8 @@ export default function Workspace({ accessToken, userEmail, userName }) {
 
         {/* ── TO DO — a feed. Read-only against the board. ── */}
         <Lane label="To Do" hint="Assigned to you, plus your own notes"
-          color="#f59e0b" count={todoFeed.length + todoNotes.length}>
+          color="#f59e0b" count={todoFeed.length + todoNotes.length}
+          empty={'Nothing assigned to you yet — tap "+ Add work" to claim some.'}>
           {todoNotes.map(n => (
             <Card key={n.id} accent={ACCENT}>
               <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{n.body}</div>
@@ -406,6 +521,10 @@ export default function Workspace({ accessToken, userEmail, userName }) {
           ))}
         </Lane>
       </div>
+
+      {addWork && (
+        <AddWork owner={owner} ownerName={ownerName} onClose={() => setAddWork(false)} onDone={load} />
+      )}
 
       {tentFor && (
         <TentPicker item={tentFor} accessToken={accessToken} saving={saving}

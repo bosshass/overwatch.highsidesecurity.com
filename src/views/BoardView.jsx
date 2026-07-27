@@ -73,6 +73,35 @@ const LANE_MOVES = [
   { key:'clear',     label:'🗑️ Clear (not billable)', color:'#cbd5e1', target:'archived', statuses:['archived','dead'] },
 ];
 
+// ── Assignment ───────────────────────────────────────────────────────────
+// Who owns this job's NEXT ACTION. Not the same as which tech drives to site:
+// a job can be Shana's to schedule while Austin is the one dispatched. The
+// roster is people, not techs, because office staff own plenty of work and
+// were previously unrepresentable.
+const ASSIGNEES = [
+  { email: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
+  { email: 'jr@drhsecurityservices.com',          name: 'JR' },
+  { email: 'austin@drhsecurityservices.com',      name: 'Austin' },
+  { email: 'brian@drhsecurityservices.com',       name: 'Brian' },
+  { email: 'trevor@drhsecurityservices.com',      name: 'Trevor' },
+  { email: 'admin@jnbservice.com',                name: 'Sara' },
+  { email: 'subs@drhsecurityservices.com',        name: 'Subs' },
+];
+const NAME_BY_EMAIL = Object.fromEntries(ASSIGNEES.map(a => [a.email, a.name]));
+
+// assigned_to wins; tech_name is the fallback so every pre-existing job has a
+// sensible owner without needing a backfill.
+function assigneeOf(job) {
+  if (job.assigned_to) return NAME_BY_EMAIL[job.assigned_to] || job.assigned_to;
+  // tech_name is free text and the data holds 'shana' and 'Shana', 'jr' and
+  // 'JR'. Normalise to the roster spelling so the filter chips don't silently
+  // miss a third of someone's cards.
+  const raw = (job.tech_name || '').trim();
+  if (!raw) return null;
+  const known = ASSIGNEES.find(a => a.name.toLowerCase() === raw.toLowerCase());
+  return known ? known.name : raw;
+}
+
 // Estimate sub-stages, revealed when Estimates is tapped.
 const EST_STAGES = [
   { status:'needs_estimate', label:'Needed', color:'#f59e0b' },
@@ -581,7 +610,8 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             ['address', job.customer_address],
             ['phone', job.customer_phone],
             ['CMS', job.cms_account_id],
-            ['tech', job.tech_name],
+            ['tech on site', job.tech_name],
+            ['assigned to', assigneeOf(job)],
             ['scheduled', job.scheduled_date],
             ['created', fmtDate(job.created_at)],
             ['updated', job.updated_at !== job.created_at ? fmtDate(job.updated_at) : null],
@@ -591,6 +621,20 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               <div style={{ color:'#cbd5e1' }}>{val}</div>
             </div>
           ))}
+          <div style={{ gridColumn:'1/-1', marginTop:4 }}>
+            <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:5 }}>assign to</div>
+            <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+              {[...ASSIGNEES, { email:null, name:'Nobody' }].map(a => (
+                <button key={a.name} onClick={() => assignTo(job.id, a.email)}
+                  style={{
+                    background: (job.assigned_to || null) === a.email ? '#00c8e8' : '#1e293b',
+                    color: (job.assigned_to || null) === a.email ? '#0f172a' : '#94a3b8',
+                    border:'none', borderRadius:20, padding:'5px 12px',
+                    fontSize:11, fontWeight:700, cursor:'pointer',
+                  }}>{a.name}</button>
+              ))}
+            </div>
+          </div>
           {job.estimate_amount > 0 && (
             <div style={{ gridColumn:'1/-1' }}>
               <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>estimate</div>
@@ -998,6 +1042,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const [showNewJob, setShowNewJob] = useState(false);
   const [activeCol, setActiveCol] = useState('triage');
   const [search, setSearch] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState(null);
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState({ total_open:0, needs_action:0, to_bill:0, returns_pending:0 });
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
@@ -1128,13 +1173,31 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     showToast('Marked as duplicate ✓');
   }, []);
 
+  // null = everyone. '__none__' = jobs with nobody on them, which is its own
+  // kind of problem and worth being able to see on purpose.
+  const assigneeMatch = (j) => {
+    if (!assigneeFilter) return true;
+    if (assigneeFilter === '__none__') return !assigneeOf(j);
+    return assigneeOf(j) === assigneeFilter;
+  };
+
+  const assignTo = useCallback(async (jobId, email) => {
+    const { error } = await supabase.from('jobs')
+      .update({ assigned_to: email, updated_at: new Date().toISOString() })
+      .eq('id', jobId);
+    if (error) { showToast('Could not assign'); return; }
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, assigned_to: email } : j));
+    setSelectedJob(prev => prev && prev.id === jobId ? { ...prev, assigned_to: email } : prev);
+    showToast(email ? `Assigned to ${NAME_BY_EMAIL[email] || email} \u2713` : 'Unassigned \u2713');
+  }, []);
+
   const filtered = search
-    ? jobs.filter(j =>
+    ? jobs.filter(j => assigneeMatch(j) && (
         (j.customer_name||'').toLowerCase().includes(search.toLowerCase()) ||
         (j.issue||'').toLowerCase().includes(search.toLowerCase()) ||
         (j.cms_account_id||'').toLowerCase().includes(search.toLowerCase())
-      )
-    : jobs;
+      ))
+    : jobs.filter(assigneeMatch);
 
   // Oldest first, in every column. The board loaded newest-first, which meant
   // the thing that landed this morning sat above the job that has been rotting
@@ -1180,6 +1243,21 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
             <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.val}</div>
           </button>
         ))}
+        <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+          <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>assigned</span>
+          {[{ key:null, label:'All' },
+            ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
+            { key:'__none__', label:'Nobody' }].map(o => (
+            <button key={o.label} onClick={() => setAssigneeFilter(o.key)}
+              style={{
+                background: assigneeFilter === o.key ? '#00c8e8' : '#1e293b',
+                color: assigneeFilter === o.key ? '#0f172a' : '#94a3b8',
+                border:'none', borderRadius:20, padding:'5px 12px',
+                fontSize:11, fontWeight:700, cursor:'pointer',
+              }}>{o.label}</button>
+          ))}
+        </div>
+
         <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
           <label style={{ display:'flex', alignItems:'center', gap:6, background:'#1e293b', borderRadius:8, padding:'6px 10px' }}>
             <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4, whiteSpace:'nowrap' }}>flag silent after</span>

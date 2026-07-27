@@ -29,7 +29,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
 import { shortCode } from '../config/appBase.js';
 import { CALENDARS } from '../config/calendars.js';
-import { ownsJob, CLOSED_STATUSES, ASSIGNEES, NAME_BY_EMAIL } from '../utils/ownership.js';
+import { ownsJob, assigneeOf, CLOSED_STATUSES, ASSIGNEES, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { statusLabel, statusColor, statusChipStyle } from '../utils/status.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import CustomerPicker from '../components/CustomerPicker.jsx';
@@ -55,6 +55,12 @@ const TEXT = '#e2e8f0', MUTED = '#94a3b8', ACCENT = '#00c8e8';
 const WORKSPACES = Object.fromEntries(
   ASSIGNEES.map(a => [a.name.toLowerCase(), { title: a.name, email: a.email, name: a.name }])
 );
+// /workspace/all — everyone's lanes at once, with an owner chip on each card.
+// Reached from the home screen when you want the whole picture rather than
+// one person's. Read-only by intent: hand-off and tentative scheduling belong
+// to whoever owns the item, and doing them from an aggregate view means acting
+// as somebody else without meaning to.
+WORKSPACES.all = { title: 'Everyone', email: null, name: 'all', isAll: true };
 
 const fmtDay = (iso) => iso
   ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -276,14 +282,22 @@ export default function Workspace({ accessToken, userEmail, userName }) {
     setLoading(true);
     try {
       const [{ data: notes }, { data: jobs }] = await Promise.all([
-        supabase.from('notes').select('*')
-          .eq('author_email', owner)
-          .order('created_at', { ascending: true }).limit(500),
-        supabase.from('jobs')
-          .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
-          .or(`assigned_to.eq.${owner},tech_name.ilike.${ownerName}`)
-          .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
-          .order('created_at', { ascending: true }).limit(500),
+        config.isAll
+          ? supabase.from('notes').select('*')
+              .order('created_at', { ascending: true }).limit(1000)
+          : supabase.from('notes').select('*')
+              .eq('author_email', owner)
+              .order('created_at', { ascending: true }).limit(500),
+        config.isAll
+          ? supabase.from('jobs')
+              .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
+              .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
+              .order('created_at', { ascending: true }).limit(1000)
+          : supabase.from('jobs')
+              .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
+              .or(`assigned_to.eq.${owner},tech_name.ilike.${ownerName}`)
+              .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
+              .order('created_at', { ascending: true }).limit(500),
       ]);
       setItems(notes || []);
 
@@ -302,7 +316,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       setFeed((jobs || []).filter(j => ownsJob(j, owner) || ownsJob(j, ownerName)));
     } catch (e) { console.error('workspace load', e); }
     setLoading(false);
-  }, [owner, ownerName]);
+  }, [owner, ownerName, config.isAll]);
 
   // Tent events, today forward. Anything already backed by a job is dropped —
   // it's on the board and doesn't need to sit in her Doing column twice.
@@ -509,7 +523,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <div>
             <div style={{ fontSize: 19, fontWeight: 700 }}>
-              {viewingSelf ? 'My Tasks' : `${config.title}'s Tasks`}
+              {config.isAll ? 'Everyone' : viewingSelf ? 'My Tasks' : `${config.title}'s Tasks`}
             </div>
             <div style={{ color: MUTED, fontSize: 12, maxWidth: 460, lineHeight: 1.35 }}>
               Everything assigned to you, and somewhere to take notes.
@@ -535,6 +549,10 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                    borderRadius: 8, padding: '9px 12px', color: TEXT, fontSize: 13, outline: 'none' }} />
         <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 10, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>viewing</span>
+          <button onClick={() => navigate('/workspace/all')}
+            style={{ background: config.isAll ? ACCENT : SURFACE, color: config.isAll ? '#0f1729' : MUTED,
+                     border: 'none', borderRadius: 20, padding: '4px 11px',
+                     fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>All</button>
           {ASSIGNEES.map(a => (
             <button key={a.email} onClick={() => navigate(`/workspace/${a.name.toLowerCase()}`)}
               style={{ background: config.name === a.name ? ACCENT : SURFACE,
@@ -569,6 +587,9 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                     {statusLabel(j.status)}
                   </div>
                 </div>
+                {config.isAll && assigneeOf(j) && (
+                  <div style={{ fontSize: 10, color: ACCENT, fontWeight: 700, marginTop: 3 }}>{assigneeOf(j)}</div>
+                )}
                 {j.issue && (
                   <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>
                     {j.issue.length > 100 ? j.issue.slice(0, 98).trimEnd() + '…' : j.issue}

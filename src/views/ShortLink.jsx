@@ -148,7 +148,7 @@ function LinkedTicket({ jobId, accessToken, userEmail, onUpdate, onClose }) {
                   onMerge={() => { load(); onUpdate?.(); }} />}
       />
       {scheduling && (
-        <VisualSchedulerModal job={job} techs={techs} accessToken={accessToken}
+        <VisualSchedulerModal job={job} techs={techs} accessToken={accessToken} userEmail={userEmail}
           onClose={() => setScheduling(false)}
           onScheduled={() => { setScheduling(false); load(); onUpdate?.(); }} />
       )}

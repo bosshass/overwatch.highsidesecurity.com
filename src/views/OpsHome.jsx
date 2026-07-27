@@ -427,6 +427,8 @@ export default function OpsHome({
                   sub:'Calendar events with no job behind them', badge: gap?.manual || 0, badgeColor: C.red },
                 { path:'/unbilled', icon:'💵', label:'Billing',
                   sub:'Every unbilled hour and material, by customer' },
+                { path:'/recap', icon:'📊', label:'Weekly Recap',
+                  sub:'Completed jobs, locations visited, who scheduled what' },
                 { action:'tour', icon:'🎓', label:'How this works',
                   sub:'Tasks, dispositions, Tent calendar, scheduling' },
                 // Bulk rewrite. Lives here, spelled out, instead of as a chain

@@ -30,6 +30,7 @@ import GlobalSearch from './components/GlobalSearch.jsx';
 import QuickNotes from './views/QuickNotes.jsx';
 import CustomerHistory from './views/CustomerHistory.jsx';
 import CustomerAudit from './views/CustomerAudit.jsx';
+import WeeklyRecap from './views/WeeklyRecap.jsx';
 import KPIDashboard from './views/KPIDashboard.jsx';
 import Unbilled from './views/Unbilled.jsx';
 import ShortLink from './views/ShortLink.jsx';
@@ -38,7 +39,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.11.11';
+const APP_VERSION = '9.11.12';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -855,6 +856,7 @@ export default function App() {
         <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
+        <Route path="/recap" element={<OperatorOnly><WeeklyRecap onBack={() => navigate('/')} userEmail={userEmail} /></OperatorOnly>} />
         <Route path="/kpi" element={
           canSeeKPIs(userEmail)
             ? <ViewShell><KPIDashboard onBack={() => navigate('/')} /></ViewShell>

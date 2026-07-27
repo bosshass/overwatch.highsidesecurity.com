@@ -60,7 +60,7 @@ function labelFor(freeHours, isWeekend) {
   return 'Wide open';
 }
 
-export default function VisualSchedulerModal({ job, techs, accessToken, onClose, onScheduled }) {
+export default function VisualSchedulerModal({ job, techs, accessToken, onClose, onScheduled, userEmail }) {
   const [availability, setAvailability] = useState({}); // techId -> [{date, day, dayNum, month, freeHours, freeSlots, isWeekend}]
   const [loading, setLoading] = useState(true);
   const [selectedTechId, setSelectedTechId] = useState(null);
@@ -283,7 +283,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
       // subsets disagreed. Now everything that means "scheduled" changes
       // together or not at all.
       const helpers = validTechs.filter(t => helperIds.includes(t.id) && t.id !== tech.id);
-      await book({ job, tech, start, end, accessToken, helpers });
+      await book({ job, tech, start, end, accessToken, helpers, byEmail: userEmail });
 
       // Extra days ride the SAME time-of-day on their own dates. Each is its
       // own calendar event; failures are per-day and non-fatal — the primary
@@ -317,7 +317,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
     setSaving(true); setErr('');
     try {
-      await hold({ job, start, end, accessToken });
+      await hold({ job, start, end, accessToken, byEmail: userEmail });
       onScheduled();
     } catch (e) { setErr(e.message || 'Could not hold'); }
     setSaving(false);

@@ -1001,7 +1001,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       )}
 
       {schedulingJob && (
-        <VisualSchedulerModal job={schedulingJob} techs={techs} accessToken={accessToken}
+        <VisualSchedulerModal job={schedulingJob} techs={techs} accessToken={accessToken} userEmail={userEmail}
           onScheduled={() => { setSchedulingJob(null); loadJobs(); showToast('Scheduled ✓'); }}
           onClose={() => setSchedulingJob(null)} />
       )}

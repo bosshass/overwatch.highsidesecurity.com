@@ -22,6 +22,21 @@
 // as far as the app is concerned.
 
 import { supabase } from './supabase.js';
+
+// Lightweight audit trail for "who scheduled/rescheduled/held how much this
+// week" — a real question with no existing answer anywhere in the data.
+// book()/hold() only ever touched the job row; nothing recorded WHO acted or
+// WHEN in a form a weekly recap could count. This writes one job_history row
+// per action, using the same table notes already use, so it costs nothing
+// structurally and a week's worth of these can just be counted.
+async function logScheduleAction(jobId, action, byEmail) {
+  try {
+    await supabase.from('job_history').insert([{
+      job_id: jobId, from_status: null, to_status: null,
+      changed_by: byEmail || 'unknown', notes: `📅 RECAP: ${action}`,
+    }]);
+  } catch (e) { console.warn('schedule audit log failed (non-fatal)', e.message); }
+}
 import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote } from './calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
 
@@ -63,10 +78,11 @@ export function scheduleOf(job) {
 // tech owns the booking (tech_assigned, scheduled_event_id); each helper gets
 // the SAME event mirrored onto their calendar so their availability grid tells
 // the truth. tech_name carries all names so the board reads "JR + Austin".
-export async function book({ job, tech, start, end, accessToken, helpers = [] }) {
+export async function book({ job, tech, start, end, accessToken, helpers = [], byEmail = null }) {
   if (!job?.id) throw new Error('No job');
   if (!tech?.id || !tech?.calendar_id) throw new Error('Pick a tech');
   if (!(start instanceof Date) || !(end instanceof Date) || end <= start) throw new Error('Bad time range');
+  const isReschedule = job.status === 'scheduled' && !!job.scheduled_event_id;
 
   // A booking supersedes any hold — remove the Tent event so the calendar
   // doesn't show a hold for work that is now real.
@@ -120,11 +136,12 @@ export async function book({ job, tech, start, end, accessToken, helpers = [] })
     } catch (e) { console.warn(`helper mirror failed for ${h.name} (non-fatal)`, e.message); }
   }
 
+  logScheduleAction(job.id, isReschedule ? 'Rescheduled' : 'Scheduled', byEmail);
   return { eventId: created?.id || null };
 }
 
 // ── HOLD: a day (+hours) → Tent calendar + tentative stamp ─────────────
-export async function hold({ job, start, end, accessToken, byName }) {
+export async function hold({ job, start, end, accessToken, byName, byEmail = null }) {
   if (!job?.id) throw new Error('No job');
   if (!(start instanceof Date)) throw new Error('Pick a day');
 

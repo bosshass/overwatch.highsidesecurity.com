@@ -981,7 +981,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
 
       {schedulingJob && (
         <VisualSchedulerModal
-          job={schedulingJob} techs={techs} accessToken={accessToken}
+          job={schedulingJob} techs={techs} accessToken={accessToken} userEmail={userEmail}
           onClose={() => setSchedulingJob(null)}
           onScheduled={() => { setSchedulingJob(null); load(); say('Scheduled — on the board ✓'); }} />
       )}

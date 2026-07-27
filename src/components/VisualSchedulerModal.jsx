@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import { buildEventTitle, buildEventDescription, getLatestNote, createEventOnCalendar } from '../services/calendarSync.js';
+import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 const DAYS_AHEAD = 14;
@@ -185,6 +186,46 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                 : !selectedDay    ? 'Pick a day'
                 : (!startTime || !endTime) ? 'Pick a time slot'
                 : null;
+
+  // ── Hold tentatively ────────────────────────────────────────────────
+  // Same grid, same free-hours colours, different commitment. Previously this
+  // lived in a separate TentPicker with a bare date box and no day view — so
+  // "schedule" meant two different things depending on which button you found,
+  // and the tentative one threw away the availability picture entirely.
+  //
+  // A hold books NOTHING on a tech's calendar. It writes a "Holding <customer>"
+  // event to the Tent calendar (the team's existing convention) and stamps
+  // jobs.tentative_date so the board can show it in its own column.
+  const holdTentative = async () => {
+    if (!selectedDay) { setErr('Pick a day to hold'); return; }
+    setSaving(true); setErr('');
+    try {
+      const start = parseLocalDate(selectedDay.date);
+      start.setHours(startTime ? Number(startTime.split(':')[0]) : 9, 0, 0, 0);
+      const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+
+      let eventId = null;
+      try {
+        const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
+          title: `Holding ${job.customer_name || 'job'}`,
+          description: `Tentative hold placed in Overwatch. No tech booked.`,
+          location: job.customer_address || '',
+          startTime: start, endTime: end,
+        });
+        if (created?.id) eventId = created.id;
+      } catch (e) { console.warn('Tent event create failed (non-fatal)', e); }
+
+      const { error } = await supabase.from('jobs').update({
+        tentative_date: start.toISOString(),
+        tentative_event_id: eventId,
+        updated_at: new Date().toISOString(),
+      }).eq('id', job.id);
+      if (error) throw error;
+
+      onScheduled();
+    } catch (e) { setErr(e.message || 'Could not hold'); }
+    setSaving(false);
+  };
 
   const confirm = async () => {
     // This used to be a bare `return`. Pick a tech, pick a day, forget the time
@@ -392,6 +433,17 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
             )}
 
             {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+            {/* Hold — available as soon as a DAY is picked, because a hold is a
+                day-level commitment. It doesn't need a tech or a slot. */}
+            {selectedDay && (
+              <button onClick={holdTentative} disabled={saving}
+                style={{ width: '100%', background: 'transparent', border: '1px solid #f59e0b66',
+                         borderRadius: 10, color: '#f59e0b', fontWeight: 700, padding: '12px',
+                         fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
+                ✏️ Hold {selectedDay.day} {selectedDay.month} {selectedDay.dayNum} — tentative, no tech booked
+              </button>
+            )}
 
             {/* Always rendered, always says what it's waiting for. Previously
                 this could sit greyed and unexplained below the fold while the

@@ -73,226 +73,10 @@ const fmtDay = (iso) => iso
 // Reads the Tent calendar so she can attach an event she's already pencilled
 // in. If there isn't one yet she can just set a date — the intent is the point,
 // and the calendar entry can catch up.
-function TentPicker({ item, accessToken, onClose, onSave, saving }) {
-  const [events, setEvents] = useState(null);
-  const [scanErr, setScanErr] = useState(null);
-  const [date, setDate] = useState(item.scheduled_for ? item.scheduled_for.slice(0, 10) : '');
-  const [eventId, setEventId] = useState(item.calendar_event_id || null);
-
-  // Searches EVERY calendar, not just Tent. The first version queried only
-  // TENTATIVELY_SCHEDULED and reported "nothing in the next 45 days" while the
-  // calendar was visibly full — because holds live wherever whoever made them
-  // happened to put them (Installations, a tech's own calendar, Service Queue).
-  // Telling someone their calendar is empty when they are looking at it is
-  // worse than showing nothing at all.
-  //
-  // It also now says WHY it is empty. No token, a 403, and a genuinely quiet
-  // fortnight used to render identically — all three as silence.
-  useEffect(() => {
-    if (!accessToken) { setEvents([]); setScanErr('Not signed in to Google — reload the page.'); return; }
-    const from = new Date(); from.setHours(0, 0, 0, 0);
-    const to = new Date(from); to.setDate(to.getDate() + 45);
-
-    const cals = SYNC_CALENDARS.length
-      ? SYNC_CALENDARS
-      : [{ id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Tentatively Scheduled' }];
-
-    (async () => {
-      const found = [];
-      const failed = [];
-      for (const cal of cals) {
-        try {
-          const params = new URLSearchParams({
-            timeMin: from.toISOString(), timeMax: to.toISOString(),
-            singleEvents: 'true', orderBy: 'startTime', maxResults: '250',
-          });
-          const res = await fetch(
-            `${GCAL}/calendars/${encodeURIComponent(cal.id)}/events?${params}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } });
-          if (!res.ok) { failed.push(`${cal.name} (${res.status})`); continue; }
-          const data = await res.json();
-          (data.items || [])
-            .filter(e => e.status !== 'cancelled')
-            .forEach(e => found.push({ ...e, _cal: cal.name }));
-        } catch (e) { failed.push(`${cal.name} (${e.message})`); }
-      }
-      // "Holding …" is how this team writes a hold, so those float to the top.
-      // Everything else stays available underneath — a hold can be any event.
-      const isHold = e => /^\s*holding\b/i.test(e.summary || '');
-      found.sort((a, b) => {
-        if (isHold(a) !== isHold(b)) return isHold(a) ? -1 : 1;
-        return new Date(a.start?.dateTime || a.start?.date) - new Date(b.start?.dateTime || b.start?.date);
-      });
-      setEvents(found);
-      if (failed.length) setScanErr(`Couldn't read: ${failed.join(', ')}`);
-    })();
-  }, [accessToken]);
-
-  const chosen = (events || []).find(e => e.id === eventId);
-
-  return (
-    <div onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1200,
-               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{ background: SURFACE, borderRadius: 14, padding: 20, width: '100%', maxWidth: 460 }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Tentatively scheduled</div>
-        <div style={{ color: MUTED, fontSize: 12, marginTop: 3, marginBottom: 14, lineHeight: 1.4 }}>
-          Records that you've pencilled this in. It does not schedule the job or book
-          a tech — the Tent calendar stays the source of truth.
-        </div>
-
-        <div style={{ color: MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 5 }}>Date</div>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          style={{ width: '100%', boxSizing: 'border-box', background: BG, border: `1px solid ${LINE}`,
-                   borderRadius: 8, padding: '9px 12px', color: TEXT, fontSize: 13, outline: 'none' }} />
-
-        <div style={{ color: MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, margin: '14px 0 5px' }}>
-          Link a Tent calendar event (optional)
-        </div>
-        {scanErr && (
-          <div style={{ color: '#fca5a5', fontSize: 11, marginBottom: 7, lineHeight: 1.4 }}>⚠️ {scanErr}</div>
-        )}
-        {events === null ? (
-          <div style={{ color: MUTED, fontSize: 12 }}>Reading calendars…</div>
-        ) : events.length === 0 ? (
-          <div style={{ color: MUTED, fontSize: 12 }}>
-            No events found in the next 45 days across any calendar.
-            {!scanErr && ' If that looks wrong, the app may not have access to the calendar you\'re looking at.'}
-          </div>
-        ) : (
-          <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${LINE}`, borderRadius: 8 }}>
-            {events.map(ev => (
-              <div key={ev.id} onClick={() => setEventId(eventId === ev.id ? null : ev.id)}
-                style={{ padding: '8px 11px', fontSize: 12, cursor: 'pointer', borderBottom: `1px solid ${BG}`,
-                         background: eventId === ev.id ? `${ACCENT}22` : 'transparent',
-                         color: eventId === ev.id ? ACCENT : TEXT }}>
-                {ev.summary || '(untitled)'}
-                <span style={{ color: MUTED, marginLeft: 6, fontSize: 10 }}>
-                  {fmtDay(ev.start?.dateTime || ev.start?.date)}{ev._cal ? ` · ${ev._cal}` : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-          <button disabled={saving || (!date && !eventId)}
-            onClick={() => onSave({
-              tentative: true,
-              scheduled_for: date
-                ? new Date(`${date}T12:00:00`).toISOString()
-                : (chosen ? new Date(chosen.start?.dateTime || chosen.start?.date).toISOString() : null),
-              calendar_event_id: eventId,
-              calendar_id: eventId ? CALENDARS.TENTATIVELY_SCHEDULED : null,
-            })}
-            style={{ flex: 1, background: (date || eventId) ? ACCENT : '#1a2537',
-                     color: (date || eventId) ? '#0f1729' : MUTED, border: 'none', borderRadius: 8,
-                     padding: '11px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            {saving ? '…' : 'Save'}
-          </button>
-          {item.tentative && (
-            <button disabled={saving}
-              onClick={() => onSave({ tentative: false, scheduled_for: null, calendar_event_id: null, calendar_id: null })}
-              style={{ background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
-                       borderRadius: 8, padding: '11px 14px', fontSize: 12, cursor: 'pointer' }}>
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Add work ─────────────────────────────────────────────────────────
-// Her To Do only shows jobs ASSIGNED to her, which is correct but leaves a
-// cold start: on day one nothing is assigned, so the board is empty and looks
-// broken. Making her walk to /board and tap through cards one at a time to
-// fix that is exactly the friction that sent her back to the spreadsheet.
-// This brings the unassigned pool to her instead.
-function AddWork({ owner, ownerName, onClose, onDone }) {
-  const [rows, setRows] = useState(null);
-  const [q, setQ] = useState('');
-  const [busy, setBusy] = useState(null);
-
-  useEffect(() => {
-    supabase.from('jobs')
-      .select('id, customer_name, issue, status, tech_name, created_at')
-      .in('status', ['ready_to_schedule', 'return_pending', 'won', 'needs_parts', 'pending_materials'])
-      .is('assigned_to', null)
-      .order('created_at', { ascending: true }).limit(200)
-      // Anything whose tech_name already resolves to her is HERS and is
-      // already in her To Do — offering it again as "unclaimed" would be a lie.
-      .then(({ data }) => setRows((data || []).filter(
-        j => (j.tech_name || '').trim().toLowerCase() !== (ownerName || '').toLowerCase()
-      )));
-  }, []);
-
-  const hits = (rows || []).filter(r => {
-    const s = q.trim().toLowerCase();
-    return !s || `${r.customer_name} ${r.issue}`.toLowerCase().includes(s);
-  });
-
-  const take = async (job) => {
-    setBusy(job.id);
-    await supabase.from('jobs')
-      .update({ assigned_to: owner, updated_at: new Date().toISOString() })
-      .eq('id', job.id);
-    setRows(prev => prev.filter(r => r.id !== job.id));
-    setBusy(null);
-    onDone();
-  };
-
-  return (
-    <div onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1200,
-               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{ background: SURFACE, borderRadius: 14, padding: 18, width: '100%', maxWidth: 520,
-                 maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Add work</div>
-        <div style={{ color: MUTED, fontSize: 12, margin: '3px 0 12px' }}>
-          Open jobs nobody has picked up. Taking one puts it in your To Do — it does
-          not change the job's status.
-        </div>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
-          style={{ background: BG, border: `1px solid ${LINE}`, borderRadius: 8, padding: '9px 12px',
-                   color: TEXT, fontSize: 13, outline: 'none', marginBottom: 10 }} />
-        <div style={{ overflowY: 'auto', flex: 1 }}>
-          {rows === null ? (
-            <div style={{ color: MUTED, fontSize: 12, padding: 20, textAlign: 'center' }}>Loading…</div>
-          ) : hits.length === 0 ? (
-            <div style={{ color: MUTED, fontSize: 12, padding: 20, textAlign: 'center' }}>
-              Nothing unassigned. Everything open already has an owner.
-            </div>
-          ) : hits.map(j => (
-            <div key={j.id}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
-                       borderBottom: `1px solid ${BG}` }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}</div>
-                <div style={{ fontSize: 11, color: MUTED }}>
-                  {statusLabel(j.status)}
-                  {j.issue ? ` · ${j.issue.slice(0, 60)}` : ''}
-                </div>
-              </div>
-              <button onClick={() => take(j)} disabled={busy === j.id}
-                style={{ background: ACCENT, color: '#0f1729', border: 'none', borderRadius: 8,
-                         padding: '7px 13px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                         whiteSpace: 'nowrap' }}>
-                {busy === j.id ? '…' : "I'll take it"}
-              </button>
-            </div>
-          ))}
-        </div>
-        <button onClick={onClose}
-          style={{ marginTop: 12, background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
-                   borderRadius: 8, padding: '9px 0', fontSize: 12, cursor: 'pointer' }}>Close</button>
-      </div>
-    </div>
-  );
-}
+// TentPicker DELETED 9.9.40. It was a second thing called "schedule" with a
+// bare date box and no day view — so holding a slot threw away the availability
+// picture the real scheduler already shows. Holding now lives inside
+// VisualSchedulerModal as a second button under the same grid.
 
 export default function Workspace({ accessToken, userEmail, userName }) {
   const navigate = useNavigate();
@@ -315,7 +99,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showNewJob, setShowNewJob] = useState(false);
-  const [tentFor, setTentFor] = useState(null);
+
   const [addWork, setAddWork] = useState(false);
   // THE scheduler — the same one the board uses. My Tasks previously had only
   // TentPicker, which looked like scheduling and wasn't, so "schedule" meant
@@ -543,54 +327,6 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   //   3. records it on her note, as before
   // Writing only (3) is what made this feel broken — she pencilled something in
   // and nothing anywhere reflected it.
-  const saveTent = async (patch) => {
-    setSaving(true);
-    try {
-      const jobId = tentFor.job_id;
-      const job = watchedJobs[jobId] || feed.find(j => j.id === jobId) || {};
-      let eventId = patch.calendar_event_id;
-
-      if (patch.tentative && !eventId && patch.scheduled_for) {
-        const start = new Date(patch.scheduled_for);
-        const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-        try {
-          const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
-            // "Holding <customer>" — the convention the team already uses on the
-            // calendar. Inventing a [TENT] prefix would have put a second naming
-            // scheme alongside theirs for the same thing.
-            title: `Holding ${job.customer_name || tentFor.body || 'Hold'}`,
-            description: `Tentative hold placed by ${NAME_BY_EMAIL[owner] || owner} in Overwatch.\nNot dispatched — no tech booked.`,
-            location: job.customer_address || '',
-            startTime: start, endTime: end,
-          });
-          if (created?.id) eventId = created.id;
-        } catch (e) { console.warn('Tent event create failed (non-fatal)', e); }
-      }
-
-      const { error } = await supabase.from('notes').update({
-        ...patch, calendar_event_id: eventId || null,
-        calendar_id: eventId ? CALENDARS.TENTATIVELY_SCHEDULED : null,
-      }).eq('id', tentFor.id);
-      if (error) throw error;
-
-      if (jobId) {
-        // Non-fatal: if migration 033 hasn't run, the hold still lives on the
-        // note and the Tent calendar rather than failing the whole action.
-        const { error: jErr } = await supabase.from('jobs').update({
-          tentative_date: patch.tentative ? patch.scheduled_for : null,
-          tentative_event_id: patch.tentative ? (eventId || null) : null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', jobId);
-        if (jErr) console.warn('Could not stamp job (run migration 033):', jErr.message);
-      }
-
-      setTentFor(null); await load();
-      say(patch.tentative
-        ? (eventId ? 'Pencilled in — on the Tent calendar ✓' : 'Pencilled in ✓')
-        : 'Hold cleared ✓');
-    } catch (e) { say('Could not save: ' + (e.message || e)); }
-    setSaving(false);
-  };
 
   const Lane = ({ label, hint, color, count, children, empty }) => (
     <div style={{ background: SURFACE, borderRadius: 12, padding: 12, minHeight: 120 }}>
@@ -769,10 +505,13 @@ export default function Workspace({ accessToken, userEmail, userName }) {
             <Card key={n.id} accent="#3b82f6">
               <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{n.body}</div>
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', marginTop: 7 }}>
-                {n.tentative && (
+                {/* The hold lives on the JOB now (jobs.tentative_date), so the
+                    card shows the same date the board does instead of a private
+                    copy on the note that could drift out of sync. */}
+                {(watchedJobs[n.job_id]?.tentative_date || n.scheduled_for) && (
                   <span style={{ background: '#f59e0b22', color: '#f59e0b', borderRadius: 20,
                                  padding: '3px 9px', fontSize: 10, fontWeight: 700 }}>
-                    ✏️ Tent {fmtDay(n.scheduled_for)}
+                    ✏️ Held {fmtDay(watchedJobs[n.job_id]?.tentative_date || n.scheduled_for)}
                   </span>
                 )}
                 {n.calendar_event_id && <span style={{ color: MUTED, fontSize: 10 }}>🔗 calendar linked</span>}
@@ -789,15 +528,9 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                   style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',
                            border: 'none', borderRadius: 8, padding: '7px 0',
                            fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                  📅 Schedule for real
+                  📅 Schedule or hold
                 </button>
               )}
-              <button onClick={() => setTentFor(n)}
-                style={{ marginTop: 6, width: '100%', background: 'transparent', color: '#f59e0b',
-                         border: '1px solid #f59e0b55', borderRadius: 8, padding: '6px 0',
-                         fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                {n.tentative ? 'Change tentative date' : '✏️ Tentatively schedule'}
-              </button>
               <MoveBar item={n} lanes={[['todo', '← To Do'], ['done', '✓ Done']]} />
               {n.job_id && (
                 <button onClick={() => setAssignFor(n)} disabled={saving}
@@ -917,11 +650,6 @@ export default function Workspace({ accessToken, userEmail, userName }) {
 
       {addWork && (
         <AddWork owner={owner} ownerName={ownerName} onClose={() => setAddWork(false)} onDone={load} />
-      )}
-
-      {tentFor && (
-        <TentPicker item={tentFor} accessToken={accessToken} saving={saving}
-          onClose={() => setTentFor(null)} onSave={saveTent} />
       )}
 
       {showNewJob && (

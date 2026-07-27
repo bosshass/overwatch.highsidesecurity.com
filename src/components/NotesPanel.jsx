@@ -10,6 +10,8 @@ import { appendNoteToJobEvents } from '../services/calendarSync.js';
 
 export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null }) {
   const [notes, setNotes] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [showActivity, setShowActivity] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -46,7 +48,28 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             || s.startsWith('🔗 MERGED FROM JOB')
             || s.startsWith('[MERGED INTO JOB');
       };
-      setNotes(data.filter(n => !isMergeNoise(n.text)));
+
+      // SYSTEM CHATTER. The app writes a history row every time anything is
+      // assigned, emailed or moved. Those are an audit trail, not notes — and
+      // burying "Technician needs one Elk Wifi Adapter" under four lines of
+      // "Assigned to Shana" is how a real note gets missed. They stay in the
+      // database and stay visible behind the Activity toggle; they just stop
+      // competing with things a person actually wrote.
+      const isSystemChatter = (t) => {
+        const s = (t || '').trim();
+        return /^Assigned to /i.test(s)
+            || /^Assignment email sent/i.test(s)
+            || /^Unassigned\b/i.test(s)
+            || /^Status changed/i.test(s)
+            || /^Moved (to|from) /i.test(s)
+            || /^Reconciled —/i.test(s)
+            || /^Billed( —|$)/i.test(s)
+            || /^📌 TENTATIVELY assigned/i.test(s);
+      };
+
+      const clean = data.filter(n => !isMergeNoise(n.text));
+      setNotes(clean.filter(n => !isSystemChatter(n.text)));
+      setActivity(clean.filter(n => isSystemChatter(n.text)));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {
@@ -296,6 +319,25 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           {maxNotes && notes.length > maxNotes && (
             <div style={{ color: '#94a3b8', fontSize: '11px', textAlign: 'center', padding: '4px' }}>
               +{notes.length - maxNotes} more
+            </div>
+          )}
+
+          {/* Audit trail, collapsed. Still here, just not shouting over notes. */}
+          {activity.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <button onClick={() => setShowActivity(v => !v)}
+                style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '11px',
+                         cursor: 'pointer', padding: '4px 0', fontFamily: 'inherit' }}>
+                {showActivity ? '▾' : '▸'} Activity ({activity.length})
+              </button>
+              {showActivity && activity.map(a => (
+                <div key={a.id || a.text}
+                  style={{ fontSize: '11px', color: '#64748b', padding: '4px 0 4px 10px',
+                           borderLeft: '2px solid #1e293b', lineHeight: 1.4 }}>
+                  {a.text}
+                  <span style={{ opacity: 0.7 }}> · {formatTime(a.created_at)}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>

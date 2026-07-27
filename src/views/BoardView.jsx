@@ -85,6 +85,12 @@ const EST_STAGES = [
 const COLUMNS = [
   { key:'triage',    label:'📝 New / Notes',       color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
   { key:'ready',     label:'✅ Ready to Schedule',  color:'#22c55e', statuses:['ready_to_schedule','return_pending'] },
+  // Tentative is a VIRTUAL column — it filters on tentative_date, not status,
+  // so it needs no new status value and no transition rules. A held job keeps
+  // whatever status it had (usually ready_to_schedule); the hold is an overlay,
+  // not a state change. Booking it for real clears the hold and it moves to
+  // Scheduled on its own.
+  { key:'tentative', label:'✏️ Tentative',        color:'#f59e0b', statuses:[], virtual:'tentative' },
   { key:'scheduled', label:'📅 Scheduled',         color:'#3b82f6', statuses:['scheduled'] },
   { key:'estimates', label:'📋 Estimates',         color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
 ];
@@ -1221,7 +1227,20 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const byOldest = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0);
 
   const buckets = COLUMNS.reduce((acc, col) => {
-    acc[col.key] = filtered.filter(j => col.statuses.includes(j.status)).sort(byOldest);
+    if (col.virtual === 'tentative') {
+      // Held but not yet booked. Sorted by the HELD DATE, soonest first —
+      // a hold three days out matters more than one in six weeks.
+      acc[col.key] = filtered
+        .filter(j => j.tentative_date && j.status !== 'scheduled')
+        .sort((a, b) => new Date(a.tentative_date) - new Date(b.tentative_date));
+      return acc;
+    }
+    // A job with a hold shows in Tentative, not in its status column, so it
+    // isn't in two places at once.
+    acc[col.key] = filtered
+      .filter(j => col.statuses.includes(j.status))
+      .filter(j => !(j.tentative_date && j.status !== 'scheduled'))
+      .sort(byOldest);
     return acc;
   }, {});
 

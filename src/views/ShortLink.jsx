@@ -15,10 +15,16 @@
 // wasn't reliably reopening the card. Rendering the card here removes that
 // failure surface entirely: one component, one job, no relay.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase.js';
-import JobDetail from '../components/JobDetail.jsx';
+// JobDetail RETIRED here 9.11.1 — this was the last surface still rendering
+// it. Every way of opening a ticket (board drawer, My Tasks slide-over, texted
+// /j/ link) now renders TicketSheet: one ticket, one look.
+import TicketSheet from '../components/TicketSheet.jsx';
+import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
+import { jobsApi, techsApi } from '../services/supabase.js';
+import { MergeTool } from './BoardView.jsx';
 
 export default function ShortLink({ accessToken, userEmail, userRole, onUpdate }) {
   const { code } = useParams();
@@ -59,24 +65,17 @@ export default function ShortLink({ accessToken, userEmail, userRole, onUpdate }
     // Render the real card directly. Closing it goes to the board (with no
     // job param — there's nothing left to hand off, this WAS the destination).
     return (
-      <JobDetail
+      <LinkedTicket
         jobId={jobId}
-        // GO BACK WHERE YOU CAME FROM. This hardcoded '/board', so opening a
-        // ticket from My Tasks — or from the home screen's stranded list, or a
-        // texted link — always dumped you on the board afterwards, having lost
-        // your filters, your scroll position and your place in the lane.
-        // returnTo is set by whoever navigated here; history.back() covers the
-        // rest; '/board' stays the fallback for a cold deep link.
+        accessToken={accessToken}
+        userEmail={userEmail}
+        onUpdate={onUpdate}
         onClose={() => {
           const back = new URLSearchParams(location.search).get('returnTo');
           if (back) { navigate(back, { replace: true }); return; }
           if (window.history.length > 1) { navigate(-1); return; }
           navigate('/board', { replace: true });
         }}
-        onUpdate={onUpdate}
-        accessToken={accessToken}
-        userEmail={userEmail}
-        userRole={userRole}
       />
     );
   }
@@ -93,6 +92,65 @@ export default function ShortLink({ accessToken, userEmail, userRole, onUpdate }
         </div>
       ) : (
         <div style={{ color: '#94a3b8' }}>Opening the job…</div>
+      )}
+    </div>
+  );
+}
+
+
+// Loads the job row and renders THE ticket sheet full-screen. The loader is
+// all this route adds — presentation is TicketSheet, identical to the board
+// and My Tasks, so a texted link opens the same ticket everyone else sees.
+function LinkedTicket({ jobId, accessToken, userEmail, onUpdate, onClose }) {
+  const [job, setJob] = useState(null);
+  const [techs, setTechs] = useState([]);
+  const [scheduling, setScheduling] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('jobs').select('*').eq('id', jobId).maybeSingle();
+    setJob(data || null);
+  }, [jobId]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    techsApi.getAll().then(setTechs).catch(async () => {
+      const { data } = await supabase.from('techs').select('*').order('name');
+      setTechs(data || []);
+    });
+  }, []);
+
+  if (!job) return (
+    <div style={{ minHeight: '100vh', background: '#0f1729', color: '#94a3b8',
+                  display: 'grid', placeItems: 'center', fontSize: 14 }}>Loading ticket…</div>
+  );
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f1729' }}>
+      <TicketSheet
+        job={job}
+        userEmail={userEmail}
+        accessToken={accessToken}
+        busy={busy}
+        onClose={onClose}
+        onOpenScheduler={() => setScheduling(true)}
+        onSchedulePrimary={
+          ['ready_to_schedule', 'return_pending', 'scheduled'].includes(job.status)
+            ? () => setScheduling(true) : null
+        }
+        onMove={async (target, note) => {
+          setBusy(true);
+          try {
+            await jobsApi.changeStatus(job.id, target, userEmail || 'unknown', note);
+            await load(); onUpdate?.();
+          } finally { setBusy(false); }
+        }}
+        extras={<MergeTool job={job} accessToken={accessToken} userEmail={userEmail}
+                  onMerge={() => { load(); onUpdate?.(); }} />}
+      />
+      {scheduling && (
+        <VisualSchedulerModal job={job} techs={techs} accessToken={accessToken}
+          onClose={() => setScheduling(false)}
+          onScheduled={() => { setScheduling(false); load(); onUpdate?.(); }} />
       )}
     </div>
   );

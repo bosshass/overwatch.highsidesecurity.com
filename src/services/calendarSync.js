@@ -366,7 +366,13 @@ export async function scanForOrphans(accessToken) {
     /✅\s*COMPLETED/i.test(ev.description || '');
 
   // Only scan INPUT calendars — skip output/archive calendars
-  const SKIP_TYPES = ['completed', 'sales', 'installations'];
+  // 'queue' = the Tent calendar. Holds are PENCIL MARKS, not work — scanning
+  // them made every "Holding X" since June 1 look like an untracked job, and
+  // adopting one minted a fake scheduled job with no customer. The belt is
+  // skipping the calendar; the suspenders is the title check below, which
+  // also catches holds that ended up on the WRONG calendar during the weeks
+  // the Tent ID was misconfigured.
+  const SKIP_TYPES = ['completed', 'sales', 'installations', 'queue'];
   const sourceCalendars = SYNC_CALENDARS.filter(c => !SKIP_TYPES.includes(c.type));
 
   for (const cal of sourceCalendars) {
@@ -375,6 +381,7 @@ export async function scanForOrphans(accessToken) {
       for (const event of events) {
         if (!event.start?.dateTime || event.status === 'cancelled') continue;
         if (looksBilled(event)) { results.synced++; continue; }
+        if (/^\s*Holding\b/i.test(event.summary || '')) { results.synced++; continue; }
 
         // THE CARD CHECK — this is the fix. "Linked" now means exactly what
         // the board means by it: a jobs row references this calendar event.

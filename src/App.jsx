@@ -38,7 +38,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.11.0';
+const APP_VERSION = '9.11.3';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -845,8 +845,8 @@ export default function App() {
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}
-        <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} /></ViewShell>} />
-        <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} /></ViewShell>} />
+        <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} isOperator={isOperator} /></ViewShell>} />
+        <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} isOperator={isOperator} /></ViewShell>} />
         {/* Notes are NOT jobs and deliberately have no board presence. */}
         <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/workspace')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />

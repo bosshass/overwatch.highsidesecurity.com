@@ -11,6 +11,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
 import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
 import { missingLabel } from '../utils/completeness.js';
+import { MergeTool } from './BoardView.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
 import { statusLabel } from '../utils/status.js';
@@ -172,7 +173,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
       // Pile 2 — jobs with no client attached (excluding finished work).
       const { data: oj } = await supabase
         .from('jobs')
-        .select('id, customer_name, customer_phone, customer_address, issue, status, tech_name, created_at')
+        .select('id, customer_name, customer_phone, customer_address, issue, status, tech_name, created_at, calendar_event_id, calendar_id')
         .is('customer_id', null)
         .not('status', 'in', '(billed,archived,dead,lost)')
         .order('created_at', { ascending: true });
@@ -224,6 +225,25 @@ export default function CustomerAudit({ onBack, accessToken }) {
     setAdoptBusy(null);
   }
 
+  // "not trying to create a second ticket" — this scan already DETECTS the
+  // duplicate (possibleDuplicate, fuzzy name match against open jobs) but the
+  // only button offered was Create job & link, which makes a second one
+  // anyway. This attaches the event to the job that's already there instead.
+  async function linkToExisting(o) {
+    if (!o.possibleDuplicate) return;
+    setAdoptBusy(o.event.id);
+    try {
+      const { error } = await supabase.from('jobs').update({
+        calendar_event_id: o.event.id,
+        calendar_id: o.calendar?.id,
+        updated_at: new Date().toISOString(),
+      }).eq('id', o.possibleDuplicate.id);
+      if (error) throw error;
+      setManualEvents(prev => prev.filter(x => x.event.id !== o.event.id));
+    } catch (e) { alert('Could not link: ' + (e.message || e)); }
+    setAdoptBusy(null);
+  }
+
   // Pile 3 — calendar events Overwatch never created. Hits Google, so it runs
   // on demand rather than blocking the page load.
   async function scanManual() {
@@ -242,6 +262,33 @@ export default function CustomerAudit({ onBack, accessToken }) {
   // Archive — the class matters (see config/archiveReasons.js). A test entry and
   // a warranty callback both leave this queue, but one never happened and the
   // other is real cost DRH absorbed with no revenue. Never collapse them.
+  const [completingId, setCompletingId] = useState(null);
+
+  // Mark complete, no customer required. Explicitly NOT the same button as
+  // the billing-side Archive above: that one classifies a real visit as
+  // not_real/absorbed for the profitability numbers. This one says "this row
+  // was never a customer job at all" — moves its calendar event (if any) to
+  // Completed WITHOUT deleting it, and archives the job so both the job query
+  // and the calendar scan stop surfacing it, permanently.
+  async function markOrphanComplete(job) {
+    setCompletingId(job.id);
+    try {
+      if (job.calendar_event_id && job.calendar_id) {
+        await archiveEvent(accessToken, job.calendar_id, job.calendar_event_id);
+      }
+      const { error } = await supabase.from('jobs').update({
+        status: 'archived',
+        updated_by: userEmail || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', job.id);
+      if (error) throw error;
+      setOrphanJobs(prev => prev.filter(j => j.id !== job.id));
+    } catch (e) {
+      alert('Could not mark complete: ' + (e.message || e));
+    }
+    setCompletingId(null);
+  }
+
   async function doArchive(reason) {
     const entryId = archiveTarget?.id;
     if (!entryId) return;
@@ -403,7 +450,12 @@ export default function CustomerAudit({ onBack, accessToken }) {
           </div>
         )}
 
-        {/* Jobs with no client — not calendar-backed, so they never showed here before */}
+        {/* Jobs with no client — not calendar-backed, so they never showed here before.
+            Two of these are meta calendar noise ("Austin Off", "Meeting with Sara & JR")
+            that never should have become jobs, and a real duplicate ("Holding Shelton -"
+            matching an existing job) that "open on board" made you go fix somewhere else.
+            Both actions live right here now: merge into whatever this really is, or mark
+            it complete with no customer if it was never real work at all. */}
         {orphanJobs.length > 0 && (
           <details open style={{ marginBottom: 10 }}>
             <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
@@ -416,6 +468,30 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   <div style={{ fontSize: 12, color: '#cbd5e1' }}>{j.issue || 'no issue noted'}</div>
                   <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>{missingLabel(j)}</div>
                   <a href={boardJobLink(j.id)} style={{ fontSize: 12, color: '#00c8e8', textDecoration: 'none' }}>open on board →</a>
+
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Merge — this IS an existing customer/job under a different
+                        name. Same tool the board and every ticket use; here it
+                        loads its own candidates since orphanJobs is a filtered
+                        subset, not the full board. */}
+                    <MergeTool job={j} accessToken={accessToken} userEmail={userEmail}
+                      onMerge={() => setOrphanJobs(prev => prev.filter(x => x.id !== j.id))} />
+
+                    {/* Mark complete, no customer. For meta noise like "Austin Off"
+                        or "Meeting with Sara & JR" — never real customer work, so
+                        forcing a client link onto it is wrong. Moves the underlying
+                        calendar event to the Completed calendar (not deleted — same
+                        archiveEvent() the tech-side archive uses) and archives the
+                        job. 'completed' is a skipped calendar type in the scan, and
+                        'archived' is excluded from this exact query, so it stops
+                        being flagged permanently — ignored to infinity, nothing lost. */}
+                    <button onClick={() => markOrphanComplete(j)} disabled={completingId === j.id}
+                      style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8',
+                               borderRadius: 8, fontSize: 11, fontWeight: 700, padding: '6px 10px',
+                               cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {completingId === j.id ? 'Marking…' : '✓ Mark complete — no customer'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -451,17 +527,37 @@ export default function CustomerAudit({ onBack, accessToken }) {
                     </div>
                   )}
                   <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 180 }}>
-                      <CustomerPicker compact
-                        value={adoptCustomer[o.event.id] || null}
-                        onChange={(id) => setAdoptCustomer(m => ({ ...m, [o.event.id]: id }))}
-                        placeholder="Link a client (optional)" />
-                    </div>
-                    <button onClick={() => adoptEvent(o)} disabled={adoptBusy === o.event.id}
-                      style={{ background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8,
-                               padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      {adoptBusy === o.event.id ? 'Creating…' : 'Create job & link →'}
-                    </button>
+                    {o.possibleDuplicate ? (
+                      // A match was found — link is the PRIMARY action. Create
+                      // job stays available underneath for when the match is
+                      // wrong, but it's no longer the only button.
+                      <>
+                        <button onClick={() => linkToExisting(o)} disabled={adoptBusy === o.event.id}
+                          style={{ background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8,
+                                   padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          {adoptBusy === o.event.id ? 'Linking…' : `Link to ${o.possibleDuplicate.customer_name} →`}
+                        </button>
+                        <button onClick={() => adoptEvent(o)} disabled={adoptBusy === o.event.id}
+                          style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 8,
+                                   padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          Not a match — create new
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ flex: 1, minWidth: 180 }}>
+                          <CustomerPicker compact
+                            value={adoptCustomer[o.event.id] || null}
+                            onChange={(id) => setAdoptCustomer(m => ({ ...m, [o.event.id]: id }))}
+                            placeholder="Link a client (optional)" />
+                        </div>
+                        <button onClick={() => adoptEvent(o)} disabled={adoptBusy === o.event.id}
+                          style={{ background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8,
+                                   padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          {adoptBusy === o.event.id ? 'Creating…' : 'Create job & link →'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}

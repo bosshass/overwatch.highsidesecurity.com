@@ -37,6 +37,7 @@ import { techsApi } from '../services/supabase.js';
 import { createEventOnCalendar } from '../services/calendarSync.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
+import { MergeTool } from './BoardView.jsx';
 import { jobsApi } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import { ignoreOrphan, isOrphanIgnored } from '../services/calendarSync.js';
@@ -177,7 +178,7 @@ function AddWork({ owner, ownerName, onClose, onDone }) {
   );
 }
 
-export default function Workspace({ accessToken, userEmail, userName }) {
+export default function Workspace({ accessToken, userEmail, userName, isOperator = false }) {
   const navigate = useNavigate();
   const { who } = useParams();
   const location = useLocation();
@@ -284,14 +285,55 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       setTentErr(null);
       const data = await res.json();
       const live = (data.items || []).filter(e => e.status !== 'cancelled' && !isOrphanIgnored(e.id));
+
+      // Fuzzy-match each unlinked hold against OPEN jobs by customer name, the
+      // same rule MergeTool uses. "Holding Tom and Donna Hanks" and an existing
+      // unassigned job "HANKS, TOM/DONNA" are the same customer — offering
+      // "Make it a job" as the ONLY option there creates a duplicate. A match
+      // gets a Link button instead; no match still gets Make it a job.
+      const rawName = (ev) => (ev.summary || '').replace(/^\s*holding\s+/i, '').trim();
+      const { data: openJobs } = await supabase.from('jobs')
+        .select('id, customer_name, status')
+        .not('status', 'in', '(dead,archived)')
+        .not('customer_name', 'is', null);
+      const norm = (t) => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const findMatch = (name) => {
+        const n = norm(name);
+        if (!n) return null;
+        const parts = n.split(' ').filter(Boolean);
+        return (openJobs || []).find(j => {
+          const jn = norm(j.customer_name);
+          return jn && (jn.includes(n) || n.includes(jn) ||
+            parts.some(p => p.length > 2 && jn.includes(p)));
+        }) || null;
+      };
+
+      // Dedupe: multiple hold events for the SAME customer (a multi-day job
+      // pencilled one day at a time) collapse to one card instead of stacking
+      // — a three-day job doesn't need three cards in the queue.
+      const seen = new Set();
       const unlinked = [];
       for (const ev of live) {
         const job = await resolveJobForEvent(ev.id);
-        if (!job) unlinked.push(ev);
+        if (job) continue;
+        const name = rawName(ev);
+        const match = findMatch(name);
+        const dedupeKey = match ? `job:${match.id}` : `name:${norm(name)}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        unlinked.push({ ...ev, _match: match, _customerName: name });
       }
       setTentEvents(unlinked);
     } catch (e) { console.warn('tent load failed', e); }
   }, [accessToken]);
+
+  useEffect(() => {
+    // Tent is the SCHEDULER'S queue (Shana, per spec — she manages new/old/
+    // sales/returns and confirms holds). It was loading and rendering for
+    // every viewer of every My Tasks page, which is what "shows up in
+    // everyone's task list" meant — a shared queue duplicated N times.
+    if (isOperator) loadTent();
+  }, [isOperator, loadTent]);
 
   useEffect(() => {
     techsApi.getAll()
@@ -303,7 +345,30 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadTent(); }, [loadTent]);
+
+  // Adopt an existing hold event onto a job that ALREADY EXISTS on the board.
+  // This is the fix for Tom and Donna Hanks: the calendar hold and the board
+  // card were the same customer and stayed two separate things because
+  // nothing connected them. Stamping tentative_date/tentative_event_id here is
+  // the same adoption schedule.js's hold() does — just onto a job that's
+  // already real instead of a freshly-created one.
+  const linkHoldToJob = async (ev) => {
+    if (!ev._match) return;
+    setSaving(true);
+    try {
+      const start = ev.start?.dateTime ? new Date(ev.start.dateTime) : null;
+      const { error } = await supabase.from('jobs').update({
+        tentative_date: start ? start.toISOString() : null,
+        tentative_event_id: ev.id,
+        updated_at: new Date().toISOString(),
+      }).eq('id', ev._match.id);
+      if (error) throw error;
+      setTentEvents(prev => prev.filter(x => x.id !== ev.id));
+      await load();
+      say(`Linked to ${ev._match.customer_name} \u2713`);
+    } catch (e) { say('Could not link: ' + (e.message || e)); }
+    setSaving(false);
+  };
 
   // A job she has already pulled in shouldn't also sit in the feed.
   // Hide a job from To Do once its owner has pulled it into Doing. In ALL mode
@@ -380,28 +445,31 @@ export default function Workspace({ accessToken, userEmail, userName }) {
     setSaving(false);
   };
 
-  // Turn a Tent event into a real board card, keeping the calendar event as the
-  // link. Lands in Scheduled, which is where the board expects committed work —
-  // so the thing she already promised a customer stops being invisible.
+  // NEW job from a hold with no match at all. This used to insert
+  // status:'scheduled' directly — pretending a tech was booked for a job that
+  // is, factually, still just a pencil mark. It also bypassed schedule.js, the
+  // one place scheduling state is supposed to change. Now it ADOPTS the
+  // existing hold event as a real tentative hold (tentative_date +
+  // tentative_event_id) instead of both mis-stating status AND creating a
+  // second calendar event nobody asked for.
   const makeJob = async (ev) => {
     setSaving(true);
     try {
       const start = ev.start?.dateTime ? new Date(ev.start.dateTime) : null;
       const { data, error } = await supabase.from('jobs').insert([{
-        customer_name:     (ev.summary || 'Untitled').replace(/\[[^\]]*\]\s*/g, '').trim(),
-        customer_id:       tentCustomer[ev.id] || null,
-        status:            'scheduled',
-        issue:             (ev.description || '').slice(0, 500) || ev.summary || '',
-        customer_address:  ev.location || '',
-        scheduled_date:    start ? start.toISOString() : null,
-        calendar_event_id: ev.id,
-        calendar_id:       CALENDARS.TENTATIVELY_SCHEDULED,
-        assigned_to:       owner,
+        customer_name:      ev._customerName || (ev.summary || 'Untitled').replace(/\[[^\]]*\]\s*/g, '').trim(),
+        customer_id:        tentCustomer[ev.id] || null,
+        status:             'ready_to_schedule',
+        issue:              (ev.description || '').slice(0, 500) || ev.summary || '',
+        customer_address:   ev.location || '',
+        tentative_date:     start ? start.toISOString() : null,
+        tentative_event_id: ev.id,
+        assigned_to:        owner,
       }]).select().single();
       if (error) throw error;
       setTentEvents(prev => prev.filter(x => x.id !== ev.id));
       await load();
-      say('On the board — Scheduled \u2713');
+      say('On the board — held \u2713');
       return data;
     } catch (e) { say('Could not create: ' + (e.message || e)); }
     setSaving(false);
@@ -583,16 +651,20 @@ export default function Workspace({ accessToken, userEmail, userName }) {
 
         {/* ── DOING — hers alone ── */}
         <Lane label="Doing" hint="Pencilled in, plus what you put here"
-          color="#3b82f6" count={doing.length + tentEvents.length}>
-          {tentErr && (
+          color="#3b82f6" count={doing.length + (isOperator ? tentEvents.length : 0)}>
+          {isOperator && tentErr && (
             <div style={{ background: '#3b0d0d', border: '1px solid #ef444455', borderRadius: 10,
                           padding: '8px 10px', marginBottom: 8, fontSize: 11, color: '#fca5a5' }}>
               ⚠️ {tentErr} — pencilled-in work may be missing from this list.
             </div>
           )}
-          {/* Tent commitments with no board card behind them. Real promises to
-              real customers that currently exist only in Google. */}
-          {tentEvents.map(ev => (
+          {/* Tent orphans are the SCHEDULER'S queue, not personal task noise —
+              gated to operators so they stop appearing on every tech's list.
+              Same customer across multiple hold events collapses to one card
+              (see loadTent's dedupe). A fuzzy name match against open jobs
+              offers Link as the PRIMARY action — Make it a job stays, but as
+              the fallback for when there really is nothing on the board yet. */}
+          {isOperator && tentEvents.map(ev => (
             <div key={ev.id}
               style={{ background: WATCH_BG, border: '1px solid #f59e0b55',
                        borderLeft: '3px solid #f59e0b', borderRadius: 10, padding: 10, marginBottom: 8 }}>
@@ -600,15 +672,24 @@ export default function Workspace({ accessToken, userEmail, userName }) {
               <div style={{ fontSize: 11, color: MUTED, marginTop: 3 }}>
                 Tent · {fmtDay(ev.start?.dateTime || ev.start?.date)}
               </div>
-              <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700, marginTop: 4 }}>
-                not on the board yet
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <CustomerPicker compact
-                  value={tentCustomer[ev.id] || null}
-                  onChange={(id) => setTentCustomer(m => ({ ...m, [ev.id]: id }))}
-                  placeholder="Link a client (optional)" />
-              </div>
+              {ev._match ? (
+                <div style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, marginTop: 5,
+                              background: '#22c55e18', borderRadius: 6, padding: '4px 7px' }}>
+                  Looks like <b>{ev._match.customer_name}</b> — already on the board
+                </div>
+              ) : (
+                <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700, marginTop: 4 }}>
+                  not on the board yet
+                </div>
+              )}
+              {!ev._match && (
+                <div style={{ marginTop: 8 }}>
+                  <CustomerPicker compact
+                    value={tentCustomer[ev.id] || null}
+                    onChange={(id) => setTentCustomer(m => ({ ...m, [ev.id]: id }))}
+                    placeholder="Link a client (optional)" />
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                 <button onClick={async () => { await ignoreOrphan(ev.id); setTentEvents(p => p.filter(x => x.id !== ev.id)); }}
                   disabled={saving}
@@ -617,12 +698,21 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                   Dismiss
                 </button>
               </div>
-              <button onClick={() => makeJob(ev)} disabled={saving}
-                style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',
-                         border: 'none', borderRadius: 8, padding: '7px 0',
-                         fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                Make it a job → Scheduled
-              </button>
+              {ev._match ? (
+                <button onClick={() => linkHoldToJob(ev)} disabled={saving}
+                  style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',
+                           border: 'none', borderRadius: 8, padding: '7px 0',
+                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  Link to {ev._match.customer_name} →
+                </button>
+              ) : (
+                <button onClick={() => makeJob(ev)} disabled={saving}
+                  style={{ marginTop: 8, width: '100%', background: '#334155', color: '#cbd5e1',
+                           border: 'none', borderRadius: 8, padding: '7px 0',
+                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  No match — make it a new job → Scheduled
+                </button>
+              )}
             </div>
           ))}
           {doing.map(n => (
@@ -786,6 +876,8 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                 await load();
                 say('Moved ✓');
               }}
+              extras={<MergeTool job={openJob} accessToken={accessToken} userEmail={userEmail}
+                        onMerge={() => { setOpenJob(null); load(); }} />}
             />
           </div>
         </div>

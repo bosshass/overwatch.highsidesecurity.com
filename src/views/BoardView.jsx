@@ -199,14 +199,30 @@ function UUIDLinker({ job, onLinked }) {
 }
 
 // ── Merge/Duplicate finder ────────────────────────────────────────────────────
-function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
+// Exported: merge must exist on EVERY ticket surface. When it lived only in
+// the board's drawer, opening the duplicate from My Tasks or a /j/ link meant
+// "no longer can merge" — the tool hadn't gone away, it just wasn't invited.
+// allJobs is optional now; without it the tool loads its own candidates.
+export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(job.customer_name || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [loaded, setLoaded] = useState(null);
+
+  useEffect(() => {
+    if (allJobs || !open || loaded) return;
+    supabase.from('jobs')
+      .select('id, customer_name, status, issue, customer_phone, customer_address, cms_account_id, calendar_event_id')
+      .not('status', 'in', '(dead,archived)')
+      .order('updated_at', { ascending: false }).limit(400)
+      .then(({ data }) => setLoaded(data || []));
+  }, [allJobs, open, loaded]);
+
+  const pool = allJobs || loaded || [];
 
   // Find jobs with similar customer name, excluding self
-  const candidates = allJobs.filter(j =>
+  const candidates = pool.filter(j =>
     j.id !== job.id &&
     j.status !== 'dead' &&
     j.status !== 'archived' &&
@@ -220,7 +236,7 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
     setSaving(true);
     setErr('');
     try {
-      const survivor = allJobs.find(j => j.id === survivorId) || {};
+      const survivor = pool.find(j => j.id === survivorId) || {};
       const by = userEmail || 'board';
 
       // 1) Carry the dead job's notes onto the survivor with their ORIGINAL

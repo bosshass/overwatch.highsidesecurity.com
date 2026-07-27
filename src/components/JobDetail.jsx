@@ -1,4 +1,11 @@
 // ============================================
+// DEMOTED 9.11.1 — legacy surfaces only.
+// Board, My Tasks, /j/ links and Work Today all render TicketSheet now.
+// This component survives ONLY because OwnerDashboard, OfficeHub and
+// TechCalendar still mount it. Do not add features here; when those three
+// move to TicketSheet, delete this file (~1,300 lines).
+// ============================================
+// ============================================
 // JUC-E V4 - JobDetail Component (Redesigned)
 // ============================================
 // Two modes:

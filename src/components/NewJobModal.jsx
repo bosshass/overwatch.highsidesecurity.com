@@ -288,7 +288,10 @@ Scope of Work: `;
           end:   { date: today },
         };
         fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent('de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com')}/events`,
+          // Uses the config constant now. This was a HARDCODED calendar id that
+          // bypassed config/calendars.js entirely — which is why fixing the
+          // config alone could never have fixed this writer.
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events`,
           { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(queueEvent) }
         ).catch(e => console.warn('Queue event write failed:', e));
       }

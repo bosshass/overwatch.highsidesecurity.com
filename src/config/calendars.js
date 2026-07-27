@@ -5,7 +5,12 @@
 // DO NOT pull from Supabase. Lives here only.
 
 export const CALENDARS = {
-  TENTATIVELY_SCHEDULED: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
+  // CORRECTED 9.10.4. The old ID here (de3d433f…) was NOT the Tent calendar —
+  // holds written through it surfaced on a different calendar in Google. The
+  // code never guesses or falls back; it aims exactly where this constant
+  // points, so the label had been wrong since it was first set. ID below is
+  // straight from Google Calendar → Tent → Settings → Integrate calendar.
+  TENTATIVELY_SCHEDULED: 'c_5d027121360fc0b02d470d2ad10e0be5924428877a0957110de3f71eaf922f0b@group.calendar.google.com',
   RETURN_VISITS:         'drhhsscalendar@gmail.com',
   ADMIN_NOTES:           'fff001b042126a6179ac3abe30b1b7928a6f6170227a290d5f24fd0ec2ffa0c9@group.calendar.google.com',
   AUSTIN:                'drhservicetech1@gmail.com',

@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 
-export const TOUR_BUILD = '9.9.31';
+export const TOUR_BUILD = '9.9.44';
 
 // info@ is JR's second login, so he gets the tour on whichever he signs in with
 // (and only once — the key is per-email, and seeing it on one is enough).
@@ -56,13 +56,14 @@ const STEPS = [
   {
     key: 'intro',
     title: 'A few things moved',
-    body: 'This build changes where your work lives. Two minutes now saves you hunting for it later.',
+    body: 'This build moves where your work lives and fixes several things that used to fail silently. Two minutes now saves you hunting for it later.',
     visual: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {[
-          ['My Tasks', 'your own board — not the company board', C.cyan],
-          ['Notes', 'reminders that never become jobs', C.green],
-          ['The red banner', 'work that will never bill unless someone fixes it', C.red],
+          ['My Tasks', 'your own board — To Do, Doing, Done, Watching', C.cyan],
+          ['The home screen', 'what is broken, then who is stuck, then the board', C.red],
+          ['One scheduler', 'book a tech or hold a slot — same grid, both places', C.amber],
+          ['Notes', 'the latest one shows; system chatter is tucked away', C.green],
         ].map(([t, s, c]) => (
           <div key={t} style={{ background: C.bg, borderRadius: 10, padding: '9px 11px', borderLeft: `3px solid ${c}` }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{t}</div>
@@ -130,6 +131,12 @@ const STEPS = [
           A job with no disposition is invisible to billing. That is the single most
           expensive thing that goes wrong here.
         </div>
+        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.45 }}>
+          From the office side: open any ticket and it asks
+          <b style={{ color: C.text }}> "What's next for this ticket?"</b> with the moves
+          available from where it is now. Notes sit right underneath — the latest one
+          shows, older ones are one tap away.
+        </div>
       </div>
     ),
   },
@@ -158,28 +165,34 @@ const STEPS = [
   },
   {
     key: 'tent',
-    title: 'The Tent calendar',
-    body: 'Tent is still where you pencil things in \u2014 nothing about that changed. What\u2019s new is that Overwatch can see it.',
+    title: 'Holding a slot',
+    body: 'Tent is still where you pencil things in. What changed is that Overwatch writes to it, reads from it, and shows the hold on the board.',
     visual: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={{ background: '#2a1f08', border: `1px solid ${C.amber}55`, borderLeft: `3px solid ${C.amber}`,
-                      borderRadius: 10, padding: '10px 11px' }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Shepherd Construction \u2014 rough-in</div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>Tent \u00b7 Wed Aug 5</div>
-          <div style={{ fontSize: 10, color: C.amber, fontWeight: 700, marginTop: 4 }}>not on the board yet</div>
-          <div style={{ background: C.green, color: '#0f1729', borderRadius: 8, padding: '6px 0',
-                        fontSize: 11, fontWeight: 700, textAlign: 'center', marginTop: 8 }}>
-            Make it a job \u2192 Scheduled
+        <div style={{ background: '#2a1f08', border: `1px solid ${C.amber}55`, borderRadius: 10, padding: '10px 12px' }}>
+          <div style={{ fontSize: 11, color: C.amber, fontWeight: 700, marginBottom: 7 }}>
+            \u270F\uFE0F Tentative hold \u2014 no tech booked
+          </div>
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ flex: 1, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 7,
+                           padding: '6px 9px', fontSize: 12, color: C.text }}>10:00</span>
+            <span style={{ color: C.muted, fontSize: 11 }}>to</span>
+            <span style={{ flex: 1, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 7,
+                           padding: '6px 9px', fontSize: 12, color: C.text }}>13:00</span>
+          </div>
+          <div style={{ background: C.amber, color: '#0f1729', borderRadius: 7, padding: '7px 0',
+                        fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+            Hold Wed Aug 5 \u00b7 10:00\u201313:00
           </div>
         </div>
         <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
-          Tent events from today forward with no job behind them show at the top of your
-          <b> Doing</b> column. Link a client if it needs one, then make it a job \u2014 it lands
-          in Scheduled on the board with the calendar event still attached.
+          Set real hours, not the whole day. It writes <b>Holding {'{customer}'}</b> to the Tent
+          calendar \u2014 your existing convention \u2014 and the job moves into the board's
+          <b style={{ color: C.amber }}> Tentative</b> column showing the held date.
         </div>
         <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.45 }}>
-          You can also mark anything in Doing <b style={{ color: C.amber }}>tentatively scheduled</b> and
-          link a Tent event to it. That records your intent \u2014 it does not book a tech.
+          A hold books nobody. Scheduling it for real later clears the hold automatically,
+          so a card is never both held and booked.
         </div>
       </div>
     ),
@@ -200,9 +213,10 @@ const STEPS = [
                         fontSize: 12, fontWeight: 700, textAlign: 'center', marginTop: 9 }}>Use this</div>
         </div>
         <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
-          It reads the same availability grid you already see \u2014 real free time on real
-          calendars. It checks the job has enough room, applies the Monday rule for
-          installs, then takes the soonest day with the most space left.
+          It reads six weeks of real free time on real calendars. It checks the job has
+          enough room, applies the Monday rule for installs, then takes the soonest day
+          with the most space left. Pick any day and you'll also see exactly what is
+          already on that tech's calendar \u2014 so you can judge whether to move something.
         </div>
         <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.45, marginTop: 8 }}>
           <b style={{ color: C.text }}>Use this</b> fills in the picker below it. It never books

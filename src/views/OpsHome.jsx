@@ -49,7 +49,7 @@ const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
 
 export default function OpsHome({
   userName, isOperator, accessToken, userEmail,
-  onNavigate, onSignOut, onSearch, onShowTour,
+  onNavigate, onSignOut, onSearch, onShowTour, onBackfill,
 }) {
   const [people, setPeople] = useState(null);
   const [board, setBoard] = useState(null);
@@ -412,9 +412,15 @@ export default function OpsHome({
                   sub:'Every unbilled hour and material, by customer' },
                 { action:'tour', icon:'🎓', label:'How this works',
                   sub:'Tasks, dispositions, Tent calendar, scheduling' },
+                // Bulk rewrite. Lives here, spelled out, instead of as a chain
+                // emoji next to the help button on every screen.
+                { action:'backfill', icon:'⚠️', label:'Backfill from calendar',
+                  sub:'Bulk import — changes many records at once' },
               ].map((t, i) => (
                 <button key={t.path || t.action}
-                  onClick={() => t.action === 'tour' ? onShowTour?.('intro') : go(t.path)}
+                  onClick={() => t.action === 'tour' ? onShowTour?.('intro')
+                    : t.action === 'backfill' ? onBackfill?.()
+                    : go(t.path)}
                   style={{ display:'flex', width:'100%', alignItems:'center', gap:13, textAlign:'left',
                            background:'transparent', border:'none',
                            borderTop: i ? `1px solid ${C.line}` : 'none',

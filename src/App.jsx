@@ -39,7 +39,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.43';
+const APP_VERSION = '9.9.44';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -748,14 +748,18 @@ export default function App() {
               ))}
             </select>
           )}
-          <span style={{ color: '#94a3b8', fontSize: 13 }}>{userName}</span>
-          {isOperator && (
-            <button onClick={() => { setShowBackfill(true); setBackfillLog([]); }}
-              style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#f59e0b', padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
-            >🔗</button>
-          )}
-          <button onClick={() => setShowGuide(true)}
-            style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#00c8e8', padding: '4px 8px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+          <span style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 700 }}>{userName}</span>
+
+          {/* 🔗 BACKFILL REMOVED from the header 9.9.44. It kicked off a bulk
+              data operation and sat one tap from every screen, next to the help
+              button, labelled with nothing but a chain emoji. Nobody should be
+              able to trigger a mass rewrite by mis-tapping. It is still
+              reachable — see Admin Tools — just not by accident. */}
+
+          <button onClick={() => setShowGuide(true)} title="How this works"
+            style={{ background: '#00c8e815', border: '1px solid #00c8e8', borderRadius: 10,
+                     color: '#00c8e8', width: 38, height: 38, fontSize: 20, fontWeight: 800,
+                     cursor: 'pointer', lineHeight: 1, padding: 0, flexShrink: 0 }}
           >?</button>
           <button onClick={handleSignOut}
             style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}

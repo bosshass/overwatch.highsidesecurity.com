@@ -18,6 +18,7 @@ import AdminGap from './views/AdminGap.jsx';
 import ReconcileView from './views/ReconcileView.jsx';
 import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
+import Workspace from './views/Workspace.jsx';
 import Scheduler from './views/Scheduler.jsx';
 import SmsTest from './views/SmsTest.jsx';
 import Projects from './views/Projects.jsx';
@@ -38,7 +39,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.11';
+const APP_VERSION = '9.9.12';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -65,7 +66,7 @@ const USER_CONFIG = {
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: null },
   'info@drhsecurityservices.com':     { name: null,     role: 'operator', defaultCalendar: null, defaultView: null, needsIdentity: true },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
-  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'workspace' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: null },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: null },
@@ -76,7 +77,7 @@ const USER_CONFIG = {
 const IDENTITY_OPTIONS = [
   { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: null },
   { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: null },
-  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
+  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'workspace' },
 ];
 
 const CALENDAR_OPTIONS = [
@@ -733,6 +734,11 @@ export default function App() {
         <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
+        {/* Role-based workspaces. /workspace resolves to whoever is signed in;
+            /workspace/sara etc. is the explicit form. The full 6-lane board
+            stays at /board and is untouched. */}
+        <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={userName} /></ViewShell>} />
+        <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={userName} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />

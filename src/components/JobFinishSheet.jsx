@@ -29,7 +29,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
-import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '../services/supabase.js';
+import { timeEntriesApi, returnCardsApi, jobsApi, assignmentsApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 
@@ -150,10 +150,29 @@ export default function JobFinishSheet({
     const base = cleanTitle(event.title);
     const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
     let existing = null;
+    // A calendar event id can live in THREE places, and until 9.9.12 this only
+    // checked one of them:
+    //   1. jobs.calendar_event_id      — the ORIGINAL intake event
+    //   2. jobs.scheduled_event_id     — the event VisualSchedulerModal creates
+    //                                    on the TECH's calendar
+    //   3. job_assignments.calendar_event_id — what every other scheduling path writes
+    // A tech dispositioning from their own calendar is always holding (2) or (3),
+    // never (1) — so the lookup missed, and every disposition spawned a NEW job
+    // row while the real card sat frozen in Scheduled. That is the duplicate-card bug.
     try {
-      const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
+      const { data } = await supabase
+        .from('jobs').select('id')
+        .or(`calendar_event_id.eq.${event.id},scheduled_event_id.eq.${event.id}`)
+        .limit(1);
       existing = data && data[0];
     } catch (err) { console.warn('adopt: job lookup failed', err); }
+
+    if (!existing) {
+      try {
+        const assignment = await assignmentsApi.getByCalendarEventId(event.id);
+        if (assignment?.job_id) existing = { id: assignment.job_id };
+      } catch (err) { console.warn('adopt: assignment lookup failed', err); }
+    }
 
     if (existing) {
       // Already tracked — move it to the disposition's status AND put the

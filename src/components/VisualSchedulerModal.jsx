@@ -13,7 +13,7 @@
 //     calendarSync.js, so the CUSTOMER_ID stamp + deep link + real notes
 //     carry over correctly (the fix from earlier tonight)
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import { buildEventTitle, buildEventDescription, getLatestNote, createEventOnCalendar } from '../services/calendarSync.js';
 
@@ -139,6 +139,36 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
   useEffect(() => { loadAvailability(); }, [loadAvailability]);
 
+  // ── Suggested slot ────────────────────────────────────────────────
+  // No new API calls — this reads the SAME availability grid already loaded
+  // above and picks the best (tech, day, slot) against three existing rules:
+  //   1. Enough room. Needs `estimated_hours` (fallback 4h) of contiguous free time.
+  //   2. Monday-install policy. Installs get scheduled Mondays; applied BEFORE
+  //      slot selection, not as an after-the-fact correction.
+  //   3. Soonest wins, then whoever has the most room left that day (so we
+  //      don't wedge a job into a tech's last open hour).
+  // The suggestion never books anything. "Use this" pre-fills the manual
+  // picker below, exactly as if Shana had tapped the day and slot herself.
+  const isInstall = /install/i.test(`${job.job_type || ''} ${job.issue || ''}`);
+  const needHours = Number(job.estimated_hours) > 0 ? Number(job.estimated_hours) : 4;
+
+  const suggestion = useMemo(() => {
+    let best = null;
+    validTechs.forEach(tech => {
+      (availability[tech.id] || []).forEach(d => {
+        if (d.isWeekend) return;
+        if (isInstall && d.day !== 'Mon') return;
+        const slot = d.freeSlots.filter(s => s.hours >= needHours).sort((a, b) => b.hours - a.hours)[0];
+        if (!slot) return;
+        const cand = { tech, day: d, slot };
+        if (!best) { best = cand; return; }
+        if (d.date < best.day.date) { best = cand; return; }
+        if (d.date === best.day.date && d.freeHours > best.day.freeHours) best = cand;
+      });
+    });
+    return best;
+  }, [availability, isInstall, needHours, JSON.stringify(validTechs.map(t => t.id))]);
+
   const pickSlot = (techId, dayData, slot) => {
     setSelectedTechId(techId);
     setSelectedDay(dayData);
@@ -253,7 +283,34 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
           <div style={{ color: '#94a3b8', textAlign: 'center', padding: 30 }}>No techs with a calendar configured.</div>
         ) : (
           <>
-            <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 10 }}>Tap a day to see available time slots.</div>
+            {suggestion && (
+              <div style={{ background: '#0f172a', border: '1px solid #00c8e855', borderRadius: 12, padding: 12, marginBottom: 14 }}>
+                <div style={{ color: '#00c8e8', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Suggested slot
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ color: '#e2e8f0', fontSize: 15, fontWeight: 700 }}>
+                      {suggestion.tech.name} — {suggestion.day.day} {suggestion.day.month} {suggestion.day.dayNum}
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
+                      {suggestion.slot.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – {suggestion.slot.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {' · '}{suggestion.day.freeHours.toFixed(0)}h open that day
+                      {isInstall && ' · install → Monday'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => pickSlot(suggestion.tech.id, { ...suggestion.day, techId: suggestion.tech.id }, suggestion.slot)}
+                    style={{ background: '#00c8e8', color: '#0f1729', border: 'none', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                    Use this
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 10 }}>
+              {suggestion ? 'Or pick your own — tap a day to see available time slots.' : 'Tap a day to see available time slots.'}
+            </div>
             {validTechs.map(tech => (
               <div key={tech.id} style={{ marginBottom: 16 }}>
                 <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{tech.name}</div>

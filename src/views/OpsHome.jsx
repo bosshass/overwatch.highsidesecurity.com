@@ -15,7 +15,7 @@
 //      already exists and doesn't need to be re-summarised six ways.
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import { ASSIGNEES, assigneeOf, CLOSED_STATUSES } from '../utils/ownership.js';
@@ -181,6 +181,18 @@ export default function OpsHome({
     } catch (e) { console.warn('gap load failed', e); }
   }, [accessToken]);
 
+  const peopleRef = useRef(null);
+
+  // Arriving from the board's "Who's stuck" button lands ON that section
+  // instead of at the top of the page above two warning cards.
+  useEffect(() => {
+    if (loading || !people) return;
+    const wants = new URLSearchParams(window.location.search).get('focus');
+    if (wants === 'people' && peopleRef.current) {
+      peopleRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [loading, people]);
+
   useEffect(() => { loadPeople(); }, [loadPeople]);
   useEffect(() => { loadGap(); }, [loadGap]);
 
@@ -301,7 +313,7 @@ export default function OpsHome({
         )}
 
         {/* ══ 2. PEOPLE ══ */}
-        <div style={{ padding:'6px 16px 0' }}>
+        <div ref={peopleRef} style={{ padding:'6px 16px 0', scrollMarginTop:90 }}>
           <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
             <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
               Who's stuck

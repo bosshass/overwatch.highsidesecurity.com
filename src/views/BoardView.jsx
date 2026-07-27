@@ -1275,6 +1275,19 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'1px solid #1e293b' }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <button onClick={onBack} style={{ background:'#1e293b', border:'none', color:'#94a3b8', padding:'7px 14px', borderRadius:8, cursor:'pointer', fontSize:13 }}>← Home</button>
+          {/* Straight to Who's stuck. "← Home" technically got you there, but
+              it drops you at the top of the page and you have to scroll past
+              the warnings to find the person you were thinking about. */}
+          <button onClick={() => navigate('/?focus=people')}
+            style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
+                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
+            👥 Who's stuck
+          </button>
+          <button onClick={() => navigate('/workspace')}
+            style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
+                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
+            🗂️ My Tasks
+          </button>
           <span style={{ fontWeight:700, fontSize:16 }}>📋 Board</span>
         </div>
         <div style={{ display:'flex', gap:8 }}>

@@ -15,6 +15,7 @@ export default function ArchiveModal({ count, hours, onCancel, onConfirm }) {
 
   const notReal  = ARCHIVE_REASONS.filter(r => r.cls === 'not_real');
   const absorbed = ARCHIVE_REASONS.filter(r => r.cls === 'absorbed');
+  const sales    = ARCHIVE_REASONS.filter(r => r.cls === 'sales');
 
   const go = async () => {
     if (!reason) return;
@@ -71,6 +72,13 @@ export default function ArchiveModal({ count, hours, onCancel, onConfirm }) {
           blurb="The truck rolled. A tech's hours went in. This is REAL COST with ZERO REVENUE, and it will show up on the customer's profitability as money DRH lost. Do not file these as 'test'."
           items={absorbed}
           color="#f59e0b"
+        />
+
+        <Group
+          title="Sales / estimate visit"
+          blurb="Real time spent, but not a mistake — this is the normal cost of running a pipeline, not something to minimize the way a callback is. Keeping it separate from 'we ate it' is the point."
+          items={sales}
+          color="#a855f7"
         />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>

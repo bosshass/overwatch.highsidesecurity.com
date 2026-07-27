@@ -19,7 +19,7 @@
 //   building a steps array; Board is the first screen to use it because
 //   every operator lands there now.
 
-import { useState, useEffect, useCallback, useLayoutEffect } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 
 const PAD = 6; // breathing room between the highlighted element and the cut
 
@@ -28,30 +28,55 @@ export default function Spotlight({ steps, onDone, onSkip }) {
   const [rect, setRect] = useState(null);
   const [missing, setMissing] = useState(false);
   const step = steps[i];
+  const settleTimer = useRef(null);
 
-  const measure = useCallback(() => {
+  // THE BUG: this used to call scrollIntoView() from BOTH the step-change
+  // effect AND the scroll listener — and the listener was capture-phase on
+  // window, which also catches the Board's own internal horizontal column
+  // scroll, not just page scroll. So: scroll into view → that scroll event
+  // fires → handler calls scrollIntoView again → which scrolls → which fires
+  // again. Any attempt to scroll manually got immediately yanked back, which
+  // is exactly "scroll only lets you go one way." Overlapping setTimeouts
+  // from repeated calls could also land after the step had already changed,
+  // painting a rect for the wrong element — the "box disappears."
+  //
+  // FIX: only the step-change effect is allowed to call scrollIntoView, and
+  // only once. The scroll/resize listener now ONLY re-reads position to keep
+  // the highlight glued to the element — it never scrolls anything itself.
+  const measure = useCallback((doScroll) => {
     if (!step) return;
     const el = document.querySelector(`[data-tour="${step.target}"]`);
     if (!el) { setMissing(true); setRect(null); return; }
     setMissing(false);
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    // Measure after the scroll settles, not before — mid-scroll coordinates
-    // are wrong for the whole step.
-    setTimeout(() => {
+
+    const apply = () => {
       const r = el.getBoundingClientRect();
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-    }, 260);
+    };
+
+    if (doScroll) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+      settleTimer.current = setTimeout(apply, 260);
+    } else {
+      apply();
+    }
   }, [step]);
 
-  useLayoutEffect(() => { measure(); }, [measure]);
+  useLayoutEffect(() => {
+    measure(true);
+    return () => { if (settleTimer.current) clearTimeout(settleTimer.current); };
+  }, [measure]);
 
   useEffect(() => {
-    const onResize = () => measure();
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onResize, true);
+    // Track-only — never triggers a scroll of its own, so a manual scroll
+    // (including the Board's own horizontal column scroll) is never fought.
+    const onTrack = () => measure(false);
+    window.addEventListener('resize', onTrack);
+    window.addEventListener('scroll', onTrack, true);
     return () => {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onResize, true);
+      window.removeEventListener('resize', onTrack);
+      window.removeEventListener('scroll', onTrack, true);
     };
   }, [measure]);
 

@@ -20,6 +20,7 @@
 import { useState } from 'react';
 import { LANES, movesFor, laneOf } from '../utils/lanes.js';
 import NotesPanel from './NotesPanel.jsx';
+import FieldVisits from './FieldVisits.jsx';
 
 const C = {
   bg: '#0f1729', panel: '#16233a', raised: '#1b2b45', line: '#2a3b56',
@@ -44,6 +45,8 @@ export default function TicketSheet({
   timeSection = null,     // Work To Do Today passes its time entry block here
   billingSection = null,  // Billing passes its unbilled-hours block here
   headerExtra = null,
+  extras = null,          // surface-specific tools (merge, UUID link) — AFTER notes
+  onSchedulePrimary = null, // renders the big "Open Scheduler" button when set
   busy = false,
 }) {
   const [note, setNote] = useState('');
@@ -140,6 +143,16 @@ export default function TicketSheet({
           <div style={{ marginBottom: 14 }}>{billingSection}</div>
         )}
 
+        {/* Scheduler as a primary action for schedulable statuses */}
+        {onSchedulePrimary && (
+          <button onClick={() => onSchedulePrimary()}
+            style={{ width: '100%', background: '#8b5cf6', border: 'none', borderRadius: 12,
+                     color: '#fff', fontWeight: 800, fontSize: 14, padding: '13px 0',
+                     cursor: 'pointer', marginBottom: 14 }}>
+            {job.status === 'scheduled' ? '🔁 Reschedule (pick new tech + time)' : '📅 Open Scheduler (pick tech + time)'}
+          </button>
+        )}
+
         {/* ── WHERE NEXT — identical on every surface ── */}
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>Where does this go next?</div>
@@ -200,8 +213,16 @@ export default function TicketSheet({
           {err && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 9 }}>{err}</div>}
         </div>
 
+        {/* ── Field visits — the tech's actual logged time ── */}
+        <FieldVisits job={job} />
+
         {/* ── Notes — same component, same place, every surface ── */}
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+
+        {/* ── Surface-specific tools (merge, UUID link) — deliberately LAST.
+            They exist, they matter, and they are not the reason anyone opens
+            a ticket. ── */}
+        {extras}
       </div>
     </div>
   );

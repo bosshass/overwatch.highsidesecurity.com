@@ -104,7 +104,7 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
   const created = await apiCreate(accessToken, calendarId, event);
   try {
     const deepLink = jobDeepLink(calendarId, created.id);
-    const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;
+    const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
     await apiPatch(accessToken, calendarId, created.id, { description: updatedDesc });
     created.description = updatedDesc;
   } catch (e) { console.warn('Deep link patch failed (non-fatal):', e.message); }
@@ -168,7 +168,10 @@ export function buildEventDescription(job, latestNote) {
   if (job.panel_password) desc += `🔐 Panel: ${job.panel_password}\n`;
   if (job.issue) desc += `\nIssue: ${job.issue}\n`;
   if (latestNote) desc += `\n--- Latest Note ---\n${latestNote}\n`;
-  desc += '\n⚡ Managed by JUC-E';
+  // "Managed by Overwatch" from here on. Nothing READS these markers anymore —
+  // the orphan scan resolves against the database (9.9.27) — so old events
+  // keeping the old JUC-E text costs nothing. This is purely what a human sees.
+  desc += '\n⚡ Managed by Overwatch';
   return desc;
 }
 
@@ -344,10 +347,23 @@ export async function scanForOrphans(accessToken) {
     .not('status', 'in', '(billed,archived,dead,lost)')
     .limit(500);
 
-  const timeMin = new Date();
-  timeMin.setDate(timeMin.getDate() - 7);
+  // June 1 back-wall, per Sara: everything on the calendars since then either
+  // billed (invoice number in the title / completed marker), became a job, or
+  // is exactly the leak this scan exists to surface — work that happened with
+  // no notes, no time entry, no bill. Seven days of lookback was hiding two
+  // months of that.
+  const timeMin = new Date('2026-06-01T00:00:00');
   const timeMax = new Date();
   timeMax.setDate(timeMax.getDate() + 30);
+
+  // Billed-by-title: the team writes the invoice number into the event title
+  // when it's been billed, and completed work carries the ✅ marker. Those are
+  // DONE — flagging them as "will not bill" would bury the real leaks under
+  // a pile of finished ones.
+  const looksBilled = (ev) =>
+    /\binv(oice)?\s*#?\s*\d{3,}/i.test(ev.summary || '') ||
+    /\[(BILLED|BILL IT|PAID)\]/i.test(ev.summary || '') ||
+    /✅\s*COMPLETED/i.test(ev.description || '');
 
   // Only scan INPUT calendars — skip output/archive calendars
   const SKIP_TYPES = ['completed', 'sales', 'installations'];
@@ -358,6 +374,7 @@ export async function scanForOrphans(accessToken) {
       const events = await apiGet(accessToken, cal.id, timeMin, timeMax);
       for (const event of events) {
         if (!event.start?.dateTime || event.status === 'cancelled') continue;
+        if (looksBilled(event)) { results.synced++; continue; }
 
         // THE CARD CHECK — this is the fix. "Linked" now means exactly what
         // the board means by it: a jobs row references this calendar event.

@@ -76,6 +76,9 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // stacked — six people × 42 days is a wall of squares you have to scroll past
   // to reach the buttons. Pick a person, then see their calendar.
   const [openTech, setOpenTech] = useState(null);
+  // Second (third…) tech riding the same booking — "preferably two techs" is a
+  // real request that used to require booking twice by hand.
+  const [helperIds, setHelperIds] = useState([]);
 
   const validTechs = (techs || []).filter(t => t.calendar_id);
 
@@ -235,7 +238,8 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
       // jobs + calendar + memory columns itself — one of several writers whose
       // subsets disagreed. Now everything that means "scheduled" changes
       // together or not at all.
-      await book({ job, tech, start, end, accessToken });
+      const helpers = validTechs.filter(t => helperIds.includes(t.id) && t.id !== tech.id);
+      await book({ job, tech, start, end, accessToken, helpers });
       onScheduled();
     } catch (e) { setErr(e.message || 'Failed to schedule'); }
     setSaving(false);
@@ -476,6 +480,26 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                   <input type="time" value={holdEnd} onChange={e => setHoldEnd(e.target.value)}
                     style={{ flex: 1, background: '#0b1420', border: '1px solid #2a3f5c', borderRadius: 8,
                              color: '#e2e8f0', padding: '9px 10px', fontSize: 14, outline: 'none' }} />
+                </div>
+
+                {/* Riding along — optional extra techs. Primary owns the booking;
+                    helpers get the same event mirrored to their calendars. */}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+                  <span style={{ fontSize: 10, color: '#8497b0', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    also send
+                  </span>
+                  {validTechs.filter(t => t.id !== selectedDay.techId).map(t => {
+                    const on = helperIds.includes(t.id);
+                    return (
+                      <button key={t.id}
+                        onClick={() => setHelperIds(ids => on ? ids.filter(x => x !== t.id) : [...ids, t.id])}
+                        style={{ background: on ? '#00c8e8' : '#0b1420', color: on ? '#08121f' : '#8497b0',
+                                 border: `1px solid ${on ? '#00c8e8' : '#2a3f5c'}`, borderRadius: 20,
+                                 padding: '4px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                        {t.name}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}

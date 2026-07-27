@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
+import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf } from '../utils/ownership.js';
 import { LANES, CLEAR_LANE } from '../utils/lanes.js';
@@ -386,500 +386,48 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
 // "Show this in My Tasks" button. The build stayed green because Vite doesn't
 // check undefined identifiers; that's what the lint gate is for now.
 function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch }) {
-  const verbs = STATUS_VERBS[job.status] || [];
-  const si = STATUS_INFO[job.status] || {};
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [showEstStages, setShowEstStages] = useState(false);
-  const [titleVal, setTitleVal] = useState(job.customer_name || '');
-  const [savingTitle, setSavingTitle] = useState(false);
-
-  const saveTitle = async () => {
-    const next = titleVal.trim();
-    if (!next || next === job.customer_name) { setEditingTitle(false); return; }
-    setSavingTitle(true);
-    try {
-      const { error } = await supabase.from('jobs').update({ customer_name: next }).eq('id', job.id);
-      if (error) throw error;
-      onRenamed?.(job.id, next);
-      setEditingTitle(false);
-    } catch (e) {
-      alert('Could not rename: ' + e.message);
-    } finally {
-      setSavingTitle(false);
-    }
-  };
-
-  // ── Add note ────────────────────────────────
-  const [noteText, setNoteText] = useState('');
-  const [savingNote, setSavingNote] = useState(false);
-  const [noteOk, setNoteOk] = useState(false);
-  const [jobNotes, setJobNotes] = useState([]);
-  const loadNotes = useCallback(async () => {
-    try { setJobNotes(await notesApi.getAllForJob(job.id)); } catch { setJobNotes([]); }
-  }, [job.id]);
-  useEffect(() => { loadNotes(); }, [loadNotes]);
-  const addNote = async () => {
-    const t = noteText.trim();
-    if (!t) return;
-    setSavingNote(true);
-    try {
-      await notesApi.addNote(job.id, t, userEmail || 'board');
-      setNoteText('');
-      setNoteOk(true);
-      setTimeout(() => setNoteOk(false), 2000);
-      loadNotes();
-    } catch (e) {
-      alert('Could not add note: ' + e.message);
-    } finally {
-      setSavingNote(false);
-    }
-  };
-
-  // ── Assign (used especially when Blocked) ────
-  const [assigning, setAssigning] = useState(false);
-  const [typedAssignee, setTypedAssignee] = useState('');
-  // Tech we just assigned to, so we can offer to notify them (email / text).
-  // null while nothing pending; set to a tech object right after a successful assign.
-  const [notifyTarget, setNotifyTarget] = useState(null);
-  const [phoneInput, setPhoneInput] = useState('');
-  const [editingPhone, setEditingPhone] = useState(false);
-  const [assigned, setAssigned] = useState({ id: job.tech_assigned || null, name: job.tech_name || null });
-  const [justAssigned, setJustAssigned] = useState(false);
-  const [sendingText, setSendingText] = useState(false);
-  const [textResult, setTextResult] = useState(null); // { ok, msg }
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const [emailResult, setEmailResult] = useState(null); // { ok, msg, reauth }
-
-  const sendAssignEmail = async () => {
-    if (!notifyTarget?.email) return;
-    setSendingEmail(true); setEmailResult(null);
-    const { subject, body } = assignmentEmail(notifyTarget.name, job);
-    const result = await sendGmail(accessToken, { to: notifyTarget.email, subject, body });
-    setEmailResult(result);
-    if (result.ok) {
-      try { await notesApi.addNote(job.id, `Assignment email sent to ${notifyTarget.name} (${notifyTarget.email})`, 'board'); } catch {}
-    }
-    setSendingEmail(false);
-  };
-
-  const assignTo = async (tech) => {
-    // tech === null means "assign to no one" (the unassign radio option)
-    setAssigning(true);
-    setTextResult(null);
-    try {
-      if (tech && tech.name) {
-        const upd = { tech_name: tech.name };
-        if (tech.id) upd.tech_assigned = tech.id;   // only set FK when a real tech row
-        const { error } = await supabase.from('jobs').update(upd).eq('id', job.id);
-        if (error) throw error;
-        try { notifyJobAssigned(tech.name, job.customer_name || 'a job', job.scheduled_date || null); } catch {}
-        try { await notesApi.addNote(job.id, `Assigned to ${tech.name}${job.status==='blocked'?' (BLOCKED — needs attention)':''}`, 'board'); } catch {}
-        setTypedAssignee('');
-        setPhoneInput(tech.phone || '');
-        setEditingPhone(!tech.phone);
-        setAssigned({ id: tech.id || null, name: tech.name });
-        setJustAssigned(true);
-        setTimeout(() => setJustAssigned(false), 2600);
-        setEmailResult(null); setNotifyTarget(tech); // offer email/text notify
-      } else {
-        // Unassign: clear the job row AND any active (non-complete) job_assignments
-        // rows tied to this job, so the person is fully off this task everywhere —
-        // not just cleared on the jobs table — while staying in the tech list.
-        const prevName = job.tech_name;
-        const { error } = await supabase.from('jobs').update({ tech_name: null, tech_assigned: null }).eq('id', job.id);
-        if (error) throw error;
-        try {
-          await supabase.from('job_assignments').delete().eq('job_id', job.id)
-            .or('is_complete.is.null,is_complete.eq.false');
-        } catch (e) { console.error('Could not clear job_assignments for unassign:', e); }
-        try { await notesApi.addNote(job.id, `Unassigned${prevName ? ` (was ${prevName})` : ''}`, 'board'); } catch {}
-        setAssigned({ id: null, name: null });
-        setNotifyTarget(null);
-      }
-      onRenamed?.(job.id, job.customer_name); // trigger parent refresh of this job
-    } catch (e) {
-      alert('Could not update assignment: ' + e.message);
-    } finally {
-      setAssigning(false);
-    }
-  };
-
-  // A typed-in assignee has no tech row, so id is null — match on name too,
-  // or the highlight silently never appears for them.
-  const isOn = (tech) => (tech.id && assigned.id === tech.id)
-    || (!!assigned.name && !!tech.name && assigned.name.toLowerCase() === tech.name.toLowerCase());
-  const noneOn = !assigned.id && !assigned.name;
-
-  const emailHref = notifyTarget?.email
-    ? `mailto:${notifyTarget.email}?subject=${encodeURIComponent(`Job assigned: ${job.customer_name || 'Job'}`)}&body=${encodeURIComponent(
-        `Hi ${notifyTarget.name},\n\n${assignmentMessage(job)}\n\n— Overwatch`
-      )}`
-    : null;
-
-  // Short link + the ASK. A raw UUID looks like malware in a text message and
-  // "you've been assigned to a job" tells the tech nothing they can act on.
-  const jobLink = shortJobLink(job.id);
-  const smsMessage = assignmentMessage(job);
-  const smsHref = phoneInput ? `sms:${phoneInput.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(smsMessage)}` : null;
-
-  const savePhoneAndSend = async () => {
-    if (!notifyTarget?.id || !phoneInput.trim()) return;
-    setEditingPhone(false);
-    setSendingText(true);
-    setTextResult(null);
-    try {
-      if (notifyTarget.id && phoneInput.trim() !== (notifyTarget.phone || '')) {
-        await techsApi.update(notifyTarget.id, { phone: phoneInput.trim() });
-      }
-      const res = await fetch('/api/send-sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: phoneInput.trim(), message: smsMessage }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || data.error || 'Send failed');
-      setTextResult({ ok: true, msg: `Texted ${notifyTarget.name}.` });
-    } catch (e) {
-      setTextResult({ ok: false, msg: `Auto-send failed (${e.message}) — use "text manually" below instead.` });
-    } finally {
-      setSendingText(false);
-    }
-  };
-
+  // REBUILT 9.11.0 as a thin shell around TicketSheet. This drawer was the
+  // third bespoke ticket layout (JobDetail had two more of its own). Opening
+  // the same job from the board, from My Tasks and from a link now renders the
+  // SAME component. Board-only tools (merge, UUID link, watch) ride in the
+  // extras slot; nothing was lost, it just stopped being a separate design.
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
-      <div style={{ background:'#1e293b', borderRadius:'16px 16px 0 0', width:'100%', maxWidth:520, padding:'20px 20px 40px', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ width:36, height:4, background:'#334155', borderRadius:2, margin:'0 auto 16px' }} />
-
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
-          <div>
-            <span style={{ fontSize:11, color:si.color||'#94a3b8', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>{si.icon} {si.label}</span>
-            {editingTitle ? (
-              <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:4 }}>
-                <input autoFocus value={titleVal} onChange={e => setTitleVal(e.target.value)}
-                  onKeyDown={e => { if (e.key==='Enter') saveTitle(); if (e.key==='Escape') { setTitleVal(job.customer_name||''); setEditingTitle(false); } }}
-                  style={{ flex:1, padding:'6px 8px', borderRadius:6, border:'1px solid #475569', background:'#0f172a', color:'#fff', fontSize:16, boxSizing:'border-box' }} />
-                <button onClick={saveTitle} disabled={savingTitle} style={{ padding:'6px 10px', borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>{savingTitle?'…':'Save'}</button>
-                <button onClick={() => { setTitleVal(job.customer_name||''); setEditingTitle(false); }} style={{ padding:'6px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer' }}>✕</button>
-              </div>
-            ) : (
-              <h3 onClick={() => setEditingTitle(true)} title="Tap to rename"
-                style={{ margin:'4px 0 0', color:'#fff', fontSize:17, cursor:'text' }}>
-                {job.customer_name||'—'} <span style={{ fontSize:12, color:'#cbd5e1' }}>✎</span>
-              </h3>
-            )}
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <CopyJobLink job={job} />
-            <button onClick={onClose} style={{ background:'none', border:'none', color:'#cbd5e1', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
-          </div>
-        </div>
-
-        {/* UUID linker */}
-        {!job.customer_id && <UUIDLinker job={job} onLinked={onUUIDLinked} />}
-
-        {/* Details — show original dates not today */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 16px', fontSize:12, marginBottom:14 }}>
-          {[
-            ['type', job.job_type],
-            ['priority', job.priority],
-            ['address', job.customer_address],
-            ['phone', job.customer_phone],
-            ['CMS', job.cms_account_id],
-            ['tentative hold', job.tentative_date
-              ? new Date(job.tentative_date).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
-              : null],
-            ['tech on site', job.tech_name],
-            ['assigned to', assigneeOf(job)],
-            ['scheduled', job.scheduled_date],
-            ['created', fmtDate(job.created_at)],
-            ['updated', job.updated_at !== job.created_at ? fmtDate(job.updated_at) : null],
-          ].filter(([,v]) => v).map(([label,val]) => (
-            <div key={label}>
-              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>{label}</div>
-              <div style={{ color:'#cbd5e1' }}>{val}</div>
-            </div>
-          ))}
-          <div style={{ gridColumn:'1/-1', marginTop:4 }}>
-            <button onClick={() => onWatch?.(job)}
-              style={{ marginBottom:12, background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
-                       borderRadius:8, padding:'7px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-              👁 Show this in My Tasks
-            </button>
-            <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:5 }}>assign to</div>
-            <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-              {[...ASSIGNEES, { email:null, name:'Nobody' }].map(a => (
-                <button key={a.name} onClick={() => assignTo(job.id, a.email)}
-                  style={{
-                    background: (job.assigned_to || null) === a.email ? '#00c8e8' : '#1e293b',
-                    color: (job.assigned_to || null) === a.email ? '#0f172a' : '#94a3b8',
-                    border:'none', borderRadius:20, padding:'5px 12px',
-                    fontSize:11, fontWeight:700, cursor:'pointer',
-                  }}>{a.name}</button>
-              ))}
-            </div>
-          </div>
-          {job.estimate_amount > 0 && (
-            <div style={{ gridColumn:'1/-1' }}>
-              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>estimate</div>
-              <div style={{ color:'#22c55e', fontWeight:600, fontSize:14 }}>{fmtMoney(job.estimate_amount)}</div>
-            </div>
-          )}
-        </div>
-
-        {stripIntakeTemplate(job.issue) && (
-          <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:14 }}>
-            <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
-            <div style={{ color:'#e2e8f0', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{stripIntakeTemplate(job.issue)}</div>
-          </div>
-        )}
-
-        {/* Add a note — works on any job */}
-        <div style={{ marginBottom:14 }}>
-          <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>add note</div>
-          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={2} placeholder="Type a note…"
-            style={{ width:'100%', padding:10, borderRadius:8, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
-          <button onClick={addNote} disabled={savingNote||!noteText.trim()}
-            style={{ marginTop:6, padding:'8px 14px', borderRadius:8, border:'none', background:noteText.trim()?'#3b82f6':'#334155', color:'#fff', fontWeight:600, fontSize:13, cursor:noteText.trim()?'pointer':'not-allowed' }}>
-            {savingNote ? 'Saving…' : noteOk ? '✓ Added' : '+ Add note'}
-          </button>
-
-          {/* Notes thread — shows the notes that were added */}
-          {jobNotes.length > 0 && (
-            <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
-              {jobNotes.map(n => (
-                <div key={n.id} style={{ background:'#0f172a', borderRadius:8, padding:'8px 10px', borderLeft:'2px solid #3b82f6' }}>
-                  <div style={{ color:'#cbd5e1', fontSize:12, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.text}</div>
-                  <div style={{ color:'#94a3b8', fontSize:11, marginTop:3 }}>
-                    {n.created_by || 'unknown'} · {fmtDate(n.created_at)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Assign to a user — emphasized when Blocked */}
-        <div style={{ marginBottom:14, padding:job.status==='blocked'?'12px':'0', borderRadius:8, background:job.status==='blocked'?'#dc262615':'transparent', border:job.status==='blocked'?'1px solid #dc262640':'none' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap' }}>
-            <span style={{ color:job.status==='blocked'?'#dc2626':'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, fontWeight:700 }}>
-              {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
-            </span>
-            {assigned.name
-              ? <span style={{ fontSize:13, fontWeight:800, color:'#22c55e', background:'#22c55e22', border:'1px solid #22c55e', borderRadius:6, padding:'2px 9px' }}>
-                  {justAssigned ? '✓ Now assigned to ' : 'Owner: '}{assigned.name}
-                </span>
-              : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', borderRadius:6, padding:'2px 9px' }}>Unassigned</span>}
-            {assigning && <span style={{ fontSize:12, color:'#94a3b8' }}>saving…</span>}
-          </div>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-            {/* Unassigned / "no one" — always first */}
-            <label style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`2px solid ${noneOn ? '#94a3b8' : '#334155'}`, background: noneOn ? '#94a3b822' : 'transparent', cursor: assigning?'default':'pointer', fontSize:13, color: noneOn ? '#e2e8f0' : '#94a3b8', fontWeight: noneOn ? 700 : 400 }}>
-              <input type="radio" name={`assign-${job.id}`} disabled={assigning}
-                checked={noneOn}
-                onChange={() => assignTo(null)}
-                style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
-              {noneOn ? '✓ ' : ''}Unassigned
-            </label>
-            {(techs||[]).map(tech => (
-              <label key={tech.id} style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`2px solid ${isOn(tech)?'#22c55e':'#334155'}`, background:isOn(tech)?'#22c55e28':'transparent', cursor: assigning?'default':'pointer', fontSize:13, color:isOn(tech)?'#22c55e':'#cbd5e1', fontWeight:isOn(tech)?700:400 }}>
-                <input type="radio" name={`assign-${job.id}`} disabled={assigning}
-                  checked={isOn(tech)}
-                  onChange={() => assignTo(tech)}
-                  style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
-                {isOn(tech) ? '✓ ' : ''}{tech.name}
-              </label>
-            ))}
-            {(!techs || techs.length === 0) && (
-              <div style={{ color:'#94a3b8', fontSize:12 }}>No team members loaded — type a name below.</div>
-            )}
-          </div>
-          {/* Typed-name fallback — for a person not in the techs table */}
-          <div style={{ display:'flex', gap:6, marginTop:8 }}>
-            <input value={typedAssignee} onChange={e => setTypedAssignee(e.target.value)} placeholder="…or type a name"
-              onKeyDown={e => { if (e.key==='Enter' && typedAssignee.trim()) assignTo({ id:null, name:typedAssignee.trim() }); }}
-              style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
-            <button onClick={() => typedAssignee.trim() && assignTo({ id:null, name:typedAssignee.trim() })} disabled={assigning||!typedAssignee.trim()}
-              style={{ padding:'6px 12px', borderRadius:6, border:'none', background:typedAssignee.trim()?'#22c55e':'#334155', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>Assign</button>
-          </div>
-
-          {/* Notify panel — shows right after assigning to someone with an id (a real tech row) */}
-          {notifyTarget?.id && (
-            <div style={{ marginTop:10, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #334155' }}>
-              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:600 }}>
-                Let {notifyTarget.name} know
-              </div>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                {notifyTarget.email ? (
-                  <button onClick={sendAssignEmail} disabled={sendingEmail || emailResult?.ok}
-                    style={{ padding:'6px 12px', borderRadius:6, border:'none', background: emailResult?.ok ? '#22c55e' : '#334155', color:'#fff', fontSize:13, fontWeight:600, cursor: sendingEmail || emailResult?.ok ? 'default' : 'pointer' }}>
-                    {sendingEmail ? 'Sending…' : emailResult?.ok ? '✅ Email sent' : `✉️ Email ${notifyTarget.name}`}
-                  </button>
-                ) : (
-                  <div style={{ color:'#f59e0b', fontSize:12 }}>No email on file for {notifyTarget.name}.</div>
-                )}
-              </div>
-              {emailResult && (
-                <div style={{ marginTop:6, fontSize:12, color: emailResult.ok ? '#22c55e' : '#ef4444' }}>
-                  {emailResult.ok ? `✅ ${emailResult.msg}` : `⚠️ ${emailResult.msg}`}
-                  {!emailResult.ok && !emailResult.reauth && emailHref && (
-                    <> — <a href={emailHref} style={{ color:'#94a3b8' }}>open in Mail instead</a></>
-                  )}
-                </div>
-              )}
-
-              <div style={{ marginTop:10 }}>
-                {editingPhone ? (
-                  <div style={{ display:'flex', gap:6 }}>
-                    <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)} placeholder="Phone number to text (e.g. +17195551234)"
-                      onKeyDown={e => { if (e.key === 'Enter' && phoneInput.trim()) savePhoneAndSend(); }}
-                      style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
-                    <button onClick={savePhoneAndSend} disabled={!phoneInput.trim() || sendingText}
-                      style={{ padding:'6px 12px', borderRadius:6, border:'none', background: phoneInput.trim() ? '#22c55e' : '#334155', color:'#fff', fontSize:13, fontWeight:600, cursor: phoneInput.trim() ? 'pointer' : 'not-allowed' }}>
-                      Save
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                    <button onClick={savePhoneAndSend} disabled={sendingText}
-                      style={{ padding:'6px 12px', borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-                      {sendingText ? 'Sending…' : `📱 Text ${notifyTarget.name}`}
-                    </button>
-                    <a href={smsHref} style={{ fontSize:12, color:'#94a3b8', textDecoration:'underline' }}>
-                      or text manually
-                    </a>
-                    <button onClick={() => setEditingPhone(true)} title="Edit number"
-                      style={{ padding:'4px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
-                      edit #
-                    </button>
-                  </div>
-                )}
-                {textResult && (
-                  <div style={{ marginTop:6, fontSize:12, color: textResult.ok ? '#22c55e' : '#f59e0b' }}>{textResult.msg}</div>
-                )}
-              </div>
-
-              <button onClick={() => { setNotifyTarget(null); setTextResult(null); setEmailResult(null); }}
-                style={{ marginTop:8, padding:'4px 8px', borderRadius:6, border:'none', background:'transparent', color:'#cbd5e1', fontSize:11, cursor:'pointer' }}>
-                dismiss
+    <div onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.75)', zIndex:900,
+               display:'flex', justifyContent:'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width:'100%', maxWidth:560, background:'#0f1729', overflowY:'auto',
+                 borderLeft:'1px solid #2a3b56' }}>
+        <TicketSheet
+          job={job}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          busy={moving}
+          onClose={onClose}
+          onOpenScheduler={() => onSchedule(job)}
+          onSchedulePrimary={
+            ['ready_to_schedule','return_pending','scheduled'].includes(job.status)
+              ? () => onSchedule(job) : null
+          }
+          onMove={async (target, note) => { await onStatusMove(job.id, target, note); }}
+          extras={
+            <div style={{ marginTop: 14, display:'flex', flexDirection:'column', gap: 10 }}>
+              <button onClick={() => onWatch?.(job)}
+                style={{ background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
+                         borderRadius:8, padding:'9px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                👁 Show this in My Tasks
               </button>
+              <UUIDLinker job={job} onLinked={onUUIDLinked} />
+              <MergeTool job={job} allJobs={allJobs} onMerge={onMerge}
+                accessToken={accessToken} userEmail={userEmail} />
             </div>
-          )}
-        </div>
-
-        {/* Merge tool */}
-        <MergeTool job={job} allJobs={allJobs} onMerge={onMerge} accessToken={accessToken} userEmail={userEmail} />
-
-        {/* Optional scheduler for ready/return */}
-        {(job.status==='ready_to_schedule'||job.status==='return_pending'||job.status==='scheduled') && (
-          <button onClick={() => { onSchedule(job); }}
-            style={{ width:'100%', padding:12, borderRadius:8, border:'none', background:'#8b5cf6', color:'#fff', fontWeight:600, fontSize:14, cursor:'pointer', marginBottom:10 }}>
-            {job.status==='scheduled' ? '🔁 Reschedule (pick new tech + time)' : '📅 Open Scheduler (pick tech + time)'}
-          </button>
-        )}
-
-        {/* Move to a lane — the 6 board buckets, not 15 raw statuses */}
-        <div>
-          <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6 }}>move to</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            {LANE_MOVES.map(lane => {
-              const isHere = lane.statuses.includes(job.status);
-              if (lane.key === 'estimates') {
-                return (
-                  <button key={lane.key} onClick={() => setShowEstStages(s => !s)} disabled={moving}
-                    style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:lane.color, fontWeight:700, fontSize:13, cursor:'pointer', gridColumn: showEstStages ? '1 / -1' : 'auto' }}>
-                    {lane.label} ▾
-                  </button>
-                );
-              }
-              // Tentative and Scheduled both need a DATE, so they open the
-              // scheduler instead of writing a status. That is the whole point:
-              // a job cannot claim to be booked or held without one.
-              if (lane.schedule) {
-                const held = lane.key === 'tentative' && job.tentative_date;
-                return (
-                  <button key={lane.key} onClick={() => onSchedule(job)} disabled={moving}
-                    style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`,
-                             background:(isHere||held)?`${lane.color}22`:'transparent', color:lane.color,
-                             fontWeight:700, fontSize:13, cursor:'pointer' }}>
-                    {(isHere||held) ? '● ' : ''}{lane.label}
-                    <span style={{ display:'block', fontSize:10, fontWeight:500, opacity:0.75, marginTop:2 }}>
-                      {held ? `held ${new Date(job.tentative_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
-                            : lane.key === 'tentative' ? 'pick a day to hold' : 'pick tech + time'}
-                    </span>
-                  </button>
-                );
-              }
-              if (lane.key === 'clear') {
-                return (
-                  <button key={lane.key} disabled={moving||isHere}
-                    onClick={() => {
-                      if (window.confirm(`Clear "${job.customer_name || 'this job'}"? It leaves the active board and is not billed. This isn't billing history — undo it later from Archived if needed.`)) {
-                        onStatusMove(job.id, lane.target);
-                      }
-                    }}
-                    style={{ gridColumn:'1 / -1', padding:12, borderRadius:8, border:`1px dashed ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:isHere?'#fff':lane.color, fontWeight:700, fontSize:13, cursor:isHere?'default':'pointer', opacity:moving?0.6:1 }}>
-                    {isHere ? '● ' : ''}{lane.label}
-                  </button>
-                );
-              }
-              return (
-                <button key={lane.key} onClick={() => onStatusMove(job.id, lane.target)} disabled={moving||isHere}
-                  style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}33`:'transparent', color:isHere?'#fff':lane.color, fontWeight:700, fontSize:13, cursor:isHere?'default':'pointer', opacity:moving?0.6:1 }}>
-                  {isHere ? '● ' : ''}{lane.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Estimates sub-stages — revealed on tap */}
-          {showEstStages && (
-            <div style={{ marginTop:8, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #f59e0b40' }}>
-              <div style={{ color:'#f59e0b', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:700 }}>Estimate stage</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                {EST_STAGES.map(st => (
-                  <button key={st.status} onClick={() => onStatusMove(job.id, st.status)} disabled={moving||job.status===st.status}
-                    style={{ padding:10, borderRadius:8, border:`1px solid ${st.color}`, background:job.status===st.status?`${st.color}33`:'transparent', color:job.status===st.status?'#fff':st.color, fontWeight:600, fontSize:12, cursor:'pointer' }}>
-                    {st.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          }
+        />
       </div>
     </div>
   );
 }
 
-// ── CopyJobLink ───────────────────────────────────────────────────────────────
-// Hands you a shareable link to THIS job, anchored on its UUID. Works for
-// anything on the board — a scheduled install, a return, or "JR to sign his
-// taxes" that has no calendar event at all. Anyone who opens it lands on this
-// job's drawer with its full note thread.
-function CopyJobLink({ job }) {
-  const [copied, setCopied] = useState(false);
-  const url = shortJobLink(job.id);
-  const copy = async (e) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // clipboard API is blocked on some in-app browsers — fall back to a prompt
-      window.prompt('Copy this link:', url);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-  return (
-    <button onClick={copy} title="Copy a link to this job"
-      style={{ background:'none', border:'1px solid #334155', borderRadius:6, color: copied ? '#22c55e' : '#94a3b8', fontSize:12, fontWeight:600, padding:'5px 9px', cursor:'pointer', whiteSpace:'nowrap' }}>
-      {copied ? '✓ Copied' : '🔗 Link'}
-    </button>
-  );
-}
-
-// ── Job card ──────────────────────────────────────────────────────────────────
 function JobCard({ job, onSelect, onQuickMove, moving }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
@@ -1150,16 +698,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, [deepJobId, navigate]);
 
   // Status move — no note required, never touches created_at
-  const moveStatus = useCallback(async (jobId, newStatus) => {
+  const moveStatus = useCallback(async (jobId, newStatus, note = null) => {
     setMoving(true);
     try {
-      const { error } = await supabase.from('jobs').update({
-        status: newStatus,
-        updated_by: userEmail||'info@drhsecurityservices.com',
-        updated_at: new Date().toISOString(),
-        // created_at intentionally NOT included
-      }).eq('id', jobId);
-      if (error) throw error;
+      // changeStatus writes the history row too, so the "why" typed into the
+      // ticket sheet actually travels with the card instead of being dropped.
+      await jobsApi.changeStatus(jobId, newStatus, userEmail || 'info@drhsecurityservices.com', note);
       setJobs(prev => prev.map(j => j.id===jobId ? {...j, status:newStatus} : j));
       setSelectedJob(prev => prev?.id===jobId ? {...prev, status:newStatus} : prev);
       showToast(`→ ${STATUS_INFO[newStatus]?.label||newStatus}`);
@@ -1368,7 +912,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <DetailDrawer
           job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks}
           allJobs={jobs}
-          onStatusMove={(jobId, verb) => { moveStatus(jobId, verb); setSelectedJob(null); }}
+          onStatusMove={(jobId, verb, note) => { moveStatus(jobId, verb, note); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}
           onClose={() => setSelectedJob(null)}
           onUUIDLinked={handleUUIDLinked}

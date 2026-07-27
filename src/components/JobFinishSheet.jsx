@@ -268,7 +268,7 @@ export default function JobFinishSheet({
   // is the single most important thing on the screen and it used to be
   // collapsed behind a link.
   const scope = (event.description || '')
-    .replace(/📱.*|Open in JUC-E.*/g, '')
+    .replace(/📱.*|Open in (JUC-E|Overwatch).*/g, '')
     .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
     .split('\n')
     .filter(l => !l.trim().startsWith('📝'))

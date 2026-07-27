@@ -39,6 +39,7 @@ import CustomerPicker from '../components/CustomerPicker.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
 import { jobsApi } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
+import { ignoreOrphan, isOrphanIgnored } from '../services/calendarSync.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 // Watching cards are visually distinct so a card that came BACK to her never
@@ -147,7 +148,14 @@ function AddWork({ owner, ownerName, onClose, onDone }) {
               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
                        borderBottom: `1px solid ${BG}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}
+                  {j.tentative_date && (
+                    <span style={{ marginLeft: 7, background: '#f59e0b22', color: '#f59e0b', borderRadius: 20,
+                                   padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
+                      ✏️ Held {new Date(j.tentative_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
+                </div>
                 <div style={{ fontSize: 11, color: MUTED }}>
                   {statusLabel(j.status)}{j.issue ? ` · ${j.issue.slice(0, 60)}` : ''}
                 </div>
@@ -220,11 +228,11 @@ export default function Workspace({ accessToken, userEmail, userName }) {
               .order('created_at', { ascending: true }).limit(500),
         config.isAll
           ? supabase.from('jobs')
-              .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
+              .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date, tentative_date')
               .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
               .order('created_at', { ascending: true }).limit(1000)
           : supabase.from('jobs')
-              .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date')
+              .select('id, customer_name, issue, status, assigned_to, tech_name, created_at, scheduled_date, tentative_date')
               .or(`assigned_to.eq.${owner},tech_name.ilike.${ownerName}`)
               .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
               .order('created_at', { ascending: true }).limit(500),
@@ -275,7 +283,7 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       if (!res.ok) { console.warn('Tent calendar read failed:', res.status); setTentErr(`Tent calendar unreadable (${res.status})`); return; }
       setTentErr(null);
       const data = await res.json();
-      const live = (data.items || []).filter(e => e.status !== 'cancelled');
+      const live = (data.items || []).filter(e => e.status !== 'cancelled' && !isOrphanIgnored(e.id));
       const unlinked = [];
       for (const ev of live) {
         const job = await resolveJobForEvent(ev.id);
@@ -530,7 +538,8 @@ export default function Workspace({ accessToken, userEmail, userName }) {
             </Card>
           ))}
           {todoFeed.map(j => (
-            <Card key={j.id} accent={statusColor(j.status)} bg={watchedBackToMe.has(j.id) ? WATCH_BG : null}>
+            <Card key={j.id} accent={j.tentative_date ? '#f59e0b' : statusColor(j.status)}
+              bg={watchedBackToMe.has(j.id) ? WATCH_BG : null}>
               <div onClick={() => setOpenJob(j)} style={{ cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.25 }}>{j.customer_name || 'Unnamed'}</div>
@@ -599,6 +608,14 @@ export default function Workspace({ accessToken, userEmail, userName }) {
                   value={tentCustomer[ev.id] || null}
                   onChange={(id) => setTentCustomer(m => ({ ...m, [ev.id]: id }))}
                   placeholder="Link a client (optional)" />
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button onClick={async () => { await ignoreOrphan(ev.id); setTentEvents(p => p.filter(x => x.id !== ev.id)); }}
+                  disabled={saving}
+                  style={{ flex: 1, background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
+                           borderRadius: 8, padding: '7px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  Dismiss
+                </button>
               </div>
               <button onClick={() => makeJob(ev)} disabled={saving}
                 style={{ marginTop: 8, width: '100%', background: '#22c55e', color: '#0f1729',

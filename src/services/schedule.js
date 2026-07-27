@@ -59,7 +59,11 @@ export function scheduleOf(job) {
 // DB first (source of truth), then calendar, then the event id remembered.
 // If the calendar write fails the job is still visibly scheduled and the
 // error surfaces — the reverse order is how ghosts got made.
-export async function book({ job, tech, start, end, accessToken }) {
+// helpers: additional techs riding the same job — "Austin + JR". The primary
+// tech owns the booking (tech_assigned, scheduled_event_id); each helper gets
+// the SAME event mirrored onto their calendar so their availability grid tells
+// the truth. tech_name carries all names so the board reads "JR + Austin".
+export async function book({ job, tech, start, end, accessToken, helpers = [] }) {
   if (!job?.id) throw new Error('No job');
   if (!tech?.id || !tech?.calendar_id) throw new Error('Pick a tech');
   if (!(start instanceof Date) || !(end instanceof Date) || end <= start) throw new Error('Bad time range');
@@ -78,7 +82,7 @@ export async function book({ job, tech, start, end, accessToken }) {
     status: 'scheduled',
     scheduled_date: localDateStr(start),
     tech_assigned: tech.id,
-    tech_name: tech.name || '',
+    tech_name: [tech.name, ...helpers.map(h => h.name)].filter(Boolean).join(' + '),
     tentative_date: null,
     tentative_event_id: null,
     updated_at: new Date().toISOString(),
@@ -100,6 +104,20 @@ export async function book({ job, tech, start, end, accessToken }) {
       scheduled_calendar_id: tech.calendar_id,
     }).eq('id', job.id);
     if (memErr) console.warn('could not store scheduled event id:', memErr.message);
+  }
+
+  // Mirror onto each helper's calendar. Non-fatal per-helper: a failed mirror
+  // must not unwind a booking that already exists.
+  for (const h of helpers) {
+    if (!h?.calendar_id) continue;
+    try {
+      await createEventOnCalendar(accessToken, h.calendar_id, {
+        title: buildEventTitle(job),
+        description: buildEventDescription(job, latestNote) + `\n👥 Riding with ${tech.name}`,
+        location: job.customer_address,
+        startTime: start, endTime: end,
+      });
+    } catch (e) { console.warn(`helper mirror failed for ${h.name} (non-fatal)`, e.message); }
   }
 
   return { eventId: created?.id || null };

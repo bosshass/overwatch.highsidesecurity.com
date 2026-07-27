@@ -6,6 +6,10 @@
 //   2. jobs.scheduled_event_id           — the event VisualSchedulerModal
 //                                          creates on the TECH's calendar
 //   3. job_assignments.calendar_event_id — what other scheduling paths write
+//   4. jobs.tentative_event_id           — the "Holding <customer>" event.
+//      Missing this made the app HAND YOU BACK YOUR OWN HOLD: you'd pencil a
+//      job in, and seconds later its hold event appeared in Doing as "not on
+//      the board yet" with a Make-it-a-job button — a one-tap duplicate.
 //
 // Every screen that needed this picked its own subset, and the subsets
 // disagreed. Two live bugs came directly from that:
@@ -30,7 +34,7 @@ export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}
   try {
     const { data } = await supabase
       .from('jobs').select(select)
-      .or(`calendar_event_id.eq.${eventId},scheduled_event_id.eq.${eventId}`)
+      .or(`calendar_event_id.eq.${eventId},scheduled_event_id.eq.${eventId},tentative_event_id.eq.${eventId}`)
       .limit(1);
     if (data && data[0]) return data[0];
   } catch (e) { console.warn('resolveJobForEvent: jobs lookup failed', e); }
@@ -56,8 +60,9 @@ export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}
 export function buildEventIndex(jobs) {
   const byEvent = {};
   (jobs || []).forEach(j => {
-    if (j.calendar_event_id)  byEvent[j.calendar_event_id]  = j;
-    if (j.scheduled_event_id) byEvent[j.scheduled_event_id] = j;
+    if (j.calendar_event_id)   byEvent[j.calendar_event_id]   = j;
+    if (j.scheduled_event_id)  byEvent[j.scheduled_event_id]  = j;
+    if (j.tentative_event_id)  byEvent[j.tentative_event_id]  = j;
   });
   return {
     byId: Object.fromEntries((jobs || []).map(j => [j.id, j])),

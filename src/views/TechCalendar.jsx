@@ -366,8 +366,8 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
     try {
       const deepLink = `${APP_BASE}/?cal=${encodeURIComponent(event.calendarId)}&job=${encodeURIComponent(event.id)}`;
       const currentDesc = event.description || '';
-      const stripped = currentDesc.replace(/\n*📱 Open in JUC-E:.*$/s, '').trimEnd();
-      const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in JUC-E: ${deepLink}`;
+      const stripped = currentDesc.replace(/\n*📱 Open in (JUC-E|Overwatch):.*$/s, '').trimEnd();
+      const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
 
       await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`,

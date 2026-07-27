@@ -19,7 +19,13 @@ import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
 import MoveStatus from './MoveStatus.jsx';
 import FieldVisits from './FieldVisits.jsx';
-import ScheduleModal from './ScheduleModal.jsx';
+// ScheduleModal DELETED 9.10.7. It was a fifth scheduler with its own
+// "tentative" mode that wrote a 📌 note and nothing else — no tentative_date,
+// no Tent event, no board column — and could set status=SCHEDULED through
+// jobsApi.changeStatus, dodging every guard. It is the writer behind events
+// that said "scheduled" while the job said tentative while the owner said
+// Shana. One scheduler now: VisualSchedulerModal, same as everywhere else.
+import VisualSchedulerModal from './VisualSchedulerModal.jsx';
 import RescheduleModal from './RescheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
 
@@ -50,6 +56,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const [completionNotes, setCompletionNotes] = useState('');
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [schedTechs, setSchedTechs] = useState([]);
+  useEffect(() => {
+    techsApi.getAll().then(setSchedTechs).catch(async () => {
+      const { data } = await supabase.from('techs').select('*').order('name');
+      setSchedTechs(data || []);
+    });
+  }, []);
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
 
@@ -483,7 +496,12 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             placeholder="Add note for this change (optional)"
             style={{ width: '100%', background: '#0f1729', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0', padding: '8px 12px', fontSize: '13px', marginBottom: '8px', outline: 'none', boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {validNextStatuses.filter(s => s !== JOB_STATUS.ARCHIVED || isOperator).map(s => {
+            {/* SCHEDULED is excluded on purpose — this raw picker was the last
+                back door for marking a job scheduled with no date, no tech and
+                no calendar event. Booking goes through the scheduler, period. */}
+            {validNextStatuses
+              .filter(s => s !== JOB_STATUS.SCHEDULED)
+              .filter(s => s !== JOB_STATUS.ARCHIVED || isOperator).map(s => {
               const info = STATUS_INFO[s];
               return (
                 <button key={s} onClick={() => handleStatusChange(s)} disabled={actionInProgress !== null}
@@ -636,7 +654,8 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         />
       )}
       {showScheduleModal && job && (
-        <ScheduleModal job={job} onClose={() => setShowScheduleModal(false)}
+        <VisualSchedulerModal job={job} techs={schedTechs} accessToken={accessToken}
+          onClose={() => setShowScheduleModal(false)}
           onScheduled={() => { setShowScheduleModal(false); loadJob(); onUpdate?.(); }}
           userEmail={userEmail} userRole={userRole} accessToken={accessToken} />
       )}

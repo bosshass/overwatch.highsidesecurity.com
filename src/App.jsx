@@ -38,7 +38,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.11.13';
+const APP_VERSION = '9.11.14';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -615,7 +615,7 @@ export default function App() {
   // single-card access; the normal board/login flow still gets the gate.
   const isDeepLink = window.location.pathname.startsWith('/j/');
   if (showBuildLog && !isDeepLink) {
-    return <BuildLog onDismiss={handleBuildLogDismiss} />;
+    return <BuildLog version={APP_VERSION} onDismiss={handleBuildLogDismiss} />;
   }
 
   // ── LOGIN ───────────────────────────────────────────────────────────────

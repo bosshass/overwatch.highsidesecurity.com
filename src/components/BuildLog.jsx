@@ -1,13 +1,39 @@
 // ============================================
 // BuildLog — New version changelog modal
 // ============================================
-// Shows when APP_VERSION changes.
-// User must tap "Got it" before the app clears
-// their session and forces re-login.
-// Add new builds to the top of BUILDS array.
-// ============================================
-
+// Shows when APP_VERSION changes. User must tap "Got it" before the app
+// clears their session and forces re-login.
+//
+// THE BUG THIS FILE HAD: the header number and the changelog text both came
+// from BUILDS[0] — a hand-maintained array last touched at 9.8.3 back on
+// 2026-07-13. Every real version since (roughly fifty of them) shipped with
+// nobody adding an entry, so the modal kept confidently announcing "Overwatch
+// 9.8.3" no matter what was actually running. The trigger (comparing
+// localStorage against the live APP_VERSION) was working correctly the whole
+// time — only the DISPLAY was frozen.
+//
+// FIX: the version number shown is now a required prop (the real, live
+// APP_VERSION), completely decoupled from which changelog entry gets shown.
+// BUILDS no longer needs a new entry for every micro-version to stay
+// accurate — it just needs its most recent entry to be reasonably current.
+//
+// FORMAT CHANGE: entries used to be full paragraphs — nobody reads that.
+// Keep new entries to a handful of short, scannable lines. Highlights, not
+// documentation.
 export const BUILDS = [
+  {
+    version: '9.11.13',
+    date: '2026-07-27',
+    label: 'Overnight rebuild — one system instead of five patched-over ones',
+    changes: [
+      'One vocabulary everywhere — board, tasks, and every ticket now agree on the five lanes',
+      'Scheduling can\'t fake it anymore — booking always creates a real event, tracked one way',
+      'Multi-tech and multi-day booking',
+      'Real spotlight walkthroughs that point at the actual buttons — Board, Home, My Tasks',
+      'Weekly Recap — real completed/visited/scheduled numbers, one tap to share',
+      'A long list of quiet bugs killed: dead nav links, phantom "no customer" warnings, a badly wrong Tent calendar, stale onboarding screens describing buttons that don\'t exist anymore',
+    ],
+  },
   {
     version: '9.8.3',
     date: '2026-07-13',
@@ -556,8 +582,11 @@ const C = {
   amber: '#ffb020',
 };
 
-export default function BuildLog({ onDismiss }) {
+export default function BuildLog({ onDismiss, version }) {
+  // The most recent curated entry — content only. The NUMBER shown always
+  // comes from the real, live version passed in, never from this array.
   const b = CURRENT_BUILD;
+  const displayVersion = version || b.version;
 
   return (
     <div style={{
@@ -588,7 +617,7 @@ export default function BuildLog({ onDismiss }) {
               New build deployed
             </div>
             <div style={{ fontSize:22, fontWeight:900, color:C.text, lineHeight:1.2 }}>
-              Overwatch {b.version}
+              Overwatch {displayVersion}
             </div>
             <div style={{ fontSize:12, color:C.muted, marginTop:4 }}>
               {b.label} · {b.date}

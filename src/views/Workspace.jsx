@@ -149,7 +149,13 @@ export default function Workspace({ accessToken, userEmail, userName }) {
       // The .or() above is a coarse net — it also catches jobs where tech_name
       // still says Shana but assigned_to has since been set to someone else.
       // An explicit assignment must beat a stale tech_name, so filter here.
-      setFeed((jobs || []).filter(j => ownsJob(j, owner) || ownsJob(j, ownerName)));
+      // In ALL mode owner is null and ownerName is 'all', so ownsJob() matches
+      // nothing and the feed came back empty — the All tab looked broken. Keep
+      // every job that has an owner; unassigned work belongs on the board, not
+      // in somebody's task list.
+      setFeed(config.isAll
+        ? (jobs || []).filter(j => assigneeOf(j))
+        : (jobs || []).filter(j => ownsJob(j, owner) || ownsJob(j, ownerName)));
     } catch (e) { console.error('workspace load', e); }
     setLoading(false);
   }, [owner, ownerName, config.isAll]);
@@ -196,9 +202,14 @@ export default function Workspace({ accessToken, userEmail, userName }) {
   useEffect(() => { loadTent(); }, [loadTent]);
 
   // A job she has already pulled in shouldn't also sit in the feed.
+  // Hide a job from To Do once its owner has pulled it into Doing. In ALL mode
+  // that de-duplication is wrong — one person parking a card would erase it
+  // from everyone's view — so the feed stays whole.
   const pulledJobIds = useMemo(
-    () => new Set(items.filter(i => i.job_id && i.lane !== 'todo').map(i => i.job_id)),
-    [items]
+    () => config.isAll
+      ? new Set()
+      : new Set(items.filter(i => i.job_id && i.lane !== 'todo').map(i => i.job_id)),
+    [items, config.isAll]
   );
 
   const q = query.trim().toLowerCase();

@@ -96,8 +96,25 @@ export default function MoveStatus({ job, userEmail, onMoved }) {
   const [busy, setBusy]         = useState(false);
   const [err, setErr]           = useState('');
 
-  const moves = MOVES[job.status] || [];
-  if (!moves.length) return null;
+  // FALLBACK. MOVES only covered nine statuses — needs_details,
+  // pending_decision, lost, dead and archived had no entry, so this component
+  // returned null and the ticket opened with NO way to change status at all.
+  // Silently rendering nothing is the worst answer: the card looks broken and
+  // the person assumes the app can't do it.
+  //
+  // Anything without a curated set now gets the common next steps, so every
+  // ticket can always be moved.
+  const FALLBACK = [
+    { to: JOB_STATUS.READY_TO_SCHEDULE, label: 'Ready to Schedule' },
+    { to: JOB_STATUS.NEEDS_PARTS,       label: 'Waiting on Parts' },
+    { to: JOB_STATUS.NEEDS_ESTIMATE,    label: 'Needs Estimate' },
+    { to: JOB_STATUS.TO_BILL,           label: 'Done → To Bill' },
+    { to: JOB_STATUS.DEAD,              label: 'Dead / Cancel', back: true },
+  ].filter(m => m.to && m.to !== job.status);
+
+  const moves = (MOVES[job.status] && MOVES[job.status].length)
+    ? MOVES[job.status]
+    : FALLBACK;
 
   const commit = async (move) => {
     // Backward / bounce moves require a note so the reason travels with the card.
@@ -116,8 +133,11 @@ export default function MoveStatus({ job, userEmail, onMoved }) {
 
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: '#8497b0', marginBottom: 6 }}>
-        Move · now: {LABEL[job.status] || job.status}
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#e2e8f0', marginBottom: 2 }}>
+        What's next for this ticket?
+      </div>
+      <div style={{ fontSize: 11, color: '#8497b0', marginBottom: 8 }}>
+        Currently <b style={{ color: '#cbd5e1' }}>{LABEL[job.status] || job.status}</b> — pick where it goes.
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {moves.map(m => (

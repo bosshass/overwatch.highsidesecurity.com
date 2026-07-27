@@ -283,8 +283,8 @@ export default function JobFinishSheet({
   const DISPOS = [
     { key: 'bill_it',     label: '✅ Done — To Bill',     accent: '#166534', tint: '#f0fdf4',
       means: 'Finished. Hours go to Billing.' },
-    { key: 'return',      label: '✅ Ready to Schedule',  accent: '#15803d', tint: '#f0fdf4',
-      means: "Needs another visit — put me back in the schedule queue." },
+    { key: 'return',      label: '🔄 Return Visit',       accent: '#d97706', tint: '#fffbeb',
+      means: 'Work started — I have to come back. Asks why.' },
     { key: 'in_progress', label: '📅 Still Scheduled',    accent: '#1d4ed8', tint: '#eff6ff',
       means: 'Multi-day job. Not finished, still booked.' },
     { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',

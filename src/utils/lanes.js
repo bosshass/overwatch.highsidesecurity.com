@@ -33,6 +33,8 @@ export const LANES = [
     icon: '✅',
     color: '#22c55e',
     target: 'ready_to_schedule',
+    // return_pending RENDERS in this column (one scheduling queue on the
+    // board) but it is NOT the same thing — see RETURN_LANE below.
     statuses: ['ready_to_schedule', 'return_pending'],
     means: 'Good to go — someone needs to put it on a calendar',
   },
@@ -70,6 +72,21 @@ export const LANES = [
   },
 ];
 
+// A RETURN is not "ready to schedule." Ready means fresh work waiting for a
+// slot. Return means work STARTED and somebody has to go back — it carries a
+// reason, it feeds return_cards, and treating the two as one erases why the
+// truck is rolling twice. It shares the Ready COLUMN (one scheduling queue)
+// but is its own destination with its own name everywhere else.
+export const RETURN_LANE = {
+  key: 'return',
+  label: 'Return Visit',
+  icon: '🔄',
+  color: '#d97706',
+  target: 'return_pending',
+  statuses: ['return_pending'],
+  means: 'Work started — needs another trip. Say why.',
+};
+
 // Billing is a real destination but lives on its own screen, so it is offered
 // as a move without being a board column.
 export const BILLING_LANE = {
@@ -93,10 +110,13 @@ export const CLEAR_LANE = {
   means: 'Not real work — remove it without billing anything',
 };
 
-export const ALL_LANES = [...LANES, BILLING_LANE, CLEAR_LANE];
+export const ALL_LANES = [...LANES, RETURN_LANE, BILLING_LANE, CLEAR_LANE];
 
 const STATUS_TO_LANE = {};
-ALL_LANES.forEach(l => l.statuses.forEach(s => { STATUS_TO_LANE[s] = l; }));
+// Order matters: RETURN_LANE registers LAST so return_pending resolves to
+// Return (its identity), not Ready (the column it happens to render in).
+[...LANES, BILLING_LANE, CLEAR_LANE, RETURN_LANE]
+  .forEach(l => l.statuses.forEach(s => { STATUS_TO_LANE[s] = l; }));
 
 // Which lane a job is currently sitting in. A tentative hold wins over the
 // underlying status, because that is what the board shows.
@@ -117,7 +137,9 @@ export const laneColor = (job) => laneOf(job)?.color || '#64748b';
 export function movesFor(job, { includeBilling = true, includeClear = true } = {}) {
   const here = laneOf(job)?.key;
   return [
-    ...LANES,
+    ...LANES.slice(0, 2),        // New/Notes, Ready
+    RETURN_LANE,                 // its own destination, right after Ready
+    ...LANES.slice(2),           // Tentative, Scheduled, Estimates
     ...(includeBilling ? [BILLING_LANE] : []),
     ...(includeClear ? [CLEAR_LANE] : []),
   ].filter(l => l.key !== here);

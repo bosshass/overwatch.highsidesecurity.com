@@ -298,7 +298,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     </span>
                   )}
                   {ev.tab === 'return' && (
-                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Ready to Schedule</span>
+                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>🔄 Return Visit</span>
                   )}
                   {ev.tab === 'estimate' && (
                     <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>

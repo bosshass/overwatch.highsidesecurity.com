@@ -39,7 +39,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.9.13';
+const APP_VERSION = '9.9.14';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -62,9 +62,14 @@ function hasDeepLink() {
 const USER_CONFIG = {
   'drhservicetech1@gmail.com':       { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
   'austin@drhsecurityservices.com':   { name: 'Austin', role: 'tech',     defaultCalendar: 'Austin', defaultView: null },
-  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
+  // ── JR has two logins ──────────────────────────────────────────────────
+  // info@ was a SHARED login that prompted "who are you?" (Sara / JR / Shana).
+  // It isn't shared — it's JR's. The identity prompt is gone; it just signs
+  // him in as himself. Sara reaches the app on admin@jnbservice.com and
+  // sara@jnbllc.com, Shana on shanaparks@, so nobody loses a way in.
+  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'workspace' },
+  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'workspace' },
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: null },
-  'info@drhsecurityservices.com':     { name: null,     role: 'operator', defaultCalendar: null, defaultView: null, needsIdentity: true },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'workspace' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: null },
@@ -112,10 +117,20 @@ function getUserConfig(email) {
 const VIEW_AS_KEY = 'ow_view_as';
 
 // Everyone a super admin can look through. Derived from USER_CONFIG so adding
-// a person to the app adds them here automatically.
+// a person to the app adds them here automatically. Deduped BY PERSON — JR has
+// two logins (info@ and jr@) and Sara has two; the switcher lists humans, not
+// mailboxes. Where a person has both an operator and a tech login, the operator
+// one wins, since that's the fuller view.
 const VIEW_AS_OPTIONS = Object.entries(USER_CONFIG)
   .filter(([, c]) => c.name)
-  .map(([email, c]) => ({ email, name: c.name, role: c.role }))
+  .reduce((acc, [email, c]) => {
+    const existing = acc.find(o => o.name === c.name);
+    if (!existing) acc.push({ email, name: c.name, role: c.role });
+    else if (existing.role !== 'operator' && c.role === 'operator') {
+      existing.email = email; existing.role = c.role;
+    }
+    return acc;
+  }, [])
   .sort((a, b) => a.name.localeCompare(b.name));
 
 export default function App() {

@@ -147,12 +147,21 @@ function UUIDLinker({ job, onLinked }) {
     setSaving(false);
   };
 
-  if (!open) return (
-    <button onClick={() => setOpen(true)}
-      style={{ width:'100%', padding:'8px 12px', borderRadius:6, border:'1px solid #92400e', background:'#451a03', color:'#fb923c', fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'left', marginBottom:10 }}>
-      ⚠ no customer UUID — tap to link
-    </button>
-  );
+  // THE BUG: this collapsed view showed "no customer UUID" unconditionally —
+  // it never checked job.customer_id at all. Linking correctly wrote the id
+  // to the database and updated state (the toast even said "Customer linked
+  // ✓"), but the warning kept showing because nothing here looked at whether
+  // a customer was actually attached. Every job with a customer looked
+  // exactly like every job without one.
+  if (!open) {
+    if (job.customer_id) return null; // linked — nothing to warn about
+    return (
+      <button onClick={() => setOpen(true)}
+        style={{ width:'100%', padding:'8px 12px', borderRadius:6, border:'1px solid #92400e', background:'#451a03', color:'#fb923c', fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'left', marginBottom:10 }}>
+        ⚠ no customer UUID — tap to link
+      </button>
+    );
+  }
 
   return (
     <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:12, border:'1px solid #334155' }} onClick={e => e.stopPropagation()}>

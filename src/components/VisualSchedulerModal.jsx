@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
-import { book, hold, linkToEvent } from '../services/schedule.js';
+import { book, hold, linkToEvent, bookExtraDay } from '../services/schedule.js';
 import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -76,6 +76,24 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // stacked — six people × 42 days is a wall of squares you have to scroll past
   // to reach the buttons. Pick a person, then see their calendar.
   const [openTech, setOpenTech] = useState(null);
+  // Multi-day: a job that runs several days straight (a multi-day install,
+  // phased work). The PRIMARY day (selectedDay) is what the job record
+  // tracks — jobs.scheduled_event_id/scheduled_date is one column, not a
+  // list, so only day one is remembered by the app. Extra days get their own
+  // calendar events (same tech, same time range) purely as itinerary; if one
+  // needs to move later it's a normal calendar edit, not something Overwatch
+  // will resolve back to this job.
+  const [multiMode, setMultiMode] = useState(false);
+  const [extraDays, setExtraDays] = useState([]); // [{ date, day, month, dayNum, techId }]
+
+  const toggleExtraDay = (techId, dayData) => {
+    setExtraDays(prev => {
+      const exists = prev.some(d => d.date === dayData.date && d.techId === techId);
+      return exists
+        ? prev.filter(d => !(d.date === dayData.date && d.techId === techId))
+        : [...prev, { ...dayData, techId }];
+    });
+  };
   // Second (third…) tech riding the same booking — "preferably two techs" is a
   // real request that used to require booking twice by hand.
   const [helperIds, setHelperIds] = useState([]);
@@ -188,6 +206,32 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
     return best;
   }, [availability, isInstall, needHours, JSON.stringify(validTechs.map(t => t.id))]);
 
+  // A day click used to only expand the slot strip — Book It stayed disabled
+  // until you tapped the chip underneath too, even on a day with exactly one
+  // slot spanning the whole open day. Second tap, same information. Selecting
+  // a day now auto-picks its largest free slot immediately; the chip strip
+  // still shows underneath so a different slot (or the extras below, in
+  // multi-day mode) can be picked instead.
+  const selectDay = (techId, dayData) => {
+    // Multi-day mode ON and a primary day already picked for this tech: a
+    // click on a DIFFERENT day adds/removes it from the extra-days list
+    // instead of replacing the primary selection.
+    if (multiMode && selectedDay?.techId === techId && selectedDay?.date !== dayData.date) {
+      toggleExtraDay(techId, dayData);
+      return;
+    }
+    if (selectedDay?.date === dayData.date && selectedDay?.techId === techId) {
+      // Second tap on the SAME (primary) day deselects, same as before.
+      setSelectedDay(null); setSelectedTechId(null); setSelectedSlot(null);
+      return;
+    }
+    const best = dayData.freeSlots?.length
+      ? [...dayData.freeSlots].sort((a, b) => b.hours - a.hours)[0]
+      : null;
+    if (best) pickSlot(techId, dayData, best);
+    else setSelectedDay({ ...dayData, techId }); // no open slot — let the "No open slots" message show
+  };
+
   const pickSlot = (techId, dayData, slot) => {
     // Picking a slot pre-fills the hold hours as well, so holding "that gap"
     // is one tap rather than retyping times you already chose.
@@ -240,6 +284,24 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
       // together or not at all.
       const helpers = validTechs.filter(t => helperIds.includes(t.id) && t.id !== tech.id);
       await book({ job, tech, start, end, accessToken, helpers });
+
+      // Extra days ride the SAME time-of-day on their own dates. Each is its
+      // own calendar event; failures are per-day and non-fatal — the primary
+      // booking already succeeded and must not be undone by a later day
+      // failing to create.
+      let extraFailed = 0;
+      for (let i = 0; i < extraDays.length; i++) {
+        const xd = extraDays[i];
+        try {
+          const xStart = parseLocalDate(xd.date); xStart.setHours(sh, sm, 0, 0);
+          const xEnd = parseLocalDate(xd.date); xEnd.setHours(eh, em, 0, 0);
+          await bookExtraDay({ job, tech, start: xStart, end: xEnd, accessToken,
+            dayLabel: `Day ${i + 2} of ${extraDays.length + 1}` });
+        } catch (e) { extraFailed++; console.warn('extra day booking failed', xd.date, e.message); }
+      }
+      if (extraFailed > 0) {
+        setErr(`Booked, but ${extraFailed} of ${extraDays.length} extra day(s) failed — check that day's calendar by hand.`);
+      }
       onScheduled();
     } catch (e) { setErr(e.message || 'Failed to schedule'); }
     setSaving(false);
@@ -347,17 +409,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
             {validTechs.filter(t => t.id === openTech).map(tech => (
               <div key={tech.id} style={{ marginBottom: 16 }}>
+                <button onClick={() => setMultiMode(m => !m)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
+                           background: multiMode ? '#00c8e822' : 'transparent',
+                           border: `1px solid ${multiMode ? '#00c8e8' : '#334155'}`,
+                           color: multiMode ? '#00c8e8' : '#8497b0', borderRadius: 20,
+                           padding: '4px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  📅 Multi-day job{multiMode ? ` — tap more days` : ''}
+                </button>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
                   {(availability[tech.id] || []).map(d => (
                     <button
                       key={d.date}
                       disabled={d.isWeekend}
-                      onClick={() => setSelectedDay(prev => prev?.date === d.date && prev?.techId === tech.id ? null : { ...d, techId: tech.id })}
+                      onClick={() => selectDay(tech.id, d)}
                       style={{
                         background: colorFor(d.freeHours, d.isWeekend), border: 'none', borderRadius: 8,
                         padding: '8px 4px', cursor: d.isWeekend ? 'default' : 'pointer',
                         opacity: d.isWeekend ? 0.35 : 1, color: '#fff', textAlign: 'center',
-                        outline: selectedDay?.date === d.date && selectedDay?.techId === tech.id ? '2px solid #00c8e8' : 'none',
+                        outline: selectedDay?.date === d.date && selectedDay?.techId === tech.id ? '2px solid #00c8e8'
+                          : extraDays.some(x => x.date === d.date && x.techId === tech.id) ? '2px solid #22c55e'
+                          : 'none',
                       }}>
                       <div style={{ fontSize: 10, opacity: 0.85 }}>{d.day}</div>
                       <div style={{ fontSize: 15, fontWeight: 700 }}>{d.dayNum}</div>
@@ -470,7 +542,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                             padding: 14, marginTop: 4 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>
                   {validTechs.find(t => t.id === selectedDay.techId)?.name} · {selectedDay.day} {selectedDay.month} {selectedDay.dayNum}
+                  {extraDays.length > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#22c55e', marginLeft: 8 }}>
+                      + {extraDays.length} more day{extraDays.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
+                {extraDays.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {extraDays.map(x => (
+                      <span key={x.date}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#22c55e18',
+                                 color: '#22c55e', border: '1px solid #22c55e55', borderRadius: 20,
+                                 padding: '2px 9px', fontSize: 11, fontWeight: 700 }}>
+                        {x.day} {x.dayNum}
+                        <button onClick={() => toggleExtraDay(x.techId, x)}
+                          style={{ background: 'none', border: 'none', color: '#22c55e', cursor: 'pointer',
+                                   fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0 14px' }}>
                   <input type="time" value={holdStart} onChange={e => setHoldStart(e.target.value)}

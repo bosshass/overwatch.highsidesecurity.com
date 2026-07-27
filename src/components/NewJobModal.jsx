@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
 import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId, CALENDARS } from '../config/calendars.js';
+import CustomerPicker from './CustomerPicker.jsx';
 
 const TECH_PILL_COLORS = {
   'Austin': '#3b82f6',
@@ -74,8 +75,8 @@ Scope of Work: `;
     cms_account_id: ''
   });
 
-  const [taskForm, setTaskForm] = useState({ title: '', assignedTo: '' });
-  const [noteForm, setNoteForm] = useState({ content: '', customerName: '', assignedTo: '' });
+  const [taskForm, setTaskForm] = useState({ title: '', assignedTo: '', customerId: null });
+  const [noteForm, setNoteForm] = useState({ content: '', customerId: null, assignedTo: '' });
 
   const searchCustomers = useCallback(async (q) => {
     if (!q || q.length < 2) { setCustomers([]); return; }
@@ -302,30 +303,47 @@ Scope of Work: `;
     }
   };
 
+  // FIXED 9.11.5 — this created a real jobs row (status NEW), which put a
+  // personal reminder on the BOARD next to real customer work. A quick note
+  // is not a job; it belongs in the notes table (lane 'todo'), which My Tasks
+  // already renders and already supports move-to-done, exactly like every
+  // other personal to-do item. assignedTo, if set, hands it to that person's
+  // To Do instead of the creator's — same meaning "assign" has everywhere else.
   const handleSubmitNote = async () => {
     if (!noteForm.content.trim()) return;
     setIsSaving(true);
     try {
-      const job = await jobsApi.create({
-        customer_name: noteForm.customerName.trim() || '📌 Quick Note', customer_address: '', customer_phone: '',
-        job_type: 'note', priority: 'normal', issue: noteForm.content.trim(),
-        notes: `[QUICK NOTE - ${new Date().toLocaleString()}]\n${noteForm.content.trim()}`, status: JOB_STATUS.NEW
-      }, userEmail);
-      if (noteForm.assignedTo && job?.id) await assignmentsApi.create({ job_id: job.id, tech_id: noteForm.assignedTo, scheduled_for: null }, userEmail);
-      onClose(); try { onCreated?.(job); } catch (_) {}
+      // No UI ever set noteForm.assignedTo (it was dead state from the old
+      // job-based flow) — dropped rather than left as a silent no-op.
+      const { data, error } = await supabase.from('notes').insert([{
+        body: noteForm.content.trim(),
+        author_email: userEmail,
+        lane: 'todo',
+        status: 'open',
+        customer_id: noteForm.customerId || null,
+        on_customer_record: !!noteForm.customerId,
+      }]).select().single();
+      if (error) throw error;
+      onClose(); try { onCreated?.(data); } catch (_) {}
     } catch (e) { alert('Error saving note: ' + e.message); setIsSaving(false); }
   };
 
+  // Same fix as handleSubmitNote, same reason — a task is a to-do item, not a
+  // customer job, and should never have been eligible to sit on the board.
   const handleSubmitTask = async () => {
     if (!taskForm.title.trim()) return;
     setIsSaving(true);
     try {
-      const job = await jobsApi.create({
-        customer_name: '📝 Task', customer_address: '', customer_phone: '',
-        job_type: 'task', priority: 'normal', issue: taskForm.title.trim(), status: JOB_STATUS.NEW
-      }, userEmail);
-      if (taskForm.assignedTo && job?.id) await assignmentsApi.create({ job_id: job.id, tech_id: taskForm.assignedTo, scheduled_for: null }, userEmail);
-      onClose(); try { onCreated?.(job); } catch (_) {}
+      const { data, error } = await supabase.from('notes').insert([{
+        body: taskForm.title.trim(),
+        author_email: userEmail,
+        lane: 'todo',
+        status: 'open',
+        customer_id: taskForm.customerId || null,
+        on_customer_record: !!taskForm.customerId,
+      }]).select().single();
+      if (error) throw error;
+      onClose(); try { onCreated?.(data); } catch (_) {}
     } catch (e) { alert('Error creating task: ' + e.message); setIsSaving(false); }
   };
 
@@ -536,6 +554,12 @@ Scope of Work: `;
             <label style={labelStyle}>What needs to be done? *</label>
             <textarea value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))} placeholder="Follow up with supplier, check inventory..." rows={2} autoFocus style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} />
           </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Customer (optional)</label>
+            <CustomerPicker value={taskForm.customerId}
+              onChange={(id) => setTaskForm(f => ({ ...f, customerId: id }))}
+              placeholder="Who's it about?" />
+          </div>
           <button onClick={handleSubmitTask} disabled={!taskForm.title.trim() || isSaving}
             style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700', background: taskForm.title.trim() ? '#f59e0b' : '#334155', color: taskForm.title.trim() ? '#000' : '#64748b', border: 'none', borderRadius: '12px', cursor: taskForm.title.trim() ? 'pointer' : 'default' }}>
             {isSaving ? 'Creating...' : '✓ Create Task'}
@@ -560,7 +584,12 @@ Scope of Work: `;
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Customer (optional)</label>
-            <input value={noteForm.customerName} onChange={e => setNoteForm(f => ({ ...f, customerName: e.target.value }))} placeholder="Who's it about?" style={fieldStyle} />
+            {/* A real customer link now, not a free-text label — so this note
+                shows up on that customer's history the same way any other
+                logged interaction does. */}
+            <CustomerPicker value={noteForm.customerId}
+              onChange={(id) => setNoteForm(f => ({ ...f, customerId: id }))}
+              placeholder="Who's it about?" />
           </div>
           <button onClick={handleSubmitNote} disabled={!noteForm.content.trim() || isSaving}
             style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700', background: noteForm.content.trim() ? '#10b981' : '#334155', color: noteForm.content.trim() ? '#fff' : '#64748b', border: 'none', borderRadius: '12px', cursor: noteForm.content.trim() ? 'pointer' : 'default' }}>

@@ -391,6 +391,18 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
   const done      = items.filter(i => i.lane === 'done'  && matches(i.body));
   const watching  = items.filter(i => i.lane === 'watching' && matches(i.body));
 
+  const [customerNameById, setCustomerNameById] = useState({});
+  useEffect(() => {
+    const ids = [...new Set(items.filter(i => i.customer_id).map(i => i.customer_id))]
+      .filter(id => !(id in customerNameById));
+    if (!ids.length) return;
+    supabase.from('customers').select('id, name').in('id', ids).then(({ data }) => {
+      if (!data) return;
+      setCustomerNameById(prev => ({ ...prev, ...Object.fromEntries(data.map(c => [c.id, c.name])) }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
   // A watched job that has come BACK to her shows in To Do with the watching
   // tint, so she can tell "this returned to me" from "this is new work".
   const watchedBackToMe = new Set(
@@ -481,6 +493,55 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
       await supabase.from('notes').delete().eq('id', item.id);
       await load(); say('Stopped watching');
     } catch (e) { say('Could not remove: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // Attach a customer for future reference. Additive only — does not touch
+  // lane or create anything. The note becomes findable from that customer's
+  // history without becoming a job.
+  const attachCustomerToNote = async (note, customerId) => {
+    if (!customerId) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('notes')
+        .update({ customer_id: customerId, on_customer_record: true })
+        .eq('id', note.id);
+      if (error) throw error;
+      await load();
+      say('Attached ✓');
+    } catch (e) { say('Could not attach: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // A quick note that turned into real work. Creates a real job, closes the
+  // note out of To Do (its text lives on as the job's issue — nothing is
+  // lost, it just stopped being a personal reminder and became a ticket),
+  // and opens the scheduler immediately so note → job → booked is one motion.
+  const convertNoteToJob = async (note) => {
+    setSaving(true);
+    try {
+      let customerRow = null;
+      if (note.customer_id) {
+        const { data } = await supabase.from('customers')
+          .select('id, name, address, phone').eq('id', note.customer_id).maybeSingle();
+        customerRow = data || null;
+      }
+      const job = await jobsApi.create({
+        customer_id: note.customer_id || undefined,
+        customer_name: customerRow?.name || note.body.slice(0, 60),
+        customer_address: customerRow?.address || '',
+        customer_phone: customerRow?.phone || '',
+        issue: note.body,
+        status: 'ready_to_schedule',
+        assigned_to: owner,
+      }, userEmail);
+      await supabase.from('notes').update({
+        lane: 'done', status: 'archived', archived_at: new Date().toISOString(), archived_by: userEmail || null,
+      }).eq('id', note.id);
+      await load();
+      say('Job created ✓');
+      if (job?.id) setSchedulingJob(job);
+    } catch (e) { say('Could not create job: ' + (e.message || e)); }
     setSaving(false);
   };
 
@@ -602,6 +663,35 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
           {todoNotes.map(n => (
             <Card key={n.id} accent={ACCENT}>
               <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{n.body}</div>
+              {n.customer_id && customerNameById[n.customer_id] && (
+                <div style={{ fontSize: 11, color: '#00c8e8', fontWeight: 700, marginTop: 5 }}>
+                  🔗 {customerNameById[n.customer_id]}
+                </div>
+              )}
+
+              {/* Attach a customer for future reference. Doesn't create a job —
+                  the note just becomes findable from that customer's history. */}
+              {!n.customer_id && (
+                <div style={{ marginTop: 8 }}>
+                  <CustomerPicker compact
+                    value={null}
+                    onChange={(id) => attachCustomerToNote(n, id)}
+                    placeholder="Attach a customer (optional)" />
+                </div>
+              )}
+
+              {/* Escalate: this stopped being a reminder and became real
+                  billable/schedulable work. Creates the job, closes the note
+                  out of To Do (it did its job — the note's own text lives on
+                  as the job's issue), and opens the scheduler immediately so
+                  the whole "note → job → booked" trip is one motion. */}
+              <button onClick={() => convertNoteToJob(n)} disabled={saving}
+                style={{ marginTop: 8, width: '100%', background: 'transparent', color: '#22c55e',
+                         border: '1px solid #22c55e55', borderRadius: 8, padding: '7px 0',
+                         fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                → Make it a job
+              </button>
+
               <MoveBar item={n} lanes={[['doing', '→ Doing'], ['done', '✓ Done']]} />
             </Card>
           ))}

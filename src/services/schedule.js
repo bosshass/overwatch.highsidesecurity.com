@@ -155,6 +155,28 @@ export async function hold({ job, start, end, accessToken, byName }) {
   return { eventId };
 }
 
+// ── EXTRA DAY: itinerary-only event for a multi-day job ─────────────────
+// jobs.scheduled_event_id/scheduled_date is ONE column, not a list — the job
+// can only ever track a single "the booking" event. A job that runs several
+// days straight (a multi-day install) needs more than one calendar entry, so
+// this creates them WITHOUT touching the job row at all. They are real
+// events on the tech's calendar; they are just not something Overwatch will
+// resolve back to this job later the way the primary booking is. If one needs
+// to move, that's a normal calendar edit — same as any other appointment.
+export async function bookExtraDay({ job, tech, start, end, accessToken, dayLabel }) {
+  if (!tech?.calendar_id) throw new Error('Pick a tech');
+  const latestNote = await getLatestNote(job.id);
+  const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
+    title: buildEventTitle(job),
+    description: buildEventDescription(job, latestNote) +
+      (dayLabel ? `\n📆 ${dayLabel} of a multi-day job` : ''),
+    location: job.customer_address,
+    startTime: start,
+    endTime: end,
+  });
+  return { eventId: created?.id || null };
+}
+
 // ── LINK: adopt an event somebody already made ─────────────────────────
 // The other legitimate way to become scheduled. No new event is created —
 // creating one is how a job ends up with two.

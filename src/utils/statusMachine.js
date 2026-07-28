@@ -68,7 +68,7 @@ export const STATUS_GROUPS = {
 };
 
 // Helpers
-// Helpers — DRH-specific job types from Shana's SOP
+// Helpers — job types configurable per tenant
 export const JOB_TYPE_INFO = {
   service_res: { label: 'SVC - RESI', color: '#dc2626', icon: '🏠', full: 'Service Call - Residential', minutes: 60 },
   service_com: { label: 'SVC - COMM', color: '#b91c1c', icon: '🏢', full: 'Service Call - Commercial', minutes: 60 },
@@ -138,36 +138,4 @@ export function getAgeUrgency(days) {
   if (days >= 4) return { level: 'overdue', color: '#f59e0b', label: '4-7 days' };
   if (days >= 2) return { level: 'attention', color: '#eab308', label: '2-3 days' };
   return { level: 'fresh', color: '#22c55e', label: 'Fresh' };
-}
-
-// The Service/Urgent intake form's fixed header ("Name: / Phone: / On-Site
-// Contact: / Contact Phone: / CMS #: / Access: ☐.../ Scope of Work:") gets
-// copied verbatim into job.issue / the calendar event description whenever a
-// job is created from that intake flow. Most of it duplicates fields already
-// shown elsewhere on the card (name, phone, CMS id) and the rest is unfilled
-// placeholder scaffolding — it's noise in every description preview, not
-// content. This strips the header, keeping only whatever real scope-of-work
-// text was actually written after it (if any).
-const INTAKE_TEMPLATE_RE = /^\s*Name:.*?\n\s*Phone:.*?\n(?:\s*On-?Site Contact:.*?\n)?(?:\s*Contact Phone:.*?\n)?(?:\s*CMS\s*#?:.*?\n)?(?:\s*Access:.*?\n)?\s*Scope of Work:\s*/is;
-
-export function stripIntakeTemplate(text) {
-  if (!text) return text;
-  return text.replace(INTAKE_TEMPLATE_RE, '').trim();
-}
-
-// Customer phone fields often hold more than one number in one string, e.g.
-// "(800) 787-0545 , Mobile:(970) 282-6985" — a main line plus a labeled
-// mobile. Passing that WHOLE string straight into a tel: link produces
-// garbage (the dialer tries to parse "Mobile" as digits). This pulls out
-// each real number separately, with its label if one precedes it, so each
-// can get its own clean tel: link.
-export function parsePhoneNumbers(raw) {
-  if (!raw) return [];
-  const re = /(?:([A-Za-z][A-Za-z\s]{0,12}):\s*)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})/g;
-  const out = [];
-  let m;
-  while ((m = re.exec(raw))) {
-    out.push({ label: m[1]?.trim() || null, digits: `${m[2]}${m[3]}${m[4]}`, display: `(${m[2]}) ${m[3]}-${m[4]}` });
-  }
-  return out;
 }

@@ -1,5 +1,5 @@
 // ============================================
-// Overwatch — Reconcile (operator-only cleanup)
+// Jovelin — Reconcile (operator-only cleanup)
 // ============================================
 // One-time-ish sweep of OLD calendar events that never got closed out.
 // Rule (Sara's): Completed calendar = done. Anything before May 1 2026 that
@@ -58,7 +58,7 @@ function looksDone(title) {
 function cleanNotes(desc) {
   // Drop the deep-link line; keep the human notes.
   return (desc || '')
-    .replace(/\n*📱 Open in Overwatch:.*$/s, '')
+    .replace(/\n*📱 Open in Jovelin:.*$/s, '')
     .replace(/\n*🔗 OPEN IN OVERWATCH:.*$/s, '')
     .trim();
 }
@@ -266,14 +266,14 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
     <div style={{ minHeight: '100vh', background: '#0f1729', color: '#e2e8f0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #1e293b', position: 'sticky', top: 0, background: '#0f1729', zIndex: 10 }}>
         <button onClick={onBack} style={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontWeight: 700, padding: '8px 14px', cursor: 'pointer' }}>← Home</button>
-        <span style={{ fontWeight: 800, color: '#00c8e8', fontSize: 15 }}>🧹 Reconcile</span>
-        {onOpenPreview && <button onClick={onOpenPreview} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #00c8e8', borderRadius: 8, color: '#00c8e8', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🔬 Preview log</button>}
+        <span style={{ fontWeight: 800, color: '#e8a33d', fontSize: 15 }}>🧹 Reconcile</span>
+        {onOpenPreview && <button onClick={onOpenPreview} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #e8a33d', borderRadius: 8, color: '#e8a33d', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🔬 Preview log</button>}
         <button onClick={load} disabled={loading} style={{ marginLeft: onOpenPreview ? 8 : 'auto', ...miniBtn }}>{loading ? 'Scanning…' : '↻ Rescan'}</button>
       </div>
 
       <div style={{ padding: '16px 16px 8px' }}>
         <div style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 1.5 }}>
-          <b style={{ color: '#00c8e8' }}>June 2026 only · preview build.</b> Every change is stamped <b>OW-PREVIEW</b> on the event (search your calendar for it) and preview-made jobs are tagged in <code>created_by</code>. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = finished → moves to Completed. <b style={{ color: '#00c8e8' }}>Set status →</b> = real but untagged → tag it like the board, no hours. Nothing is deleted.
+          <b style={{ color: '#e8a33d' }}>June 2026 only · preview build.</b> Every change is stamped <b>OW-PREVIEW</b> on the event (search your calendar for it) and preview-made jobs are tagged in <code>created_by</code>. <b style={{ color: '#22c55e' }}>Check + Mark done</b> = finished → moves to Completed. <b style={{ color: '#e8a33d' }}>Set status →</b> = real but untagged → tag it like the board, no hours. Nothing is deleted.
         </div>
       </div>
 
@@ -324,4 +324,4 @@ export default function ReconcileView({ accessToken, userEmail, onBack, onOpenFi
 }
 
 const miniBtn = { background: 'none', border: '1px solid #334155', borderRadius: 7, color: '#94a3b8', padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' };
-const openBtn = { flexShrink: 0, alignSelf: 'flex-start', background: 'none', border: '1px solid #00c8e8', borderRadius: 7, color: '#00c8e8', padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
+const openBtn = { flexShrink: 0, alignSelf: 'flex-start', background: 'none', border: '1px solid #e8a33d', borderRadius: 7, color: '#e8a33d', padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };

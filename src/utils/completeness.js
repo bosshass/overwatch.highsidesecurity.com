@@ -1,5 +1,3 @@
-import { isAssigned } from './ownership.js';
-
 // ============================================
 // completeness — what is this job missing?
 // ============================================
@@ -27,9 +25,7 @@ export function missingFields(job) {
   if (blank(job.customer_phone))     missing.push('phone');
   if (blank(job.customer_address))   missing.push('address');
   if (blank(job.issue))              missing.push('issue');
-  // was blank(job.tech_name) — flagged jobs as missing an assignee when they
-  // had one in assigned_to. The warning fired on correctly-assigned work.
-  if (!isAssigned(job))              missing.push('assignee');
+  if (blank(job.tech_name))          missing.push('assignee');
   return missing;
 }
 

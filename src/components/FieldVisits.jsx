@@ -1,5 +1,5 @@
 // ============================================
-// Overwatch — FieldVisits (real notes on the board card)
+// Jovelin — FieldVisits (real notes on the board card)
 // ============================================
 // Tech notes live in THREE places in this app:
 //   1. time_entries.notes  — written when a tech dispositions on Work Today
@@ -8,7 +8,6 @@
 // The card's NotesPanel reads #3, so it shows actions, not notes. This pulls the
 // real notes from #1 and #2, de-duplicates them, and shows them on the card.
 
-import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import { reasonLabel, reasonColor, isRealCost } from '../config/archiveReasons.js';
@@ -24,6 +23,13 @@ function hoursFromMin(min) {
   const h = Number(min) / 60;
   return isFinite(h) ? `${h.toFixed(1)}h` : null;
 }
+const DISPO = {
+  bill_it:     { label: 'Bill it',     color: '#22c55e' },
+  return:      { label: 'Return',      color: '#f97316' },
+  estimate:    { label: 'Estimate',    color: '#3b82f6' },
+  in_progress: { label: 'In progress', color: '#e8a33d' },
+};
+const dispo = d => DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#cbd5e1' };
 
 // Pull 📝-tagged notes out of the issue field. Splits on the 📝 marker, dedupes
 // exact repeats (the data has them), and parses an optional "[date tech]" header.
@@ -118,7 +124,7 @@ export default function FieldVisits({ job }) {
                   🗑️ NOT BILLED — {reasonLabel(e.archive_reason).toUpperCase()}
                 </span>
                 {isRealCost(e.archive_reason) && (
-                  <span style={{ fontSize: 11, color: '#fbbf24' }}>· DRH absorbed this cost</span>
+                  <span style={{ fontSize: 11, color: '#fbbf24' }}>· absorbed — not billed</span>
                 )}
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>
                   {e.archived_by ? `· ${String(e.archived_by).split('@')[0]}` : ''}
@@ -150,7 +156,7 @@ export default function FieldVisits({ job }) {
       ))}
 
       {total > PREVIEW && (
-        <button onClick={() => setShowAll(v => !v)} style={{ background: 'none', border: 'none', color: '#00c8e8', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '2px 0', textDecoration: 'underline' }}>
+        <button onClick={() => setShowAll(v => !v)} style={{ background: 'none', border: 'none', color: '#e8a33d', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '2px 0', textDecoration: 'underline' }}>
           {showAll ? 'Show less' : `View all ${total} notes →`}
         </button>
       )}

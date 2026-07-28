@@ -1,33 +1,21 @@
 // ============================================
-// JUC-E V4 - NotesPanel Component
+// Jovelin - NotesPanel Component
 // ============================================
 // Embeddable anywhere. Shows notes + quick add.
 // Used in: JobDetail, JobCard expanded, everywhere.
 
 import { useState, useEffect, useCallback } from 'react';
-import { notesApi, jobsApi, STATUS_INFO } from '../services/supabase.js';
+import { notesApi, STATUS_INFO } from '../services/supabase.js';
 import { appendNoteToJobEvents } from '../services/calendarSync.js';
 
 export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null }) {
   const [notes, setNotes] = useState([]);
-  const [activity, setActivity] = useState([]);
-  const [showActivity, setShowActivity] = useState(false);
-  const [showAllNotes, setShowAllNotes] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [expanded, setExpanded] = useState(!compact);
-  // What kind of entry this is when you hit save. 'note' = normal job note
-  // (unchanged default behavior). 'response' = same job note, tagged so it
-  // reads as a logged response rather than an internal note. 'customer_only'
-  // = NOT tied to this job at all — a standalone customer-service touch
-  // (a call, a question) with nothing to schedule. That creates its own
-  // lightweight job_type:'note' row against the customer, so it never shows
-  // up as work on the board, but the customer has a real record of the touch.
-  const [noteType, setNoteType] = useState('note');
-  const [savingCustomerNote, setSavingCustomerNote] = useState(false);
 
   const loadNotes = useCallback(async () => {
     if (!jobId) return;
@@ -38,64 +26,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       // job's history in) are an audit trail, not something a tech needs
       // cluttering their note feed -- they're still in job_history in the
       // database if ever needed directly.
-      // Merge-audit entries are history, not something a tech needs cluttering
-      // their note feed. Two formats exist in the wild: the older Board-merge
-      // carry-over ("↪ from merged job") and JobDetail's own merge tool
-      // ("🔗 MERGED FROM JOB #…" / "[MERGED INTO JOB #…]"). All three, gone
-      // from the feed; still in job_history in the database if ever needed.
-      // ── Merge carry-over ────────────────────────────────────────────
-      // Merging PREFIXES the note instead of absorbing it, and it does this
-      // every time — so a card merged three times carries
-      //   "↪ from merged job (Jul 6): ↪ from merged job: ↪ from merged job: …"
-      // in front of one line of actual content. Hiding the whole line (what we
-      // did before) threw away the real note with the wrapper. Stripping the
-      // chain keeps the content and drops the bookkeeping, which is what a
-      // merge should have done in the first place: the note becomes part of
-      // this card, nothing more.
-      const stripMergePrefix = (t) => {
-        let out = (t || '').trim();
-        let guard = 0;
-        while (guard++ < 10) {
-          const next = out.replace(/^↪\s*from merged job(\s*\([^)]*\))?\s*:\s*/i, '');
-          if (next === out) break;
-          out = next.trim();
-        }
-        return out;
-      };
-
-      // Pure bookkeeping — no human wrote these and nobody needs them in a
-      // notes feed. They stay in job_history and behind the Activity toggle.
-      const isBookkeeping = (t) => {
-        const x = (t || '').trim();
-        return !x
-            || /^\[MERGED INTO JOB/i.test(x)
-            || /^🔗 MERGED FROM JOB/i.test(x)
-            || /^Merged into job #/i.test(x)
-            || /^Marked as duplicate/i.test(x)
-            || /^Job created$/i.test(x)
-            || /^Assigned to /i.test(x)
-            || /^Assignment email sent/i.test(x)
-            || /^Unassigned\b/i.test(x)
-            || /^Status changed/i.test(x)
-            || /^Moved (to|from) /i.test(x)
-            || /^Reconciled —/i.test(x)
-            || /^📌 TENTATIVELY assigned/i.test(x);
-      };
-
-      const unwrapped = data.map(n => ({ ...n, text: stripMergePrefix(n.text) }));
-
-      // Merging duplicates the same note onto the survivor. Collapse identical
-      // text, keeping the earliest — that's when it was actually written.
-      const seen = new Set();
-      const deduped = unwrapped.filter(n => {
-        const k = (n.text || '').trim().toLowerCase();
-        if (!k || seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-
-      setNotes(deduped.filter(n => !isBookkeeping(n.text)));
-      setActivity(deduped.filter(n => isBookkeeping(n.text)));
+      setNotes(data.filter(n => !n.text?.startsWith('↪ from merged job')));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {
@@ -109,42 +40,17 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
     if (!newNote.trim() || isSaving) return;
     setIsSaving(true);
     try {
-      if (noteType === 'customer_only') {
-        // Not tied to THIS job — a standalone customer-service touch. Create
-        // a lightweight note-type job against the customer so it has a real
-        // home, but it's job_type:'note' so it never shows as work anywhere
-        // (the board excludes note/task job_types from its columns).
-        if (!job?.customer_id) {
-          alert('This job has no linked customer, so there\'s nowhere to file a customer-only note. Add it as a regular note instead.');
-          setIsSaving(false);
-          return;
-        }
-        const created = await jobsApi.create({
-          customer_id: job.customer_id,
-          customer_name: job.customer_name,
-          customer_address: job.customer_address || null,
-          customer_phone: job.customer_phone || null,
-          job_type: 'note',
-          status: 'complete',
-          issue: newNote.trim().slice(0, 200),
-        }, userEmail);
-        await notesApi.addNote(created.id, newNote.trim(), userEmail);
-      } else {
-        const text = noteType === 'response' ? `💬 Response: ${newNote.trim()}` : newNote.trim();
-        await notesApi.addNote(jobId, text, userEmail);
-        // Mirror the note onto the linked Google Calendar event(s). Non-fatal:
-        // the note is already saved; a calendar failure must not block the UI.
-        if (job && accessToken) {
-          try { await appendNoteToJobEvents(accessToken, job, text, userEmail); }
-          catch (e) { console.warn('Calendar note sync failed (non-fatal):', e); }
-        }
+      await notesApi.addNote(jobId, newNote.trim(), userEmail);
+      // Mirror the note onto the linked Google Calendar event(s). Non-fatal:
+      // the note is already saved; a calendar failure must not block the UI.
+      if (job && accessToken) {
+        try { await appendNoteToJobEvents(accessToken, job, newNote.trim(), userEmail); }
+        catch (e) { console.warn('Calendar note sync failed (non-fatal):', e); }
       }
       setNewNote('');
-      setNoteType('note');
       await loadNotes();
     } catch (e) {
       console.error('Note save error:', e);
-      alert('Note failed to save: ' + (e.message || e));
     } finally {
       setIsSaving(false);
     }
@@ -185,12 +91,8 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   const formatAuthor = (email) => {
     if (!email) return '';
     const names = {
-      'drhservicetech1@gmail.com': 'Austin',
-      'austin@drhsecurityservices.com': 'Austin',
-      'jr@drhsecurityservices.com': 'JR',
-      'info@drhsecurityservices.com': 'Sara',
+
       'sara@jnbllc.com': 'Sara',
-      'shanaparks@drhsecurityservices.com': 'Shana',
     };
     return names[email?.toLowerCase()] || email.split('@')[0];
   };
@@ -198,13 +100,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   // Newest comment always on top — sort explicitly so nothing (e.g. the
   // completion-note entry) floats or sticks regardless of source.
   const ordered = [...notes].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-  // COLLAPSED BY DEFAULT to the most recent note. A card with fourteen notes
-  // buries the one that matters — and the one that matters is almost always
-  // the last thing someone said. Everything older is one tap away.
-  const displayNotes = maxNotes
-    ? ordered.slice(0, maxNotes)
-    : (showAllNotes ? ordered : ordered.slice(0, 1));
+  const displayNotes = maxNotes ? ordered.slice(0, maxNotes) : ordered;
 
   // Compact mode: just show note count + quick add
   if (compact && !expanded) {
@@ -214,7 +110,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           onClick={() => setExpanded(true)}
           style={{
             background: 'none', border: '1px solid #334155', borderRadius: '6px',
-            color: notes.length > 0 ? '#00c8e8' : '#64748b',
+            color: notes.length > 0 ? '#e8a33d' : '#64748b',
             padding: '4px 10px', fontSize: '12px', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '4px'
           }}
@@ -243,25 +139,6 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       </div>
 
       {/* Quick add */}
-      {newNote.trim() && (
-        <div style={{ display: 'flex', gap: '5px', marginBottom: '6px' }}>
-          {[
-            { v: 'note', label: '📝 Note' },
-            { v: 'response', label: '💬 Response' },
-            { v: 'customer_only', label: '🗒️ Customer note (no job)' },
-          ].map(opt => (
-            <button key={opt.v} onClick={() => setNoteType(opt.v)}
-              style={{
-                fontSize: '11px', fontWeight: 700, padding: '5px 9px', borderRadius: '14px', cursor: 'pointer',
-                border: `1px solid ${noteType === opt.v ? '#00c8e8' : '#334155'}`,
-                background: noteType === opt.v ? '#00c8e820' : 'transparent',
-                color: noteType === opt.v ? '#00c8e8' : '#94a3b8',
-              }}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
       <div style={{ display: 'flex', gap: '8px', marginBottom: notes.length > 0 ? '10px' : '0' }}>
         <input
           value={newNote}
@@ -277,7 +154,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           onClick={handleAddNote}
           disabled={!newNote.trim() || isSaving}
           style={{
-            background: newNote.trim() ? '#00c8e8' : '#334155',
+            background: newNote.trim() ? '#e8a33d' : '#334155',
             color: newNote.trim() ? '#000' : '#64748b',
             border: 'none', borderRadius: '8px', padding: '8px 14px',
             fontSize: '13px', fontWeight: '600', cursor: newNote.trim() ? 'pointer' : 'default',
@@ -314,14 +191,14 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
                     onChange={e => setEditText(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleEditSave(note)}
                     style={{
-                      flex: 1, background: '#1a2332', border: '1px solid #00c8e8', borderRadius: '6px',
+                      flex: 1, background: '#1a2332', border: '1px solid #e8a33d', borderRadius: '6px',
                       color: '#e2e8f0', padding: '6px 8px', fontSize: '12px', outline: 'none'
                     }}
                     autoFocus
                   />
                   <button
                     onClick={() => handleEditSave(note)}
-                    style={{ background: '#00c8e8', color: '#000', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
+                    style={{ background: '#e8a33d', color: '#000', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
                   >✓</button>
                   <button
                     onClick={() => setEditingId(null)}
@@ -351,36 +228,6 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           {maxNotes && notes.length > maxNotes && (
             <div style={{ color: '#94a3b8', fontSize: '11px', textAlign: 'center', padding: '4px' }}>
               +{notes.length - maxNotes} more
-            </div>
-          )}
-
-          {!maxNotes && ordered.length > 1 && (
-            <button onClick={() => setShowAllNotes(v => !v)}
-              style={{ width: '100%', background: 'none', border: '1px solid #1e293b',
-                       borderRadius: 8, color: '#94a3b8', fontSize: '12px', fontWeight: 600,
-                       padding: '8px 0', cursor: 'pointer', marginTop: 6, fontFamily: 'inherit' }}>
-              {showAllNotes
-                ? '▴ Show latest only'
-                : `▾ Show ${ordered.length - 1} earlier note${ordered.length - 1 === 1 ? '' : 's'}`}
-            </button>
-          )}
-
-          {/* Audit trail, collapsed. Still here, just not shouting over notes. */}
-          {activity.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <button onClick={() => setShowActivity(v => !v)}
-                style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '11px',
-                         cursor: 'pointer', padding: '4px 0', fontFamily: 'inherit' }}>
-                {showActivity ? '▾' : '▸'} Activity ({activity.length})
-              </button>
-              {showActivity && activity.map(a => (
-                <div key={a.id || a.text}
-                  style={{ fontSize: '11px', color: '#64748b', padding: '4px 0 4px 10px',
-                           borderLeft: '2px solid #1e293b', lineHeight: 1.4 }}>
-                  {a.text}
-                  <span style={{ opacity: 0.7 }}> · {formatTime(a.created_at)}</span>
-                </div>
-              ))}
             </div>
           )}
         </div>

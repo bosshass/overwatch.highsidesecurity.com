@@ -5,10 +5,7 @@
 // Views decide WHEN to call these. No state machine.
 
 import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
-import { nameSimilarity, isFuzzyMatch } from '../utils/fuzzyMatch.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
-import { jobDeepLink } from '../config/appBase.js';
-import { resolveJobForEvent } from '../utils/jobResolve.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
@@ -104,7 +101,7 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
   const created = await apiCreate(accessToken, calendarId, event);
   try {
     const deepLink = jobDeepLink(calendarId, created.id);
-    const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
+    const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in Jovelin: ${deepLink}`;
     await apiPatch(accessToken, calendarId, created.id, { description: updatedDesc });
     created.description = updatedDesc;
   } catch (e) { console.warn('Deep link patch failed (non-fatal):', e.message); }
@@ -158,20 +155,15 @@ export function buildEventDescription(job, latestNote) {
     desc += '\n';
   } else {
     desc += '⚠️⚠️ NO CUSTOMER LINKED ⚠️⚠️\n';
-    desc += 'This job is NOT attached to a client in Overwatch.\n';
+    desc += 'This job is NOT attached to a client in Jovelin.\n';
     desc += 'Open it and pick the customer, or it will not bill.\n\n';
   }
   if (job.job_number) desc += `JOB #${job.job_number}\n`;
   if (job.customer_address) desc += `📍 ${job.customer_address}\n`;
   if (job.customer_phone) desc += `📞 ${job.customer_phone}\n`;
-  if (job.gate_code) desc += `🚪 Gate: ${job.gate_code}\n`;
-  if (job.panel_password) desc += `🔐 Panel: ${job.panel_password}\n`;
   if (job.issue) desc += `\nIssue: ${job.issue}\n`;
   if (latestNote) desc += `\n--- Latest Note ---\n${latestNote}\n`;
-  // "Managed by Overwatch" from here on. Nothing READS these markers anymore —
-  // the orphan scan resolves against the database (9.9.27) — so old events
-  // keeping the old JUC-E text costs nothing. This is purely what a human sees.
-  desc += '\n⚡ Managed by Overwatch';
+  desc += '\n⚡ Managed by Jovelin';
   return desc;
 }
 
@@ -191,19 +183,7 @@ export function getColorId(type) {
 // Friendly author name from an email (mirrors NotesPanel's map).
 function resolveAuthorName(email) {
   if (!email) return 'Office';
-  const names = {
-    'drhservicetech1@gmail.com': 'Austin',
-    'austin@drhsecurityservices.com': 'Austin',
-    'jr@drhsecurityservices.com': 'JR',
-    'brian@drhsecurityservices.com': 'Brian',
-    'trevor@drhsecurityservices.com': 'Trevor',
-    'subs@drhsecurityservices.com': 'Subs',
-    'info@drhsecurityservices.com': 'Sara',
-    'sara@jnbllc.com': 'Sara',
-    'admin@jnbservice.com': 'Sara',
-    'shanaparks@drhsecurityservices.com': 'Shana',
-  };
-  return names[email.toLowerCase()] || email.split('@')[0];
+  return email.split('@')[0];
 }
 
 // Compact stamp like "6/8 2:45p" in Denver time.
@@ -335,44 +315,13 @@ export async function onJobComplete(accessToken, job, completionType, oldCalenda
 export async function scanForOrphans(accessToken) {
   const results = { synced: 0, orphans: [], errors: [] };
 
-  // Fetched ONCE, not per-event — an in-memory fuzzy pass against every open
-  // job is what covers "or is in Event Audit" for the forced-duplicate flag.
-  // A calendar-only item that fuzzy-matches an already-open job is exactly
-  // the case that would otherwise sit here quietly and become a second
-  // ticket the moment someone adopts it — same disease as Vinyard Church's
-  // three cards, just caught one step earlier.
-  const { data: openJobs } = await supabase
-    .from('jobs')
-    .select('id, customer_name, status')
-    .not('status', 'in', '(billed,archived,dead,lost)')
-    .limit(500);
-
-  // June 1 back-wall, per Sara: everything on the calendars since then either
-  // billed (invoice number in the title / completed marker), became a job, or
-  // is exactly the leak this scan exists to surface — work that happened with
-  // no notes, no time entry, no bill. Seven days of lookback was hiding two
-  // months of that.
-  const timeMin = new Date('2026-06-01T00:00:00');
+  const timeMin = new Date();
+  timeMin.setDate(timeMin.getDate() - 7);
   const timeMax = new Date();
   timeMax.setDate(timeMax.getDate() + 30);
 
-  // Billed-by-title: the team writes the invoice number into the event title
-  // when it's been billed, and completed work carries the ✅ marker. Those are
-  // DONE — flagging them as "will not bill" would bury the real leaks under
-  // a pile of finished ones.
-  const looksBilled = (ev) =>
-    /\binv(oice)?\s*#?\s*\d{3,}/i.test(ev.summary || '') ||
-    /\[(BILLED|BILL IT|PAID)\]/i.test(ev.summary || '') ||
-    /✅\s*COMPLETED/i.test(ev.description || '');
-
   // Only scan INPUT calendars — skip output/archive calendars
-  // 'queue' = the Tent calendar. Holds are PENCIL MARKS, not work — scanning
-  // them made every "Holding X" since June 1 look like an untracked job, and
-  // adopting one minted a fake scheduled job with no customer. The belt is
-  // skipping the calendar; the suspenders is the title check below, which
-  // also catches holds that ended up on the WRONG calendar during the weeks
-  // the Tent ID was misconfigured.
-  const SKIP_TYPES = ['completed', 'sales', 'installations', 'queue'];
+  const SKIP_TYPES = ['completed', 'sales', 'installations'];
   const sourceCalendars = SYNC_CALENDARS.filter(c => !SKIP_TYPES.includes(c.type));
 
   for (const cal of sourceCalendars) {
@@ -380,8 +329,6 @@ export async function scanForOrphans(accessToken) {
       const events = await apiGet(accessToken, cal.id, timeMin, timeMax);
       for (const event of events) {
         if (!event.start?.dateTime || event.status === 'cancelled') continue;
-        if (looksBilled(event)) { results.synced++; continue; }
-        if (/^\s*Holding\b/i.test(event.summary || '')) { results.synced++; continue; }
 
         // THE CARD CHECK — this is the fix. "Linked" now means exactly what
         // the board means by it: a jobs row references this calendar event.
@@ -391,24 +338,16 @@ export async function scanForOrphans(accessToken) {
         // triage buttons that only rewrite titles) while still having ZERO
         // real job behind it. That's why things could sit tagged in Triage
         // for weeks with no board card and never once show here as a problem.
-        // Checks ALL THREE places an event id can live. Checking only
-        // jobs.calendar_event_id (as this did) reports events as orphans when
-        // they are linked via scheduled_event_id or a job_assignments row —
-        // inflating the "will not bill" count with work that IS tracked.
-        const linkedJob = await resolveJobForEvent(event.id);
+        const { data: linkedJob } = await supabase
+          .from('jobs')
+          .select('id')
+          .eq('calendar_event_id', event.id)
+          .maybeSingle();
 
         if (linkedJob) {
           results.synced++;
         } else if (!isOrphanIgnored(event.id)) {
-          // Force the duplicate flag here too: does this orphan's title
-          // fuzzy-match an already-open job? If so, tag it — someone
-          // reviewing Event Audit should see "this might already be a
-          // ticket" instead of adopting it blind into a second one.
-          const possibleDuplicate = (openJobs || [])
-            .map(j => ({ ...j, similarity: nameSimilarity(j.customer_name, event.summary || '') }))
-            .filter(j => isFuzzyMatch(j.customer_name, event.summary || ''))
-            .sort((a, b) => b.similarity - a.similarity)[0] || null;
-          results.orphans.push({ event, calendar: cal, possibleDuplicate });
+          results.orphans.push({ event, calendar: cal });
         }
       }
     } catch (err) {

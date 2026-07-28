@@ -1,27 +1,20 @@
-# Overwatch V3 — DRH Security Field Dashboard
+# Jovelin
 
-Calendar-only read dashboard. No database. No Supabase.
+Multi-tenant field service platform. Forked from the Overwatch codebase with all
+client-specific residue removed; QBO-native money; calendar-driven scheduling.
 
-## What it does
-- Reads DRH Google Calendars (Service Queue, Austin, JR, Installations, etc.)
-- Tech view: field techs see their assigned jobs for today/this week
-- Owner view: JR sees all calendars, pipeline counts, everything at a glance
-- Operator (Sara): can switch between both views
+- DB: Supabase project `utljntxknxxwgiijbhqz` (schema: `supabase/migrations/001_initial_schema.sql`)
+- Deploy: Vercel (SPA + serverless functions in `/api`)
+- QBO app: "Bloodline" (Intuit, independent of Lifeline's app)
+- QBO flow: `/api/qbo/connect` -> Intuit consent -> `/api/qbo/callback` -> tokens in `qbo_connections` (service-role only)
 
-## Stack
-- React + Vite
-- Google Calendar API (read-only)
-- Google OAuth for auth
-- Deployed to Vercel → overwatch.highsidesecurity.com
+## Setup
+1. `npm install`
+2. Copy `.env.example` -> `.env`, fill Supabase keys + Bloodline dev Client ID/Secret
+3. `npm run dev`
 
-## Env vars
-```
-VITE_GOOGLE_CLIENT_ID=your-google-client-id
-```
+## Vercel env vars (required for QBO)
+`QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`, `QBO_ENV`,
+`SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 
-## Deploy
-```bash
-npm install
-npm run build
-npx vercel --prod
-```
+Rules: every dollar comes from QBO. Hours never become dollars in-app.

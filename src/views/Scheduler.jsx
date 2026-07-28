@@ -4,7 +4,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS } from '../config/calendars.js';
-import { supabase } from '../services/supabase.js';
 import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
@@ -442,7 +441,7 @@ export default function Scheduler({ accessToken, onBack }) {
     try {
       const event = {
         summary: rec.item.title,
-        description: `${rec.item.description}\n\n[Scheduled via Overwatch Scheduler]`,
+        description: `${rec.item.description}\n\n[Scheduled via Jovelin Scheduler]`,
         location: rec.item.location,
         start: {
           dateTime: rec.slot.start.toISOString(),

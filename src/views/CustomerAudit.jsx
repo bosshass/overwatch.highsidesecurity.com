@@ -7,18 +7,22 @@
 //   • expand the full history thread (job_history) inline
 // ============================================================
 
-import { dispo, DISPO_KEYS } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
 import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
 import { missingLabel } from '../utils/completeness.js';
-import { MergeTool } from './BoardView.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
-import { statusLabel } from '../utils/status.js';
-import CustomerPicker from '../components/CustomerPicker.jsx';
 
 const SINCE = '2026-01-01';
+
+const DISPO = {
+  bill_it:     { label: 'Bill it',     color: '#22c55e' },
+  return:      { label: 'Return',      color: '#f59e0b' },
+  estimate:    { label: 'Estimate',    color: '#06b6d4' },
+  in_progress: { label: 'In progress', color: '#3b82f6' },
+};
+const DISPO_KEYS = ['bill_it', 'return', 'estimate', 'in_progress'];
 
 // Terminal — the work is finished. Everything else is still live.
 const DONE_STATUSES = ['billed', 'complete', 'archived', 'dead', 'lost', 'won'];
@@ -30,14 +34,14 @@ const DISPO_STATUS = {
   return:      JOB_STATUS.RETURN_PENDING,
   in_progress: JOB_STATUS.SCHEDULED,
 };
-
-const AUTHORS = {
-  'drhservicetech1@gmail.com': 'Austin', 'austin@drhsecurityservices.com': 'Austin',
-  'jr@drhsecurityservices.com': 'JR', 'brian@drhsecurityservices.com': 'Brian',
-  'trevor@drhsecurityservices.com': 'Trevor', 'subs@drhsecurityservices.com': 'Subs',
-  'info@drhsecurityservices.com': 'Office', 'sara@jnbllc.com': 'Sara',
-  'shanaparks@drhsecurityservices.com': 'Shana',
+const STATUS_LABEL = {
+  [JOB_STATUS.TO_BILL]:        'To Bill',
+  [JOB_STATUS.NEEDS_ESTIMATE]: 'Needs Estimate',
+  [JOB_STATUS.RETURN_PENDING]: 'Return Pending',
+  [JOB_STATUS.SCHEDULED]:      'Scheduled',
 };
+
+const AUTHORS = {};
 const author = e => AUTHORS[(e || '').toLowerCase()] || (e ? e.split('@')[0] : 'Office');
 
 function fmtDate(iso) {
@@ -55,12 +59,7 @@ function Chip({ color, children }) {
 }
 
 // ── Searchable customer picker ───────────────────────────────
-// LOCAL, and different from components/CustomerPicker.jsx — this one takes a
-// preloaded `registry` and is wired into the time-entry assign flow. It is a
-// duplicate that should fold into the shared picker, but that means touching
-// the assign path, so it keeps its own name for now rather than being
-// half-migrated. Tracked as leftover from the #6 picker consolidation.
-function RegistryPicker({ registry, onPick, onClose }) {
+function CustomerPicker({ registry, onPick, onClose }) {
   const [q, setQ] = useState('');
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -68,7 +67,7 @@ function RegistryPicker({ registry, onPick, onClose }) {
     const s = q.trim().toLowerCase();
     const list = s ? registry.filter(c =>
       (c.name || '').toLowerCase().includes(s) || (c.short_code || '').toLowerCase().includes(s) ||
-      (c.address || '').toLowerCase().includes(s) || (c.cs_number || '').toLowerCase().includes(s)) : registry;
+      (c.address || '').toLowerCase().includes(s)) : registry;
     return list.slice(0, 40);
   }, [q, registry]);
   return (
@@ -84,7 +83,7 @@ function RegistryPicker({ registry, onPick, onClose }) {
           <div key={c.id} onClick={() => onPick(c)} style={{ padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: '#1a1a2e', border: '1px solid #1e293b' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{c.name}</span>
-              <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
+              <span style={{ color: '#e8a33d', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
             </div>
             {c.address && <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>{c.address}</div>}
           </div>
@@ -119,26 +118,13 @@ export default function CustomerAudit({ onBack, accessToken }) {
   //   1. time_entries with no customer_id  (already here)
   //   2. jobs with no customer_id          (was only on the Board)
   //   3. calendar events created BY HAND   (was buried in the Calendar tab)
-  // #3 is detected by the absence of the "Managed by JUC-E" / "Open in JUC-E"
-  // marker in the event description — if Overwatch didn't write the event,
-  // Overwatch didn't put that marker there.
+  // #3 is detected by the absence of the "Managed by Jovelin" / "Open in Jovelin"
+  // marker in the event description — if Jovelin didn't write the event,
+  // Jovelin didn't put that marker there.
   const [orphanJobs, setOrphanJobs] = useState([]);
   const [manualEvents, setManualEvents] = useState([]);
-  const [adoptBusy, setAdoptBusy] = useState(null);
-  const [adoptCustomer, setAdoptCustomer] = useState({});
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
-  const [manualOpen, setManualOpen] = useState(false);
-
-  // Arriving from the home banner (/audit?scan=1) runs the scan immediately.
-  // The banner already told her there are 12; making her press Scan to see the
-  // same 12 is asking her to prove she meant it.
-  useEffect(() => {
-    if (!accessToken) return;
-    const wants = new URLSearchParams(window.location.search).get('scan');
-    if (wants && !scanned) { setScanned(true); scanManual(); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
   const [archiveTarget, setArchiveTarget] = useState(null);   // the entry being archived
 
   const byId = useMemo(() => { const m = {}; for (const c of registry) m[c.id] = c; return m; }, [registry]);
@@ -149,7 +135,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
     setLoading(true); setErr(null);
     try {
       const [{ data: reg, error: e1 }, { data: ev, error: e2 }, { data: jobs, error: e3 }] = await Promise.all([
-        supabase.from('customers').select('id, name, short_code, cs_number, address').is('merged_into', null).order('name'),
+        supabase.from('customers').select('id, name, short_code, address').is('merged_into', null).order('name'),
         supabase.from('time_entries')
           .select('id, event_title, event_start, created_at, calendar_event_id, customer_id, tech_name, total_minutes, disposition, materials, notes, customer_name_raw')
           .or('archived.is.null,archived.eq.false')
@@ -166,7 +152,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
       // Pile 2 — jobs with no client attached (excluding finished work).
       const { data: oj } = await supabase
         .from('jobs')
-        .select('id, customer_name, customer_phone, customer_address, issue, status, tech_name, created_at, calendar_event_id, calendar_id')
+        .select('id, customer_name, customer_phone, customer_address, issue, status, tech_name, created_at')
         .is('customer_id', null)
         .not('status', 'in', '(billed,archived,dead,lost)')
         .order('created_at', { ascending: true });
@@ -186,58 +172,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
     setSavingId(null);
   }
 
-  // Adopt a hand-made calendar event into a real job, keeping the event.
-  // Until now this list was READ-ONLY: you could see 18 events that would never
-  // bill and do absolutely nothing about them. That is why the number never
-  // went down.
-  //
-  // Stamps calendar_event_id so the event stops showing as an orphan the moment
-  // the job exists, and so the tech's disposition finds it later.
-  async function adoptEvent(o) {
-    setAdoptBusy(o.event.id);
-    try {
-      const start = o.event.start?.dateTime ? new Date(o.event.start.dateTime) : null;
-      const future = start && start > new Date();
-      const created = await jobsApi.create({
-        customer_name:     (o.event.summary || 'Untitled').replace(/\[[^\]]*\]\s*/g, '').trim(),
-        customer_id:       adoptCustomer[o.event.id] || undefined,
-        // Future work is scheduled. Past work already happened, so it goes to
-        // complete where the billing flow can pick it up rather than sitting
-        // on the board pretending it is still upcoming.
-        status:            future ? 'scheduled' : 'complete',
-        issue:             (o.event.description || '').slice(0, 500) || o.event.summary || '',
-        customer_address:  o.event.location || '',
-        scheduled_date:    start ? start.toISOString() : undefined,
-        calendar_event_id: o.event.id,
-        calendar_id:       o.calendar?.id,
-      }, `${userEmail} · adopted from calendar`);
-      if (created?.id) {
-        setManualEvents(prev => prev.filter(x => x.event.id !== o.event.id));
-      }
-    } catch (e) { alert('Could not create job: ' + (e.message || e)); }
-    setAdoptBusy(null);
-  }
-
-  // "not trying to create a second ticket" — this scan already DETECTS the
-  // duplicate (possibleDuplicate, fuzzy name match against open jobs) but the
-  // only button offered was Create job & link, which makes a second one
-  // anyway. This attaches the event to the job that's already there instead.
-  async function linkToExisting(o) {
-    if (!o.possibleDuplicate) return;
-    setAdoptBusy(o.event.id);
-    try {
-      const { error } = await supabase.from('jobs').update({
-        calendar_event_id: o.event.id,
-        calendar_id: o.calendar?.id,
-        updated_at: new Date().toISOString(),
-      }).eq('id', o.possibleDuplicate.id);
-      if (error) throw error;
-      setManualEvents(prev => prev.filter(x => x.event.id !== o.event.id));
-    } catch (e) { alert('Could not link: ' + (e.message || e)); }
-    setAdoptBusy(null);
-  }
-
-  // Pile 3 — calendar events Overwatch never created. Hits Google, so it runs
+  // Pile 3 — calendar events Jovelin never created. Hits Google, so it runs
   // on demand rather than blocking the page load.
   async function scanManual() {
     if (!accessToken) { alert('Not signed in to Google — cannot scan the calendars.'); return; }
@@ -245,7 +180,6 @@ export default function CustomerAudit({ onBack, accessToken }) {
     try {
       const res = await scanForOrphans(accessToken);
       setManualEvents(res.orphans || []);
-      if ((res.orphans || []).length) setManualOpen(true);
     } catch (e) {
       alert('Scan failed: ' + (e.message || e));
     }
@@ -254,34 +188,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
 
   // Archive — the class matters (see config/archiveReasons.js). A test entry and
   // a warranty callback both leave this queue, but one never happened and the
-  // other is real cost DRH absorbed with no revenue. Never collapse them.
-  const [completingId, setCompletingId] = useState(null);
-
-  // Mark complete, no customer required. Explicitly NOT the same button as
-  // the billing-side Archive above: that one classifies a real visit as
-  // not_real/absorbed for the profitability numbers. This one says "this row
-  // was never a customer job at all" — moves its calendar event (if any) to
-  // Completed WITHOUT deleting it, and archives the job so both the job query
-  // and the calendar scan stop surfacing it, permanently.
-  async function markOrphanComplete(job) {
-    setCompletingId(job.id);
-    try {
-      if (job.calendar_event_id && job.calendar_id) {
-        await archiveEvent(accessToken, job.calendar_id, job.calendar_event_id);
-      }
-      const { error } = await supabase.from('jobs').update({
-        status: 'archived',
-        updated_by: userEmail || null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', job.id);
-      if (error) throw error;
-      setOrphanJobs(prev => prev.filter(j => j.id !== job.id));
-    } catch (e) {
-      alert('Could not mark complete: ' + (e.message || e));
-    }
-    setCompletingId(null);
-  }
-
+  // other is real cost we absorbed with no revenue. Never collapse them.
   async function doArchive(reason) {
     const entryId = archiveTarget?.id;
     if (!entryId) return;
@@ -318,7 +225,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
     setTicketBusyId(ev.id); setConfirmTicketId(null);
     try {
       if (existing) {
-        await jobsApi.changeStatus(existing.id, target, userEmail, `Set to ${statusLabel(target)} from Audit`);
+        await jobsApi.changeStatus(existing.id, target, userEmail, `Set to ${STATUS_LABEL[target] || target} from Audit`);
         setJobByEvent(m => ({ ...m, [ev.calendar_event_id]: { ...existing, status: target } }));
       } else {
         const job = {
@@ -443,14 +350,9 @@ export default function CustomerAudit({ onBack, accessToken }) {
           </div>
         )}
 
-        {/* Jobs with no client — not calendar-backed, so they never showed here before.
-            Two of these are meta calendar noise ("Austin Off", "Meeting with Sara & JR")
-            that never should have become jobs, and a real duplicate ("Holding Shelton -"
-            matching an existing job) that "open on board" made you go fix somewhere else.
-            Both actions live right here now: merge into whatever this really is, or mark
-            it complete with no customer if it was never real work at all. */}
+        {/* Jobs with no client — not calendar-backed, so they never showed here before */}
         {orphanJobs.length > 0 && (
-          <details open style={{ marginBottom: 10 }}>
+          <details style={{ marginBottom: 10 }}>
             <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
               {orphanJobs.length} jobs with no client →
             </summary>
@@ -460,98 +362,27 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{j.customer_name || 'Unnamed'}</div>
                   <div style={{ fontSize: 12, color: '#cbd5e1' }}>{j.issue || 'no issue noted'}</div>
                   <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>{missingLabel(j)}</div>
-                  <a href={boardJobLink(j.id)} style={{ fontSize: 12, color: '#00c8e8', textDecoration: 'none' }}>open on board →</a>
-
-                  <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    {/* Merge — this IS an existing customer/job under a different
-                        name. Same tool the board and every ticket use; here it
-                        loads its own candidates since orphanJobs is a filtered
-                        subset, not the full board. */}
-                    <MergeTool job={j} accessToken={accessToken} userEmail={userEmail}
-                      onMerge={() => setOrphanJobs(prev => prev.filter(x => x.id !== j.id))} />
-
-                    {/* Mark complete, no customer. For meta noise like "Austin Off"
-                        or "Meeting with Sara & JR" — never real customer work, so
-                        forcing a client link onto it is wrong. Moves the underlying
-                        calendar event to the Completed calendar (not deleted — same
-                        archiveEvent() the tech-side archive uses) and archives the
-                        job. 'completed' is a skipped calendar type in the scan, and
-                        'archived' is excluded from this exact query, so it stops
-                        being flagged permanently — ignored to infinity, nothing lost. */}
-                    <button onClick={() => markOrphanComplete(j)} disabled={completingId === j.id}
-                      style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8',
-                               borderRadius: 8, fontSize: 11, fontWeight: 700, padding: '6px 10px',
-                               cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      {completingId === j.id ? 'Marking…' : '✓ Mark complete — no customer'}
-                    </button>
-                  </div>
+                  <a href={boardJobLink(j.id)} style={{ fontSize: 12, color: '#e8a33d', textDecoration: 'none' }}>open on board →</a>
                 </div>
               ))}
             </div>
           </details>
         )}
 
-        {/* Calendar events Overwatch never created — no "Managed by JUC-E" marker */}
+        {/* Calendar events Jovelin never created — no "Managed by Jovelin" marker */}
         {manualEvents.length > 0 && (
-          // CONTROLLED, not `<details open>`. `open` as a bare attribute only
-          // sets the INITIAL state, so a section that renders after an async
-          // scan lands collapsed no matter what. Arriving from the home banner
-          // has to land on the open list — the whole point of the banner is
-          // that this work is invisible, and making someone hit Scan and then
-          // click a 13px summary to reveal it keeps it invisible.
-          <details open={manualOpen} style={{ marginBottom: 10 }}>
-            <summary
-              onClick={(e) => { e.preventDefault(); setManualOpen(o => !o); }}
-              style={{ cursor: 'pointer', fontSize: 16, color: '#fbbf24', fontWeight: 800,
-                       padding: '8px 0', listStyle: 'none' }}>
-              {manualOpen ? '▾' : '▸'} {manualEvents.length} calendar events made by hand — will not bill
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, color: '#fbbf24', fontWeight: 700, padding: '4px 0' }}>
+              {manualEvents.length} calendar events made by hand (not in Jovelin) →
             </summary>
             <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {manualEvents.map(o => (
-                <div key={o.event.id} style={{ background: '#1e293b', border: `1px solid ${o.possibleDuplicate ? '#f97316' : '#f59e0b55'}`, borderRadius: 8, padding: '8px 10px' }}>
+                <div key={o.event.id} style={{ background: '#1e293b', border: '1px solid #f59e0b55', borderRadius: 8, padding: '8px 10px' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{o.event.summary || '(no title)'}</div>
                   <div style={{ fontSize: 12, color: '#cbd5e1' }}>
                     {o.calendar?.name} · {o.event.start?.dateTime ? new Date(o.event.start.dateTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
                   </div>
-                  <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>never entered Overwatch — will not bill</div>
-                  {o.possibleDuplicate && (
-                    <div style={{ fontSize: 12, color: '#fdba74', fontWeight: 700, marginTop: 4, background: '#7c2d1230', borderRadius: 6, padding: '4px 8px' }}>
-                      ⚠️ Possible duplicate — already open: {o.possibleDuplicate.customer_name} ({o.possibleDuplicate.status})
-                    </div>
-                  )}
-                  <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    {o.possibleDuplicate ? (
-                      // A match was found — link is the PRIMARY action. Create
-                      // job stays available underneath for when the match is
-                      // wrong, but it's no longer the only button.
-                      <>
-                        <button onClick={() => linkToExisting(o)} disabled={adoptBusy === o.event.id}
-                          style={{ background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8,
-                                   padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                          {adoptBusy === o.event.id ? 'Linking…' : `Link to ${o.possibleDuplicate.customer_name} →`}
-                        </button>
-                        <button onClick={() => adoptEvent(o)} disabled={adoptBusy === o.event.id}
-                          style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 8,
-                                   padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                          Not a match — create new
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ flex: 1, minWidth: 180 }}>
-                          <CustomerPicker compact
-                            value={adoptCustomer[o.event.id] || null}
-                            onChange={(id) => setAdoptCustomer(m => ({ ...m, [o.event.id]: id }))}
-                            placeholder="Link a client (optional)" />
-                        </div>
-                        <button onClick={() => adoptEvent(o)} disabled={adoptBusy === o.event.id}
-                          style={{ background: '#22c55e', border: 'none', color: '#0f172a', borderRadius: 8,
-                                   padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                          {adoptBusy === o.event.id ? 'Creating…' : 'Create job & link →'}
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>never entered Jovelin — will not bill</div>
                 </div>
               ))}
             </div>
@@ -561,8 +392,8 @@ export default function CustomerAudit({ onBack, accessToken }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter by title, note, tech, customer…"
             style={{ flex: 1, background: '#1e293b', border: '1px solid #334155', borderRadius: 10, color: '#e2e8f0', fontSize: 14, padding: '9px 12px', outline: 'none', fontFamily: 'inherit' }} />
           <button onClick={() => setUnassignedOnly(v => !v)} style={{
-            background: unassignedOnly ? '#00c8e820' : '#1e293b', border: `1px solid ${unassignedOnly ? '#00c8e8' : '#334155'}`,
-            color: unassignedOnly ? '#00c8e8' : '#64748b', borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            background: unassignedOnly ? '#e8a33d20' : '#1e293b', border: `1px solid ${unassignedOnly ? '#e8a33d' : '#334155'}`,
+            color: unassignedOnly ? '#e8a33d' : '#64748b', borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             {unassignedOnly ? 'Unassigned only' : 'All events'}
           </button>
           <button onClick={() => setHideDone(v => !v)} style={{
@@ -584,7 +415,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
         )}
 
         {!loading && !err && filtered.map(e => {
-          const d = dispo(e.disposition);
+          const d = DISPO[e.disposition] || { label: e.disposition || '—', color: '#cbd5e1' };
           const cust = byId[e.customer_id];
           const job = e.calendar_event_id ? jobByEvent[e.calendar_event_id] : null;
           const target = DISPO_STATUS[e.disposition] || JOB_STATUS.SCHEDULED;
@@ -611,7 +442,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                 </button>
                 {e.tech_name && <span style={{ color: '#cbd5e1', fontSize: 11 }}>👷 {e.tech_name}</span>}
                 <span style={{ color: '#cbd5e1', fontSize: 11 }}>📅 {fmtDate(e.event_start || e.created_at)}</span>
-                {hrs(e.total_minutes) && <span style={{ color: '#00c8e8', fontSize: 11 }}>⏱ {hrs(e.total_minutes)}</span>}
+                {hrs(e.total_minutes) && <span style={{ color: '#e8a33d', fontSize: 11 }}>⏱ {hrs(e.total_minutes)}</span>}
               </div>
 
               {e.materials && <div style={{ color: '#f59e0b', fontSize: 12, marginTop: 8 }}>🔧 {e.materials}</div>}
@@ -624,8 +455,8 @@ export default function CustomerAudit({ onBack, accessToken }) {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {DISPO_KEYS.map(k => (
-                    <button key={k} onClick={() => e.disposition !== k && changeDispo(e.id, k)} style={btn(e.disposition === k, dispo(k).color)}>
-                      {dispo(k).label}
+                    <button key={k} onClick={() => e.disposition !== k && changeDispo(e.id, k)} style={btn(e.disposition === k, DISPO[k].color)}>
+                      {DISPO[k].label}
                     </button>
                   ))}
                 </div>
@@ -643,21 +474,21 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   </div>
                 ) : (
                   <button onClick={() => setOpenPickerId(openPickerId === e.id ? null : e.id)} disabled={savingId === e.id}
-                    style={{ width: '100%', background: '#00c8e820', border: '1px solid #00c8e8', borderRadius: 8, color: '#00c8e8', padding: '9px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    style={{ width: '100%', background: '#e8a33d20', border: '1px solid #e8a33d', borderRadius: 8, color: '#e8a33d', padding: '9px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     {savingId === e.id ? 'Saving…' : '+ Assign customer'}
                   </button>
                 )}
-                {openPickerId === e.id && <RegistryPicker registry={registry} onPick={c => assign(e.id, c.id)} onClose={() => setOpenPickerId(null)} />}
+                {openPickerId === e.id && <CustomerPicker registry={registry} onPick={c => assign(e.id, c.id)} onClose={() => setOpenPickerId(null)} />}
               </div>
 
               {/* Board ticket + History */}
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #1e293b', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 {onBoardSynced ? (
-                  <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>✓ On board · {statusLabel(job.status)}</span>
+                  <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>✓ On board · {STATUS_LABEL[job.status] || job.status}</span>
                 ) : confirmTicketId === e.id ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ color: '#cbd5e1', fontSize: 12 }}>
-                      {job ? 'Update board ticket →' : 'Create board ticket →'} <b style={{ color: '#e2e8f0' }}>{statusLabel(target)}</b>
+                      {job ? 'Update board ticket →' : 'Create board ticket →'} <b style={{ color: '#e2e8f0' }}>{STATUS_LABEL[target] || target}</b>?
                     </span>
                     <button onClick={() => pushToBoard(e)} style={{ background: '#22c55e25', border: '1px solid #22c55e', color: '#22c55e', borderRadius: 7, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Yes</button>
                     <button onClick={() => setConfirmTicketId(null)} style={{ background: 'none', border: '1px solid #334155', color: '#cbd5e1', borderRadius: 7, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
@@ -665,7 +496,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                 ) : (
                   <button onClick={() => setConfirmTicketId(e.id)} disabled={ticketBusyId === e.id}
                     style={{ background: 'none', border: '1px solid #8b5cf6', color: '#a78bfa', borderRadius: 7, padding: '6px 11px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    {ticketBusyId === e.id ? 'Working…' : job ? `Update ticket → ${statusLabel(target)}` : `Create ticket → ${statusLabel(target)}`}
+                    {ticketBusyId === e.id ? 'Working…' : job ? `Update ticket → ${STATUS_LABEL[target] || target}` : `Create ticket → ${STATUS_LABEL[target] || target}`}
                   </button>
                 )}
 
@@ -686,7 +517,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   {hist && !hist.loading && hist.rows.map(r => (
                     <div key={r.id} style={{ paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #1e293b' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ color: '#00c8e8', fontSize: 11, fontWeight: 700 }}>{author(r.created_by)}</span>
+                        <span style={{ color: '#e8a33d', fontSize: 11, fontWeight: 700 }}>{author(r.created_by)}</span>
                         {r.from_status && r.to_status && <span style={{ color: '#94a3b8', fontSize: 10 }}>{r.from_status} → {r.to_status}</span>}
                         <span style={{ color: '#94a3b8', fontSize: 10, marginLeft: 'auto' }}>{fmtDateTime(r.created_at)}</span>
                       </div>

@@ -1,5 +1,5 @@
 // ============================================
-// JUC-E V4 - Installation Approval Modal
+// Jovelin - Installation Approval Modal
 // ============================================
 // Implements explicit manager approval for installations per SOP
 

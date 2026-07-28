@@ -1,5 +1,5 @@
 // ============================================
-// JUC-E V4 - Push Notifications Service
+// Jovelin - Push Notifications Service
 // ============================================
 // Uses Firebase Cloud Messaging for real push.
 // Falls back to in-app notifications if denied.
@@ -146,8 +146,8 @@ export function sendLocalNotification(notification) {
     try {
       new Notification(notification.title, {
         body: notification.body,
-        icon: '/juce-icon-drh.png',
-        badge: '/juce-icon-drh.png',
+        icon: '/favicon-192x192.png',
+        badge: '/favicon-192x192.png',
         tag: notification.tag || 'juce-default',
         data: notification.data,
       });

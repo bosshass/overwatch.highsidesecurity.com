@@ -30,10 +30,8 @@
 
 import { useState, useEffect } from 'react';
 import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '../services/supabase.js';
-import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
-import { dispo, DISPO_KEYS } from '../utils/billing.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -93,7 +91,7 @@ export default function JobFinishSheet({
   // ── Calendar PATCH ────────────────────────────────────────────────
   // Patches the title and, when the tech left notes/materials, APPENDS them to
   // the event description so the worker's notes live on the calendar — not just
-  // in Overwatch. Append-only: never overwrites the existing description.
+  // in Jovelin. Append-only: never overwrites the existing description.
   const patchTitle = async (newTitle) => {
     const body = { summary: newTitle };
 
@@ -138,7 +136,7 @@ export default function JobFinishSheet({
 
   // ── Adopt-on-disposition (Option C) ───────────────────────────────
   // Every disposition must land on a real jobs row. If this calendar event
-  // was booked outside Overwatch (no jobs row), adopt it now: create the row
+  // was booked outside Jovelin (no jobs row), adopt it now: create the row
   // from the event and stamp calendar_event_id. Dedupe on calendar_event_id
   // so we never make a ghost. Returns the job id.
   const DISPOSITION_STATUS = {
@@ -146,18 +144,16 @@ export default function JobFinishSheet({
     estimate:    JOB_STATUS.NEEDS_ESTIMATE,
     in_progress: JOB_STATUS.SCHEDULED,   // stays open / active
     return:      JOB_STATUS.RETURN_PENDING,
-    // "Couldn't do it" — no access, wrong parts, customer turned the tech away.
-    // Previously there was no button for this, so techs picked "In progress"
-    // and the job sat in Scheduled looking like it was still happening.
-    blocked:     JOB_STATUS.BLOCKED,
   };
-  // was a private label map — a fourth copy. utils/billing.js owns this.
-  const DISPO_LABEL = Object.fromEntries(DISPO_KEYS.map(k => [k, dispo(k).label]));
+  const DISPO_LABEL = { bill_it: 'Bill it', estimate: 'Estimate', in_progress: 'In progress', return: 'Return' };
   const ensureJobForEvent = async (disposition) => {
     const base = cleanTitle(event.title);
     const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
-    // ONE resolver, shared with Unbilled and the home tile. See utils/jobResolve.
-    const existing = await resolveJobForEvent(event.id);
+    let existing = null;
+    try {
+      const { data } = await supabase.from('jobs').select('id').eq('calendar_event_id', event.id).limit(1);
+      existing = data && data[0];
+    } catch (err) { console.warn('adopt: job lookup failed', err); }
 
     if (existing) {
       // Already tracked — move it to the disposition's status AND put the
@@ -168,40 +164,7 @@ export default function JobFinishSheet({
       await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
       return existing.id;
     }
-    // LAST CHANCE before we manufacture a duplicate. An event that was moved
-    // between calendars, or recreated by hand, gets a brand-new Google id — so
-    // the id lookups above all miss even though the job is sitting right there
-    // on the board. Match on the same customer, same day, still-open, before
-    // creating anything. This is the "why did a second card appear" bug.
-    if (event.start) {
-      try {
-        const day = new Date(event.start);
-        const from = new Date(day); from.setHours(0, 0, 0, 0);
-        const to   = new Date(day); to.setHours(23, 59, 59, 999);
-        let q = supabase.from('jobs').select('id, status')
-          .gte('scheduled_date', from.toISOString())
-          .lte('scheduled_date', to.toISOString())
-          .not('status', 'in', '(billed,archived,dead,lost)')
-          .limit(1);
-        q = linkedCustomer?.id
-          ? q.eq('customer_id', linkedCustomer.id)
-          : q.ilike('customer_name', `%${(base || '').slice(0, 24)}%`);
-        const { data: near } = await q;
-        if (near && near[0]) {
-          // Found it. Bind this event id on so the miss can't repeat, then
-          // move it — do NOT create a second row.
-          await supabase.from('jobs')
-            .update({ calendar_event_id: event.id }).eq('id', near[0].id);
-          const histNote = notes.trim()
-            ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
-            : `${disposition} disposition from Work Today`;
-          await jobsApi.changeStatus(near[0].id, target, userEmail, histNote);
-          return near[0].id;
-        }
-      } catch (e) { console.warn('ensureJobForEvent: same-day match failed', e); }
-    }
-
-    // Genuinely untracked — adopt the calendar event into a new jobs row.
+    // Not tracked — adopt the calendar event into a new jobs row.
     const created = await jobsApi.create({
       customer_name:     linkedCustomer?.name || base,
       customer_id:       linkedCustomer?.id || undefined,
@@ -210,7 +173,6 @@ export default function JobFinishSheet({
       customer_address:  event.location || '',
       scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
       calendar_event_id: event.id,
-      scheduled_event_id: event.id,   // both, so the next lookup cannot miss
     }, `${userEmail} · adopted from calendar`);
     return created?.id || null;
   };
@@ -304,29 +266,18 @@ export default function JobFinishSheet({
   // is the single most important thing on the screen and it used to be
   // collapsed behind a link.
   const scope = (event.description || '')
-    .replace(/📱.*|Open in (JUC-E|Overwatch).*/g, '')
+    .replace(/📱.*|Open in Jovelin.*/g, '')
     .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
     .split('\n')
     .filter(l => !l.trim().startsWith('📝'))
     .join('\n')
     .trim();
 
-  // Same five destinations as the board and My Tasks, in the words a tech
-  // would use. The labels used to be this sheet's own invention — "Needs
-  // estimate" here, "Estimates" on the board, "Won" in the mover — so the same
-  // move had three names depending on which screen you were standing in.
-  // `means` is the question the tech is actually answering.
   const DISPOS = [
-    { key: 'bill_it',     label: '✅ Done — To Bill',     accent: '#166534', tint: '#f0fdf4',
-      means: 'Finished. Hours go to Billing.' },
-    { key: 'return',      label: '🔄 Return Visit',       accent: '#d97706', tint: '#fffbeb',
-      means: 'Work started — I have to come back. Asks why.' },
-    { key: 'in_progress', label: '📅 Still Scheduled',    accent: '#1d4ed8', tint: '#eff6ff',
-      means: 'Multi-day job. Not finished, still booked.' },
-    { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',
-      means: 'Scope changed — this needs pricing.' },
-    { key: 'blocked',     label: '📝 New / Notes',        accent: '#b91c1c', tint: '#fef2f2',
-      means: "Couldn't do it — no access, wrong parts, customer turned me away." },
+    { key: 'bill_it',     label: '✅ Done — bill it',   accent: '#1B2A4A', tint: '#eef2ff' },
+    { key: 'return',      label: '🔄 Return visit',     accent: '#d97706', tint: '#fffbeb' },
+    { key: 'in_progress', label: '🛠️ In progress',      accent: '#0e7490', tint: '#ecfeff' },
+    { key: 'estimate',    label: '💰 Needs estimate',   accent: '#6d28d9', tint: '#f5f3ff' },
   ];
 
   // ── The actual form content (customer + time + notes + materials + buttons) ──
@@ -366,7 +317,7 @@ export default function JobFinishSheet({
           <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
             How did it end? {selectedDispo ? '✓' : '— required'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
             {DISPOS.map(d => {
               const on = selectedDispo === d.key;
               return (
@@ -377,15 +328,9 @@ export default function JobFinishSheet({
                     background: on ? d.tint : '#ffffff',
                     border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
                     color: on ? d.accent : '#475569',
-                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'left',
+                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'center',
                   }}>
-                  <span style={{ display: 'block' }}>{d.label}</span>
-                  {/* The question the tech is answering, in their words. A label
-                      alone made them guess which button meant "couldn't get in". */}
-                  <span style={{ display: 'block', fontSize: 11, fontWeight: 500,
-                                 color: on ? d.accent : '#94a3b8', marginTop: 3, lineHeight: 1.3 }}>
-                    {d.means}
-                  </span>
+                  {d.label}
                 </button>
               );
             })}

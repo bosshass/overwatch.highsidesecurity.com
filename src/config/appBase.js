@@ -14,12 +14,12 @@
 // SCOPE: this only affects links written from NOW ON. Existing calendar
 // events keep their old links until they are dealt with separately — see
 // the orphan scan in TechCalendar, which is the real path for pulling
-// untracked calendar work into Overwatch.
+// untracked calendar work into Jovelin.
 
 export const APP_BASE =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
-    : 'https://overwatch.highsidesecurity.com';
+    : 'https://jovelin.vercel.app';
 
 // The canonical deep link to a calendar-backed job.
 export function jobDeepLink(calendarId, eventId) {
@@ -36,7 +36,7 @@ export function jobLink(jobId) {
 
 // ── SHORT LINKS ──────────────────────────────────────────────────────
 // A raw UUID link is 80+ characters and looks like malware in a text message.
-// The first 8 hex chars of a UUID are unique across 4 billion values; DRH has
+// The first 8 hex chars of a UUID are unique across 4 billion values; a tenant has
 // a few hundred jobs, so a collision is not a real concern — and the resolver
 // still verifies against the full row before opening anything.
 export function shortCode(jobId) {

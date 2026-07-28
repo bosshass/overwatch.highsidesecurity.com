@@ -1,5 +1,5 @@
 // ============================================
-// Overwatch - RescheduleModal
+// Jovelin - RescheduleModal
 // ============================================
 // Moves an already-scheduled job to a new date/time/tech.
 // Patches GCal event + updates Supabase assignment + auto-note.
@@ -329,7 +329,7 @@ export default function RescheduleModal({ job, assignments, onClose, onReschedul
                   <span style={{ color: '#94a3b8', fontSize: '9px', fontWeight: '600' }}>
                     {d.toLocaleDateString('en-US', { weekday: 'short' })}
                   </span>
-                  <span style={{ color: isSelected(d) ? '#000' : isToday(d) ? '#00c8e8' : '#e2e8f0', fontSize: '16px', fontWeight: '700' }}>
+                  <span style={{ color: isSelected(d) ? '#000' : isToday(d) ? '#e8a33d' : '#e2e8f0', fontSize: '16px', fontWeight: '700' }}>
                     {d.getDate()}
                   </span>
                   {selectedTech && busy > 0 && (

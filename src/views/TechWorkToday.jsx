@@ -1,22 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
+import TodayTasksAndTime from '../components/TodayTasksAndTime.jsx';
+import { useTenant } from '../context/TenantContext.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
-const TECH_CAL_MAP = {
-  'Austin':  CALENDARS.AUSTIN,  'austin':  CALENDARS.AUSTIN,
-  'drhservicetech1@gmail.com':      CALENDARS.AUSTIN,
-  'austin@drhsecurityservices.com': CALENDARS.AUSTIN,
-  'JR':  CALENDARS.JR, 'jr':  CALENDARS.JR,
-  'jr@drhsecurityservices.com':     CALENDARS.JR,
-  'Brian': CALENDARS.TECH3, 'brian': CALENDARS.TECH3,
-  'brian@drhsecurityservices.com':  CALENDARS.TECH3,
-  'Shana': CALENDARS.SHANA, 'shana': CALENDARS.SHANA,
-  'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
-  'Subs': CALENDARS.SUBS, 'subs': CALENDARS.SUBS,
-  'subs@drhsecurityservices.com':      CALENDARS.SUBS,
-};
+// Per-tenant: tech-name/email -> calendar comes from env override map plus
+// techs.calendar_id in the DB; nothing tenant-specific is baked in here.
+import { TECH_CALENDAR_MAP } from '../config/calendars.js';
+const TECH_CAL_MAP = { ...TECH_CALENDAR_MAP };
 
 const HARD_SKIP = ['[BILLED]', '[IGNORED]', '[IGNORE]'];
 
@@ -45,17 +38,13 @@ function isProjectLike(title = '', description = '') {
   ].some(k => t.includes(k));
 }
 
-// Labels match the shared lane vocabulary (utils/lanes.js). "Bill It" was this
-// screen's own phrase for what the rest of the app calls To Bill — same pile,
-// two names. Keys, tab logic and data flow are untouched on purpose: this
-// screen is half-adopted in the field and the fastest way to lose the other
-// half is to move things around under their thumbs.
 const TABS = [
-  { key: 'new',    label: 'Today',    emoji: '📋', color: '#1a8a8a' },
-  { key: 'billit', label: 'To Bill',  emoji: '💵', color: '#1B2A4A' },
+  { key: 'new',    label: 'Today',   emoji: '📋', color: '#1a8a8a' },
+  { key: 'billit', label: 'Bill It', emoji: '✅', color: '#1B2A4A' },
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
+  const { currentTenantId, currentTenant } = useTenant();
   const today = dayStart(new Date());
   const [offset, setOffset]     = useState(0);
   const [allEvents, setAll]     = useState([]);
@@ -191,7 +180,16 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   tabCounts.new = allEvents.filter(e => e.tab !== 'billit').length;
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
-  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
+  // This screen's calendar half is DRH-only legacy: it reads hardcoded DRH
+  // Google Calendars and renders DRH tech names/colors (Austin, JR, Brian,
+  // Subs). It had NO tenant awareness at all, so those names were showing
+  // on every tenant's screen — one client seeing another client's staff.
+  // Everything DRH-specific is now gated; TodayTasksAndTime below is
+  // properly multi-tenant and shows for everyone.
+  const isDrhTenant = currentTenantId === '00000000-0000-0000-0000-000000000001';
+  const headerTitle = !isDrhTenant
+    ? `${currentTenant?.name || 'Work'} — Today`
+    : (showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`);
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
@@ -199,11 +197,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       {/* Header */}
       <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px 0' }}>
-          <button onClick={onBack}
-            style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
-            ← Home
-          </button>
-          <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
           <button onClick={load}
             style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
@@ -219,15 +212,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             <div style={{ fontWeight: 800, fontSize: 17, color: offset === 0 ? '#1a8a8a' : '#1B2A4A' }}>{dayLabel()}</div>
             <div style={{ fontSize: 12, color: '#9ca3af' }}>
               {viewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-              {!loading && ' · ' + allEvents.length + ' total'}
+              {!loading && isDrhTenant && ' · ' + allEvents.length + ' total'}
             </div>
           </div>
           <button onClick={() => setOffset(o => o + 1)}
             style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#374151', minWidth: 52 }}>›</button>
         </div>
 
-        {/* Four Tabs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #e5e7eb' }}>
+        {/* Four Tabs — DRH calendar workflow only */}
+        {isDrhTenant && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #e5e7eb' }}>
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setTab(tab.key)}
               style={{
@@ -249,11 +242,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               )}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
-      {/* List */}
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <TodayTasksAndTime userEmail={userEmail} date={viewDate} />
+
+      {/* Calendar-driven job list — DRH only */}
+      {isDrhTenant && <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
         {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (
@@ -298,10 +293,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     </span>
                   )}
                   {ev.tab === 'return' && (
-                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>🔄 Return Visit</span>
+                    <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Return</span>
                   )}
                   {ev.tab === 'estimate' && (
-                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
+                    <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estimate</span>
                   )}
                   <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name || '(no name)'}
@@ -317,7 +312,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {/* Bottom Sheet */}
       {selected && (

@@ -1,6 +1,6 @@
 {
-  "name": "Overwatch | DRH Security",
-  "short_name": "Overwatch",
+  "name": "Jovelin",
+  "short_name": "Jovelin",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
@@ -18,7 +18,7 @@
       "type": "image/png"
     },
     {
-      "src": "/overwatch-icon.png",
+      "src": "/favicon-192x192.png",
       "sizes": "512x512",
       "type": "image/png"
     }

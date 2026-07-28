@@ -1,5 +1,5 @@
 // ============================================
-// JUC-E V4 - NewJobModal (Quick Add + Visual Scheduler)
+// Jovelin - NewJobModal (Quick Add + Visual Scheduler)
 // ============================================
 // Customer → Issue → Type → Tech → VISUAL AVAILABILITY → CREATE
 // Fetches actual GCal events for selected tech + date
@@ -8,9 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
-import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId, CALENDARS } from '../config/calendars.js';
-import CustomerPicker from './CustomerPicker.jsx';
-import { canonicalEmail } from '../utils/ownership.js';
+import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 
 const TECH_PILL_COLORS = {
   'Austin': '#3b82f6',
@@ -71,13 +69,10 @@ Scope of Work: `;
     priority: 'normal',
     issue: prefill?.issue || INTAKE_TEMPLATE,
     photoLink: '',
-    gate_code: '',
-    panel_password: '',
-    cms_account_id: ''
   });
 
-  const [taskForm, setTaskForm] = useState({ title: '', assignedTo: '', customerId: null });
-  const [noteForm, setNoteForm] = useState({ content: '', customerId: null, assignedTo: '' });
+  const [taskForm, setTaskForm] = useState({ title: '', assignedTo: '' });
+  const [noteForm, setNoteForm] = useState({ content: '', customerName: '', assignedTo: '' });
 
   const searchCustomers = useCallback(async (q) => {
     if (!q || q.length < 2) { setCustomers([]); return; }
@@ -99,16 +94,13 @@ Scope of Work: `;
         issue = issue
           .replace(/^Name:\s*$/m, `Name: ${customer.name || ''}`)
           .replace(/^Phone:\s*$/m, `Phone: ${customer.phone || ''}`)
-          .replace(/^CMS #:\s*$/m, `CMS #: ${customer.cms_account_id || ''}`);
+;
       }
       return {
         ...f,
         customer_name: customer.name,
         customer_address: customer.address || '',
         customer_phone: customer.phone || '',
-        gate_code: customer.gate_code || '',
-        panel_password: customer.panel_password || '',
-        cms_account_id: customer.cms_account_id || '',
         issue,
       };
     });
@@ -217,8 +209,6 @@ Scope of Work: `;
       description: [
         job.issue ? `Issue: ${job.issue}` : '',
         job.customer_phone ? `Phone: ${job.customer_phone}` : '',
-        job.gate_code ? `Gate: ${job.gate_code}` : '',
-        job.panel_password ? `Panel: ${job.panel_password}` : '',
         `JUC-E Job: ${job.job_number || job.id}`
       ].filter(Boolean).join('\n'),
       start: { dateTime: startTime.toISOString(), timeZone: 'America/Denver' },
@@ -244,7 +234,7 @@ Scope of Work: `;
       if (!customerId && form.customer_name.trim()) {
         const newCustomer = await customersApi.create({
           name: form.customer_name.trim(), address: form.customer_address, phone: form.customer_phone,
-          gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id, is_active: true
+          is_active: true
         });
         customerId = newCustomer.id;
       }
@@ -253,7 +243,6 @@ Scope of Work: `;
         customer_id: customerId, customer_name: form.customer_name.trim(), customer_address: form.customer_address,
         customer_phone: form.customer_phone, job_type: form.job_type, priority: form.priority,
         issue: [form.issue, form.photoLink.trim() ? `📎 Photos: ${form.photoLink.trim()}` : ''].filter(Boolean).join('\n\n'),
-        gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id,
         status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW
       }, userEmail);
       if (assignedTo && job?.id) {
@@ -282,18 +271,12 @@ Scope of Work: `;
           description: [
             form.issue && `Issue: ${form.issue}`,
             form.customer_phone && `Phone: ${form.customer_phone}`,
-            form.gate_code && `Gate: ${form.gate_code}`,
-            form.panel_password && `Panel PW: ${form.panel_password}`,
-            form.cms_account_id && `CMS: ${form.cms_account_id}`,
           ].filter(Boolean).join('\n'),
           start: { date: today },
           end:   { date: today },
         };
         fetch(
-          // Uses the config constant now. This was a HARDCODED calendar id that
-          // bypassed config/calendars.js entirely — which is why fixing the
-          // config alone could never have fixed this writer.
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events`,
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent('de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com')}/events`,
           { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(queueEvent) }
         ).catch(e => console.warn('Queue event write failed:', e));
       }
@@ -304,47 +287,30 @@ Scope of Work: `;
     }
   };
 
-  // FIXED 9.11.5 — this created a real jobs row (status NEW), which put a
-  // personal reminder on the BOARD next to real customer work. A quick note
-  // is not a job; it belongs in the notes table (lane 'todo'), which My Tasks
-  // already renders and already supports move-to-done, exactly like every
-  // other personal to-do item. assignedTo, if set, hands it to that person's
-  // To Do instead of the creator's — same meaning "assign" has everywhere else.
   const handleSubmitNote = async () => {
     if (!noteForm.content.trim()) return;
     setIsSaving(true);
     try {
-      // No UI ever set noteForm.assignedTo (it was dead state from the old
-      // job-based flow) — dropped rather than left as a silent no-op.
-      const { data, error } = await supabase.from('notes').insert([{
-        body: noteForm.content.trim(),
-        author_email: canonicalEmail(userEmail),
-        lane: 'todo',
-        status: 'open',
-        customer_id: noteForm.customerId || null,
-        on_customer_record: !!noteForm.customerId,
-      }]).select().single();
-      if (error) throw error;
-      onClose(); try { onCreated?.(data); } catch (_) {}
+      const job = await jobsApi.create({
+        customer_name: noteForm.customerName.trim() || '📌 Quick Note', customer_address: '', customer_phone: '',
+        job_type: 'note', priority: 'normal', issue: noteForm.content.trim(),
+        notes: `[QUICK NOTE - ${new Date().toLocaleString()}]\n${noteForm.content.trim()}`, status: JOB_STATUS.NEW
+      }, userEmail);
+      if (noteForm.assignedTo && job?.id) await assignmentsApi.create({ job_id: job.id, tech_id: noteForm.assignedTo, scheduled_for: null }, userEmail);
+      onClose(); try { onCreated?.(job); } catch (_) {}
     } catch (e) { alert('Error saving note: ' + e.message); setIsSaving(false); }
   };
 
-  // Same fix as handleSubmitNote, same reason — a task is a to-do item, not a
-  // customer job, and should never have been eligible to sit on the board.
   const handleSubmitTask = async () => {
     if (!taskForm.title.trim()) return;
     setIsSaving(true);
     try {
-      const { data, error } = await supabase.from('notes').insert([{
-        body: taskForm.title.trim(),
-        author_email: canonicalEmail(userEmail),
-        lane: 'todo',
-        status: 'open',
-        customer_id: taskForm.customerId || null,
-        on_customer_record: !!taskForm.customerId,
-      }]).select().single();
-      if (error) throw error;
-      onClose(); try { onCreated?.(data); } catch (_) {}
+      const job = await jobsApi.create({
+        customer_name: '📝 Task', customer_address: '', customer_phone: '',
+        job_type: 'task', priority: 'normal', issue: taskForm.title.trim(), status: JOB_STATUS.NEW
+      }, userEmail);
+      if (taskForm.assignedTo && job?.id) await assignmentsApi.create({ job_id: job.id, tech_id: taskForm.assignedTo, scheduled_for: null }, userEmail);
+      onClose(); try { onCreated?.(job); } catch (_) {}
     } catch (e) { alert('Error creating task: ' + e.message); setIsSaving(false); }
   };
 
@@ -403,7 +369,7 @@ Scope of Work: `;
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <div style={{ color: '#00c8e8', fontSize: 18, fontWeight: 800 }}>🔗 Connect This Job</div>
+              <div style={{ color: '#e8a33d', fontSize: 18, fontWeight: 800 }}>🔗 Connect This Job</div>
               <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 2 }}>Match this calendar event to a customer</div>
             </div>
             <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 22, cursor: 'pointer' }}>×</button>
@@ -456,13 +422,11 @@ Scope of Work: `;
 
           {/* Selected customer confirmation */}
           {selectedCustomer && (
-            <div style={{ background: '#00c8e815', border: '1px solid #00c8e840', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ color: '#00c8e8', fontSize: 13, fontWeight: 700, marginBottom: 4 }}>✓ Customer linked</div>
+            <div style={{ background: '#e8a33d15', border: '1px solid #e8a33d40', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ color: '#e8a33d', fontSize: 13, fontWeight: 700, marginBottom: 4 }}>✓ Customer linked</div>
               <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{selectedCustomer.name}</div>
               {selectedCustomer.phone && <div style={{ color: '#94a3b8', fontSize: 12 }}>📞 {selectedCustomer.phone}</div>}
               {selectedCustomer.address && <div style={{ color: '#94a3b8', fontSize: 12 }}>📍 {selectedCustomer.address}</div>}
-              {selectedCustomer.gate_code && <div style={{ color: '#f59e0b', fontSize: 12 }}>🔑 Gate: {selectedCustomer.gate_code}</div>}
-              {selectedCustomer.panel_password && <div style={{ color: '#f59e0b', fontSize: 12 }}>🔐 Panel: {selectedCustomer.panel_password}</div>}
             </div>
           )}
 
@@ -482,7 +446,7 @@ Scope of Work: `;
                     <button key={h} onClick={() => !busy && setScheduleTime(timeStr)}
                       style={{
                         padding: '8px 2px', borderRadius: 6,
-                        border: `2px solid ${selected ? '#00c8e8' : 'transparent'}`,
+                        border: `2px solid ${selected ? '#e8a33d' : 'transparent'}`,
                         background: busy ? '#450a0a' : selected ? '#052e16' : '#0a2918',
                         color: busy ? '#fca5a5' : '#86efac',
                         fontSize: 10, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', textAlign: 'center'
@@ -499,11 +463,11 @@ Scope of Work: `;
 
           {/* Connect button */}
           <button
-            onClick={handleSubmitJob}
+            onClick={handleSubmit}
             disabled={!selectedCustomer || isSaving}
             style={{
               width: '100%', padding: '16px', fontSize: 16, fontWeight: 700,
-              background: selectedCustomer ? '#00c8e8' : '#334155',
+              background: selectedCustomer ? '#e8a33d' : '#334155',
               color: selectedCustomer ? '#000' : '#64748b',
               border: 'none', borderRadius: 12, cursor: selectedCustomer ? 'pointer' : 'default'
             }}
@@ -555,12 +519,6 @@ Scope of Work: `;
             <label style={labelStyle}>What needs to be done? *</label>
             <textarea value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))} placeholder="Follow up with supplier, check inventory..." rows={2} autoFocus style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} />
           </div>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={labelStyle}>Customer (optional)</label>
-            <CustomerPicker value={taskForm.customerId}
-              onChange={(id) => setTaskForm(f => ({ ...f, customerId: id }))}
-              placeholder="Who's it about?" />
-          </div>
           <button onClick={handleSubmitTask} disabled={!taskForm.title.trim() || isSaving}
             style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700', background: taskForm.title.trim() ? '#f59e0b' : '#334155', color: taskForm.title.trim() ? '#000' : '#64748b', border: 'none', borderRadius: '12px', cursor: taskForm.title.trim() ? 'pointer' : 'default' }}>
             {isSaving ? 'Creating...' : '✓ Create Task'}
@@ -585,12 +543,7 @@ Scope of Work: `;
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Customer (optional)</label>
-            {/* A real customer link now, not a free-text label — so this note
-                shows up on that customer's history the same way any other
-                logged interaction does. */}
-            <CustomerPicker value={noteForm.customerId}
-              onChange={(id) => setNoteForm(f => ({ ...f, customerId: id }))}
-              placeholder="Who's it about?" />
+            <input value={noteForm.customerName} onChange={e => setNoteForm(f => ({ ...f, customerName: e.target.value }))} placeholder="Who's it about?" style={fieldStyle} />
           </div>
           <button onClick={handleSubmitNote} disabled={!noteForm.content.trim() || isSaving}
             style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700', background: noteForm.content.trim() ? '#10b981' : '#334155', color: noteForm.content.trim() ? '#fff' : '#64748b', border: 'none', borderRadius: '12px', cursor: noteForm.content.trim() ? 'pointer' : 'default' }}>
@@ -634,7 +587,7 @@ Scope of Work: `;
             <div style={{ background: '#1e293b', borderRadius: '8px', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', border: '1px solid #334155' }}>
               {customers.map(c => (
                 <div key={c.id} onClick={() => selectCustomer(c)}
-                  style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #0f1729', background: selectedCustomer?.id === c.id ? '#00c8e815' : 'transparent' }}>
+                  style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #0f1729', background: selectedCustomer?.id === c.id ? '#e8a33d15' : 'transparent' }}>
                   <div style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: '500' }}>{c.name}</div>
                   {c.address && <div style={{ color: '#cbd5e1', fontSize: '12px' }}>{c.address}</div>}
                 </div>
@@ -849,8 +802,8 @@ Scope of Work: `;
         {/* Expandable details */}
         <button onClick={() => setShowMore(!showMore)}
           style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '12px', color: '#cbd5e1', fontSize: '13px', cursor: 'pointer', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <span>{showMore ? '▾' : '▸'} Priority, Address, Access Codes</span>
-          {(form.priority !== 'normal' || form.gate_code || form.panel_password) && <span style={{ color: '#f59e0b', fontSize: '11px' }}>●</span>}
+          <span>{showMore ? '▾' : '▸'} Priority & Address</span>
+          {form.priority !== 'normal' && <span style={{ color: '#f59e0b', fontSize: '11px' }}>●</span>}
         </button>
 
         {showMore && (
@@ -858,20 +811,6 @@ Scope of Work: `;
             <div>
               <label style={labelStyle}>Address</label>
               <input value={form.customer_address} onChange={e => setForm(f => ({ ...f, customer_address: e.target.value }))} placeholder="123 Main St" style={fieldStyle} />
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Gate Code</label>
-                <input value={form.gate_code} onChange={e => setForm(f => ({ ...f, gate_code: e.target.value }))} placeholder="#1234" style={fieldStyle} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Panel Password</label>
-                <input value={form.panel_password} onChange={e => setForm(f => ({ ...f, panel_password: e.target.value }))} placeholder="****" style={fieldStyle} />
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>CMS Account ID</label>
-              <input value={form.cms_account_id} onChange={e => setForm(f => ({ ...f, cms_account_id: e.target.value }))} placeholder="DRH-0090" style={fieldStyle} />
             </div>
           </div>
         )}

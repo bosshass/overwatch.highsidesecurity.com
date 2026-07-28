@@ -243,11 +243,27 @@ export default function Unbilled({ onBack, userEmail }) {
       // invoice, a second visit not yet billed) the card stays put — it is
       // still genuinely owed. changeStatus writes job_history, so it's auditable.
       try {
-        const jobIds = [...new Set(sel.rows.map(r => r.job_id).filter(Boolean))];
+        // WAS: sel.rows.map(r => r.job_id) — and 320 of 357 time entries have a
+        // NULL job_id, because they link to their job through calendar_event_id
+        // instead. So this list came back empty on ~90% of invoices and the
+        // write-through below never ran: the hours were marked billed and the
+        // job card stayed in To Bill permanently. That is why Temple, Womack
+        // and Shelton sit on the board as unbilled work that was already paid.
+        //
+        // `_job` is the job this screen already resolved for the row (jobFor(),
+        // which checks job_id AND calendar_event_id). Use it.
+        const jobIds = [...new Set(sel.rows.map(r => r.job_id || r._job?.id).filter(Boolean))];
         for (const jobId of jobIds) {
+          // Anything still owed on this job, found the SAME two ways.
+          const evIds = [...new Set(sel.rows
+            .filter(r => (r.job_id || r._job?.id) === jobId)
+            .map(r => r._job?.calendar_event_id || r.calendar_event_id)
+            .filter(Boolean))];
+          const orParts = [`job_id.eq.${jobId}`,
+            ...evIds.map(e => `calendar_event_id.eq.${e}`)];
           const { data: left } = await supabase
             .from('time_entries').select('id')
-            .eq('job_id', jobId)
+            .or(orParts.join(','))
             .not('billed', 'is', true)
             .or('archived.is.null,archived.eq.false')
             .limit(1);

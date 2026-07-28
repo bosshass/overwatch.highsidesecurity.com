@@ -10,6 +10,7 @@ import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase }
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
 import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId, CALENDARS } from '../config/calendars.js';
 import CustomerPicker from './CustomerPicker.jsx';
+import { canonicalEmail } from '../utils/ownership.js';
 
 const TECH_PILL_COLORS = {
   'Austin': '#3b82f6',
@@ -317,7 +318,7 @@ Scope of Work: `;
       // job-based flow) — dropped rather than left as a silent no-op.
       const { data, error } = await supabase.from('notes').insert([{
         body: noteForm.content.trim(),
-        author_email: userEmail,
+        author_email: canonicalEmail(userEmail),
         lane: 'todo',
         status: 'open',
         customer_id: noteForm.customerId || null,
@@ -336,7 +337,7 @@ Scope of Work: `;
     try {
       const { data, error } = await supabase.from('notes').insert([{
         body: taskForm.title.trim(),
-        author_email: userEmail,
+        author_email: canonicalEmail(userEmail),
         lane: 'todo',
         status: 'open',
         customer_id: taskForm.customerId || null,

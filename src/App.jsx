@@ -6,31 +6,26 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
-import OfficeHub from './views/OfficeHub.jsx';
 import OpsHome from './views/OpsHome.jsx';
-import ThingsToDo from './views/ThingsToDo.jsx';
+import People from './views/People.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
 import ReconcileView from './views/ReconcileView.jsx';
 import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
-import Workspace from './views/Workspace.jsx';
 import Notes from './views/Notes.jsx';
 import Tour, { shouldShowTour, tourKey } from './components/Tour.jsx';
 import Scheduler from './views/Scheduler.jsx';
-import SmsTest from './views/SmsTest.jsx';
 import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
 import HelpBot from './components/HelpBot.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
-import QuickNotes from './views/QuickNotes.jsx';
 import CustomerHistory from './views/CustomerHistory.jsx';
 import CustomerAudit from './views/CustomerAudit.jsx';
 import WeeklyRecap from './views/WeeklyRecap.jsx';
-import KPIDashboard from './views/KPIDashboard.jsx';
 import Unbilled from './views/Unbilled.jsx';
 import ShortLink from './views/ShortLink.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
@@ -38,7 +33,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.14.0';
+const APP_VERSION = '9.16.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -877,7 +872,6 @@ export default function App() {
             records, i.e. who was SUPPOSED to show up — instead of time_entries,
             the hours actually logged. That is why it said 18 when 2 was true.
             /unbilled is the real billing screen. */}
-        <Route path="/todos" element={<ThingsToDo accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} />} />
 
         <Route path="/newjob" element={
           <div style={{ minHeight: '100vh', background: '#0f1729' }}>
@@ -897,28 +891,26 @@ export default function App() {
 
         {/* Operator-only */}
         <Route path="/command" element={<OperatorOnly><ViewShell><CommandCenter accessToken={accessToken} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
-        <Route path="/office" element={<OperatorOnly><ViewShell><OfficeHub accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
+        {/* People — one screen for who owns what. /workspace and /office both
+            land here: My Tasks was always just People filtered to you, and
+            OfficeHub was the same idea reading a table nobody filled in. */}
+        <Route path="/people" element={<ViewShell><People userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/people/:who" element={<ViewShell><People userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/office" element={<Navigate to="/people" replace />} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}
-        <Route path="/workspace" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} isOperator={isOperator} /></ViewShell>} />
-        <Route path="/workspace/:who" element={<ViewShell><Workspace accessToken={accessToken} userEmail={userEmail} userName={effectiveName} isOperator={isOperator} /></ViewShell>} />
+        <Route path="/workspace" element={<Navigate to="/people" replace />} />
+        <Route path="/workspace/:who" element={<Navigate to="/people" replace />} />
         {/* Notes are NOT jobs and deliberately have no board presence. */}
-        <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/workspace')} /></ViewShell>} />
+        <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/people')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
-        <Route path="/sms-test" element={<SmsTest onBack={() => navigate('/')} />} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
-        <Route path="/quicknotes" element={<QuickNotes accessToken={accessToken} onBack={() => navigate('/')} />} />
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
         <Route path="/recap" element={<OperatorOnly><WeeklyRecap onBack={() => navigate('/')} userEmail={userEmail} /></OperatorOnly>} />
-        <Route path="/kpi" element={
-          canSeeKPIs(userEmail)
-            ? <ViewShell><KPIDashboard onBack={() => navigate('/')} /></ViewShell>
-            : <Navigate to="/" replace />
-        } />
         <Route path="/j/:code" element={<ShortLink accessToken={accessToken} userEmail={userEmail} userRole={getUserConfig(userEmail).role} onUpdate={() => {}} />} />
         <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
 
@@ -942,7 +934,7 @@ export default function App() {
             { icon:'⌂', label:'Home',  path:'/' },
             { icon:'✓', label:'Today', path:'/work' },
             { icon:'▤', label:'Board', path:'/board' },
-            { icon:'👤', label:'Clients', path:'/customers' },
+            { icon:'👤', label:'People',  path:'/people' },
             { icon:'📅', label:'Cal',  path:'/calendar' },
           ].map(t => {
             const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);

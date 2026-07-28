@@ -401,7 +401,7 @@ export default function OpsHome({
             </div>
           )}
 
-          <button onClick={() => go('/workspace/all')}
+          <button onClick={() => go('/people/all')}
             style={{ marginTop:12, width:'100%', background:'transparent', color:C.cyan,
                      border:`1px solid ${C.cyan}44`, borderRadius:14, padding:'11px 0',
                      fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
@@ -455,6 +455,8 @@ export default function OpsHome({
               {[
                 { path:'/audit?scan=1', icon:'🔍', label:'Event Audit',
                   sub:'Calendar events with no job behind them', badge: gap?.manual || 0, badgeColor: C.red },
+                { path:'/customers', icon:'👤', label:'Clients',
+                  sub:'Every customer, their history and open work' },
                 { path:'/unbilled', icon:'💵', label:'Billing',
                   sub:'Every unbilled hour and material, by customer' },
                 { path:'/recap', icon:'📊', label:'Weekly Recap',

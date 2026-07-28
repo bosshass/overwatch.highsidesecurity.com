@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
-import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf } from '../utils/ownership.js';
+import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail } from '../utils/ownership.js';
 import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
@@ -409,7 +409,7 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
 // ── Detail drawer ─────────────────────────────────────────────────────────────
 // onWatch comes in as a prop — the function lives in BoardView proper, and
 // calling it bare from in here was an out-of-scope reference that crashed the
-// "Show this in My Tasks" button. The build stayed green because Vite doesn't
+// "Watch this" button. The build stayed green because Vite doesn't
 // check undefined identifiers; that's what the lint gate is for now.
 function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch, onAssigned }) {
   // REBUILT 9.11.0 as a thin shell around TicketSheet. This drawer was the
@@ -442,7 +442,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               <button onClick={() => onWatch?.(job)}
                 style={{ background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
                          borderRadius:8, padding:'9px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                👁 Show this in My Tasks
+                👁 Watch this
               </button>
               <UUIDLinker job={job} onLinked={onUUIDLinked} />
               <MergeTool job={job} allJobs={allJobs} onMerge={onMerge}
@@ -811,7 +811,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     try {
       const { error } = await supabase.from('notes').insert([{
         body: job.customer_name || 'Job',
-        author_email: userEmail,
+        author_email: canonicalEmail(userEmail),
         job_id: job.id,
         lane: 'watching',
         status: 'open',
@@ -885,7 +885,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             👥 Who's stuck
           </button>
-          <button data-tour="my-tasks-link" onClick={() => navigate('/workspace')}
+          <button data-tour="my-tasks-link" onClick={() => navigate('/people')}
             style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             🗂️ My Tasks

@@ -65,7 +65,7 @@ const STEPS = [
     visual: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {[
-          ['My Tasks', 'your own board — To Do, Doing, Done, Watching', C.cyan],
+          ['People', 'who owns what — pick a person, see their work and tasks', C.cyan],
           ['The home screen', 'what is broken, then who is stuck, then the board', C.red],
           ['One scheduler', 'book a tech or hold a slot — same grid, both places', C.amber],
           ['Notes', 'the latest one shows; system chatter is tucked away', C.green],
@@ -80,7 +80,7 @@ const STEPS = [
   },
   {
     key: 'tasks',
-    title: 'My Tasks is yours',
+    title: 'People — and the People tab is you',
     body: 'Four lanes. The board is the company\u2019s view of every job; this is only your work. Moving a card here never changes the job on the board.',
     visual: (
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -90,7 +90,7 @@ const STEPS = [
         <Lane label="Watching" color={C.amber} note="Handed off, but you still need to know" />
       </div>
     ),
-    cta: { label: 'Open My Tasks', path: '/workspace' },
+    cta: { label: 'Open People', path: '/people' },
   },
   {
     key: 'inbox',
@@ -100,8 +100,8 @@ const STEPS = [
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
         {[
           ['Assigned on the board', 'Open a job \u2192 tap your name under "assign to"'],
-          ['+ Add work', 'In My Tasks. Shows every open job nobody has claimed \u2014 tap "I\u2019ll take it"'],
-          ['\u{1F441} Show this in My Tasks', 'On any job. Puts it in Watching without making it yours'],
+          ['+ Add work', 'In People. Shows every open job nobody has claimed \u2014 tap "I\u2019ll take it"'],
+          ['\u{1F441} Watch this', 'On any job. Puts it in your Watching lane without making it yours'],
         ].map(([t, s]) => (
           <div key={t} style={{ background: C.bg, borderRadius: 10, padding: '9px 11px' }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.cyan }}>{t}</div>
@@ -236,7 +236,7 @@ const STEPS = [
     title: 'That\u2019s it',
     body: 'Every section on the home screen has a \u2753 next to it \u2014 tap one and it opens the instructions for that exact thing, then takes you there. If something here doesn\u2019t match what you actually see on screen, that\u2019s worth telling Sara \u2014 it means the app and the tour disagree, and one of them is wrong.',
     visual: null,
-    cta: { label: 'Go to My Tasks', path: '/workspace' },
+    cta: { label: 'Go to People', path: '/people' },
   },
 ];
 

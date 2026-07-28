@@ -30,6 +30,41 @@ export const ASSIGNEES = [
   { email: 'subs@drhsecurityservices.com',        name: 'Subs' },
 ];
 
+// ── ONE PERSON, SEVERAL LOGINS ───────────────────────────────────────────────
+// JR signs in as info@ (the shared mailbox) but his ROSTER email is jr@.
+// Sara has admin@jnbservice.com, sara@jnbservice.com and
+// accounting@drhsecurityservices.com. Notes were written with whatever Google
+// account was signed in, and My Tasks queried the ROSTER address — so JR wrote
+// a note as info@, My Tasks looked for jr@, and the note was simply never
+// found. Same reason a hand-off "didn't work": the job moved, the card didn't.
+//
+// Every alias resolves to one canonical person. Writes use the canonical
+// address; reads accept ALL of them, so notes already stored under an alias
+// surface instead of staying lost.
+export const LOGIN_ALIASES = {
+  'info@drhsecurityservices.com':       'jr@drhsecurityservices.com',
+  'accounting@drhsecurityservices.com': 'admin@jnbservice.com',
+  'sara@jnbservice.com':                'admin@jnbservice.com',
+  'sara@jnbllc.com':                    'admin@jnbservice.com',
+  'drhservicetech1@gmail.com':          'austin@drhsecurityservices.com',
+};
+
+// Any login address -> the one roster address for that human.
+export function canonicalEmail(email) {
+  const e = (email || '').trim().toLowerCase();
+  if (!e) return null;
+  return LOGIN_ALIASES[e] || e;
+}
+
+// Every address this person might have authored something under. Use for READS.
+export function emailsFor(email) {
+  const canon = canonicalEmail(email);
+  if (!canon) return [];
+  const aliases = Object.entries(LOGIN_ALIASES)
+    .filter(([, target]) => target === canon).map(([alias]) => alias);
+  return [...new Set([canon, ...aliases])];
+}
+
 export const NAME_BY_EMAIL  = Object.fromEntries(ASSIGNEES.map(a => [a.email, a.name]));
 export const EMAIL_BY_NAME  = Object.fromEntries(ASSIGNEES.map(a => [a.name.toLowerCase(), a.email]));
 
@@ -55,7 +90,10 @@ export function canonicalName(raw) {
 // rest, so a fresh assignment always moves the job.
 export function assigneeOf(job) {
   if (!job) return null;
-  if (job.assigned_to) return NAME_BY_EMAIL[job.assigned_to] || job.assigned_to;
+  if (job.assigned_to) {
+    const canon = canonicalEmail(job.assigned_to);
+    return NAME_BY_EMAIL[canon] || NAME_BY_EMAIL[job.assigned_to] || job.assigned_to;
+  }
   return canonicalName(job.tech_name) || canonicalName(job._tech_name);
 }
 

@@ -42,6 +42,7 @@ import { MergeTool } from './BoardView.jsx';
 import { jobsApi } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import { ignoreOrphan, isOrphanIgnored } from '../services/calendarSync.js';
+import { isHeld } from '../utils/lanes.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 // Watching cards are visually distinct so a card that came BACK to her never
@@ -104,7 +105,7 @@ function AddWork({ owner, ownerName, onClose, onDone }) {
       .is('assigned_to', null)
       .order('created_at', { ascending: true }).limit(200)
       .then(({ data }) => setRows((data || []).filter(
-        j => (j.tech_name || '').trim().toLowerCase() !== (ownerName || '').toLowerCase()
+        j => (assigneeOf(j) || '').toLowerCase() !== (ownerName || '').toLowerCase()
       )));
   }, [ownerName]);
 
@@ -151,7 +152,7 @@ function AddWork({ owner, ownerName, onClose, onDone }) {
                        borderBottom: `1px solid ${BG}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{j.customer_name || 'Unnamed'}
-                  {j.tentative_date && (
+                  {isHeld(j) && (
                     <span style={{ marginLeft: 7, background: '#f59e0b22', color: '#f59e0b', borderRadius: 20,
                                    padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
                       ✏️ Held {new Date(j.tentative_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -410,7 +411,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
   const matches = (text) => !q || (text || '').toLowerCase().includes(q);
 
   const todoFeed  = feed.filter(j => !pulledJobIds.has(j.id))
-                        .filter(j => matches(`${j.customer_name} ${j.issue} ${j.tech_name}`));
+                        .filter(j => matches(`${j.customer_name} ${j.issue} ${assigneeOf(j) || ''}`));
   const todoNotes = items.filter(i => i.lane === 'todo'  && matches(i.body));
   const doing     = items.filter(i => i.lane === 'doing' && matches(i.body));
   const done      = items.filter(i => i.lane === 'done'  && matches(i.body));
@@ -733,7 +734,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
             </Card>
           ))}
           {todoFeed.map(j => (
-            <Card key={j.id} accent={j.tentative_date ? '#f59e0b' : statusColor(j.status)}
+            <Card key={j.id} accent={isHeld(j) ? '#f59e0b' : statusColor(j.status)}
               bg={watchedBackToMe.has(j.id) ? WATCH_BG : null}>
               <div onClick={() => setOpenJob(j)} style={{ cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
@@ -996,6 +997,7 @@ export default function Workspace({ accessToken, userEmail, userName, isOperator
               accessToken={accessToken}
               busy={saving}
               onClose={() => setOpenJob(null)}
+              onAssigned={() => load()}
               onOpenScheduler={() => { setSchedulingJob(openJob); setOpenJob(null); }}
               onMove={async (target, moveNote) => {
                 await jobsApi.changeStatus(openJob.id, target, userEmail, moveNote);

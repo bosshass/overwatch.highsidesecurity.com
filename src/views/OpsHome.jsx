@@ -143,7 +143,7 @@ export default function OpsHome({
         .map(j => ({
           id: j.id,
           name: j.customer_name || 'Unnamed',
-          tech: j.tech_name,
+          tech: assigneeOf(j),
           date: j.scheduled_date,
           days: j.scheduled_date
             ? Math.floor((todayISO - new Date(j.scheduled_date)) / 86400000)

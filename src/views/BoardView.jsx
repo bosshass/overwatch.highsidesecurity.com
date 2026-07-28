@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf } from '../utils/ownership.js';
-import { LANES, CLEAR_LANE } from '../utils/lanes.js';
+import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -411,7 +411,7 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
 // calling it bare from in here was an out-of-scope reference that crashed the
 // "Show this in My Tasks" button. The build stayed green because Vite doesn't
 // check undefined identifiers; that's what the lint gate is for now.
-function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch }) {
+function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch, onAssigned }) {
   // REBUILT 9.11.0 as a thin shell around TicketSheet. This drawer was the
   // third bespoke ticket layout (JobDetail had two more of its own). Opening
   // the same job from the board, from My Tasks and from a link now renders the
@@ -436,6 +436,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
               ? () => onSchedule(job) : null
           }
           onMove={async (target, note) => { await onStatusMove(job.id, target, note); }}
+          onAssigned={onAssigned}
           extras={
             <div style={{ marginTop: 14, display:'flex', flexDirection:'column', gap: 10 }}>
               <button onClick={() => onWatch?.(job)}
@@ -496,14 +497,18 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
       {/* THE STICKY LINE — who owns it, when it hit the board, how stale it is.
           This never truncates and never collapses; it's the whole point of the card. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-        {job.tech_name
-          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{job.tech_name}</span>
-          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>}
+        {/* assigneeOf(), NOT job.tech_name. Assigning writes assigned_to; this
+            line read tech_name, so every assignment made since migration 030
+            left the card still reading "Unassigned". Two columns, one meaning,
+            and the card was reading the wrong one. */}
+        {(() => { const who = assigneeOf(job); return who
+          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
+          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>; })()}
         <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
         {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
             scheduled date — a hold is not a booking, and the day two crews turn
             up in one place is the day those two things looked alike. */}
-        {job.tentative_date && (
+        {job.tentative_date && isHeld(job) && (
           <span style={{ fontSize:12, fontWeight:700, color:'#f59e0b', background:'#78350f44',
                          padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
             ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
@@ -819,11 +824,9 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     } catch (e) { showToast('Could not add'); }
   }, [userEmail]);
 
-  const assignTo = useCallback(async (jobId, email) => {
-    const { error } = await supabase.from('jobs')
-      .update({ assigned_to: email, updated_at: new Date().toISOString() })
-      .eq('id', jobId);
-    if (error) { showToast('Could not assign'); return; }
+  // The WRITE moved into TicketSheet (one control, every surface). This only
+  // syncs the board's local copy so the card repaints without a full reload.
+  const onAssigned = useCallback((jobId, email) => {
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, assigned_to: email } : j));
     setSelectedJob(prev => prev && prev.id === jobId ? { ...prev, assigned_to: email } : prev);
     showToast(email ? `Assigned to ${NAME_BY_EMAIL[email] || email} \u2713` : 'Unassigned \u2713');
@@ -854,7 +857,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       // Held but not yet booked. Sorted by the HELD DATE, soonest first —
       // a hold three days out matters more than one in six weeks.
       acc[col.key] = filtered
-        .filter(j => j.tentative_date && j.status !== 'scheduled')
+        .filter(isHeld)
         .sort((a, b) => new Date(a.tentative_date) - new Date(b.tentative_date));
       return acc;
     }
@@ -862,7 +865,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     // isn't in two places at once.
     acc[col.key] = filtered
       .filter(j => col.statuses.includes(j.status))
-      .filter(j => !(j.tentative_date && j.status !== 'scheduled'))
+      .filter(j => !isHeld(j))
       .sort(byOldest);
     return acc;
   }, {});
@@ -986,7 +989,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
 
       {selectedJob && (
         <DetailDrawer
-          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks}
+          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks} onAssigned={onAssigned}
           allJobs={jobs}
           onStatusMove={(jobId, verb, note) => { moveStatus(jobId, verb, note); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}

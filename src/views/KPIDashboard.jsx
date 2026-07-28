@@ -14,16 +14,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, STATUS_INFO } from '../services/supabase.js';
+import { assigneeOf, normName } from '../utils/ownership.js';
 
 const CLOSED = ['billed', 'archived', 'dead', 'lost', 'complete', 'to_bill', 'won'];
 
-// tech_name is free text and JR is stored as 'JR', 'jr' and 'Jr'. Any metric
-// grouped by assignee was silently splitting him into three people.
-const normName = (n) => {
-  if (!n || !String(n).trim()) return null;
-  const t = String(n).trim();
-  return t.toUpperCase() === 'JR' ? 'JR' : t.charAt(0).toUpperCase() + t.slice(1);
-};
+// normName + assigneeOf now come from utils/ownership.js — this file's
+// private copy split 'JR'/'jr'/'Jr' into three people in every metric.
 
 const days = (a, b) => (new Date(b) - new Date(a)) / 86400000;
 const p90 = (arr) => {
@@ -107,7 +103,7 @@ export default function KPIDashboard({ onBack }) {
 
       const loadBy = {};
       jobs.forEach(j => {
-        const n = normName(j.tech_name) || '(unassigned)';
+        const n = assigneeOf(j) || '(unassigned)';
         loadBy[n] ||= { name: n, open: 0, silent: [] };
         if (!CLOSED.includes(j.status)) {
           loadBy[n].open++;
@@ -118,7 +114,7 @@ export default function KPIDashboard({ onBack }) {
       // THE JR QUESTION. Not "how long does JR take" — he has never moved a
       // card in Overwatch. The real question is how long his cards sit, and
       // who ends up doing it instead.
-      const jrIds = new Set(jobs.filter(j => normName(j.tech_name) === 'JR').map(j => j.id));
+      const jrIds = new Set(jobs.filter(j => assigneeOf(j) === 'JR').map(j => j.id));
       const jrActions = hist.filter(h => (h.changed_by || '').toLowerCase().startsWith('jr@')).length;
       const jrOpen = aged.filter(j => jrIds.has(j.id));
       const jrMovedBy = {};
@@ -199,7 +195,7 @@ export default function KPIDashboard({ onBack }) {
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, color: '#f1f5f9', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.customer_name || 'Unnamed'}</div>
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                    {si.icon} {si.label || j.status} · {normName(j.tech_name) || 'unassigned'}{j.neverSpoken ? ' · never spoken' : ''}
+                    {si.icon} {si.label || j.status} · {assigneeOf(j) || 'unassigned'}{j.neverSpoken ? ' · never spoken' : ''}
                   </div>
                 </span>
                 <span style={{ color: '#00c8e8', fontSize: 12 }}>open →</span>

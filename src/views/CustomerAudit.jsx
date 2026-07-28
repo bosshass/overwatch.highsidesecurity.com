@@ -7,6 +7,7 @@
 //   • expand the full history thread (job_history) inline
 // ============================================================
 
+import { dispo, DISPO_KEYS } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
 import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
@@ -18,14 +19,6 @@ import { statusLabel } from '../utils/status.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 
 const SINCE = '2026-01-01';
-
-const DISPO = {
-  bill_it:     { label: 'Bill it',     color: '#22c55e' },
-  return:      { label: 'Return',      color: '#f59e0b' },
-  estimate:    { label: 'Estimate',    color: '#06b6d4' },
-  in_progress: { label: 'In progress', color: '#3b82f6' },
-};
-const DISPO_KEYS = ['bill_it', 'return', 'estimate', 'in_progress'];
 
 // Terminal — the work is finished. Everything else is still live.
 const DONE_STATUSES = ['billed', 'complete', 'archived', 'dead', 'lost', 'won'];
@@ -591,7 +584,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
         )}
 
         {!loading && !err && filtered.map(e => {
-          const d = DISPO[e.disposition] || { label: e.disposition || '—', color: '#cbd5e1' };
+          const d = dispo(e.disposition);
           const cust = byId[e.customer_id];
           const job = e.calendar_event_id ? jobByEvent[e.calendar_event_id] : null;
           const target = DISPO_STATUS[e.disposition] || JOB_STATUS.SCHEDULED;
@@ -631,8 +624,8 @@ export default function CustomerAudit({ onBack, accessToken }) {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {DISPO_KEYS.map(k => (
-                    <button key={k} onClick={() => e.disposition !== k && changeDispo(e.id, k)} style={btn(e.disposition === k, DISPO[k].color)}>
-                      {DISPO[k].label}
+                    <button key={k} onClick={() => e.disposition !== k && changeDispo(e.id, k)} style={btn(e.disposition === k, dispo(k).color)}>
+                      {dispo(k).label}
                     </button>
                   ))}
                 </div>

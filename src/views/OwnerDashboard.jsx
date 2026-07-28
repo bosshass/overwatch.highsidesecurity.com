@@ -16,6 +16,7 @@ import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
 import PLDashboard from '../components/PLDashboard.jsx';
 import { StuckAlertsPanel } from '../components/StuckAlerts.jsx';
+import { assigneeOf } from '../utils/ownership.js';
 
 // ============================================
 // HELPERS
@@ -395,7 +396,7 @@ function TodaySchedule({ stats }) {
   // Group by tech
   const byTech = {};
   todayJobs.forEach(j => {
-    const name = j.tech_name || j._tech_name || 'Unassigned';
+    const name = assigneeOf(j) || 'Unassigned';
     if (!byTech[name]) byTech[name] = [];
     byTech[name].push(j);
   });

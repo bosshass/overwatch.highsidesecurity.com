@@ -33,6 +33,7 @@ import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '.
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
+import { dispo, DISPO_KEYS } from '../utils/billing.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -150,7 +151,8 @@ export default function JobFinishSheet({
     // and the job sat in Scheduled looking like it was still happening.
     blocked:     JOB_STATUS.BLOCKED,
   };
-  const DISPO_LABEL = { bill_it: 'Bill it', estimate: 'Estimate', in_progress: 'In progress', return: 'Return' };
+  // was a private label map — a fourth copy. utils/billing.js owns this.
+  const DISPO_LABEL = Object.fromEntries(DISPO_KEYS.map(k => [k, dispo(k).label]));
   const ensureJobForEvent = async (disposition) => {
     const base = cleanTitle(event.title);
     const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;

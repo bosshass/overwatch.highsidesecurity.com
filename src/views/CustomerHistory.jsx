@@ -9,6 +9,7 @@
 // Everything created here gets customer_id = client's real UUID, so it can't
 // fragment by name and always shows back in this client's history.
 
+import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, JOB_STATUS } from '../services/supabase.js';
@@ -31,16 +32,6 @@ function hoursFromMin(min) {
   const h = Number(min) / 60;
   if (!isFinite(h)) return null;
   return `${h.toFixed(1)}h`;
-}
-
-const DISPO = {
-  bill_it:     { label: 'Bill it',     color: '#22c55e' },
-  return:      { label: 'Return',      color: '#f97316' },
-  estimate:    { label: 'Estimate',    color: '#3b82f6' },
-  in_progress: { label: 'In progress', color: '#00c8e8' },
-};
-function dispo(d) {
-  return DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#cbd5e1' };
 }
 
 // Open-work status chip colors (jobs.status)

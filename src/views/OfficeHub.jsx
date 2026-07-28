@@ -17,6 +17,7 @@ import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
 import NewJobModal from '../components/NewJobModal.jsx';
 import NotesPanel from '../components/NotesPanel.jsx';
+import { assigneeOf } from '../utils/ownership.js';
 
 // Blocked statuses for the bottom section
 const BLOCKED_STATUSES = [JOB_STATUS.NEEDS_PARTS, JOB_STATUS.PENDING_MATERIALS, JOB_STATUS.RETURN_PENDING];
@@ -152,11 +153,11 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
   const labelStyle = { color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' };
 
   // Board data - group by tech
-  const unassignedJobs = allJobs.filter(j => !j._tech_name && !BILLING_STATUSES.includes(j.status) && !BLOCKED_STATUSES.includes(j.status));
+  const unassignedJobs = allJobs.filter(j => !assigneeOf(j) && !BILLING_STATUSES.includes(j.status) && !BLOCKED_STATUSES.includes(j.status));
   const blockedJobs = allJobs.filter(j => BLOCKED_STATUSES.includes(j.status));
   const techLanes = allTechs.map(t => ({
     tech: t,
-    jobs: allJobs.filter(j => j._tech_name === t.name && !BILLING_STATUSES.includes(j.status))
+    jobs: allJobs.filter(j => assigneeOf(j) === t.name && !BILLING_STATUSES.includes(j.status))
   }));
 
   // Quick assign handler
@@ -348,7 +349,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
         {job._scheduled_for && (
           <div style={{ color: '#3b82f6', fontSize: '11px', fontWeight: '600', marginBottom: '6px' }}>
             📅 {new Date(job._scheduled_for).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} @ {new Date(job._scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-            {job._tech_name && <span style={{ color: '#94a3b8', fontWeight: '400' }}> · {job._tech_name}</span>}
+            {assigneeOf(job) && <span style={{ color: '#94a3b8', fontWeight: '400' }}> · {assigneeOf(job)}</span>}
           </div>
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
@@ -609,9 +610,9 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                                       <span style={{ padding: '2px 6px', borderRadius: '3px', fontSize: '9px', fontWeight: 600, color: '#fff', background: typeInfo.color || '#6b7280' }}>
                                         {typeInfo.label || job.type || 'SVC'}
                                       </span>
-                                      {job._tech_name && (
-                                        <span style={{ padding: '2px 6px', borderRadius: '3px', fontSize: '9px', fontWeight: 600, color: '#fff', background: TECH_COLORS[job._tech_name] || '#6b7280' }}>
-                                          {job._tech_name}
+                                      {assigneeOf(job) && (
+                                        <span style={{ padding: '2px 6px', borderRadius: '3px', fontSize: '9px', fontWeight: 600, color: '#fff', background: TECH_COLORS[assigneeOf(job)] || '#6b7280' }}>
+                                          {assigneeOf(job)}
                                         </span>
                                       )}
                                     </div>
@@ -713,13 +714,13 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                               }}>
                                 {jobs.map(job => (
                                   <div key={job.id} onClick={() => setSelectedJobId(job.id)} style={{
-                                    background: TECH_COLORS[job._tech_name] || '#3b82f6',
+                                    background: TECH_COLORS[assigneeOf(job)] || '#3b82f6',
                                     borderRadius: '4px', padding: '3px 5px', marginBottom: '2px',
                                     cursor: 'pointer', fontSize: '10px', color: '#fff', fontWeight: 600,
                                     lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
                                   }}>
                                     <div>{job.customer_name || '?'}</div>
-                                    {job._tech_name && <div style={{ opacity: 0.8, fontSize: '9px', fontWeight: 400 }}>{job._tech_name}</div>}
+                                    {assigneeOf(job) && <div style={{ opacity: 0.8, fontSize: '9px', fontWeight: 400 }}>{assigneeOf(job)}</div>}
                                   </div>
                                 ))}
                               </div>
@@ -745,7 +746,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                             cursor: 'pointer', borderLeft: '3px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                           }}>
                             <span style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 600 }}>{j.customer_name}</span>
-                            {j._tech_name && <span style={{ color: TECH_COLORS[j._tech_name] || '#94a3b8', fontSize: '11px' }}>{j._tech_name}</span>}
+                            {assigneeOf(j) && <span style={{ color: TECH_COLORS[assigneeOf(j)] || '#94a3b8', fontSize: '11px' }}>{assigneeOf(j)}</span>}
                           </div>
                         ))}
                       </div>
@@ -895,7 +896,7 @@ export default function OfficeHub({ accessToken, userEmail, userRole }) {
                               <div style={{ fontWeight: 600, fontSize: '13px', color: '#e2e8f0' }}>{j.customer_name}</div>
                               <div style={{ fontSize: '12px', color: '#cbd5e1' }}>
                                 {j.issue || 'No details'}
-                                {j._tech_name && <span> · assigned to {j._tech_name}</span>}
+                                {assigneeOf(j) && <span> · assigned to {assigneeOf(j)}</span>}
                               </div>
                             </div>
                           ))}

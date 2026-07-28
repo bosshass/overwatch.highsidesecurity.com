@@ -120,13 +120,25 @@ const STATUS_TO_LANE = {};
 
 // Which lane a job is currently sitting in. A tentative hold wins over the
 // underlying status, because that is what the board shows.
+// A hold is a PENCIL MARK ON OPEN WORK. It was outranking every status except
+// 'scheduled', so a job that got held, worked and marked To Bill stayed in the
+// Tentative column with a "To Bill" chip on it — the board showing a plan for
+// work that was already finished. A hold can only win while the job is still
+// open; once it reaches a settled status the hold is history, not a location.
+const SETTLED = ['complete', 'to_bill', 'billed', 'won', 'lost', 'dead', 'archived'];
+export const isSettled = (job) => SETTLED.includes(job?.status);
+
 export function laneOf(job) {
   if (!job) return null;
-  if (job.tentative_date && job.status !== 'scheduled') {
+  if (job.tentative_date && job.status !== 'scheduled' && !isSettled(job)) {
     return LANES.find(l => l.key === 'tentative');
   }
   return STATUS_TO_LANE[job.status] || null;
 }
+
+// The board used to inline this test twice to build its columns, which is how
+// the rule and the lane could disagree. Ask laneOf; don't re-derive it.
+export const isHeld = (job) => laneOf(job)?.key === 'tentative';
 
 export const laneLabel = (job) => laneOf(job)?.label || job?.status || 'Unknown';
 export const laneColor = (job) => laneOf(job)?.color || '#64748b';

@@ -18,6 +18,7 @@ import NewJobModal from '../components/NewJobModal.jsx';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { APP_BASE } from '../config/appBase.js';
 import InboxBar from '../components/InboxBar.jsx';
+import { assigneeOf } from '../utils/ownership.js';
 
 const CALENDAR_COLORS = {
   ...TECH_COLORS,
@@ -336,7 +337,10 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   // Task tab helpers
   const scheduledJobs = jobs.filter(j => {
     if (!j._isQueue && j.scheduled_for) {
-      if (isRestricted && j.tech_name && j.tech_name.toLowerCase() !== userName?.toLowerCase()) return false;
+      // was j.tech_name — a restricted tech stopped seeing their own jobs the
+      // moment an assignment was written to assigned_to instead.
+      const who = assigneeOf(j);
+      if (isRestricted && who && who.toLowerCase() !== userName?.toLowerCase()) return false;
       return true;
     }
     return false;
@@ -1055,7 +1059,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                         {sortedScheduled.map(j => (
                           <div key={j.assignment_id || j.id} onClick={() => setSelectedJobId(j.job_id || j.id)} style={{
                             background: '#1a2332', borderRadius: '14px', padding: '16px 18px', cursor: 'pointer',
-                            borderLeft: `4px solid ${CALENDAR_COLORS[j.tech_name] || '#00c8e8'}`,
+                            borderLeft: `4px solid ${CALENDAR_COLORS[assigneeOf(j)] || '#00c8e8'}`,
                             boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -1084,12 +1088,12 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                                 {j.issue.length > 80 ? j.issue.slice(0, 80) + '...' : j.issue}
                               </div>
                             )}
-                            {!isRestricted && j.tech_name && (
+                            {!isRestricted && assigneeOf(j) && (
                               <span style={{
                                 display: 'inline-block', marginTop: '8px',
-                                background: CALENDAR_COLORS[j.tech_name] || '#475569',
+                                background: CALENDAR_COLORS[assigneeOf(j)] || '#475569',
                                 color: '#fff', padding: '3px 14px', borderRadius: 12, fontSize: 12, fontWeight: 600
-                              }}>{j.tech_name}</span>
+                              }}>{assigneeOf(j)}</span>
                             )}
                           </div>
                         ))}

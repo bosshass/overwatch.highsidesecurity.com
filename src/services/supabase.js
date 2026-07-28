@@ -296,6 +296,12 @@ export const jobsApi = {
     const oldStatus = current?.status;
 
     const updates = { status: newStatus, updated_by: changedBy };
+    // A hold is a pencil mark, and ANY deliberate status move supersedes it.
+    // Nothing cleared this before, so a job that was held and then moved on
+    // kept its tentative_date forever and stayed pinned in the Tentative
+    // column. services/schedule.js is the only thing allowed to SET it.
+    updates.tentative_date = null;
+    updates.tentative_event_id = null;
     if (newStatus === JOB_STATUS.SCHEDULED) updates.scheduled_at = new Date().toISOString();
     if (newStatus === JOB_STATUS.COMPLETE) updates.completed_at = new Date().toISOString();
     if (newStatus === JOB_STATUS.TO_BILL) updates.completed_at = updates.completed_at || new Date().toISOString();

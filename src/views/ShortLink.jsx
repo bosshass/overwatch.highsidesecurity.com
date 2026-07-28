@@ -132,6 +132,7 @@ function LinkedTicket({ jobId, accessToken, userEmail, onUpdate, onClose }) {
         accessToken={accessToken}
         busy={busy}
         onClose={onClose}
+        onAssigned={() => load()}
         onOpenScheduler={() => setScheduling(true)}
         onSchedulePrimary={
           ['ready_to_schedule', 'return_pending', 'scheduled'].includes(job.status)

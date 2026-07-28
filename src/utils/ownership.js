@@ -44,11 +44,28 @@ export function canonicalName(raw) {
 }
 
 // THE rule. Returns a display name or null.
+//
+// FIVE PLACES CLAIMED TO ANSWER THIS. In precedence order:
+//   1. assigned_to      migration 030, the real column. An explicit choice.
+//   2. tech_name        free text, months of informal use, most of the data.
+//   3. _tech_name       hydrated from job_assignments (18 rows). OfficeHub read
+//                       ONLY this, so it showed nearly every job unassigned and
+//                       every tech lane empty — the table is essentially unused.
+// Anything past 1 is legacy. Reassigning writes assigned_to, which outranks the
+// rest, so a fresh assignment always moves the job.
 export function assigneeOf(job) {
   if (!job) return null;
   if (job.assigned_to) return NAME_BY_EMAIL[job.assigned_to] || job.assigned_to;
-  return canonicalName(job.tech_name);
+  return canonicalName(job.tech_name) || canonicalName(job._tech_name);
 }
+
+// Is anyone on the hook for this? The one test for "unassigned".
+export const isAssigned = (job) => !!assigneeOf(job);
+
+// KPIDashboard grew its own normName() because ownership.js didn't exist yet;
+// it split 'JR'/'jr'/'Jr' into three people in every metric. Same rule, one
+// name, so the numbers and the board agree about who did what.
+export { canonicalName as normName };
 
 // Does this job belong to this person? Accepts either an email or a name.
 export function ownsJob(job, emailOrName) {

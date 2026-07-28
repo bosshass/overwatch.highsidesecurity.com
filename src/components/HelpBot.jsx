@@ -6,6 +6,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { feedbackApi, queries, JOB_STATUS, customersApi, jobsApi, notesApi, assignmentsApi } from '../services/supabase.js';
+import { assigneeOf } from '../utils/ownership.js';
 
 const CLAUDE_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || '';
 
@@ -317,7 +318,7 @@ export default function HelpBot({ userEmail, currentView, userName, userRole }) 
       } else {
         todaysJobs.forEach(j => {
           const time = j.scheduled_for ? new Date(j.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '?';
-          lines.push(`  ${time} - ${j.customer_name || '?'} (${j.tech_name || 'Unassigned'}): ${j.issue || j.job_type || '-'}`);
+          lines.push(`  ${time} - ${j.customer_name || '?'} (${assigneeOf(j) || 'Unassigned'}): ${j.issue || j.job_type || '-'}`);
         });
       }
       
@@ -328,7 +329,7 @@ export default function HelpBot({ userEmail, currentView, userName, userRole }) 
       } else {
         tomorrowsJobs.forEach(j => {
           const time = j.scheduled_for ? new Date(j.scheduled_for).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '?';
-          lines.push(`  ${time} - ${j.customer_name || '?'} (${j.tech_name || 'Unassigned'}): ${j.issue || j.job_type || '-'}`);
+          lines.push(`  ${time} - ${j.customer_name || '?'} (${assigneeOf(j) || 'Unassigned'}): ${j.issue || j.job_type || '-'}`);
         });
       }
       

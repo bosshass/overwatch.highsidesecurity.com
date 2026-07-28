@@ -42,6 +42,8 @@ export const BUCKETS = [
     blurb: 'A tech spent these hours and the job was later marked dead, lost or archived. Somebody has to DECIDE: bill it anyway, or archive it as cost DRH absorbed. Right now it is just sitting there.' },
   { key: 'nojob',    label: '🔗 No job on the board',  color: '#94a3b8',
     blurb: 'Work with no job attached. It cannot be tracked, chased or invoiced until it is linked.' },
+  { key: 'nohours',  label: '⏱ To bill, no hours',    color: '#f97316',
+    blurb: 'The job is marked To Bill but nobody logged time against it. It shows as done on the board and is invisible on an invoice. Either the hours were never clocked, or it should not be in To Bill. Open it and decide.' },
   { key: 'mismatch', label: '❓ Job says billed',      color: '#a855f7',
     blurb: 'The job is marked billed but this time entry never was. A reconciliation gap — check whether it made the invoice.' },
 ];
@@ -78,7 +80,10 @@ export default function Unbilled({ onBack, userEmail }) {
         .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, archived, job_id, calendar_event_id')
         .or('billed.is.null,billed.eq.false')
         .or('archived.is.null,archived.eq.false')
-        .gt('total_minutes', 0)
+        // .gt('total_minutes', 0) REMOVED — it dropped every visit with no
+        // clocked time straight out of the result set, with nothing on any
+        // screen to say so. A job could read "To Bill" on the board and simply
+        // not exist in Billing. Zero-hour work now surfaces in its own bucket.
         .order('event_start', { ascending: true });
       if (error) throw error;
 
@@ -106,7 +111,10 @@ export default function Unbilled({ onBack, userEmail }) {
       const byCustomer = {};
       (entries || []).forEach(e0 => {
         const job = jobFor(e0);
-        const e = { ...e0, _job: job, _bucket: bucketOf(job) };
+        // Zero clocked minutes is its own problem, not a 'ready to bill'.
+        const b0 = bucketOf(job);
+        const e = { ...e0, _job: job,
+                    _bucket: (b0 === 'ready' && !(e0.total_minutes > 0)) ? 'nohours' : b0 };
         // Group on the customer UUID where we have one. Where we don't, the
         // entry is ORPHANED — it still needs billing, but it also needs a
         // client attached, and we say so instead of quietly merging it in.
@@ -123,6 +131,24 @@ export default function Unbilled({ onBack, userEmail }) {
         };
         byCustomer[key].visits.push(e);
       });
+
+      // ── Jobs that are marked done and have NO time entry pointing at them.
+      // Nothing in this screen ever looked for these, because it only ever
+      // walked time_entries. A ticket dispositioned "Bill it" from the audit
+      // writes a job status and no hours, so it sat on the board as To Bill and
+      // did not exist here. That is the ticket "floating in space."
+      const seenJobIds = new Set((entries || []).map(e => e._jid || e.job_id).filter(Boolean));
+      (entries || []).forEach(e => { const j = jobFor(e); if (j) seenJobIds.add(j.id); });
+      (jobRows || [])
+        .filter(j => ['complete', 'to_bill'].includes(j.status) && !seenJobIds.has(j.id))
+        .forEach(j => {
+          const key = `nohours::job:${j.id}`;
+          byCustomer[key] = {
+            key, bucket: 'nohours', job: j, customerId: null,
+            name: j.customer_name || 'Unknown', shortCode: null,
+            orphan: false, noEntries: true, visits: [],
+          };
+        });
 
       const list = Object.values(byCustomer).map(g => ({
         ...g,

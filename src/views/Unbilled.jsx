@@ -137,10 +137,27 @@ export default function Unbilled({ onBack, userEmail }) {
       // walked time_entries. A ticket dispositioned "Bill it" from the audit
       // writes a job status and no hours, so it sat on the board as To Bill and
       // did not exist here. That is the ticket "floating in space."
-      const seenJobIds = new Set((entries || []).map(e => e._jid || e.job_id).filter(Boolean));
+      // The entries query above only returns UNBILLED time. So a job whose hours
+      // were already invoiced has no rows here and looked like it had no hours
+      // at all — Womack, Temple and BG Longmont were landing in this bucket
+      // when they are simply done and paid. Ask the database which jobs have
+      // ANY time against them, billed or not, before calling one empty.
+      const { data: everBilled } = await supabase
+        .from('time_entries').select('job_id, calendar_event_id')
+        .not('billed', 'is', false)
+        .limit(5000);
+      const hasAnyTime = new Set();
+      (everBilled || []).forEach(t => {
+        if (t.job_id) hasAnyTime.add(t.job_id);
+        if (t.calendar_event_id && jobByEvent[t.calendar_event_id])
+          hasAnyTime.add(jobByEvent[t.calendar_event_id].id);
+      });
+
+      const seenJobIds = new Set((entries || []).map(e => e.job_id).filter(Boolean));
       (entries || []).forEach(e => { const j = jobFor(e); if (j) seenJobIds.add(j.id); });
       (jobRows || [])
-        .filter(j => ['complete', 'to_bill'].includes(j.status) && !seenJobIds.has(j.id))
+        .filter(j => ['complete', 'to_bill'].includes(j.status)
+                  && !seenJobIds.has(j.id) && !hasAnyTime.has(j.id))
         .forEach(j => {
           const key = `nohours::job:${j.id}`;
           byCustomer[key] = {
@@ -216,6 +233,26 @@ export default function Unbilled({ onBack, userEmail }) {
       materials: rows.filter(v => v.materials && v.materials.trim()).map(v => v.materials.trim()),
     };
   }, [groups, picked]);
+
+  // Close out a job that is marked done but carries no time. Writes through
+  // jobsApi.changeStatus so it lands in job_history and is auditable — the same
+  // path every other status move uses.
+  const closeNoHours = async (g, target) => {
+    if (!g.job?.id) return;
+    const label = target === 'billed' ? 'billed' : 'cleared';
+    if (!window.confirm(`Mark ${g.name} as ${label}?\n\nNo hours are attached, so nothing goes on an invoice. This only moves the card off the board.`)) return;
+    setSaving(true);
+    try {
+      await jobsApi.changeStatus(g.job.id, target, userEmail,
+        target === 'billed'
+          ? 'Marked billed from Billing — invoiced outside Overwatch, no hours logged'
+          : 'Cleared from Billing — no hours logged, not billable');
+      setToast(`${g.name} ${label}`);
+      setTimeout(() => setToast(''), 2600);
+      await load();
+    } catch (e) { setToast('Could not update: ' + (e.message || e)); }
+    setSaving(false);
+  };
 
   const markBilled = async () => {
     if (!sel.rows.length) return;
@@ -385,9 +422,16 @@ export default function Unbilled({ onBack, userEmail }) {
                       Customer waiting {g.waitingDays} day{g.waitingDays === 1 ? '' : 's'} · {fmtH(g.hours)} of work you cannot invoice until someone goes back
                     </div>
                   )}
+                  {g.noEntries && (
+                    <div style={{ fontSize: 12.5, color: '#fdba74', marginTop: 3, lineHeight: 1.5 }}>
+                      Marked done, but nobody logged time against it. There is nothing to put on an invoice.
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                    {g.visits.length} visit{g.visits.length > 1 ? 's' : ''} · since {fmtD(g.oldest)}
-                    {g.materialVisits > 0 && <span style={{ color: '#f59e0b' }}> · {g.materialVisits} with materials</span>}
+                    {g.noEntries
+                      ? 'no time logged'
+                      : `${g.visits.length} visit${g.visits.length > 1 ? 's' : ''} · since ${fmtD(g.oldest)}`}
+                    {!g.noEntries && g.materialVisits > 0 && <span style={{ color: '#f59e0b' }}> · {g.materialVisits} with materials</span>}
                     {g.suspicious > 0 && <span style={{ color: '#ef4444' }}> · ⚠️ {g.suspicious} over {SUSPICIOUS_HOURS}h — check it</span>}
                   </div>
                   {g.orphan && (
@@ -399,7 +443,38 @@ export default function Unbilled({ onBack, userEmail }) {
                 <span style={{ fontSize: 19, fontWeight: 800, color: '#22c55e', whiteSpace: 'nowrap' }}>{fmtH(g.hours)}</span>
               </div>
 
-              {open && (
+              {/* A job with no time has nothing to tick, so the checkbox flow is a
+                  dead end — "Select all visits" selects nothing and the invoice
+                  button stays dead. What it needs is a DECISION, so offer the
+                  three that actually exist. */}
+              {open && g.noEntries && (
+                <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
+                              display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <button onClick={() => window.open(`/board?job=${g.job.id}`, '_self')}
+                    style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
+                             fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Open the ticket
+                  </button>
+                  <button onClick={() => closeNoHours(g, 'billed')} disabled={saving}
+                    style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
+                             color: '#22c55e', fontSize: 13, fontWeight: 700, padding: '9px 14px',
+                             cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Invoiced elsewhere — mark billed
+                  </button>
+                  <button onClick={() => closeNoHours(g, 'archived')} disabled={saving}
+                    style={{ background: 'transparent', border: '1px solid #64748b', borderRadius: 8,
+                             color: '#94a3b8', fontSize: 13, fontWeight: 700, padding: '9px 14px',
+                             cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Not billable — clear it
+                  </button>
+                  <div style={{ flexBasis: '100%', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                    If the work really happened and the hours were never entered, open the
+                    ticket and log the visit — that is the only route that puts it on an invoice.
+                  </div>
+                </div>
+              )}
+
+              {open && !g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
                   <button onClick={() => pickAll(g)}
                     style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer', marginBottom: 8 }}>

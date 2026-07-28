@@ -95,8 +95,24 @@ export const BILLING_LANE = {
   icon: '💵',
   color: '#22c55e',
   target: 'to_bill',
-  statuses: ['complete', 'to_bill', 'billed'],
+  // 'billed' USED TO LIVE HERE. That was wrong twice over: a paid job rendered
+  // as "Done — To Bill" forever, and because no lane had target:'billed' there
+  // was no way to reach it — the only exits from To Bill were back to a work
+  // lane or Clear, which archives the job and throws away the fact it was
+  // invoiced. Eight jobs with real invoice numbers were stuck like that.
+  statuses: ['complete', 'to_bill'],
   means: 'Work finished — hours go to Billing to invoice',
+};
+
+// Invoiced and closed. The end of the line, and now actually reachable.
+export const BILLED_LANE = {
+  key: 'billed',
+  label: 'Billed',
+  icon: '💰',
+  color: '#6b7280',
+  target: 'billed',
+  statuses: ['billed'],
+  means: 'Invoiced — nothing further owed on it',
 };
 
 // Leaves the active board without touching money. For test rows and dupes.
@@ -110,12 +126,12 @@ export const CLEAR_LANE = {
   means: 'Not real work — remove it without billing anything',
 };
 
-export const ALL_LANES = [...LANES, RETURN_LANE, BILLING_LANE, CLEAR_LANE];
+export const ALL_LANES = [...LANES, RETURN_LANE, BILLING_LANE, BILLED_LANE, CLEAR_LANE];
 
 const STATUS_TO_LANE = {};
 // Order matters: RETURN_LANE registers LAST so return_pending resolves to
 // Return (its identity), not Ready (the column it happens to render in).
-[...LANES, BILLING_LANE, CLEAR_LANE, RETURN_LANE]
+[...LANES, BILLING_LANE, BILLED_LANE, CLEAR_LANE, RETURN_LANE]
   .forEach(l => l.statuses.forEach(s => { STATUS_TO_LANE[s] = l; }));
 
 // Which lane a job is currently sitting in. A tentative hold wins over the
@@ -148,11 +164,15 @@ export const laneColor = (job) => laneOf(job)?.color || '#64748b';
 // statuses with no exits at all, so those tickets could not be moved.
 export function movesFor(job, { includeBilling = true, includeClear = true } = {}) {
   const here = laneOf(job)?.key;
+  // Billed is only a sensible destination for work that is actually finished.
+  // Offering it on a job nobody has done yet invites marking unworked jobs paid.
+  const finished = ['complete', 'to_bill', 'billed'].includes(job?.status);
   return [
     ...LANES.slice(0, 2),        // New/Notes, Ready
     RETURN_LANE,                 // its own destination, right after Ready
     ...LANES.slice(2),           // Tentative, Scheduled, Estimates
     ...(includeBilling ? [BILLING_LANE] : []),
+    ...(includeBilling && finished ? [BILLED_LANE] : []),
     ...(includeClear ? [CLEAR_LANE] : []),
   ].filter(l => l.key !== here);
 }

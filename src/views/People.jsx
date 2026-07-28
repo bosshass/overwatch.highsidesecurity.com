@@ -30,7 +30,7 @@ import {
 } from '../utils/ownership.js';
 import { LANES, laneOf } from '../utils/lanes.js';
 import { stalenessOf, STALE_COLOR } from '../utils/staleness.js';
-import { TECH_COLORS } from '../config/calendars.js';
+import { TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 import TicketSheet from '../components/TicketSheet.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 
@@ -408,7 +408,20 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       {scheduling && (
         <VisualSchedulerModal
           job={scheduling}
-          techs={ASSIGNEES.map(a => ({ id: a.email, name: a.name, email: a.email }))}
+          /* VisualSchedulerModal filters on t.calendar_id and renders "No techs
+             with a calendar configured" when nothing survives. The roster in
+             ownership.js has no calendar on it — that lives in
+             config/calendars.js — so every person was being filtered out.
+             getTechCalendarId() is the one place that mapping exists. */
+          techs={ASSIGNEES
+            .map(a => ({
+              id: a.email,
+              name: a.name,
+              email: a.email,
+              calendar_id: getTechCalendarId(a.email),
+              color: TECH_COLORS[a.name] || null,
+            }))
+            .filter(t => t.calendar_id)}
           accessToken={accessToken}
           userEmail={userEmail}
           onClose={() => setScheduling(null)}

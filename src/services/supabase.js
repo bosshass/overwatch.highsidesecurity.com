@@ -302,10 +302,18 @@ export const jobsApi = {
     // column. services/schedule.js is the only thing allowed to SET it.
     updates.tentative_date = null;
     updates.tentative_event_id = null;
-    if (newStatus === JOB_STATUS.SCHEDULED) updates.scheduled_at = new Date().toISOString();
+    // TWO OF THESE WROTE COLUMNS THAT DO NOT EXIST ON `jobs`:
+    //   scheduled_at — never existed here. Scheduling state is scheduled_date
+    //                  plus scheduled_event_id, written by services/schedule.js.
+    //   billed_at    — the column is invoiced_at. billed_at exists on
+    //                  time_entries, not on jobs, and the two got conflated.
+    // Postgres rejects the whole UPDATE on an unknown column, so EVERY attempt
+    // to move a job to billed threw — including Billing's write-through, where
+    // the throw was swallowed by a try/catch marked "non-fatal on purpose".
+    // That is the second reason no job ever left To Bill.
     if (newStatus === JOB_STATUS.COMPLETE) updates.completed_at = new Date().toISOString();
     if (newStatus === JOB_STATUS.TO_BILL) updates.completed_at = updates.completed_at || new Date().toISOString();
-    if (newStatus === JOB_STATUS.BILLED) updates.billed_at = new Date().toISOString();
+    if (newStatus === JOB_STATUS.BILLED) updates.invoiced_at = new Date().toISOString();
     if (notes) updates.completion_notes = notes;
 
     const { data, error } = await supabase.from('jobs').update(updates).eq('id', id).select().single();

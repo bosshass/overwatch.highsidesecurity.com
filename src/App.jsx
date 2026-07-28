@@ -2,7 +2,7 @@
 // Overwatch - Main App (React Router)
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
@@ -38,7 +38,7 @@ import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 
-const APP_VERSION = '9.13.0';
+const APP_VERSION = '9.14.0';
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -163,6 +163,9 @@ export default function App() {
   });
   const [showAlertGate, setShowAlertGate] = useState(false);
   const [showBuildLog, setShowBuildLog] = useState(false);
+  // Google session went stale. NOT a sign-out — the app stays put and the
+  // user taps once to reconnect.
+  const [needsReconnect, setNeedsReconnect] = useState(false);
   const [forceReload, setForceReload] = useState(false);
   const [forceReloadSeconds, setForceReloadSeconds] = useState(20);
 
@@ -435,49 +438,70 @@ export default function App() {
   }, []);
 
   // ── AUTH: Silent token refresh ────────────────────────────────────────
-  // Google tokens expire after ~1hr. Session lasts 36hrs.
-  // On 401, silently get a new token via hidden iframe.
-  // If silent auth fails, THEN sign out.
+  // WHAT WAS HERE, AND WHY IT COULD NEVER WORK
+  //   The old version opened a HIDDEN IFRAME pointed at
+  //   accounts.google.com/o/oauth2/v2/auth with prompt=none. Google serves
+  //   X-Frame-Options: DENY on that endpoint and has for years, so the iframe
+  //   could not load, the 8s timeout always fired, and silentRefresh() always
+  //   resolved false. The 401 handler then called handleSignOut().
+  //
+  //   Net effect: the moment the Google token died, whoever was using the app
+  //   got thrown to the login screen mid-task. Every time. That is the "closes
+  //   on its own and makes me log in again" everyone reported.
+  //
+  //   Google Identity Services does this properly, without an iframe.
+  const tokenClientRef = useRef(null);
+  const getTokenClient = useCallback(() => {
+    if (tokenClientRef.current) return tokenClientRef.current;
+    const g = window.google?.accounts?.oauth2;
+    if (!g) return null;
+    tokenClientRef.current = g.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: SCOPES,
+      prompt: '',              // silent when Google still trusts the session
+      callback: () => {},      // replaced per-call below
+    });
+    return tokenClientRef.current;
+  }, []);
+
   const silentRefresh = useCallback(() => {
     return new Promise((resolve) => {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-      authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
-      authUrl.searchParams.set('redirect_uri', window.location.origin);
-      authUrl.searchParams.set('response_type', 'token');
-      authUrl.searchParams.set('scope', SCOPES);
-      authUrl.searchParams.set('prompt', 'none'); // silent — no user interaction
-      authUrl.searchParams.set('login_hint', userEmail);
-
-      const timeout = setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch {}
-        resolve(false);
-      }, 8000);
-
-      const onMessage = () => {
-        try {
-          const hash = iframe.contentWindow?.location?.hash;
-          if (hash?.includes('access_token')) {
-            const params = new URLSearchParams(hash.substring(1));
-            const newToken = params.get('access_token');
-            if (newToken) {
-              localStorage.setItem('juce_v4_token', newToken);
-              setAccessToken(newToken);
-              clearTimeout(timeout);
-              try { document.body.removeChild(iframe); } catch {}
-              resolve(true);
-              return;
-            }
-          }
-        } catch {} // cross-origin — expected during redirect
+      const client = getTokenClient();
+      if (!client) return resolve(false);
+      const done = (ok) => { clearTimeout(timer); resolve(ok); };
+      const timer = setTimeout(() => done(false), 10000);
+      client.callback = (resp) => {
+        if (resp?.access_token) {
+          // Store the REAL lifetime Google gives us, not a made-up 36 hours.
+          const lifeMs = (Number(resp.expires_in) || 3600) * 1000;
+          localStorage.setItem('juce_v4_token', resp.access_token);
+          localStorage.setItem('juce_v4_token_expiry', new Date(Date.now() + lifeMs).toISOString());
+          setAccessToken(resp.access_token);
+          done(true);
+        } else done(false);
       };
-
-      iframe.addEventListener('load', onMessage);
-      document.body.appendChild(iframe);
-      iframe.src = authUrl.toString();
+      try { client.requestAccessToken({ prompt: '', login_hint: userEmail }); }
+      catch { done(false); }
     });
-  }, [userEmail]);
+  }, [getTokenClient, userEmail]);
+
+  // ── AUTH: refresh BEFORE it breaks ────────────────────────────────────
+  // Waiting for a 401 means the user always eats one failed action. Renew at
+  // 80% of the token's real life instead, so nothing they do ever hits a dead
+  // token in the first place.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const tick = async () => {
+      const exp = localStorage.getItem('juce_v4_token_expiry');
+      if (!exp) return;
+      const msLeft = new Date(exp).getTime() - Date.now();
+      const life = 3600 * 1000;
+      if (msLeft < life * 0.2) await silentRefresh();
+    };
+    tick();
+    const iv = setInterval(tick, 4 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [isSignedIn, silentRefresh]);
 
   // ── ALERT GATE: show for JR every 6 hours ──────────────────────────────
   useEffect(() => {
@@ -495,7 +519,9 @@ export default function App() {
     const check = () => {
       const expiry = localStorage.getItem('juce_v4_expiry');
       if (!expiry || new Date(expiry) <= new Date()) {
-        handleSignOut(); // 36 hours up — full sign out
+        // Was a hard handleSignOut(). Prompt instead — losing an operator's
+        // in-progress work to a background timer is never the right trade.
+        setNeedsReconnect(true);
       }
     };
     check();
@@ -523,7 +549,11 @@ export default function App() {
             const newInit = { ...init, headers: { ...init.headers, Authorization: `Bearer ${newToken}` } };
             return origFetch(input, newInit);
           } else {
-            handleSignOut();
+            // WAS handleSignOut(). Blowing the session away on one failed
+            // refresh is what threw people to the login screen mid-task and
+            // lost whatever they were typing. Surface a banner instead: the
+            // app stays exactly where it is and reconnecting is one tap.
+            setNeedsReconnect(true);
           }
         }
       }
@@ -795,6 +825,29 @@ export default function App() {
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Session went stale. This REPLACES the old behaviour of calling
+          handleSignOut() out from under whoever was mid-task. The app stays
+          exactly where it is; reconnecting is one tap and puts you back. */}
+      {needsReconnect && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 4000,
+                      background: '#78350f', borderBottom: '1px solid #f59e0b',
+                      padding: '10px 14px', display: 'flex', alignItems: 'center',
+                      gap: 12, fontFamily: 'Inter, system-ui, sans-serif' }}>
+          <span style={{ color: '#fcd34d', fontSize: 13, fontWeight: 700, flex: 1 }}>
+            Google session expired — your work is still here.
+          </span>
+          <button onClick={async () => {
+                    const ok = await silentRefresh();
+                    if (ok) setNeedsReconnect(false);
+                    else handleSignIn();   // full flow, returns to this page
+                  }}
+            style={{ background: '#f59e0b', border: 'none', borderRadius: 8,
+                     color: '#08121f', fontWeight: 800, fontSize: 13,
+                     padding: '8px 16px', cursor: 'pointer', flexShrink: 0 }}>
+            Reconnect
+          </button>
+        </div>
+      )}
       {/* Tour sits ABOVE Routes on purpose. Rendering it inside ViewShell meant
           it never fired on the home screen, which is exactly where a first-time
           user lands. */}

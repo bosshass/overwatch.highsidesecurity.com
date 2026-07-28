@@ -168,7 +168,40 @@ export default function JobFinishSheet({
       await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
       return existing.id;
     }
-    // Not tracked — adopt the calendar event into a new jobs row.
+    // LAST CHANCE before we manufacture a duplicate. An event that was moved
+    // between calendars, or recreated by hand, gets a brand-new Google id — so
+    // the id lookups above all miss even though the job is sitting right there
+    // on the board. Match on the same customer, same day, still-open, before
+    // creating anything. This is the "why did a second card appear" bug.
+    if (event.start) {
+      try {
+        const day = new Date(event.start);
+        const from = new Date(day); from.setHours(0, 0, 0, 0);
+        const to   = new Date(day); to.setHours(23, 59, 59, 999);
+        let q = supabase.from('jobs').select('id, status')
+          .gte('scheduled_date', from.toISOString())
+          .lte('scheduled_date', to.toISOString())
+          .not('status', 'in', '(billed,archived,dead,lost)')
+          .limit(1);
+        q = linkedCustomer?.id
+          ? q.eq('customer_id', linkedCustomer.id)
+          : q.ilike('customer_name', `%${(base || '').slice(0, 24)}%`);
+        const { data: near } = await q;
+        if (near && near[0]) {
+          // Found it. Bind this event id on so the miss can't repeat, then
+          // move it — do NOT create a second row.
+          await supabase.from('jobs')
+            .update({ calendar_event_id: event.id }).eq('id', near[0].id);
+          const histNote = notes.trim()
+            ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
+            : `${disposition} disposition from Work Today`;
+          await jobsApi.changeStatus(near[0].id, target, userEmail, histNote);
+          return near[0].id;
+        }
+      } catch (e) { console.warn('ensureJobForEvent: same-day match failed', e); }
+    }
+
+    // Genuinely untracked — adopt the calendar event into a new jobs row.
     const created = await jobsApi.create({
       customer_name:     linkedCustomer?.name || base,
       customer_id:       linkedCustomer?.id || undefined,
@@ -177,6 +210,7 @@ export default function JobFinishSheet({
       customer_address:  event.location || '',
       scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
       calendar_event_id: event.id,
+      scheduled_event_id: event.id,   // both, so the next lookup cannot miss
     }, `${userEmail} · adopted from calendar`);
     return created?.id || null;
   };

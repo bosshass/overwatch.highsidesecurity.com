@@ -29,6 +29,11 @@ export function tourKey(email) { return `ow_tour_${TOUR_BUILD}_${(email || '').t
 export function shouldShowTour(email) {
   const e = (email || '').toLowerCase();
   if (!TOUR_EMAILS.includes(e)) return false;
+  // The header of this file has always said a tech on a phone between jobs
+  // shouldn't get a product tour. Nothing enforced it, so it auto-fired on
+  // mobile — where its own footer renders off-screen. Now it's desktop-only
+  // on first run; the Help menu can still open it deliberately anywhere.
+  try { if (window.innerWidth < 700) return false; } catch { /* SSR */ }
   try { return !localStorage.getItem(tourKey(e)); } catch { return false; }
 }
 
@@ -252,10 +257,18 @@ export default function Tour({ email, onClose, onNavigate, startKey }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(3,8,16,0.92)', zIndex: 3000,
+    <div onClick={() => finish(null)}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(3,8,16,0.92)', zIndex: 3000,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20,
-                    width: '100%', maxWidth: 480, maxHeight: '90vh', display: 'flex',
+      {/* maxHeight was 90vh. On mobile Safari vh ignores the browser chrome, so
+          the footer holding Skip and Next sat below the fold — a full-screen
+          overlay with no reachable way out. dvh tracks the real viewport; the
+          ✕ and tap-outside are belt and braces so this can never trap anyone
+          again, on any device. */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20,
+                    width: '100%', maxWidth: 480,
+                    maxHeight: '85dvh', display: 'flex',
                     flexDirection: 'column', color: C.text,
                     fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif' }}>
 
@@ -266,8 +279,13 @@ export default function Tour({ email, onClose, onNavigate, startKey }) {
                                     background: n <= i ? C.cyan : C.line }} />
             ))}
           </div>
-          <div style={{ fontSize: 10, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Step {i + 1} of {STEPS.length}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1, fontSize: 10, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Step {i + 1} of {STEPS.length}
+            </div>
+            <button onClick={() => finish(null)} aria-label="Close tour"
+              style={{ background: 'none', border: 'none', color: C.muted, fontSize: 22,
+                       lineHeight: 1, padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}>×</button>
           </div>
           <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{step.title}</div>
         </div>

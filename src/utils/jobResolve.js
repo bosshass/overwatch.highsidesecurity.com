@@ -39,6 +39,22 @@ export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}
     if (data && data[0]) return data[0];
   } catch (e) { console.warn('resolveJobForEvent: jobs lookup failed', e); }
 
+  // (2b) — RECURRING INSTANCES. Google gives a single occurrence an id of
+  // "<baseId>_20260708T183000Z". Whatever created the job stored the BASE id,
+  // so an exact match on the instance id finds nothing and the caller happily
+  // creates a SECOND job for a visit that was already on the board. Retry on
+  // the base before giving up.
+  if (eventId.includes('_')) {
+    const base = eventId.split('_')[0];
+    try {
+      const { data } = await supabase
+        .from('jobs').select(select)
+        .or(`calendar_event_id.eq.${base},scheduled_event_id.eq.${base},tentative_event_id.eq.${base}`)
+        .limit(1);
+      if (data && data[0]) return data[0];
+    } catch (e) { console.warn('resolveJobForEvent: recurring-base lookup failed', e); }
+  }
+
   // (3) — the assignment row points back at the job.
   try {
     const { data } = await supabase

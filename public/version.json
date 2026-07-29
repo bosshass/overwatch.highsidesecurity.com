@@ -1,5 +1,1 @@
-{
-  "version": "0.2.0",
-  "notes": "Security: authenticated /api, internal-tenant lockdown, blocking Supabase session",
-  "built": "2026-07-28T13:13:09.179227Z"
-}
+{"version": "9.17.3"}

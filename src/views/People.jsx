@@ -33,6 +33,7 @@ import { stalenessOf, STALE_COLOR } from '../utils/staleness.js';
 import { TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 import TicketSheet from '../components/TicketSheet.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
+import NewJobModal from '../components/NewJobModal.jsx';
 
 const C = {
   bg: '#0f1729', panel: '#16233a', raised: '#1b2b45', line: '#2a3b56',
@@ -76,6 +77,7 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   const [openJob, setOpenJob] = useState(null);
   const [scheduling, setScheduling] = useState(null);
   const [toast, setToast] = useState('');
+  const [newJob, setNewJob] = useState(false);
 
   const say = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
 
@@ -141,6 +143,20 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     .filter(j => j.scheduled_date || j.tentative_date)
     .sort((a, b) => new Date(a.scheduled_date || a.tentative_date) - new Date(b.scheduled_date || b.tentative_date)),
     [myJobs]);
+
+  // Claim / hand over in one tap. The old My Tasks had "I'll take it" and
+  // People shipped without it, so the only route was open ticket -> assign.
+  // Writes assigned_to, the one ownership column.
+  const giveTo = async (job, name) => {
+    const who = ASSIGNEES.find(a => a.name === name);
+    if (!who) return;
+    const { error } = await supabase.from('jobs')
+      .update({ assigned_to: who.email, updated_at: new Date().toISOString() })
+      .eq('id', job.id);
+    if (error) { say('Could not assign'); return; }
+    await load();
+    say(`${job.customer_name || 'Job'} → ${name}`);
+  };
 
   const moveJob = async (job, target, note) => {
     await jobsApi.changeStatus(job.id, target, userEmail, note);
@@ -308,7 +324,29 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
             {/* Unassigned is everyone's problem, so it sits under every person. */}
             {unowned.length > 0 && (
               <Section title="Nobody owns this" color={C.red} count={unowned.length}>
-                {unowned.slice(0, 12).map(j => <JobRow key={j.id} job={j} />)}
+                {unowned.slice(0, 12).map(j => (
+                  <div key={j.id} style={{ marginBottom: 7 }}>
+                    <JobRow job={j} />
+                    <div style={{ display: 'flex', gap: 7, marginLeft: 2, marginTop: -2 }}>
+                      {person !== 'all' && (
+                        <button onClick={() => giveTo(j, person)}
+                          style={{ background: 'transparent', border: `1px solid ${C.green}`,
+                                   borderRadius: 8, color: C.green, fontSize: 12, fontWeight: 700,
+                                   padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          {person === myName ? 'I’ll take it' : `Give to ${person}`}
+                        </button>
+                      )}
+                      {person === 'all' && myName && (
+                        <button onClick={() => giveTo(j, myName)}
+                          style={{ background: 'transparent', border: `1px solid ${C.green}`,
+                                   borderRadius: 8, color: C.green, fontSize: 12, fontWeight: 700,
+                                   padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          I’ll take it
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
                 {unowned.length > 12 && (
                   <button onClick={() => navigate('/board')}
                     style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
@@ -426,6 +464,24 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
           userEmail={userEmail}
           onClose={() => setScheduling(null)}
           onScheduled={() => { setScheduling(null); load(); say('Scheduled'); }}
+        />
+      )}
+
+      {/* Same floating + as Home and the Board. People had no way to add
+          anything at all, which made it a read-only screen by accident. */}
+      <button onClick={() => setNewJob(true)} aria-label="Add work"
+        style={{ position: 'fixed', bottom: 80, right: 20, width: 56, height: 56,
+                 borderRadius: 999, background: C.green, border: 'none', color: '#04130a',
+                 fontSize: 28, fontWeight: 900, cursor: 'pointer', zIndex: 20,
+                 boxShadow: '0 8px 24px rgba(34,197,94,0.35)', display: 'grid',
+                 placeItems: 'center', fontFamily: 'inherit' }}>+</button>
+
+      {newJob && (
+        <NewJobModal
+          accessToken={accessToken}
+          userEmail={userEmail}
+          onClose={() => setNewJob(false)}
+          onCreated={() => { setNewJob(false); load(); say('Added'); }}
         />
       )}
 

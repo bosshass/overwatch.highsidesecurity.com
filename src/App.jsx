@@ -32,8 +32,10 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
+import { APP_VERSION } from './version.js';
 
-const APP_VERSION = '9.17.2';
+// APP_VERSION lives in src/version.js and version.json is generated from it.
+// See that file for why.
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -162,6 +164,8 @@ export default function App() {
   // user taps once to reconnect.
   const [needsReconnect, setNeedsReconnect] = useState(false);
   const [forceReload, setForceReload] = useState(false);
+  // Set when reloading demonstrably did not help — the served bundle is stale.
+  const [staleVersion, setStaleVersion] = useState(null);
   const [forceReloadSeconds, setForceReloadSeconds] = useState(20);
 
   // Deep link detection — ?cal=X&job=Y at root
@@ -293,7 +297,19 @@ export default function App() {
         if (!res.ok) return;
         const data = await res.json();
         if (data.version && data.version !== APP_VERSION) {
+          // LOOP GUARD. version.json is fetched no-store so it is always fresh,
+          // but window.location.reload() does NOT bypass cache for the HTML or
+          // the JS bundle. A stale bundle therefore reports the old APP_VERSION
+          // on every reload, mismatches again, and reloads again — forever.
+          // If we have already reloaded for this exact version and are STILL
+          // behind, the cache is the problem and reloading cannot fix it. Stop
+          // and let the user act instead of spinning.
+          const tried = sessionStorage.getItem('juce_reload_for');
+          if (tried === data.version) { setStaleVersion(data.version); return; }
+          sessionStorage.setItem('juce_reload_for', data.version);
           setForceReload(true);
+        } else if (data.version) {
+          sessionStorage.removeItem('juce_reload_for');
         }
       } catch (e) { /* network hiccup, non-fatal, just try again next interval */ }
     };
@@ -303,7 +319,14 @@ export default function App() {
 
   useEffect(() => {
     if (!forceReload) return;
-    if (forceReloadSeconds <= 0) { window.location.reload(); return; }
+    if (forceReloadSeconds <= 0) {
+      // A plain reload() re-serves the cached bundle. Changing the URL forces
+      // a genuinely new request, which is the whole point of reloading.
+      const u = new URL(window.location.href);
+      u.searchParams.set('v', Date.now().toString(36));
+      window.location.replace(u.toString());
+      return;
+    }
     const t = setTimeout(() => setForceReloadSeconds(s => s - 1), 1000);
     return () => clearTimeout(t);
   }, [forceReload, forceReloadSeconds]);
@@ -823,6 +846,27 @@ export default function App() {
       {/* Session went stale. This REPLACES the old behaviour of calling
           handleSignOut() out from under whoever was mid-task. The app stays
           exactly where it is; reconnecting is one tap and puts you back. */}
+      {/* Reload happened and the bundle is STILL stale — the browser or CDN is
+          serving cache we cannot shift from JS. Say so plainly and give the one
+          instruction that actually works, instead of reloading in a circle. */}
+      {staleVersion && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 4100,
+                      background: '#7f1d1d', borderBottom: '1px solid #ef4444',
+                      padding: '10px 14px', display: 'flex', alignItems: 'center',
+                      gap: 12, fontFamily: 'Inter, system-ui, sans-serif' }}>
+          <span style={{ color: '#fecaca', fontSize: 13, fontWeight: 700, flex: 1 }}>
+            Version {staleVersion} is out but your browser keeps loading an old copy.
+            Hold Shift and click reload (or Cmd+Shift+R) once.
+          </span>
+          <button onClick={() => { sessionStorage.removeItem('juce_reload_for'); setStaleVersion(null); }}
+            style={{ background: 'transparent', border: '1px solid #fecaca', borderRadius: 8,
+                     color: '#fecaca', fontWeight: 700, fontSize: 13, padding: '7px 14px',
+                     cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {needsReconnect && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 4000,
                       background: '#78350f', borderBottom: '1px solid #f59e0b',

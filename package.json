@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint:quick": "eslint -c eslint.quickcheck.mjs src/",
-    "verify": "npm run lint:quick && vite build"
+    "verify": "npm run lint:quick && npm run build",
+    "prebuild": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

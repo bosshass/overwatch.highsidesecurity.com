@@ -41,18 +41,37 @@ export const ASSIGNEES = [
 // Every alias resolves to one canonical person. Writes use the canonical
 // address; reads accept ALL of them, so notes already stored under an alias
 // surface instead of staying lost.
+// info@ is deliberately NOT here. It is a SHARED mailbox with an identity
+// picker (Sara / JR / Shana) — see IDENTITY_OPTIONS in App.jsx. Aliasing it to
+// one person meant Sara, signed in on info@ and having picked "Sara", filed a
+// note that landed in JR's list. A shared login resolves to whoever is ACTING,
+// not to a fixed owner. See SHARED_LOGINS below.
 export const LOGIN_ALIASES = {
-  'info@drhsecurityservices.com':       'jr@drhsecurityservices.com',
   'accounting@drhsecurityservices.com': 'admin@jnbservice.com',
   'sara@jnbservice.com':                'admin@jnbservice.com',
   'sara@jnbllc.com':                    'admin@jnbservice.com',
   'drhservicetech1@gmail.com':          'austin@drhsecurityservices.com',
 };
 
-// Any login address -> the one roster address for that human.
+// Mailboxes more than one person signs into. Who they ARE is whichever identity
+// they picked at sign-in, stored by App.jsx as juce_identity_<login>.
+export const SHARED_LOGINS = ['info@drhsecurityservices.com'];
+
+// Any login address -> the one roster address for the human ACTING right now.
 export function canonicalEmail(email) {
   const e = (email || '').trim().toLowerCase();
   if (!e) return null;
+  if (SHARED_LOGINS.includes(e)) {
+    try {
+      const picked = localStorage.getItem(`juce_identity_${email}`);
+      const hit = picked && EMAIL_BY_NAME[picked.toLowerCase()];
+      if (hit) return hit;
+    } catch { /* no storage — fall through */ }
+    // Nobody picked yet. Return the shared address rather than guessing a
+    // person: a note filed under "info@" is findable; one filed under the
+    // wrong colleague is not.
+    return e;
+  }
   return LOGIN_ALIASES[e] || e;
 }
 
@@ -62,7 +81,10 @@ export function emailsFor(email) {
   if (!canon) return [];
   const aliases = Object.entries(LOGIN_ALIASES)
     .filter(([, target]) => target === canon).map(([alias]) => alias);
-  return [...new Set([canon, ...aliases])];
+  // Anyone who works the shared mailbox also sees what was filed under it —
+  // including everything written before this fix, when info@ was aliased to JR.
+  const shared = SHARED_LOGINS.filter(sl => sl !== canon);
+  return [...new Set([canon, ...aliases, ...shared])];
 }
 
 export const NAME_BY_EMAIL  = Object.fromEntries(ASSIGNEES.map(a => [a.email, a.name]));

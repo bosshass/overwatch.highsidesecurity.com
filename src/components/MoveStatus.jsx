@@ -81,6 +81,19 @@ const MOVES = {
   ],
 };
 
+// Which swim lane each status lives in. The move buttons said things like
+// "Ready to Schedule" and "To Bill" while the board showed Triage / Ready /
+// Tentative / Scheduled / Estimates — so you had to translate between two
+// vocabularies for the same thing. Every move now names the lane it lands in.
+export const LANE_OF = {
+  new:'Triage', needs_details:'Triage', needs_parts:'Triage',
+  pending_materials:'Triage', pending_decision:'Triage', blocked:'Triage',
+  ready_to_schedule:'Ready', return_pending:'Ready',
+  scheduled:'Scheduled',
+  needs_estimate:'Estimates', estimate_sent:'Estimates', won:'Estimates',
+  complete:'Billing', to_bill:'Billing', billed:'Billing',
+};
+
 const LABEL = {
   new:'New', needs_details:'Needs Details', needs_parts:'Waiting on Parts',
   pending_decision:'Pending', pending_materials:'Waiting on Materials',
@@ -90,16 +103,44 @@ const LABEL = {
   lost:'Lost', blocked:'Blocked', dead:'Dead', archived:'Archived',
 };
 
-export default function MoveStatus({ job, userEmail, onMoved }) {
+export default function MoveStatus({ job, userEmail, onMoved, onRequestSchedule }) {
   const [picking, setPicking]   = useState(null);   // the pending move target
   const [note, setNote]         = useState('');
   const [busy, setBusy]         = useState(false);
   const [err, setErr]           = useState('');
 
-  const moves = MOVES[job.status] || [];
-  if (!moves.length) return null;
+  // FALLBACK. MOVES only covered nine statuses — needs_details,
+  // pending_decision, lost, dead and archived had no entry, so this component
+  // returned null and the ticket opened with NO way to change status at all.
+  // Silently rendering nothing is the worst answer: the card looks broken and
+  // the person assumes the app can't do it.
+  //
+  // Anything without a curated set now gets the common next steps, so every
+  // ticket can always be moved.
+  const FALLBACK = [
+    { to: JOB_STATUS.READY_TO_SCHEDULE, label: 'Ready to Schedule' },
+    { to: JOB_STATUS.NEEDS_PARTS,       label: 'Waiting on Parts' },
+    { to: JOB_STATUS.NEEDS_ESTIMATE,    label: 'Needs Estimate' },
+    { to: JOB_STATUS.TO_BILL,           label: 'Done → To Bill' },
+    { to: JOB_STATUS.DEAD,              label: 'Dead / Cancel', back: true },
+  ].filter(m => m.to && m.to !== job.status);
+
+  const moves = (MOVES[job.status] && MOVES[job.status].length)
+    ? MOVES[job.status]
+    : FALLBACK;
 
   const commit = async (move) => {
+    // SCHEDULED IS NOT A STATUS YOU CAN JUST SET.
+    // Marking a job scheduled by hand produced exactly what we found in the
+    // data: nine "scheduled" jobs, two with no date at all, three whose date
+    // had passed, three with no calendar event. The status said the work was
+    // booked; nothing was booked. So this move opens the scheduler instead —
+    // pick a tech and a slot, or link the calendar event somebody already made.
+    if (move.to === JOB_STATUS.SCHEDULED) {
+      if (onRequestSchedule) { onRequestSchedule(); setPicking(null); return; }
+      setErr('Use the Schedule button — a job can only become Scheduled by booking it.');
+      return;
+    }
     // Backward / bounce moves require a note so the reason travels with the card.
     if (move.back && !note.trim()) { setErr('A note is required to send this back.'); return; }
     setBusy(true); setErr('');
@@ -116,8 +157,11 @@ export default function MoveStatus({ job, userEmail, onMoved }) {
 
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: '#8497b0', marginBottom: 6 }}>
-        Move · now: {LABEL[job.status] || job.status}
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#e2e8f0', marginBottom: 2 }}>
+        What's next for this ticket?
+      </div>
+      <div style={{ fontSize: 11, color: '#8497b0', marginBottom: 8 }}>
+        Currently <b style={{ color: '#cbd5e1' }}>{LABEL[job.status] || job.status}</b> — pick where it goes.
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {moves.map(m => (
@@ -130,6 +174,9 @@ export default function MoveStatus({ job, userEmail, onMoved }) {
               color: picking?.to === m.to ? '#fff' : (m.back ? '#fcd34d' : '#8497b0'),
             }}>
             {m.back ? '↩ ' : ''}{m.label}
+            {m.to === JOB_STATUS.SCHEDULED && <span style={{ opacity: 0.7, fontWeight: 500 }}> · books it</span>}
+            {LANE_OF[m.to] && LANE_OF[m.to] !== LANE_OF[job.status] && m.to !== JOB_STATUS.SCHEDULED
+              && <span style={{ opacity: 0.6, fontWeight: 500 }}> · {LANE_OF[m.to]}</span>}
           </button>
         ))}
       </div>

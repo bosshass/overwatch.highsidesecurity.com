@@ -7,7 +7,7 @@
 //  3. Let the user create a new customer with just a name (all else optional)
 //
 // When a customer is LINKED, we:
-//  - Write CUSTOMER_ID:<short_code> into the event description (one line, idempotent)
+//  - Write CUSTOMER_ID:<drh_id> into the event description (one line, idempotent)
 //  - Optionally set event.location if currently blank
 //  - Show the last 5 time_entries for that customer
 //
@@ -47,7 +47,7 @@ function fmtMinutes(min) {
 
 // Write CUSTOMER_ID tag into the event description (idempotent)
 async function tagEventWithCustomerId(accessToken, calendarId, eventId, currentDescription, currentLocation, customer) {
-  const tag = `CUSTOMER_ID: ${customer.short_code || customer.id}`;
+  const tag = `CUSTOMER_ID: ${customer.drh_id || customer.id}`;
   let newDesc = currentDescription || '';
   if (CUSTOMER_ID_RE.test(newDesc)) {
     newDesc = newDesc.replace(CUSTOMER_ID_RE, tag);
@@ -88,9 +88,9 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
         // Step A: check event description for stored ID
         const storedId = extractStoredCustomerId(event.description);
         if (storedId) {
-          // It could be a short_code (ABC123) or raw UUID. Try by short_code first.
+          // It could be a drh_id (DRH-0270) or raw UUID. Try by drh_id first.
           let { data: byDrh } = await supabase
-            .from('customers').select('*').eq('short_code', storedId).maybeSingle();
+            .from('customers').select('*').eq('drh_id', storedId).maybeSingle();
           if (!byDrh) {
             const { data: byId } = await supabase
               .from('customers').select('*').eq('id', storedId).maybeSingle();
@@ -228,7 +228,7 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
         <>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#14532d' }}>
             {value.name}
-            {value.short_code && <span style={{ marginLeft: 8, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>{value.short_code}</span>}
+            {value.drh_id && <span style={{ marginLeft: 8, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>{value.drh_id}</span>}
           </div>
           <div style={{ fontSize: 12, color: '#4b5563', marginTop: 2 }}>
             {value.phone && <span>📞 {value.phone}</span>}

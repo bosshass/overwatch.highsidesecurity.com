@@ -1,5 +1,5 @@
-// Jovelin V3 - Google Calendar API (read-only)
-// Fetches events from tenant calendars using OAuth token
+// Overwatch V3 - Google Calendar API (read-only)
+// Fetches events from DRH calendars using OAuth token
 
 const API = 'https://www.googleapis.com/calendar/v3';
 

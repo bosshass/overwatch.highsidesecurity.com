@@ -8,21 +8,21 @@
 import { createClient } from '@supabase/supabase-js';
 
 // ── Supabase ────────────────────────────────────────────────────────────────
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://utljntxknxxwgiijbhqz.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0bGpudHhrbnh4d2dpaWpiaHF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMDcwNTMsImV4cCI6MjA5Mjg4MzA1M30.NrB5Tj7J0bDJUg5JZ9kW2-VyuCsrQBnsM_YKLU8SfM4';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://wolhqelloeypafmmvapn.supabase.co';
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxODUsImV4cCI6MjA4NDg2MDE4NX0.wQZ14FMQ03A8cBYXBMS1-pII4lKhTL7VNPl9zBCs-EM';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ── Calendar IDs ────────────────────────────────────────────────────────────
 const CALENDARS = {
-  TENTATIVELY_SCHEDULED: process.env.VITE_CAL_QUEUE || '',
-  ADMIN_NOTES: process.env.VITE_CAL_ADMIN || '',
-  AUSTIN: process.env.VITE_CAL_TECH1 || '',
-  JR: process.env.VITE_CAL_TECH2 || '',
-  SALES_ACCOUNTING: process.env.VITE_CAL_SALES || '',
-  COMPLETED: process.env.VITE_CAL_COMPLETED || '',
-  INSTALLATIONS: process.env.VITE_CAL_INSTALLS || '',
-  RETURN_VISITS: process.env.VITE_CAL_RETURNS || '',
-  SHANA: process.env.VITE_CAL_TECH4 || '',
+  TENTATIVELY_SCHEDULED: 'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
+  ADMIN_NOTES: 'fff001b042126a6179ac3abe30b1b7928a6f6170227a290d5f24fd0ec2ffa0c9@group.calendar.google.com',
+  AUSTIN: 'drhservicetech1@gmail.com',
+  JR: 'do0i4f1jqbbakd72mpgpll9m6g@group.calendar.google.com',
+  SALES_ACCOUNTING: 'c_aa764bfa5d492c689c26e3ed589df2804a04ee175db1b68d48217bd18883d178@group.calendar.google.com',
+  COMPLETED: 'c_a095f8a75a8e3fb1bb4b0f3a2232962af3ab55f05a49ced1e4338abcc865d3e9@group.calendar.google.com',
+  INSTALLATIONS: 'd40cddebd7123740ee0eece402546f83806bce96424423535bb15f6ed5abb7c6@group.calendar.google.com',
+  RETURN_VISITS: 'drhhsscalendar@gmail.com',
+  SHANA: 'shanaparks@drhsecurityservices.com',
 };
 
 // ── Job Statuses ────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ async function handleTool(name, args) {
         .from('customers')
         .select('*')
         .eq('is_active', true)
-        .or(`name.ilike.%${query}%,phone.ilike.%${query}%,address.ilike.%${query}%`)
+        .or(`name.ilike.%${query}%,phone.ilike.%${query}%,address.ilike.%${query}%,cms_account_id.ilike.%${query}%`)
         .order('name')
         .limit(25);
       return data || [];

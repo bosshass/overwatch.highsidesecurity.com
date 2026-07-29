@@ -18,12 +18,7 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   width: 100%;
   max-width: 100%;
-  /* 'clip' rather than 'hidden'. Both stop sideways scrolling, but 'hidden'
-     turns the element into a scroll container, and that silently kills
-     position: sticky for every descendant — which is why the sidebar
-     scrolled away with the page. 'clip' does not create a scroll container,
-     so sticky keeps working. */
-  overflow-x: clip;
+  overflow-x: hidden;
 }
 
 html {
@@ -36,7 +31,7 @@ html {
   min-height: 100vh;
   min-height: 100dvh;
   max-width: 100vw;
-  overflow-x: clip; /* see note above — 'hidden' here breaks sticky */
+  overflow-x: hidden;
 }
 
 input, textarea, select {
@@ -52,7 +47,7 @@ input, textarea, select {
 
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: #e8a33d;
+  border-color: #00c8e8;
 }
 
 input::placeholder, textarea::placeholder {
@@ -75,7 +70,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-a { color: #e8a33d; text-decoration: none; }
+a { color: #00c8e8; text-decoration: none; }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -89,7 +84,7 @@ a { color: #e8a33d; text-decoration: none; }
   width: 40px;
   height: 40px;
   border: 3px solid #1e293b;
-  border-top-color: #e8a33d;
+  border-top-color: #00c8e8;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }

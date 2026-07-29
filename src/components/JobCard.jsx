@@ -1,11 +1,12 @@
 // ============================================
-// Jovelin - JobCard Component
+// JUC-E V4 - JobCard Component
 // ============================================
 // Used in TechCalendar, OfficeHub Board, OwnerDashboard
 // Shows: customer, type badge, status badge, age, last note preview
 
 import { STATUS_INFO, JOB_STATUS } from '../services/supabase.js';
 import { JOB_TYPE_INFO, getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
+import { assigneeOf } from '../utils/ownership.js';
 
 const TERMINAL_STATUSES = [JOB_STATUS.BILLED, JOB_STATUS.ARCHIVED, JOB_STATUS.LOST, JOB_STATUS.DEAD];
 
@@ -49,7 +50,7 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
           borderRadius: '12px',
           padding: compact ? '12px' : '14px 16px',
           cursor: 'pointer',
-          border: '1px solid #e8a33d33',
+          border: '1px solid #00c8e833',
           borderLeft: '3px solid #f59e0b',
           transition: 'background 0.15s',
         }}
@@ -156,9 +157,9 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
         </span>
 
         {/* Tech name */}
-        {job.tech_name && (
+        {assigneeOf(job) && (
           <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '500' }}>
-            {job.tech_name}
+            {assigneeOf(job)}
           </span>
         )}
 

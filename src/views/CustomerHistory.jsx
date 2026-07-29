@@ -1,5 +1,5 @@
 // ============================================
-// Jovelin — Client Cockpit
+// Overwatch — Client Cockpit
 // ============================================
 // Source of truth = customers (master accounts).
 // Search a client -> see their history AND act on them:
@@ -9,6 +9,7 @@
 // Everything created here gets customer_id = client's real UUID, so it can't
 // fragment by name and always shows back in this client's history.
 
+import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, JOB_STATUS } from '../services/supabase.js';
@@ -31,16 +32,6 @@ function hoursFromMin(min) {
   const h = Number(min) / 60;
   if (!isFinite(h)) return null;
   return `${h.toFixed(1)}h`;
-}
-
-const DISPO = {
-  bill_it:     { label: 'Bill it',     color: '#22c55e' },
-  return:      { label: 'Return',      color: '#f97316' },
-  estimate:    { label: 'Estimate',    color: '#3b82f6' },
-  in_progress: { label: 'In progress', color: '#e8a33d' },
-};
-function dispo(d) {
-  return DISPO[d] || { label: (d || '—').replace(/_/g, ' '), color: '#cbd5e1' };
 }
 
 // Open-work status chip colors (jobs.status)
@@ -72,7 +63,7 @@ const TERMINAL = [JOB_STATUS.BILLED, JOB_STATUS.LOST, JOB_STATUS.DEAD, JOB_STATU
 // Distinctive name tokens, for finding un-tagged look-alikes.
 const STOP = new Set([
   'construction', 'security', 'residence', 'services', 'service', 'company',
-  'llc', 'inc', 'the', 'and', 'group', 'systems', 'install', 'call',
+  'llc', 'inc', 'the', 'and', 'drh', 'group', 'systems', 'install', 'call',
 ]);
 function nameTokens(name) {
   return Array.from(new Set(
@@ -123,7 +114,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     (async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('id, name, short_code, address, phone, city, state, zip, customer_type, access_notes, notes, qbo_customer_id, qbo_customer_name')
+        .select('id, name, short_code, cs_number, cms_account_id, address, phone, system_type, monitoring_tier, service_tier, package, gate_code, key_location, alula_username, has_cms_monitoring, qbo_customer_id, qbo_customer_name')
         .is('merged_into', null)
         .order('name');
       if (error) setErr(error.message);
@@ -149,7 +140,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     (async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('id, name, short_code, address, phone, city, state, zip, customer_type, access_notes, notes, qbo_customer_id, qbo_customer_name')
+        .select('id, name, short_code, cs_number, cms_account_id, address, phone, system_type, monitoring_tier, service_tier, package, gate_code, key_location, alula_username, has_cms_monitoring, qbo_customer_id, qbo_customer_name')
         .eq('id', initialCustomerId)
         .maybeSingle();
       if (!error && data) pick(data);
@@ -163,6 +154,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     return registry.filter(c =>
       (c.name || '').toLowerCase().includes(s) ||
       (c.short_code || '').toLowerCase().includes(s) ||
+      (c.cs_number || '').toLowerCase().includes(s) ||
       (c.address || '').toLowerCase().includes(s)
     ).slice(0, 40);
   }, [query, registry]);
@@ -223,7 +215,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     setEditForm({
       address: selected.address || '',
       phone: selected.phone || '',
-      access_notes: selected.access_notes || '',
+      gate_code: selected.gate_code || '',
+      key_location: selected.key_location || '',
       qbo_customer_id: selected.qbo_customer_id || '',
       qbo_customer_name: selected.qbo_customer_name || '',
     });
@@ -345,7 +338,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
       {e.materials && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 4 }}>🔧 {e.materials}</div>}
       {e.notes && <div style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{e.notes}</div>}
       {showAssign && (
-        <button onClick={() => assign(e.id, selected.id)} style={{ marginTop: 10, width: '100%', background: '#e8a33d20', border: '1px solid #e8a33d', borderRadius: 8, color: '#e8a33d', padding: '8px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+        <button onClick={() => assign(e.id, selected.id)} style={{ marginTop: 10, width: '100%', background: '#00c8e820', border: '1px solid #00c8e8', borderRadius: 8, color: '#00c8e8', padding: '8px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           + Assign to {selected.name}
         </button>
       )}
@@ -391,7 +384,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
         </div>
         {selected && (
           <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>
-            <span style={{ color: '#e8a33d', fontWeight: 700 }}>{selected.short_code}</span>
+            <span style={{ color: '#00c8e8', fontWeight: 700 }}>{selected.short_code}</span>
+            {(selected.cs_number || selected.cms_account_id) && (
+              <span> · CS# {selected.cs_number || selected.cms_account_id}</span>
+            )}
           </div>
         )}
       </div>
@@ -404,7 +400,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
             ) : (
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => setEditingDetails(false)} disabled={savingDetails} style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#cbd5e1', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
-                <button onClick={saveDetails} disabled={savingDetails} style={{ background: '#e8a33d', border: 'none', borderRadius: 8, color: '#0f1729', fontWeight: 700, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>{savingDetails ? 'Saving…' : 'Save'}</button>
+                <button onClick={saveDetails} disabled={savingDetails} style={{ background: '#00c8e8', border: 'none', borderRadius: 8, color: '#0f1729', fontWeight: 700, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>{savingDetails ? 'Saving…' : 'Save'}</button>
               </div>
             )}
           </div>
@@ -413,9 +409,11 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
             <>
               <label style={editLabel}>Address<input style={editInput} value={editForm.address} onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))} /></label>
               <label style={editLabel}>Phone<input style={editInput} value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} /></label>
-              <label style={editLabel}>Access notes<input style={editInput} value={editForm.access_notes} onChange={e => setEditForm(f => ({ ...f, access_notes: e.target.value }))} /></label>
+              <label style={editLabel}>Gate code<input style={editInput} value={editForm.gate_code} onChange={e => setEditForm(f => ({ ...f, gate_code: e.target.value }))} /></label>
+              <label style={editLabel}>Key location<input style={editInput} value={editForm.key_location} onChange={e => setEditForm(f => ({ ...f, key_location: e.target.value }))} /></label>
               <label style={editLabel}>QuickBooks customer ID<input style={editInput} placeholder="leave blank if not captured" value={editForm.qbo_customer_id} onChange={e => setEditForm(f => ({ ...f, qbo_customer_id: e.target.value }))} /></label>
               <label style={editLabel}>QuickBooks customer name<input style={editInput} placeholder="leave blank if not captured" value={editForm.qbo_customer_name} onChange={e => setEditForm(f => ({ ...f, qbo_customer_name: e.target.value }))} /></label>
+              <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>CS# and system/monitoring fields aren't editable here.</div>
             </>
           ) : (
             <>
@@ -428,13 +426,31 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               {selected.phone && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ flexShrink: 0 }}>📞</span>
-                  <a href={`tel:${selected.phone}`} style={{ color: '#e8a33d', textDecoration: 'none' }}>{selected.phone}</a>
+                  <a href={`tel:${selected.phone}`} style={{ color: '#00c8e8', textDecoration: 'none' }}>{selected.phone}</a>
                 </div>
               )}
-              {selected.access_notes && (
+              {(selected.system_type || selected.monitoring_tier || selected.service_tier || selected.package) && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ flexShrink: 0 }}>🛡️</span>
+                  <span style={{ color: '#e2e8f0', background: '#1e293b', padding: '2px 8px', borderRadius: 6, display: 'inline-block' }}>
+                    {[selected.system_type, selected.monitoring_tier, selected.service_tier, selected.package].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+              )}
+              {selected.alula_username && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ flexShrink: 0 }}>👤</span>
+                  <span style={{ color: '#94a3b8' }}>Alula: {selected.alula_username}</span>
+                </div>
+              )}
+              {(selected.gate_code || selected.key_location) && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <span style={{ flexShrink: 0 }}>🔑</span>
-                  <span style={{ color: '#94a3b8' }}>{selected.access_notes}</span>
+                  <span style={{ color: '#94a3b8' }}>
+                    {selected.gate_code && <>Gate: {selected.gate_code}</>}
+                    {selected.gate_code && selected.key_location && ' · '}
+                    {selected.key_location && <>Key: {selected.key_location}</>}
+                  </span>
                 </div>
               )}
               {selected.qbo_customer_id && (
@@ -443,7 +459,9 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                   <span style={{ color: '#94a3b8' }}>QBO: {selected.qbo_customer_name || selected.qbo_customer_id}</span>
                 </div>
               )}
-              {!selected.address && !selected.phone && !selected.access_notes && !selected.qbo_customer_id && (
+              {!selected.address && !selected.phone && !selected.system_type && !selected.monitoring_tier &&
+                !selected.service_tier && !selected.package && !selected.alula_username &&
+                !selected.gate_code && !selected.key_location && !selected.qbo_customer_id && (
                 <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>No stored details on file for this customer.</div>
               )}
             </>
@@ -474,7 +492,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                 <button key={c.id} onClick={() => pick(c)} style={{ ...card, display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                     <span style={{ fontWeight: 700, fontSize: 15, color: '#f1f5f9' }}>{c.name}</span>
-                    <span style={{ color: '#e8a33d', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
+                    <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
                   </div>
                   {c.address && <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 4 }}>📍 {c.address}</div>}
                 </button>

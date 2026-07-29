@@ -257,7 +257,7 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
                 style={{ ...inputStyle, resize: 'none' }} />
             </div>
             <button onClick={handleSaveTask} disabled={!taskType} style={{
-              width: '100%', background: taskType ? '#e8a33d' : '#334155', color: taskType ? '#000' : '#64748b',
+              width: '100%', background: taskType ? '#00c8e8' : '#334155', color: taskType ? '#000' : '#64748b',
               border: 'none', borderRadius: 12, padding: '14px', fontSize: 14, fontWeight: 700, cursor: taskType ? 'pointer' : 'not-allowed',
             }}>Save Task</button>
           </div>
@@ -299,7 +299,7 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
             {selectedTech && (
               <div style={{ marginBottom: 14, background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ color: '#e8a33d', fontSize: 13, fontWeight: 700 }}>💡 Suggested Times</span>
+                  <span style={{ color: '#00c8e8', fontSize: 13, fontWeight: 700 }}>💡 Suggested Times</span>
                   <span style={{ color: '#94a3b8', fontSize: 11 }}>— {selectedTech.name} · {new Date(schedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                 </div>
                 {availLoading && <div style={{ color: '#94a3b8', fontSize: 12 }}>Checking calendar...</div>}
@@ -308,8 +308,8 @@ function DispatchModal({ event, accessToken, onClose, onRefresh }) {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {suggestions.map((s, i) => (
                       <button key={i} onClick={() => applySlot(s)} style={{
-                        background: '#1e293b', border: '1px solid #e8a33d40', borderRadius: 8,
-                        color: '#e8a33d', fontSize: 12, padding: '7px 12px', cursor: 'pointer', fontWeight: 600,
+                        background: '#1e293b', border: '1px solid #00c8e840', borderRadius: 8,
+                        color: '#00c8e8', fontSize: 12, padding: '7px 12px', cursor: 'pointer', fontWeight: 600,
                       }}>{fmt(s.start)} – {fmt(s.end)}</button>
                     ))}
                   </div>
@@ -385,13 +385,13 @@ function EventCard({ event, onAction }) {
           {event.location && <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>📍 {event.location}</div>}
           {event.description && (
             <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, lineHeight: 1.4, maxHeight: 40, overflow: 'hidden' }}>
-              {event.description.replace(/📱 Open in Jovelin:.*/g, '').trim().slice(0, 120)}
+              {event.description.replace(/📱 Open in JUC-E:.*/g, '').trim().slice(0, 120)}
             </div>
           )}
         </div>
         <button
           onClick={() => onAction(event)}
-          style={{ background: '#0f1729', border: '1px solid #334155', borderRadius: 8, color: '#e8a33d', fontSize: 12, fontWeight: 700, padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+          style={{ background: '#0f1729', border: '1px solid #334155', borderRadius: 8, color: '#00c8e8', fontSize: 12, fontWeight: 700, padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
         >
           Actions ›
         </button>
@@ -543,7 +543,7 @@ export default function CommandCenter({ accessToken, userEmail }) {
         {/* Header */}
         <div style={{ padding: '16px 16px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <button onClick={() => setCapacityView(false)} style={{ background: 'none', border: 'none', color: '#e8a33d', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 6, display: 'block' }}>
+            <button onClick={() => setCapacityView(false)} style={{ background: 'none', border: 'none', color: '#00c8e8', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 6, display: 'block' }}>
               ← Back to Command Center
             </button>
             <div style={{ color: '#e2e8f0', fontSize: 17, fontWeight: 700 }}>📊 Install Capacity</div>
@@ -577,8 +577,8 @@ export default function CommandCenter({ accessToken, userEmail }) {
                 <div key={day.dateStr} style={{
                   background: isOverbooked ? '#dc262615' : '#1e293b',
                   borderRadius: 10, padding: '14px', marginBottom: 8,
-                  border: `1px solid ${isOverbooked ? '#dc262640' : isToday ? '#e8a33d40' : '#334155'}`,
-                  borderLeft: isToday ? '4px solid #e8a33d' : isOverbooked ? '4px solid #dc2626' : '4px solid transparent'
+                  border: `1px solid ${isOverbooked ? '#dc262640' : isToday ? '#00c8e840' : '#334155'}`,
+                  borderLeft: isToday ? '4px solid #00c8e8' : isOverbooked ? '4px solid #dc2626' : '4px solid transparent'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>
@@ -641,7 +641,7 @@ export default function CommandCenter({ accessToken, userEmail }) {
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setCapacityView(true)} style={{ 
             background: '#1e293b', border: '1px solid #334155', borderRadius: 8, 
-            color: '#e8a33d', padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600 
+            color: '#00c8e8', padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600 
           }}>
             📊 Capacity
           </button>
@@ -658,9 +658,9 @@ export default function CommandCenter({ accessToken, userEmail }) {
             key={s.key}
             onClick={() => setActiveSection(s.key)}
             style={{
-              background: activeSection === s.key ? '#e8a33d20' : '#1e293b',
-              border: `1px solid ${activeSection === s.key ? '#e8a33d' : '#334155'}`,
-              borderRadius: 20, padding: '6px 14px', color: activeSection === s.key ? '#e8a33d' : '#94a3b8',
+              background: activeSection === s.key ? '#00c8e820' : '#1e293b',
+              border: `1px solid ${activeSection === s.key ? '#00c8e8' : '#334155'}`,
+              borderRadius: 20, padding: '6px 14px', color: activeSection === s.key ? '#00c8e8' : '#94a3b8',
               fontSize: 12, fontWeight: activeSection === s.key ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >

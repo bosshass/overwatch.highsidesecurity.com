@@ -13,9 +13,6 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   const [activity, setActivity] = useState([]);
   const [showActivity, setShowActivity] = useState(false);
   const [showAllNotes, setShowAllNotes] = useState(false);
-  // How many notes render before the feed collapses. Below this, the whole
-  // thread shows — see THREAD_LIMIT note below displayNotes.
-  const THREAD_LIMIT = 5;
   const [isLoading, setIsLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -202,29 +199,12 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   // completion-note entry) floats or sticks regardless of source.
   const ordered = [...notes].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-  // WAS: ordered.slice(0, 1) — one note, always.
-  //
-  // The old reasoning was sound for a tech glancing at a card on a truck: the
-  // note that matters is usually the last thing somebody said. It is wrong for
-  // anyone trying to work out what happened. 1,312 notes exist across 395
-  // jobs; 917 of them never rendered. On work that is still open, 24 of the 26
-  // jobs carrying notes were hiding some — 219 in total, one of them sitting
-  // on 24 notes and showing a single line.
-  //
-  // What that cost, on one real job (FORT COLLINS NURSERY, 2026-07-28):
-  //   Jul 27 1:16pm  Shana — "...east garden motion... JR needs to provide
-  //                  next steps."
-  //   Jul 28 4:36am  JR    — "...no one logged hours so I can't bill. Please
-  //                  confirm"
-  // JR could not see the note answering him. It was one tap away behind a grey
-  // borderless button, and a tap nobody makes is a tap that does not exist.
-  //
-  // Now: short threads render whole, long ones still collapse so a card with
-  // twenty-nine notes does not become a wall. The truck case is preserved;
-  // the conversation case is fixed.
+  // COLLAPSED BY DEFAULT to the most recent note. A card with fourteen notes
+  // buries the one that matters — and the one that matters is almost always
+  // the last thing someone said. Everything older is one tap away.
   const displayNotes = maxNotes
     ? ordered.slice(0, maxNotes)
-    : (showAllNotes ? ordered : ordered.slice(0, THREAD_LIMIT));
+    : (showAllNotes ? ordered : ordered.slice(0, 1));
 
   // Compact mode: just show note count + quick add
   if (compact && !expanded) {
@@ -374,19 +354,14 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             </div>
           )}
 
-          {/* Only offer the control when something is actually hidden. Below
-              THREAD_LIMIT the whole thread is already on screen, so a button
-              saying "show 2 earlier notes" next to two visible notes is a lie.
-              Given contrast and a filled background because the borderless
-              grey version was, demonstrably, not being pressed. */}
-          {!maxNotes && ordered.length > THREAD_LIMIT && (
+          {!maxNotes && ordered.length > 1 && (
             <button onClick={() => setShowAllNotes(v => !v)}
-              style={{ width: '100%', background: '#1e293b', border: '1px solid #334155',
-                       borderRadius: 8, color: '#cbd5e1', fontSize: '12px', fontWeight: 700,
-                       padding: '10px 0', cursor: 'pointer', marginTop: 6, fontFamily: 'inherit' }}>
+              style={{ width: '100%', background: 'none', border: '1px solid #1e293b',
+                       borderRadius: 8, color: '#94a3b8', fontSize: '12px', fontWeight: 600,
+                       padding: '8px 0', cursor: 'pointer', marginTop: 6, fontFamily: 'inherit' }}>
               {showAllNotes
-                ? '▴ Show recent only'
-                : `▾ Show ${ordered.length - THREAD_LIMIT} older note${ordered.length - THREAD_LIMIT === 1 ? '' : 's'}`}
+                ? '▴ Show latest only'
+                : `▾ Show ${ordered.length - 1} earlier note${ordered.length - 1 === 1 ? '' : 's'}`}
             </button>
           )}
 

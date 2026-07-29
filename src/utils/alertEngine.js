@@ -5,6 +5,7 @@ import { supabase } from '../services/supabase.js';
 import { CALENDARS } from '../config/calendars.js';
 import { STALE_HOURS, hoursSince } from './staleness.js';
 import { missingLabel } from './completeness.js';
+import { assigneeOf } from './ownership.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -67,7 +68,7 @@ export async function fetchStuckAlerts(accessToken) {
       icon:      '⏱',
       label:     'NO UPDATE IN 72H',
       customer:  j.customer_name || 'Unknown customer',
-      detail:    `${j.tech_name ? j.tech_name : 'Unassigned'} · ${j.issue || 'no issue noted'}`,
+      detail:    `${assigneeOf(j) || 'Unassigned'} · ${j.issue || 'no issue noted'}`,
       hoursOld:  Math.round(hoursSince(j.updated_at || j.created_at)),
       threshold: STALE_HOURS,
     }));

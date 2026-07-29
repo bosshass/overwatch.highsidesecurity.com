@@ -1,4 +1,4 @@
-// Jovelin V3 - Event Parser
+// Overwatch V3 - Event Parser
 // Extracts customer name, status, and metadata from calendar event titles/descriptions
 
 /**
@@ -43,7 +43,7 @@ export function parseEvent(event, calendarName, calendarType) {
 }
 
 /**
- * Strip common calendar title patterns to get customer name
+ * Strip common DRH calendar title patterns to get customer name
  */
 function extractCustomerName(title) {
   let name = title;

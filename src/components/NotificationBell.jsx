@@ -1,5 +1,5 @@
 // ============================================
-// Jovelin - NotificationBell
+// JUC-E V4 - NotificationBell
 // ============================================
 // Bell icon in header with notification dropdown,
 // settings toggle, and recent notification history.
@@ -139,7 +139,7 @@ export default function NotificationBell({ userEmail }) {
             <span style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: '700' }}>Notifications</span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={() => setShowSettings(!showSettings)} style={{
-                background: 'none', border: 'none', color: showSettings ? '#e8a33d' : '#64748b',
+                background: 'none', border: 'none', color: showSettings ? '#00c8e8' : '#64748b',
                 fontSize: '14px', cursor: 'pointer', padding: 0,
               }}>⚙️</button>
               {notifications.length > 0 && (
@@ -156,7 +156,7 @@ export default function NotificationBell({ userEmail }) {
             <div style={{ padding: '12px 14px', borderBottom: '1px solid #334155' }}>
               {permissionStatus !== 'granted' ? (
                 <button onClick={enableNotifications} style={{
-                  width: '100%', background: '#e8a33d', color: '#000', border: 'none',
+                  width: '100%', background: '#00c8e8', color: '#000', border: 'none',
                   borderRadius: '8px', padding: '10px', fontSize: '13px', fontWeight: '700',
                   cursor: 'pointer', marginBottom: '8px',
                 }}>
@@ -180,7 +180,7 @@ export default function NotificationBell({ userEmail }) {
                   <span style={{ color: '#94a3b8', fontSize: '13px' }}>{icon} {label}</span>
                   <div style={{
                     width: '36px', height: '20px', borderRadius: '10px',
-                    background: prefs[key] ? '#e8a33d' : '#334155',
+                    background: prefs[key] ? '#00c8e8' : '#334155',
                     position: 'relative', transition: 'background 0.2s',
                   }}>
                     <div style={{
@@ -203,7 +203,7 @@ export default function NotificationBell({ userEmail }) {
             notifications.map(n => (
               <div key={n.id} style={{
                 padding: '10px 14px', borderBottom: '1px solid #334155',
-                background: n.read ? 'transparent' : '#e8a33d08',
+                background: n.read ? 'transparent' : '#00c8e808',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: '600' }}>{n.title}</div>

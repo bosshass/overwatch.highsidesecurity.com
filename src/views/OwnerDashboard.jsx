@@ -1,5 +1,5 @@
 // ============================================
-// Jovelin V3 - OwnerDashboard
+// Overwatch V3 - OwnerDashboard
 // ============================================
 // Business metrics, pipeline, scheduling alerts.
 // The MONEY view. JR sees this by default.
@@ -16,6 +16,7 @@ import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
 import PLDashboard from '../components/PLDashboard.jsx';
 import { StuckAlertsPanel } from '../components/StuckAlerts.jsx';
+import { assigneeOf } from '../utils/ownership.js';
 
 // ============================================
 // HELPERS
@@ -156,7 +157,7 @@ function GapReportWidget({ onDrilldown }) {
             <div 
               onClick={() => onDrilldown && onDrilldown(gapData.jobs)}
               style={{ 
-                color: '#e8a33d', fontSize: '12px', fontWeight: '600', 
+                color: '#00c8e8', fontSize: '12px', fontWeight: '600', 
                 textAlign: 'center', padding: '10px', cursor: 'pointer' 
               }}
             >
@@ -395,7 +396,7 @@ function TodaySchedule({ stats }) {
   // Group by tech
   const byTech = {};
   todayJobs.forEach(j => {
-    const name = j.tech_name || j._tech_name || 'Unassigned';
+    const name = assigneeOf(j) || 'Unassigned';
     if (!byTech[name]) byTech[name] = [];
     byTech[name].push(j);
   });
@@ -746,7 +747,7 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
             return (
               <a
                 key={item.label}
-                href={item.label === 'To Bill' ? '/billing' : '/board'}
+                href={item.label === 'To Bill' ? '/unbilled' : '/board'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '8px',
                   padding: '7px 4px', textDecoration: 'none', borderRadius: '6px'
@@ -1009,7 +1010,7 @@ export default function OwnerDashboard({ accessToken, userEmail, userRole }) {
           {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         </div>
         <div style={{ color: '#cbd5e1', fontSize: '13px', marginTop: '2px' }}>
-          Jovelin — Owner View
+          DRH Security — Owner View
         </div>
       </div>
 

@@ -30,8 +30,8 @@ function initFirebase() {
       const title = payload.notification?.title || 'JUC-E';
       const options = {
         body: payload.notification?.body || '',
-        icon: '/favicon-192x192.png',
-        badge: '/favicon-192x192.png',
+        icon: '/juce-icon-drh.png',
+        badge: '/juce-icon-drh.png',
         tag: payload.data?.tag || 'juce-push',
         data: payload.data || {},
         vibrate: [200, 100, 200],

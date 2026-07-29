@@ -1,5 +1,5 @@
 // ============================================
-// Jovelin — real email send via Gmail API
+// Overwatch — real email send via Gmail API
 // ============================================
 // Sends from the LOGGED-IN user's Gmail using the same OAuth token the
 // calendar already uses. Requires the gmail.send scope (added to SCOPES
@@ -56,7 +56,7 @@ export function assignmentEmail(techName, job) {
     subject: `Job assigned: ${job.customer_name || 'Job'}`,
     body: `Hi ${techName},\n\n${assignmentMessage(job)}` +
       (job.customer_address ? `\n\nAddress: ${job.customer_address}` : '') +
-      `\n\n— Jovelin`,
+      `\n\n— Overwatch`,
   };
 }
 

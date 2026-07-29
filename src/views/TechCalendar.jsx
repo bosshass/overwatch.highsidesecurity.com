@@ -1,5 +1,5 @@
 // ============================================
-// Jovelin - TechCalendar View (Redesigned)
+// JUC-E V4 - TechCalendar View (Redesigned)
 // ============================================
 // Screen 2: Desktop week grid with colored-border event cards
 // Screen 5: Mobile day view with timeline + tech pills
@@ -18,6 +18,7 @@ import NewJobModal from '../components/NewJobModal.jsx';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { APP_BASE } from '../config/appBase.js';
 import InboxBar from '../components/InboxBar.jsx';
+import { assigneeOf } from '../utils/ownership.js';
 
 const CALENDAR_COLORS = {
   ...TECH_COLORS,
@@ -336,7 +337,10 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   // Task tab helpers
   const scheduledJobs = jobs.filter(j => {
     if (!j._isQueue && j.scheduled_for) {
-      if (isRestricted && j.tech_name && j.tech_name.toLowerCase() !== userName?.toLowerCase()) return false;
+      // was j.tech_name — a restricted tech stopped seeing their own jobs the
+      // moment an assignment was written to assigned_to instead.
+      const who = assigneeOf(j);
+      if (isRestricted && who && who.toLowerCase() !== userName?.toLowerCase()) return false;
       return true;
     }
     return false;
@@ -366,8 +370,8 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
     try {
       const deepLink = `${APP_BASE}/?cal=${encodeURIComponent(event.calendarId)}&job=${encodeURIComponent(event.id)}`;
       const currentDesc = event.description || '';
-      const stripped = currentDesc.replace(/\n*📱 Open in Jovelin:.*$/s, '').trimEnd();
-      const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in Jovelin: ${deepLink}`;
+      const stripped = currentDesc.replace(/\n*📱 Open in (JUC-E|Overwatch):.*$/s, '').trimEnd();
+      const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
 
       await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`,
@@ -393,7 +397,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
     { label: 'CONFIRMED',       emoji: '✅', color: '#22c55e', dark: '#052e16' },
     { label: 'BILLED',          emoji: '💵', color: '#a78bfa', dark: '#1e1040' },
     { label: 'RETURN NEEDED',   emoji: '🔄', color: '#f59e0b', dark: '#2d1a00' },
-    { label: 'ESTIMATE NEEDED', emoji: '📋', color: '#e8a33d', dark: '#001a20' },
+    { label: 'ESTIMATE NEEDED', emoji: '📋', color: '#00c8e8', dark: '#001a20' },
     { label: 'COMPLETED',       emoji: '🏁', color: '#94a3b8', dark: '#1e293b' },
   ];
 
@@ -807,9 +811,9 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             setMainTab(t.key);
           }} style={{
             flex: 1, padding: '12px', background: 'none', border: 'none',
-            color: mainTab === t.key ? '#e8a33d' : '#64748b',
+            color: mainTab === t.key ? '#00c8e8' : '#64748b',
             fontSize: '14px', fontWeight: mainTab === t.key ? '700' : '400', cursor: 'pointer',
-            borderBottom: mainTab === t.key ? '2px solid #e8a33d' : '2px solid transparent'
+            borderBottom: mainTab === t.key ? '2px solid #00c8e8' : '2px solid transparent'
           }}>{t.label}</button>
         ))}
       </div>
@@ -994,9 +998,9 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             {['today', 'tomorrow', 'week'].map(t => (
               <button key={t} onClick={() => setTaskTab(t)} style={{
                 flex: 1, padding: '10px', background: 'none', border: 'none',
-                color: taskTab === t ? '#e8a33d' : '#64748b',
+                color: taskTab === t ? '#00c8e8' : '#64748b',
                 fontSize: '13px', fontWeight: taskTab === t ? '700' : '400', cursor: 'pointer', textTransform: 'capitalize',
-                borderBottom: taskTab === t ? '2px solid #e8a33d' : '2px solid transparent'
+                borderBottom: taskTab === t ? '2px solid #00c8e8' : '2px solid transparent'
               }}>
                 {t === 'today' ? `Today (${sortedScheduled.filter(j => { const d = new Date(j.scheduled_for); return d.toDateString() === new Date().toDateString(); }).length})` : t === 'tomorrow' ? 'Tomorrow' : 'This Week'}
               </button>
@@ -1055,11 +1059,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                         {sortedScheduled.map(j => (
                           <div key={j.assignment_id || j.id} onClick={() => setSelectedJobId(j.job_id || j.id)} style={{
                             background: '#1a2332', borderRadius: '14px', padding: '16px 18px', cursor: 'pointer',
-                            borderLeft: `4px solid ${CALENDAR_COLORS[j.tech_name] || '#e8a33d'}`,
+                            borderLeft: `4px solid ${CALENDAR_COLORS[assigneeOf(j)] || '#00c8e8'}`,
                             boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                              <span style={{ color: '#e8a33d', fontSize: '16px', fontWeight: '700' }}>
+                              <span style={{ color: '#00c8e8', fontSize: '16px', fontWeight: '700' }}>
                                 {j.scheduled_for ? formatTime(j.scheduled_for) : 'TBD'}
                               </span>
                               <span style={{ background: '#0f172940', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>
@@ -1084,12 +1088,12 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                                 {j.issue.length > 80 ? j.issue.slice(0, 80) + '...' : j.issue}
                               </div>
                             )}
-                            {!isRestricted && j.tech_name && (
+                            {!isRestricted && assigneeOf(j) && (
                               <span style={{
                                 display: 'inline-block', marginTop: '8px',
-                                background: CALENDAR_COLORS[j.tech_name] || '#475569',
+                                background: CALENDAR_COLORS[assigneeOf(j)] || '#475569',
                                 color: '#fff', padding: '3px 14px', borderRadius: 12, fontSize: 12, fontWeight: 600
-                              }}>{j.tech_name}</span>
+                              }}>{assigneeOf(j)}</span>
                             )}
                           </div>
                         ))}
@@ -1131,7 +1135,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
 
       {eventLoading && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ color: '#e8a33d', fontSize: 14 }}>Matching to job...</div>
+          <div style={{ color: '#00c8e8', fontSize: 14 }}>Matching to job...</div>
         </div>
       )}
 

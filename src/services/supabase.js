@@ -1,12 +1,12 @@
 // ============================================
-// Jovelin - Supabase Client & API
+// JUC-E V4 - Supabase Client & API
 // ============================================
 // Customer is a SEPARATE model. Do not merge into jobs.
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://utljntxknxxwgiijbhqz.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0bGpudHhrbnh4d2dpaWpiaHF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMDcwNTMsImV4cCI6MjA5Mjg4MzA1M30.NrB5Tj7J0bDJUg5JZ9kW2-VyuCsrQBnsM_YKLU8SfM4';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://wolhqelloeypafmmvapn.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxODUsImV4cCI6MjA4NDg2MDE4NX0.wQZ14FMQ03A8cBYXBMS1-pII4lKhTL7VNPl9zBCs-EM';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -155,7 +155,7 @@ export const customersApi = {
       .from('customers')
       .select('*')
       .is('merged_into', null)
-      .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,address.ilike.%${safe}%`)
+      .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,address.ilike.%${safe}%,cms_account_id.ilike.%${safe}%`)
       .order('name')
       .limit(50);
     if (error) throw error;
@@ -240,9 +240,16 @@ export const jobsApi = {
   },
 
   async getById(id) {
+    // Was: select(`*, assignments:job_assignments(*, tech:techs(*))`) — that
+    // embed requires a foreign key between jobs and job_assignments that does
+    // not exist in the schema, so this call has always 400'd with
+    // "Could not find a relationship between 'jobs' and 'job_assignments'."
+    // Every caller that needs assignments already fetches them separately via
+    // assignmentsApi.getForJob(id) (JobDetail does exactly this), so the
+    // embed was both broken and redundant.
     const { data, error } = await supabase
       .from('jobs')
-      .select(`*, assignments:job_assignments(*, tech:techs(*))`)
+      .select('*')
       .eq('id', id)
       .single();
     if (error) throw error;
@@ -289,10 +296,24 @@ export const jobsApi = {
     const oldStatus = current?.status;
 
     const updates = { status: newStatus, updated_by: changedBy };
-    if (newStatus === JOB_STATUS.SCHEDULED) updates.scheduled_at = new Date().toISOString();
+    // A hold is a pencil mark, and ANY deliberate status move supersedes it.
+    // Nothing cleared this before, so a job that was held and then moved on
+    // kept its tentative_date forever and stayed pinned in the Tentative
+    // column. services/schedule.js is the only thing allowed to SET it.
+    updates.tentative_date = null;
+    updates.tentative_event_id = null;
+    // TWO OF THESE WROTE COLUMNS THAT DO NOT EXIST ON `jobs`:
+    //   scheduled_at — never existed here. Scheduling state is scheduled_date
+    //                  plus scheduled_event_id, written by services/schedule.js.
+    //   billed_at    — the column is invoiced_at. billed_at exists on
+    //                  time_entries, not on jobs, and the two got conflated.
+    // Postgres rejects the whole UPDATE on an unknown column, so EVERY attempt
+    // to move a job to billed threw — including Billing's write-through, where
+    // the throw was swallowed by a try/catch marked "non-fatal on purpose".
+    // That is the second reason no job ever left To Bill.
     if (newStatus === JOB_STATUS.COMPLETE) updates.completed_at = new Date().toISOString();
     if (newStatus === JOB_STATUS.TO_BILL) updates.completed_at = updates.completed_at || new Date().toISOString();
-    if (newStatus === JOB_STATUS.BILLED) updates.billed_at = new Date().toISOString();
+    if (newStatus === JOB_STATUS.BILLED) updates.invoiced_at = new Date().toISOString();
     if (notes) updates.completion_notes = notes;
 
     const { data, error } = await supabase.from('jobs').update(updates).eq('id', id).select().single();
@@ -333,8 +354,8 @@ export const jobsApi = {
       .limit(1)
       .single();
     
-    const lastNum = lastJob?.job_number ? parseInt(lastJob.job_number.replace('JOB-', '')) : 5000;
-    const newJobNumber = `JOB-${lastNum + 1}`;
+    const lastNum = lastJob?.job_number ? parseInt(lastJob.job_number.replace('DRH-', '')) : 5000;
+    const newJobNumber = `DRH-${lastNum + 1}`;
     
     // Create linked job inheriting customer info
     const linkedJob = {
@@ -567,6 +588,26 @@ export const notesApi = {
 };
 
 // ============================================
+// FEEDBACK API (HelpBot)
+// ============================================
+
+export const feedbackApi = {
+  async create({ type, message, userEmail, currentView, metadata }) {
+    const { data, error } = await supabase
+      .from('feedback')
+      .insert([{ type, message, user_email: userEmail, current_view: currentView, metadata: metadata || {}, created_at: new Date().toISOString() }])
+      .select().single();
+    if (error) { console.warn('Feedback save failed:', error.message); return null; }
+    return data;
+  },
+  async getAll() {
+    const { data, error } = await supabase.from('feedback').select('*').order('created_at', { ascending: false }).limit(100);
+    if (error) throw error;
+    return data || [];
+  }
+};
+
+// ============================================
 // QUERY HELPERS
 // ============================================
 
@@ -734,7 +775,7 @@ export const timeEntriesApi = {
   async getBillingQueue() {
     const { data, error } = await supabase
       .from('time_entries')
-      .select('*, customers(name, phone, address, short_code)')
+      .select('*, customers(name, phone, address, drh_id)')
       .eq('disposition', 'bill_it')
       .eq('billed', false)
       .order('created_at', { ascending: true });
@@ -746,7 +787,7 @@ export const timeEntriesApi = {
   async getProjectQueue() {
     const { data, error } = await supabase
       .from('time_entries')
-      .select('*, customers(name, phone, address, short_code)')
+      .select('*, customers(name, phone, address, drh_id)')
       .eq('disposition', 'in_progress')
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -801,7 +842,7 @@ export const returnCardsApi = {
   async getPending() {
     const { data, error } = await supabase
       .from('return_cards')
-      .select('*, customers(name, phone, address, short_code)')
+      .select('*, customers(name, phone, address, drh_id)')
       .eq('status', 'pending_schedule')
       .order('created_at', { ascending: true });
     if (error) throw error;
@@ -840,7 +881,7 @@ export const returnCardsApi = {
 // CUSTOMERS — LOOSE CREATE
 // ============================================
 // Extend the existing customersApi with a name-only create path.
-// Phone, address, email all optional.
+// Phone, address, email, cms_account_id all optional.
 
 customersApi.createLoose = async function(partial) {
   if (!partial?.name || !partial.name.trim()) {
@@ -851,6 +892,7 @@ customersApi.createLoose = async function(partial) {
     phone: partial.phone?.trim() || null,
     address: partial.address?.trim() || null,
     email: partial.email?.trim() || null,
+    cms_account_id: partial.cms_account_id?.trim() || null,
     is_active: true,
   };
   const { data, error } = await supabase.from('customers').insert([payload]).select().single();

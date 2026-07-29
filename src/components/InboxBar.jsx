@@ -1,5 +1,5 @@
 // ============================================
-// Jovelin - InboxBar Component
+// JUC-E V4 - InboxBar Component
 // ============================================
 // Pinned notification bar for Tasks & Quick Notes
 // These are NOT jobs — they're internal comms that demand acknowledgment.

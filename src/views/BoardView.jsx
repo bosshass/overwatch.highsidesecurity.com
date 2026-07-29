@@ -10,7 +10,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { supabase, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
+import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
+import { stripIntakeTemplate } from '../utils/statusMachine.js';
+import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail } from '../utils/ownership.js';
+import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -19,7 +22,8 @@ import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
-import { apiFetch } from '../services/apiFetch.js';
+import TicketSheet from '../components/TicketSheet.jsx';
+import Spotlight from '../components/Spotlight.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -58,17 +62,15 @@ const STATUS_VERBS = Object.fromEntries(
 
 // Move-to targets shown as the 6 board lanes (not 15 raw statuses).
 // Tapping a lane sends the card there. Estimates expands to its stages.
-const LANE_MOVES = [
-  { key:'triage',    label:'🔥 Triage',    color:'#ef4444', target:'new',               statuses:['new','needs_details','needs_parts','pending_materials','pending_decision'] },
-  { key:'blocked',   label:'🚫 Blocked',   color:'#dc2626', target:'blocked',           statuses:['blocked'] },
-  { key:'ready',     label:'✅ Ready',      color:'#22c55e', target:'ready_to_schedule', statuses:['ready_to_schedule'] },
-  { key:'scheduled', label:'📅 Scheduled',  color:'#3b82f6', target:'scheduled',         statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',  color:'#f59e0b', target:'needs_estimate',    statuses:['needs_estimate','estimate_sent','won','lost'] },
-  { key:'tobill',    label:'💵 To Bill',    color:'#8b5cf6', target:'to_bill',           statuses:['complete','to_bill','billed'] },
-  // Not a billing outcome — for test entries, dupes handled outside the merge tool, or
-  // anything that just needs to leave the active board without touching money.
-  { key:'clear',     label:'🗑️ Clear (not billable)', color:'#cbd5e1', target:'archived', statuses:['archived','dead'] },
-];
+// Move targets are the SAME list as the columns — that is the entire point.
+const LANE_MOVES = [...LANES, CLEAR_LANE].map(l => ({
+  key: l.key,
+  label: `${l.icon} ${l.label}`,
+  color: l.color,
+  target: l.target,
+  statuses: l.statuses,
+  schedule: l.needsScheduler,
+}));
 
 // Estimate sub-stages, revealed when Estimates is tapped.
 const EST_STAGES = [
@@ -78,13 +80,15 @@ const EST_STAGES = [
   { status:'lost',           label:'Lost',   color:'#6b7280' },
 ];
 
-const COLUMNS = [
-  { key:'triage',    label:'📝 New / Notes',       color:'#ef4444', statuses:['new','needs_details','needs_parts','pending_materials','pending_decision','blocked'] },
-  { key:'ready',     label:'✅ Ready to Schedule',  color:'#22c55e', statuses:['ready_to_schedule','return_pending'] },
-  { key:'scheduled', label:'📅 Scheduled',         color:'#3b82f6', statuses:['scheduled'] },
-  { key:'estimates', label:'📋 Estimates',         color:'#f59e0b', statuses:['needs_estimate','estimate_sent','won'] },
-  { key:'tobill',    label:'💵 To Bill',           color:'#8b5cf6', statuses:['complete','to_bill'] },
-];
+// Columns come from utils/lanes.js now. They used to be their own array that
+// drifted from LANE_MOVES — same card, two vocabularies.
+const COLUMNS = LANES.map(l => ({
+  key: l.key,
+  label: `${l.icon} ${l.label}`,
+  color: l.color,
+  statuses: l.statuses,
+  virtual: l.virtual,
+}));
 
 const fmtMoney = n => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '';
 
@@ -143,12 +147,21 @@ function UUIDLinker({ job, onLinked }) {
     setSaving(false);
   };
 
-  if (!open) return (
-    <button onClick={() => setOpen(true)}
-      style={{ width:'100%', padding:'8px 12px', borderRadius:6, border:'1px solid #92400e', background:'#451a03', color:'#fb923c', fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'left', marginBottom:10 }}>
-      ⚠ no customer UUID — tap to link
-    </button>
-  );
+  // THE BUG: this collapsed view showed "no customer UUID" unconditionally —
+  // it never checked job.customer_id at all. Linking correctly wrote the id
+  // to the database and updated state (the toast even said "Customer linked
+  // ✓"), but the warning kept showing because nothing here looked at whether
+  // a customer was actually attached. Every job with a customer looked
+  // exactly like every job without one.
+  if (!open) {
+    if (job.customer_id) return null; // linked — nothing to warn about
+    return (
+      <button onClick={() => setOpen(true)}
+        style={{ width:'100%', padding:'8px 12px', borderRadius:6, border:'1px solid #92400e', background:'#451a03', color:'#fb923c', fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'left', marginBottom:10 }}>
+        ⚠ no customer UUID — tap to link
+      </button>
+    );
+  }
 
   return (
     <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:12, border:'1px solid #334155' }} onClick={e => e.stopPropagation()}>
@@ -165,7 +178,7 @@ function UUIDLinker({ job, onLinked }) {
             <button key={c.id} onClick={() => link(c.id)} disabled={saving}
               style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', background:'#1e293b', border:'0.5px solid #334155', borderRadius:6, color:'#fff', fontSize:12, cursor:'pointer', marginBottom:4 }}>
               <div style={{ fontWeight:600 }}>{c.name}</div>
-              <div style={{ fontSize:11, color:'#cbd5e1' }}>{[c.phone, c.address?.split(',')[0]].filter(Boolean).join(' · ')}</div>
+              <div style={{ fontSize:11, color:'#cbd5e1' }}>{[c.phone, c.address?.split(',')[0], c.cms_account_id].filter(Boolean).join(' · ')}</div>
             </button>
           ))}
           <button onClick={() => setCreateMode(true)}
@@ -196,14 +209,30 @@ function UUIDLinker({ job, onLinked }) {
 }
 
 // ── Merge/Duplicate finder ────────────────────────────────────────────────────
-function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
+// Exported: merge must exist on EVERY ticket surface. When it lived only in
+// the board's drawer, opening the duplicate from My Tasks or a /j/ link meant
+// "no longer can merge" — the tool hadn't gone away, it just wasn't invited.
+// allJobs is optional now; without it the tool loads its own candidates.
+export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(job.customer_name || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [loaded, setLoaded] = useState(null);
+
+  useEffect(() => {
+    if (allJobs || !open || loaded) return;
+    supabase.from('jobs')
+      .select('id, customer_name, status, issue, customer_phone, customer_address, cms_account_id, calendar_event_id')
+      .not('status', 'in', '(dead,archived)')
+      .order('updated_at', { ascending: false }).limit(400)
+      .then(({ data }) => setLoaded(data || []));
+  }, [allJobs, open, loaded]);
+
+  const pool = allJobs || loaded || [];
 
   // Find jobs with similar customer name, excluding self
-  const candidates = allJobs.filter(j =>
+  const candidates = pool.filter(j =>
     j.id !== job.id &&
     j.status !== 'dead' &&
     j.status !== 'archived' &&
@@ -217,7 +246,7 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
     setSaving(true);
     setErr('');
     try {
-      const survivor = allJobs.find(j => j.id === survivorId) || {};
+      const survivor = pool.find(j => j.id === survivorId) || {};
       const by = userEmail || 'board';
 
       // 1) Carry the dead job's notes onto the survivor with their ORIGINAL
@@ -287,6 +316,9 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
       if (!survivor.customer_phone && job.customer_phone) upd.customer_phone = job.customer_phone;
       if (!survivor.customer_address && job.customer_address) upd.customer_address = job.customer_address;
       if (!survivor.customer_email && job.customer_email) upd.customer_email = job.customer_email;
+      if (!survivor.cms_account_id && job.cms_account_id) upd.cms_account_id = job.cms_account_id;
+      if (!survivor.gate_code && job.gate_code) upd.gate_code = job.gate_code;
+      if (!survivor.panel_password && job.panel_password) upd.panel_password = job.panel_password;
       if (!survivor.calendar_event_id && job.calendar_event_id) {
         upd.calendar_event_id = job.calendar_event_id;
         if (job.calendar_id) upd.calendar_id = job.calendar_id;
@@ -372,462 +404,57 @@ function MergeTool({ job, allJobs, onMerge, accessToken, userEmail }) {
   );
 }
 
-// ── Scheduler modal: shared component (src/components/SchedulerModal.jsx) ──────
+// ── Scheduler modal: VisualSchedulerModal (SchedulerModal.jsx deleted 9.9.25) ──
 
 // ── Detail drawer ─────────────────────────────────────────────────────────────
-function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail }) {
-  const verbs = STATUS_VERBS[job.status] || [];
-  const si = STATUS_INFO[job.status] || {};
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [showEstStages, setShowEstStages] = useState(false);
-  const [titleVal, setTitleVal] = useState(job.customer_name || '');
-  const [savingTitle, setSavingTitle] = useState(false);
-
-  const saveTitle = async () => {
-    const next = titleVal.trim();
-    if (!next || next === job.customer_name) { setEditingTitle(false); return; }
-    setSavingTitle(true);
-    try {
-      const { error } = await supabase.from('jobs').update({ customer_name: next }).eq('id', job.id);
-      if (error) throw error;
-      onRenamed?.(job.id, next);
-      setEditingTitle(false);
-    } catch (e) {
-      alert('Could not rename: ' + e.message);
-    } finally {
-      setSavingTitle(false);
-    }
-  };
-
-  // ── Add note ────────────────────────────────
-  const [noteText, setNoteText] = useState('');
-  const [savingNote, setSavingNote] = useState(false);
-  const [noteOk, setNoteOk] = useState(false);
-  const [jobNotes, setJobNotes] = useState([]);
-  const loadNotes = useCallback(async () => {
-    try { setJobNotes(await notesApi.getAllForJob(job.id)); } catch { setJobNotes([]); }
-  }, [job.id]);
-  useEffect(() => { loadNotes(); }, [loadNotes]);
-  const addNote = async () => {
-    const t = noteText.trim();
-    if (!t) return;
-    setSavingNote(true);
-    try {
-      await notesApi.addNote(job.id, t, userEmail || 'board');
-      setNoteText('');
-      setNoteOk(true);
-      setTimeout(() => setNoteOk(false), 2000);
-      loadNotes();
-    } catch (e) {
-      alert('Could not add note: ' + e.message);
-    } finally {
-      setSavingNote(false);
-    }
-  };
-
-  // ── Assign (used especially when Blocked) ────
-  const [assigning, setAssigning] = useState(false);
-  const [typedAssignee, setTypedAssignee] = useState('');
-  // Tech we just assigned to, so we can offer to notify them (email / text).
-  // null while nothing pending; set to a tech object right after a successful assign.
-  const [notifyTarget, setNotifyTarget] = useState(null);
-  const [phoneInput, setPhoneInput] = useState('');
-  const [editingPhone, setEditingPhone] = useState(false);
-  const [assigned, setAssigned] = useState({ id: job.tech_assigned || null, name: job.tech_name || null });
-  const [justAssigned, setJustAssigned] = useState(false);
-  const [sendingText, setSendingText] = useState(false);
-  const [textResult, setTextResult] = useState(null); // { ok, msg }
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const [emailResult, setEmailResult] = useState(null); // { ok, msg, reauth }
-
-  const sendAssignEmail = async () => {
-    if (!notifyTarget?.email) return;
-    setSendingEmail(true); setEmailResult(null);
-    const { subject, body } = assignmentEmail(notifyTarget.name, job);
-    const result = await sendGmail(accessToken, { to: notifyTarget.email, subject, body });
-    setEmailResult(result);
-    if (result.ok) {
-      try { await notesApi.addNote(job.id, `Assignment email sent to ${notifyTarget.name} (${notifyTarget.email})`, 'board'); } catch {}
-    }
-    setSendingEmail(false);
-  };
-
-  const assignTo = async (tech) => {
-    // tech === null means "assign to no one" (the unassign radio option)
-    setAssigning(true);
-    setTextResult(null);
-    try {
-      if (tech && tech.name) {
-        const upd = { tech_name: tech.name };
-        if (tech.id) upd.tech_assigned = tech.id;   // only set FK when a real tech row
-        const { error } = await supabase.from('jobs').update(upd).eq('id', job.id);
-        if (error) throw error;
-        try { notifyJobAssigned(tech.name, job.customer_name || 'a job', job.scheduled_date || null); } catch {}
-        try { await notesApi.addNote(job.id, `Assigned to ${tech.name}${job.status==='blocked'?' (BLOCKED — needs attention)':''}`, 'board'); } catch {}
-        setTypedAssignee('');
-        setPhoneInput(tech.phone || '');
-        setEditingPhone(!tech.phone);
-        setAssigned({ id: tech.id || null, name: tech.name });
-        setJustAssigned(true);
-        setTimeout(() => setJustAssigned(false), 2600);
-        setEmailResult(null); setNotifyTarget(tech); // offer email/text notify
-      } else {
-        // Unassign: clear the job row AND any active (non-complete) job_assignments
-        // rows tied to this job, so the person is fully off this task everywhere —
-        // not just cleared on the jobs table — while staying in the tech list.
-        const prevName = job.tech_name;
-        const { error } = await supabase.from('jobs').update({ tech_name: null, tech_assigned: null }).eq('id', job.id);
-        if (error) throw error;
-        try {
-          await supabase.from('job_assignments').delete().eq('job_id', job.id)
-            .or('is_complete.is.null,is_complete.eq.false');
-        } catch (e) { console.error('Could not clear job_assignments for unassign:', e); }
-        try { await notesApi.addNote(job.id, `Unassigned${prevName ? ` (was ${prevName})` : ''}`, 'board'); } catch {}
-        setAssigned({ id: null, name: null });
-        setNotifyTarget(null);
-      }
-      onRenamed?.(job.id, job.customer_name); // trigger parent refresh of this job
-    } catch (e) {
-      alert('Could not update assignment: ' + e.message);
-    } finally {
-      setAssigning(false);
-    }
-  };
-
-  // A typed-in assignee has no tech row, so id is null — match on name too,
-  // or the highlight silently never appears for them.
-  const isOn = (tech) => (tech.id && assigned.id === tech.id)
-    || (!!assigned.name && !!tech.name && assigned.name.toLowerCase() === tech.name.toLowerCase());
-  const noneOn = !assigned.id && !assigned.name;
-
-  const emailHref = notifyTarget?.email
-    ? `mailto:${notifyTarget.email}?subject=${encodeURIComponent(`Job assigned: ${job.customer_name || 'Job'}`)}&body=${encodeURIComponent(
-        `Hi ${notifyTarget.name},\n\n${assignmentMessage(job)}\n\n— Jovelin`
-      )}`
-    : null;
-
-  // Short link + the ASK. A raw UUID looks like malware in a text message and
-  // "you've been assigned to a job" tells the tech nothing they can act on.
-  const jobLink = shortJobLink(job.id);
-  const smsMessage = assignmentMessage(job);
-  const smsHref = phoneInput ? `sms:${phoneInput.replace(/[^\d+]/g,'')}?&body=${encodeURIComponent(smsMessage)}` : null;
-
-  const savePhoneAndSend = async () => {
-    if (!notifyTarget?.id || !phoneInput.trim()) return;
-    setEditingPhone(false);
-    setSendingText(true);
-    setTextResult(null);
-    try {
-      if (notifyTarget.id && phoneInput.trim() !== (notifyTarget.phone || '')) {
-        await techsApi.update(notifyTarget.id, { phone: phoneInput.trim() });
-      }
-      const res = await apiFetch('/api/send-sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: phoneInput.trim(), message: smsMessage }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || data.error || 'Send failed');
-      setTextResult({ ok: true, msg: `Texted ${notifyTarget.name}.` });
-    } catch (e) {
-      setTextResult({ ok: false, msg: `Auto-send failed (${e.message}) — use "text manually" below instead.` });
-    } finally {
-      setSendingText(false);
-    }
-  };
-
+// onWatch comes in as a prop — the function lives in BoardView proper, and
+// calling it bare from in here was an out-of-scope reference that crashed the
+// "Watch this" button. The build stayed green because Vite doesn't
+// check undefined identifiers; that's what the lint gate is for now.
+function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch, onAssigned }) {
+  // REBUILT 9.11.0 as a thin shell around TicketSheet. This drawer was the
+  // third bespoke ticket layout (JobDetail had two more of its own). Opening
+  // the same job from the board, from My Tasks and from a link now renders the
+  // SAME component. Board-only tools (merge, UUID link, watch) ride in the
+  // extras slot; nothing was lost, it just stopped being a separate design.
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
-      <div style={{ background:'#1e293b', borderRadius:'16px 16px 0 0', width:'100%', maxWidth:520, padding:'20px 20px 40px', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ width:36, height:4, background:'#334155', borderRadius:2, margin:'0 auto 16px' }} />
-
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
-          <div>
-            <span style={{ fontSize:11, color:si.color||'#94a3b8', fontWeight:600, textTransform:'uppercase', letterSpacing:0.5 }}>{si.icon} {si.label}</span>
-            {editingTitle ? (
-              <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:4 }}>
-                <input autoFocus value={titleVal} onChange={e => setTitleVal(e.target.value)}
-                  onKeyDown={e => { if (e.key==='Enter') saveTitle(); if (e.key==='Escape') { setTitleVal(job.customer_name||''); setEditingTitle(false); } }}
-                  style={{ flex:1, padding:'6px 8px', borderRadius:6, border:'1px solid #475569', background:'#0f172a', color:'#fff', fontSize:16, boxSizing:'border-box' }} />
-                <button onClick={saveTitle} disabled={savingTitle} style={{ padding:'6px 10px', borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>{savingTitle?'…':'Save'}</button>
-                <button onClick={() => { setTitleVal(job.customer_name||''); setEditingTitle(false); }} style={{ padding:'6px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer' }}>✕</button>
-              </div>
-            ) : (
-              <h3 onClick={() => setEditingTitle(true)} title="Tap to rename"
-                style={{ margin:'4px 0 0', color:'#fff', fontSize:17, cursor:'text' }}>
-                {job.customer_name||'—'} <span style={{ fontSize:12, color:'#cbd5e1' }}>✎</span>
-              </h3>
-            )}
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <CopyJobLink job={job} />
-            <button onClick={onClose} style={{ background:'none', border:'none', color:'#cbd5e1', fontSize:22, cursor:'pointer', minWidth:40 }}>✕</button>
-          </div>
-        </div>
-
-        {/* UUID linker */}
-        {!job.customer_id && <UUIDLinker job={job} onLinked={onUUIDLinked} />}
-
-        {/* Details — show original dates not today */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 16px', fontSize:12, marginBottom:14 }}>
-          {[
-            ['type', job.job_type],
-            ['priority', job.priority],
-            ['address', job.customer_address],
-            ['phone', job.customer_phone],
-            ['tech', job.tech_name],
-            ['scheduled', job.scheduled_date],
-            ['created', fmtDate(job.created_at)],
-            ['updated', job.updated_at !== job.created_at ? fmtDate(job.updated_at) : null],
-          ].filter(([,v]) => v).map(([label,val]) => (
-            <div key={label}>
-              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>{label}</div>
-              <div style={{ color:'#cbd5e1' }}>{val}</div>
-            </div>
-          ))}
-          {job.estimate_amount > 0 && (
-            <div style={{ gridColumn:'1/-1' }}>
-              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:1 }}>estimate</div>
-              <div style={{ color:'#22c55e', fontWeight:600, fontSize:14 }}>{fmtMoney(job.estimate_amount)}</div>
-            </div>
-          )}
-        </div>
-
-        {job.issue && (
-          <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:14 }}>
-            <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>issue</div>
-            <div style={{ color:'#e2e8f0', fontSize:13, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{job.issue}</div>
-          </div>
-        )}
-
-        {/* Add a note — works on any job */}
-        <div style={{ marginBottom:14 }}>
-          <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 }}>add note</div>
-          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={2} placeholder="Type a note…"
-            style={{ width:'100%', padding:10, borderRadius:8, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
-          <button onClick={addNote} disabled={savingNote||!noteText.trim()}
-            style={{ marginTop:6, padding:'8px 14px', borderRadius:8, border:'none', background:noteText.trim()?'#3b82f6':'#334155', color:'#fff', fontWeight:600, fontSize:13, cursor:noteText.trim()?'pointer':'not-allowed' }}>
-            {savingNote ? 'Saving…' : noteOk ? '✓ Added' : '+ Add note'}
-          </button>
-
-          {/* Notes thread — shows the notes that were added */}
-          {jobNotes.length > 0 && (
-            <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
-              {jobNotes.map(n => (
-                <div key={n.id} style={{ background:'#0f172a', borderRadius:8, padding:'8px 10px', borderLeft:'2px solid #3b82f6' }}>
-                  <div style={{ color:'#cbd5e1', fontSize:12, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.text}</div>
-                  <div style={{ color:'#94a3b8', fontSize:11, marginTop:3 }}>
-                    {n.created_by || 'unknown'} · {fmtDate(n.created_at)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Assign to a user — emphasized when Blocked */}
-        <div style={{ marginBottom:14, padding:job.status==='blocked'?'12px':'0', borderRadius:8, background:job.status==='blocked'?'#dc262615':'transparent', border:job.status==='blocked'?'1px solid #dc262640':'none' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap' }}>
-            <span style={{ color:job.status==='blocked'?'#dc2626':'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, fontWeight:700 }}>
-              {job.status==='blocked' ? '🚫 Blocked — assign to someone' : 'assign to'}
-            </span>
-            {assigned.name
-              ? <span style={{ fontSize:13, fontWeight:800, color:'#22c55e', background:'#22c55e22', border:'1px solid #22c55e', borderRadius:6, padding:'2px 9px' }}>
-                  {justAssigned ? '✓ Now assigned to ' : 'Owner: '}{assigned.name}
-                </span>
-              : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', borderRadius:6, padding:'2px 9px' }}>Unassigned</span>}
-            {assigning && <span style={{ fontSize:12, color:'#94a3b8' }}>saving…</span>}
-          </div>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-            {/* Unassigned / "no one" — always first */}
-            <label style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`2px solid ${noneOn ? '#94a3b8' : '#334155'}`, background: noneOn ? '#94a3b822' : 'transparent', cursor: assigning?'default':'pointer', fontSize:13, color: noneOn ? '#e2e8f0' : '#94a3b8', fontWeight: noneOn ? 700 : 400 }}>
-              <input type="radio" name={`assign-${job.id}`} disabled={assigning}
-                checked={noneOn}
-                onChange={() => assignTo(null)}
-                style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
-              {noneOn ? '✓ ' : ''}Unassigned
-            </label>
-            {(techs||[]).map(tech => (
-              <label key={tech.id} style={{ position:'relative', display:'inline-flex', alignItems:'center', padding:'6px 12px', borderRadius:6, border:`2px solid ${isOn(tech)?'#22c55e':'#334155'}`, background:isOn(tech)?'#22c55e28':'transparent', cursor: assigning?'default':'pointer', fontSize:13, color:isOn(tech)?'#22c55e':'#cbd5e1', fontWeight:isOn(tech)?700:400 }}>
-                <input type="radio" name={`assign-${job.id}`} disabled={assigning}
-                  checked={isOn(tech)}
-                  onChange={() => assignTo(tech)}
-                  style={{ position:'absolute', opacity:0, width:1, height:1, pointerEvents:'none' }} />
-                {isOn(tech) ? '✓ ' : ''}{tech.name}
-              </label>
-            ))}
-            {(!techs || techs.length === 0) && (
-              <div style={{ color:'#94a3b8', fontSize:12 }}>No team members loaded — type a name below.</div>
-            )}
-          </div>
-          {/* Typed-name fallback — for a person not in the techs table */}
-          <div style={{ display:'flex', gap:6, marginTop:8 }}>
-            <input value={typedAssignee} onChange={e => setTypedAssignee(e.target.value)} placeholder="…or type a name"
-              onKeyDown={e => { if (e.key==='Enter' && typedAssignee.trim()) assignTo({ id:null, name:typedAssignee.trim() }); }}
-              style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#0f172a', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
-            <button onClick={() => typedAssignee.trim() && assignTo({ id:null, name:typedAssignee.trim() })} disabled={assigning||!typedAssignee.trim()}
-              style={{ padding:'6px 12px', borderRadius:6, border:'none', background:typedAssignee.trim()?'#22c55e':'#334155', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>Assign</button>
-          </div>
-
-          {/* Notify panel — shows right after assigning to someone with an id (a real tech row) */}
-          {notifyTarget?.id && (
-            <div style={{ marginTop:10, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #334155' }}>
-              <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:600 }}>
-                Let {notifyTarget.name} know
-              </div>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                {notifyTarget.email ? (
-                  <button onClick={sendAssignEmail} disabled={sendingEmail || emailResult?.ok}
-                    style={{ padding:'6px 12px', borderRadius:6, border:'none', background: emailResult?.ok ? '#22c55e' : '#334155', color:'#fff', fontSize:13, fontWeight:600, cursor: sendingEmail || emailResult?.ok ? 'default' : 'pointer' }}>
-                    {sendingEmail ? 'Sending…' : emailResult?.ok ? '✅ Email sent' : `✉️ Email ${notifyTarget.name}`}
-                  </button>
-                ) : (
-                  <div style={{ color:'#f59e0b', fontSize:12 }}>No email on file for {notifyTarget.name}.</div>
-                )}
-              </div>
-              {emailResult && (
-                <div style={{ marginTop:6, fontSize:12, color: emailResult.ok ? '#22c55e' : '#ef4444' }}>
-                  {emailResult.ok ? `✅ ${emailResult.msg}` : `⚠️ ${emailResult.msg}`}
-                  {!emailResult.ok && !emailResult.reauth && emailHref && (
-                    <> — <a href={emailHref} style={{ color:'#94a3b8' }}>open in Mail instead</a></>
-                  )}
-                </div>
-              )}
-
-              <div style={{ marginTop:10 }}>
-                {editingPhone ? (
-                  <div style={{ display:'flex', gap:6 }}>
-                    <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)} placeholder="Phone number to text (e.g. +17195551234)"
-                      onKeyDown={e => { if (e.key === 'Enter' && phoneInput.trim()) savePhoneAndSend(); }}
-                      style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box' }} />
-                    <button onClick={savePhoneAndSend} disabled={!phoneInput.trim() || sendingText}
-                      style={{ padding:'6px 12px', borderRadius:6, border:'none', background: phoneInput.trim() ? '#22c55e' : '#334155', color:'#fff', fontSize:13, fontWeight:600, cursor: phoneInput.trim() ? 'pointer' : 'not-allowed' }}>
-                      Save
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                    <button onClick={savePhoneAndSend} disabled={sendingText}
-                      style={{ padding:'6px 12px', borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-                      {sendingText ? 'Sending…' : `📱 Text ${notifyTarget.name}`}
-                    </button>
-                    <a href={smsHref} style={{ fontSize:12, color:'#94a3b8', textDecoration:'underline' }}>
-                      or text manually
-                    </a>
-                    <button onClick={() => setEditingPhone(true)} title="Edit number"
-                      style={{ padding:'4px 8px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
-                      edit #
-                    </button>
-                  </div>
-                )}
-                {textResult && (
-                  <div style={{ marginTop:6, fontSize:12, color: textResult.ok ? '#22c55e' : '#f59e0b' }}>{textResult.msg}</div>
-                )}
-              </div>
-
-              <button onClick={() => { setNotifyTarget(null); setTextResult(null); setEmailResult(null); }}
-                style={{ marginTop:8, padding:'4px 8px', borderRadius:6, border:'none', background:'transparent', color:'#cbd5e1', fontSize:11, cursor:'pointer' }}>
-                dismiss
+    <div onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.75)', zIndex:900,
+               display:'flex', justifyContent:'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width:'100%', maxWidth:560, background:'#0f1729', overflowY:'auto',
+                 borderLeft:'1px solid #2a3b56' }}>
+        <TicketSheet
+          job={job}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          busy={moving}
+          onClose={onClose}
+          onOpenScheduler={() => onSchedule(job)}
+          onSchedulePrimary={
+            ['ready_to_schedule','return_pending','scheduled'].includes(job.status)
+              ? () => onSchedule(job) : null
+          }
+          onMove={async (target, note) => { await onStatusMove(job.id, target, note); }}
+          onAssigned={onAssigned}
+          extras={
+            <div style={{ marginTop: 14, display:'flex', flexDirection:'column', gap: 10 }}>
+              <button onClick={() => onWatch?.(job)}
+                style={{ background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
+                         borderRadius:8, padding:'9px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                👁 Watch this
               </button>
+              <UUIDLinker job={job} onLinked={onUUIDLinked} />
+              <MergeTool job={job} allJobs={allJobs} onMerge={onMerge}
+                accessToken={accessToken} userEmail={userEmail} />
             </div>
-          )}
-        </div>
-
-        {/* Merge tool */}
-        <MergeTool job={job} allJobs={allJobs} onMerge={onMerge} accessToken={accessToken} userEmail={userEmail} />
-
-        {/* Optional scheduler for ready/return */}
-        {(job.status==='ready_to_schedule'||job.status==='return_pending'||job.status==='scheduled') && (
-          <button onClick={() => { onSchedule(job); }}
-            style={{ width:'100%', padding:12, borderRadius:8, border:'none', background:'#8b5cf6', color:'#fff', fontWeight:600, fontSize:14, cursor:'pointer', marginBottom:10 }}>
-            {job.status==='scheduled' ? '🔁 Reschedule (pick new tech + time)' : '📅 Open Scheduler (pick tech + time)'}
-          </button>
-        )}
-
-        {/* Move to a lane — the 6 board buckets, not 15 raw statuses */}
-        <div>
-          <div style={{ color:'#94a3b8', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:6 }}>move to</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            {LANE_MOVES.map(lane => {
-              const isHere = lane.statuses.includes(job.status);
-              if (lane.key === 'estimates') {
-                return (
-                  <button key={lane.key} onClick={() => setShowEstStages(s => !s)} disabled={moving}
-                    style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:lane.color, fontWeight:700, fontSize:13, cursor:'pointer', gridColumn: showEstStages ? '1 / -1' : 'auto' }}>
-                    {lane.label} ▾
-                  </button>
-                );
-              }
-              if (lane.key === 'clear') {
-                return (
-                  <button key={lane.key} disabled={moving||isHere}
-                    onClick={() => {
-                      if (window.confirm(`Clear "${job.customer_name || 'this job'}"? It leaves the active board and is not billed. This isn't billing history — undo it later from Archived if needed.`)) {
-                        onStatusMove(job.id, lane.target);
-                      }
-                    }}
-                    style={{ gridColumn:'1 / -1', padding:12, borderRadius:8, border:`1px dashed ${lane.color}`, background:isHere?`${lane.color}22`:'transparent', color:isHere?'#fff':lane.color, fontWeight:700, fontSize:13, cursor:isHere?'default':'pointer', opacity:moving?0.6:1 }}>
-                    {isHere ? '● ' : ''}{lane.label}
-                  </button>
-                );
-              }
-              return (
-                <button key={lane.key} onClick={() => onStatusMove(job.id, lane.target)} disabled={moving||isHere}
-                  style={{ padding:12, borderRadius:8, border:`1px solid ${lane.color}`, background:isHere?`${lane.color}33`:'transparent', color:isHere?'#fff':lane.color, fontWeight:700, fontSize:13, cursor:isHere?'default':'pointer', opacity:moving?0.6:1 }}>
-                  {isHere ? '● ' : ''}{lane.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Estimates sub-stages — revealed on tap */}
-          {showEstStages && (
-            <div style={{ marginTop:8, padding:10, borderRadius:8, background:'#0f172a', border:'1px solid #f59e0b40' }}>
-              <div style={{ color:'#f59e0b', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, marginBottom:8, fontWeight:700 }}>Estimate stage</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                {EST_STAGES.map(st => (
-                  <button key={st.status} onClick={() => onStatusMove(job.id, st.status)} disabled={moving||job.status===st.status}
-                    style={{ padding:10, borderRadius:8, border:`1px solid ${st.color}`, background:job.status===st.status?`${st.color}33`:'transparent', color:job.status===st.status?'#fff':st.color, fontWeight:600, fontSize:12, cursor:'pointer' }}>
-                    {st.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          }
+        />
       </div>
     </div>
   );
 }
 
-// ── CopyJobLink ───────────────────────────────────────────────────────────────
-// Hands you a shareable link to THIS job, anchored on its UUID. Works for
-// anything on the board — a scheduled install, a return, or "JR to sign his
-// taxes" that has no calendar event at all. Anyone who opens it lands on this
-// job's drawer with its full note thread.
-function CopyJobLink({ job }) {
-  const [copied, setCopied] = useState(false);
-  const url = shortJobLink(job.id);
-  const copy = async (e) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // clipboard API is blocked on some in-app browsers — fall back to a prompt
-      window.prompt('Copy this link:', url);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-  return (
-    <button onClick={copy} title="Copy a link to this job"
-      style={{ background:'none', border:'1px solid #334155', borderRadius:6, color: copied ? '#22c55e' : '#94a3b8', fontSize:12, fontWeight:600, padding:'5px 9px', cursor:'pointer', whiteSpace:'nowrap' }}>
-      {copied ? '✓ Copied' : '🔗 Link'}
-    </button>
-  );
-}
-
-// ── Job card ──────────────────────────────────────────────────────────────────
 function JobCard({ job, onSelect, onQuickMove, moving }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
@@ -865,15 +492,28 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
         </div>
       )}
 
-      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{job.issue||'no issue noted'}</div>
+      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{stripIntakeTemplate(job.issue)||'no issue noted'}</div>
 
       {/* THE STICKY LINE — who owns it, when it hit the board, how stale it is.
           This never truncates and never collapses; it's the whole point of the card. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-        {job.tech_name
-          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{job.tech_name}</span>
-          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>}
+        {/* assigneeOf(), NOT job.tech_name. Assigning writes assigned_to; this
+            line read tech_name, so every assignment made since migration 030
+            left the card still reading "Unassigned". Two columns, one meaning,
+            and the card was reading the wrong one. */}
+        {(() => { const who = assigneeOf(job); return who
+          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
+          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>; })()}
         <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
+        {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
+            scheduled date — a hold is not a booking, and the day two crews turn
+            up in one place is the day those two things looked alike. */}
+        {job.tentative_date && isHeld(job) && (
+          <span style={{ fontSize:12, fontWeight:700, color:'#f59e0b', background:'#78350f44',
+                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+            ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
+          </span>
+        )}
         {staleColor && (
           <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
             style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
@@ -965,9 +605,46 @@ const STALE_PULSE_CSS = `
 .ow-verystale { animation: ow-stale-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .ow-stale, .ow-verystale { animation:none; } }`;
 
+// Real steps against real elements — data-tour targets tagged above. Every
+// operator lands here now, so this is the walkthrough that matters most.
+const BOARD_SPOTLIGHT_STEPS = [
+  { target: 'col-triage',    title: '📝 New / Notes',
+    body: 'Not actionable yet — needs info, parts, or a decision before anyone can move it forward.' },
+  { target: 'col-ready',     title: '✅ Ready to Schedule',
+    body: 'Good to go. Someone just needs to put it on a calendar — that\'s the next lane over.' },
+  { target: 'col-tentative', title: '✏️ Tentative',
+    body: 'Pencilled in on the Tent calendar, nobody booked yet. Tapping a card here opens the scheduler, same as everywhere.' },
+  { target: 'col-scheduled', title: '📅 Scheduled',
+    body: 'A tech is booked and it\'s on their calendar. This can only get set by actually booking — never by hand.' },
+  { target: 'board-assigned-filter', title: 'Filter by person',
+    body: 'Tap a name to see just their open work, or "Nobody" to find things nobody has claimed yet.' },
+  { target: 'board-search', title: 'Search',
+    body: 'Customer name, issue text, or CMS number — whatever you remember about the job.' },
+  { target: 'whos-stuck', title: "Who's stuck",
+    body: 'Jumps to the home screen section showing who has the oldest work sitting with no movement.' },
+  { target: 'my-tasks-link', title: 'My Tasks',
+    body: 'Your own to-do list — separate from the board. Notes, hand-offs, and things you\'re personally tracking live here.' },
+];
+
+// TOUR_BUILD-style versioning, same pattern Tour.jsx already uses — bump this
+// string and everyone sees the walkthrough again next time something here
+// changes meaningfully.
+const SPOTLIGHT_BUILD = '9.11.6';
+const spotlightKey = (email) => `ow_board_spotlight_${SPOTLIGHT_BUILD}_${(email || '').toLowerCase()}`;
+
 export default function BoardView({ accessToken, onBack, userEmail, userName }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [showSpotlight, setShowSpotlight] = useState(false);
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem(spotlightKey(userEmail))) setShowSpotlight(true);
+    } catch { /* private browsing — just don't auto-show */ }
+  }, [userEmail]);
+  const closeSpotlight = () => {
+    setShowSpotlight(false);
+    try { localStorage.setItem(spotlightKey(userEmail), new Date().toISOString()); } catch {}
+  };
   const [jobs, setJobs] = useState([]);
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -992,6 +669,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const [showNewJob, setShowNewJob] = useState(false);
   const [activeCol, setActiveCol] = useState('triage');
   const [search, setSearch] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState(null);
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState({ total_open:0, needs_action:0, to_bill:0, returns_pending:0 });
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
@@ -1009,7 +687,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     setLoading(true);
     try {
       const ACTIVE = ['new','needs_details','needs_parts','pending_materials','pending_decision','blocked','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill','won'];
-      const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:false}).limit(500);
+      const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:true}).limit(500);
       if (error) throw error;
       // last_note_at — the last time a human actually SAID something about this
       // job. This is what the staleness rule measures, NOT updated_at.
@@ -1088,16 +766,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, [deepJobId, navigate]);
 
   // Status move — no note required, never touches created_at
-  const moveStatus = useCallback(async (jobId, newStatus) => {
+  const moveStatus = useCallback(async (jobId, newStatus, note = null) => {
     setMoving(true);
     try {
-      const { error } = await supabase.from('jobs').update({
-        status: newStatus,
-        updated_by: userEmail||'operator',
-        updated_at: new Date().toISOString(),
-        // created_at intentionally NOT included
-      }).eq('id', jobId);
-      if (error) throw error;
+      // changeStatus writes the history row too, so the "why" typed into the
+      // ticket sheet actually travels with the card instead of being dropped.
+      await jobsApi.changeStatus(jobId, newStatus, userEmail || 'info@drhsecurityservices.com', note);
       setJobs(prev => prev.map(j => j.id===jobId ? {...j, status:newStatus} : j));
       setSelectedJob(prev => prev?.id===jobId ? {...prev, status:newStatus} : prev);
       showToast(`→ ${STATUS_INFO[newStatus]?.label||newStatus}`);
@@ -1122,16 +796,77 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     showToast('Marked as duplicate ✓');
   }, []);
 
+  // null = everyone. '__none__' = jobs with nobody on them, which is its own
+  // kind of problem and worth being able to see on purpose.
+  const assigneeMatch = (j) => {
+    if (!assigneeFilter) return true;
+    if (assigneeFilter === '__none__') return !assigneeOf(j);
+    return assigneeOf(j) === assigneeFilter;
+  };
+
+  // Put a board card into MY Tasks → Watching without taking ownership. She is
+  // not the assignee and the job does not move; she just stops having to
+  // remember to come back and check on it.
+  const watchInMyTasks = useCallback(async (job) => {
+    try {
+      const { error } = await supabase.from('notes').insert([{
+        body: job.customer_name || 'Job',
+        author_email: canonicalEmail(userEmail),
+        job_id: job.id,
+        lane: 'watching',
+        status: 'open',
+        last_seen_status: job.status,
+      }]);
+      // Unique index (migration 032) means a second watch on the same job is a
+      // conflict, not a duplicate card. Say so rather than failing silently.
+      if (error) { showToast(/duplicate|unique/i.test(error.message) ? 'Already in My Tasks' : 'Could not add'); return; }
+      showToast('Watching in My Tasks ✓');
+    } catch (e) { showToast('Could not add'); }
+  }, [userEmail]);
+
+  // The WRITE moved into TicketSheet (one control, every surface). This only
+  // syncs the board's local copy so the card repaints without a full reload.
+  const onAssigned = useCallback((jobId, email) => {
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, assigned_to: email } : j));
+    setSelectedJob(prev => prev && prev.id === jobId ? { ...prev, assigned_to: email } : prev);
+    showToast(email ? `Assigned to ${NAME_BY_EMAIL[email] || email} \u2713` : 'Unassigned \u2713');
+  }, []);
+
   const filtered = search
-    ? jobs.filter(j =>
+    ? jobs.filter(j => assigneeMatch(j) && (
         (j.customer_name||'').toLowerCase().includes(search.toLowerCase()) ||
         (j.issue||'').toLowerCase().includes(search.toLowerCase()) ||
-        false
-      )
-    : jobs;
+        (j.cms_account_id||'').toLowerCase().includes(search.toLowerCase())
+      ))
+    : jobs.filter(assigneeMatch);
+
+  // Oldest first, in every column. The board loaded newest-first, which meant
+  // the thing that landed this morning sat above the job that has been rotting
+  // for six weeks — so the work most likely to be forgotten was the work you
+  // had to scroll to find. Flipping it puts the oldest card at the top of
+  // every lane, where it is impossible to ignore.
+  //
+  // Sorted on created_at (when the job appeared), NOT last_note_at. A stale job
+  // that somebody left a comment on yesterday is still a stale job; letting a
+  // note push it down the column is exactly how it gets lost again. The
+  // staleness pulse already flags neglect separately.
+  const byOldest = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0);
 
   const buckets = COLUMNS.reduce((acc, col) => {
-    acc[col.key] = filtered.filter(j => col.statuses.includes(j.status));
+    if (col.virtual === 'tentative') {
+      // Held but not yet booked. Sorted by the HELD DATE, soonest first —
+      // a hold three days out matters more than one in six weeks.
+      acc[col.key] = filtered
+        .filter(isHeld)
+        .sort((a, b) => new Date(a.tentative_date) - new Date(b.tentative_date));
+      return acc;
+    }
+    // A job with a hold shows in Tentative, not in its status column, so it
+    // isn't in two places at once.
+    acc[col.key] = filtered
+      .filter(j => col.statuses.includes(j.status))
+      .filter(j => !isHeld(j))
+      .sort(byOldest);
     return acc;
   }, {});
 
@@ -1142,6 +877,28 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'1px solid #1e293b' }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <button onClick={onBack} style={{ background:'#1e293b', border:'none', color:'#94a3b8', padding:'7px 14px', borderRadius:8, cursor:'pointer', fontSize:13 }}>← Home</button>
+          {/* Straight to Who's stuck. "← Home" technically got you there, but
+              it drops you at the top of the page and you have to scroll past
+              the warnings to find the person you were thinking about. */}
+          <button data-tour="whos-stuck" onClick={() => navigate('/?focus=people')}
+            style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
+                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
+            👥 Who's stuck
+          </button>
+          <button data-tour="my-tasks-link" onClick={() => navigate('/people')}
+            style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
+                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
+            🗂️ My Tasks
+          </button>
+          {/* Real walkthrough — points at the actual buttons, not a picture of
+              them. Separate from the shared "?" (which still opens the plain
+              text guide) because "explain it" and "show me on the real
+              screen" are different asks. */}
+          <button onClick={() => setShowSpotlight(true)}
+            style={{ background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', padding:'7px 14px',
+                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:700 }}>
+            ▶ Show me around
+          </button>
           <span style={{ fontWeight:700, fontSize:16 }}>📋 Board</span>
         </div>
         <div style={{ display:'flex', gap:8 }}>
@@ -1155,7 +912,6 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           { label:'open',     val:stats.total_open,       color:'#cbd5e1', col:null },
           { label:'new/notes',val:buckets.triage?.length||0,    color:'#ef4444', col:'triage' },
           { label:'returns',  val:stats.returns_pending,  color:'#ec4899', col:'ready' },
-          { label:'to bill',  val:buckets.tobill?.length||0,    color:'#8b5cf6', col:'tobill' },
         ].map(s=>(
           <button key={s.label} onClick={() => s.col && focusColumn(s.col)}
             style={{ background: activeCol===s.col && s.col ? '#334155' : '#1e293b', padding:'6px 14px', borderRadius:8, border: activeCol===s.col && s.col ? `1px solid ${s.color}` : '1px solid transparent', cursor: s.col ? 'pointer' : 'default', textAlign:'left', fontFamily:'inherit' }}>
@@ -1163,6 +919,21 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
             <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.val}</div>
           </button>
         ))}
+        <div data-tour="board-assigned-filter" style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+          <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>assigned</span>
+          {[{ key:null, label:'All' },
+            ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
+            { key:'__none__', label:'Nobody' }].map(o => (
+            <button key={o.label} onClick={() => setAssigneeFilter(o.key)}
+              style={{
+                background: assigneeFilter === o.key ? '#00c8e8' : '#1e293b',
+                color: assigneeFilter === o.key ? '#0f172a' : '#94a3b8',
+                border:'none', borderRadius:20, padding:'5px 12px',
+                fontSize:11, fontWeight:700, cursor:'pointer',
+              }}>{o.label}</button>
+          ))}
+        </div>
+
         <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
           <label style={{ display:'flex', alignItems:'center', gap:6, background:'#1e293b', borderRadius:8, padding:'6px 10px' }}>
             <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4, whiteSpace:'nowrap' }}>flag silent after</span>
@@ -1171,7 +942,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
               {STALE_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
           </label>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
+          <input data-tour="board-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="search customer, issue, CMS…"
             style={{ padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:200 }} />
         </div>
       </div>
@@ -1192,7 +963,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       ) : isMobile ? (
         <div style={{ flex:1, overflowY:'auto', paddingBottom:84 }}>
           {COLUMNS.map(col => (
-            <div key={col.key} ref={el => { colRefs.current[col.key] = el; }}>
+            <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }}>
               <AccordionColumn
                 col={col} jobs={buckets[col.key]||[]}
                 expanded={expandedCol===col.key}
@@ -1205,18 +976,22 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       ) : (
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
-            <div key={col.key} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
+            <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
               <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} />
             </div>
           ))}
         </div>
       )}
 
+      {showSpotlight && (
+        <Spotlight steps={BOARD_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
+      )}
+
       {selectedJob && (
         <DetailDrawer
-          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail}
+          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks} onAssigned={onAssigned}
           allJobs={jobs}
-          onStatusMove={(jobId, verb) => { moveStatus(jobId, verb); setSelectedJob(null); }}
+          onStatusMove={(jobId, verb, note) => { moveStatus(jobId, verb, note); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}
           onClose={() => setSelectedJob(null)}
           onUUIDLinked={handleUUIDLinked}
@@ -1229,7 +1004,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       )}
 
       {schedulingJob && (
-        <VisualSchedulerModal job={schedulingJob} techs={techs} accessToken={accessToken}
+        <VisualSchedulerModal job={schedulingJob} techs={techs} accessToken={accessToken} userEmail={userEmail}
           onScheduled={() => { setSchedulingJob(null); loadJobs(); showToast('Scheduled ✓'); }}
           onClose={() => setSchedulingJob(null)} />
       )}

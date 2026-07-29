@@ -1,5 +1,12 @@
 // ============================================
-// Jovelin - JobDetail Component (Redesigned)
+// DEMOTED 9.11.1 — legacy surfaces only.
+// Board, My Tasks, /j/ links and Work Today all render TicketSheet now.
+// This component survives ONLY because OwnerDashboard, OfficeHub and
+// TechCalendar still mount it. Do not add features here; when those three
+// move to TicketSheet, delete this file (~1,300 lines).
+// ============================================
+// ============================================
+// JUC-E V4 - JobDetail Component (Redesigned)
 // ============================================
 // Two modes:
 // 1. EXECUTION MODE (scheduled jobs) — clean, focused, matches field UI mockup
@@ -12,15 +19,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
-import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES } from '../utils/statusMachine.js';
+import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate, parsePhoneNumbers } from '../utils/statusMachine.js';
+import { findDuplicateJobs } from '../utils/fuzzyMatch.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
 import MoveStatus from './MoveStatus.jsx';
 import FieldVisits from './FieldVisits.jsx';
-import ScheduleModal from './ScheduleModal.jsx';
+// ScheduleModal DELETED 9.10.7. It was a fifth scheduler with its own
+// "tentative" mode that wrote a 📌 note and nothing else — no tentative_date,
+// no Tent event, no board column — and could set status=SCHEDULED through
+// jobsApi.changeStatus, dodging every guard. It is the writer behind events
+// that said "scheduled" while the job said tentative while the owner said
+// Shana. One scheduler now: VisualSchedulerModal, same as everywhere else.
+import VisualSchedulerModal from './VisualSchedulerModal.jsx';
 import RescheduleModal from './RescheduleModal.jsx';
 import InstallationApprovalModal from './InstallationApprovalModal.jsx';
+
+// The customer dedup effort left merge-audit text sitting directly in
+// customers.notes on ~341 rows ("MERGED FROM CS123, CS456…"). That's an audit
+// trail, not a customer-service comment, and it doesn't belong in the
+// customer-info box a tech reads on-site. Suppress it there; the raw field is
+// untouched in the database for whoever needs the audit trail directly.
+const isMergeAuditText = (text) => /merged|merge audit/i.test(text || '');
 
 export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userEmail, userRole }) {
   const navigate = useNavigate();
@@ -33,6 +54,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [showPriorityPicker, setShowPriorityPicker] = useState(false);
   const [showAdminSection, setShowAdminSection] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const [showTimeCapture, setShowTimeCapture] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
@@ -41,6 +63,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const [completionNotes, setCompletionNotes] = useState('');
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [schedTechs, setSchedTechs] = useState([]);
+  useEffect(() => {
+    techsApi.getAll().then(setSchedTechs).catch(async () => {
+      const { data } = await supabase.from('techs').select('*').order('name');
+      setSchedTechs(data || []);
+    });
+  }, []);
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
 
@@ -73,8 +102,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const loadJob = useCallback(async () => {
     if (!jobId) return;
     setIsLoading(true);
+    setLoadError('');
     try {
       const data = await jobsApi.getById(jobId);
+      if (!data) { setLoadError('That job could not be found.'); return; }
       setJob(data);
       const assigns = await assignmentsApi.getForJob(jobId);
       setAssignments(assigns);
@@ -89,7 +120,11 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         } catch { setLinkedCustomer(null); }
       } else { setLinkedCustomer(null); }
     } catch (e) {
+      // This used to only console.error and leave `job` null — which renders
+      // as a totally blank screen with zero indication anything went wrong.
+      // Surface it instead.
       console.error('Job load error:', e);
+      setLoadError(e.message || 'Something went wrong loading this job.');
     } finally {
       setIsLoading(false);
     }
@@ -101,38 +136,44 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   // ACTION HANDLERS
   // ============================================
 
-  const findPotentialDuplicates = async () => {
+  const findPotentialDuplicates = useCallback(async (auto = false) => {
     if (!job) return;
     try {
-      const { data: allJobsList, error } = await supabase
-        .from('jobs').select('*').not('status', 'eq', 'archived')
-        .order('created_at', { ascending: false }).limit(500);
-      if (error) throw error;
-      const matches = (allJobsList || []).filter(j => {
-        if (j.id === job.id) return false;
-        if (job.customer_id && j.customer_id === job.customer_id) return true;
-        if (job.customer_name && j.customer_name) {
-          const name1 = job.customer_name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-          const name2 = j.customer_name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-          if (name1.length < 3 || name2.length < 3) { /* skip */ }
-          else if (name1 === name2) return true;
-          else if (name1.length > 4 && name2.length > 4 && (name1.includes(name2) || name2.includes(name1))) return true;
-        }
-        if (job.customer_address && j.customer_address) {
-          const addr1 = job.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
-          const addr2 = j.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
-          if (addr1.length > 5 && addr1 === addr2) return true;
-        }
-        return false;
-      });
+      // Was: exact-match or substring-containment only, e.g.
+      // "sainati".includes("santini") — which is false either direction, so
+      // this could never catch a phonetic near-miss or a "Jerry Allen" vs
+      // "JAllen" spelling variant. That's the actual reason duplicates have
+      // kept slipping through despite this tool existing. Now uses the same
+      // calibrated fuzzy matcher used for the automatic on-load check.
+      const dupes = await findDuplicateJobs(job.customer_name, job.id);
+      const byAddress = job.customer_address ? await (async () => {
+        const { data } = await supabase.from('jobs').select('*')
+          .not('status', 'eq', 'archived').limit(500);
+        const addr1 = job.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        return (data || []).filter(j => j.id !== job.id && j.customer_address &&
+          addr1.length > 5 && j.customer_address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) === addr1);
+      })() : [];
+      const byId = job.customer_id ? await (async () => {
+        const { data } = await supabase.from('jobs').select('*')
+          .eq('customer_id', job.customer_id).not('status', 'eq', 'archived').limit(500);
+        return (data || []).filter(j => j.id !== job.id);
+      })() : [];
+      const merged = [...dupes, ...byAddress, ...byId];
+      const seen = new Set();
+      const matches = merged.filter(j => (seen.has(j.id) ? false : (seen.add(j.id), true)));
       matches.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setPotentialDuplicates(matches);
-      setShowDuplicateModal(true);
+      if (!auto) setShowDuplicateModal(true);
     } catch (e) {
       console.error('Duplicate search error:', e);
-      alert('Error searching for duplicates: ' + e.message);
+      if (!auto) alert('Error searching for duplicates: ' + e.message);
     }
-  };
+  }, [job]);
+
+  // Force the duplicate flag automatically — this used to require someone
+  // to remember to tap "Check duplicates." Runs once per job id loaded, not
+  // on every subsequent update (notes, status changes) to the same job.
+  useEffect(() => { if (job) findPotentialDuplicates(true); }, [job?.id, findPotentialDuplicates]);
 
   const handleMerge = async () => {
     if (!selectedMergeTarget || isMerging) return;
@@ -200,7 +241,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   };
 
   // Handle billing with $ amount + move to Completed calendar
-  const isInfoUser = userEmail?.toLowerCase()?.includes('sara@jnbllc.com');
+  const isInfoUser = userEmail?.toLowerCase()?.includes('info@drhsecurityservices.com') || userEmail?.toLowerCase()?.includes('sara@jnbllc.com');
   
   const handleBilledSubmit = async () => {
     if (actionInProgress) return;
@@ -346,13 +387,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     const actions = [];
     switch (status) {
       case JOB_STATUS.NEW:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_DETAILS, ACTIONS.COMPLETE_SALES, ACTIONS.MARK_DEAD); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_DETAILS, ACTIONS.COMPLETE_SALES, ACTIONS.MARK_DEAD); break;
       case JOB_STATUS.NEEDS_DETAILS:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.NEEDS_PARTS:
-        actions.push(ACTIONS.MATERIALS_IN); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MATERIALS_IN); break;
       case JOB_STATUS.PENDING_DECISION:
-        actions.push(ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
+        actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.READY_TO_SCHEDULE:
         actions.push(ACTIONS.SCHEDULE); break;
       case JOB_STATUS.SCHEDULED: break;
@@ -402,9 +443,25 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       </div>
     );
   }
-  if (!job) return null;
+  if (!job) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#0f1729', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', color: '#e2e8f0' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>{loadError || 'That job could not be found.'}</div>
+          <button onClick={onClose}
+            style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 8, padding: '9px 16px', fontSize: 14, cursor: 'pointer' }}>
+            Back to board
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const typeInfo = JOB_TYPE_INFO[job.job_type] || JOB_TYPE_INFO.service;
+  // Strip the intake form's fixed header — see stripIntakeTemplate for why.
+  // If the whole "issue" was nothing but that template, this is '' and the
+  // Issue box below doesn't render at all rather than showing an empty shell.
+  const cleanIssue = stripIntakeTemplate(job.issue);
   const statusInfo = STATUS_INFO[job.status] || {};
   const quickActions = getQuickActions();
   const validNextStatuses = VALID_TRANSITIONS[job.status] || [];
@@ -446,7 +503,12 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             placeholder="Add note for this change (optional)"
             style={{ width: '100%', background: '#0f1729', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0', padding: '8px 12px', fontSize: '13px', marginBottom: '8px', outline: 'none', boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {validNextStatuses.filter(s => s !== JOB_STATUS.ARCHIVED || isOperator).map(s => {
+            {/* SCHEDULED is excluded on purpose — this raw picker was the last
+                back door for marking a job scheduled with no date, no tech and
+                no calendar event. Booking goes through the scheduler, period. */}
+            {validNextStatuses
+              .filter(s => s !== JOB_STATUS.SCHEDULED)
+              .filter(s => s !== JOB_STATUS.ARCHIVED || isOperator).map(s => {
               const info = STATUS_INFO[s];
               return (
                 <button key={s} onClick={() => handleStatusChange(s)} disabled={actionInProgress !== null}
@@ -599,7 +661,8 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         />
       )}
       {showScheduleModal && job && (
-        <ScheduleModal job={job} onClose={() => setShowScheduleModal(false)}
+        <VisualSchedulerModal job={job} techs={schedTechs} accessToken={accessToken} userEmail={userEmail}
+          onClose={() => setShowScheduleModal(false)}
           onScheduled={() => { setShowScheduleModal(false); loadJob(); onUpdate?.(); }}
           userEmail={userEmail} userRole={userRole} accessToken={accessToken} />
       )}
@@ -713,8 +776,25 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           {job.customer_id && (
             <button
               onClick={() => navigate(`/customers?customerId=${encodeURIComponent(job.customer_id)}&returnTo=${encodeURIComponent(window.location.pathname)}`)}
-              style={{ marginTop: 8, background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#e8a33d', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+              style={{ marginTop: 8, background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#00c8e8', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
               👤 View Full Client History
+            </button>
+          )}
+
+          {/* Forced duplicate flag — fuzzy-matched automatically on load, not
+              waiting for anyone to remember to check. Covers "still on the
+              board" and "scheduled in the future" since both are just open
+              rows in the same jobs table. */}
+          {potentialDuplicates.length > 0 && (
+            <button onClick={() => setShowDuplicateModal(true)}
+              style={{ marginTop: 12, width: '100%', textAlign: 'left', background: '#7c2d1230', border: '2px solid #f97316', borderRadius: 12, padding: '12px 14px', cursor: 'pointer' }}>
+              <div style={{ color: '#fdba74', fontWeight: 800, fontSize: 14 }}>
+                ⚠️ Possible duplicate — {potentialDuplicates.length} similar job{potentialDuplicates.length > 1 ? 's' : ''} found
+              </div>
+              <div style={{ color: '#fed7aa', fontSize: 12, marginTop: 3 }}>
+                {potentialDuplicates.slice(0, 3).map(d => `${d.customer_name} (${STATUS_INFO[d.status]?.label || d.status})`).join(' · ')}
+                {potentialDuplicates.length > 3 ? ` +${potentialDuplicates.length - 3} more` : ''} — tap to review
+              </div>
             </button>
           )}
 
@@ -747,25 +827,44 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           )}
 
           {/* Phone */}
-          {job.customer_phone && (
-            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ color: '#e2e8f0', fontSize: '15px' }}>📞 {job.customer_phone}</span>
-              <a href={`tel:${job.customer_phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+          {parsePhoneNumbers(job.customer_phone || linkedCustomer?.phone).map((p, i) => (
+            <div key={i} style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ color: '#e2e8f0', fontSize: '15px' }}>📞 {p.display}{p.label ? ` · ${p.label}` : ''}</span>
+              <a href={`tel:${p.digits}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+            </div>
+          ))}
+
+          {/* Access codes */}
+          {(job.gate_code || job.panel_password) && (
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+              {job.gate_code && (
+                <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '14px 18px' }}>
+                  <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Gate Code</div>
+                  <div style={{ color: '#f59e0b', fontSize: '20px', fontWeight: '700', marginTop: '4px' }}>{job.gate_code}</div>
+                </div>
+              )}
+              {job.panel_password && (
+                <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '14px 18px' }}>
+                  <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Panel</div>
+                  <div style={{ color: '#f59e0b', fontSize: '20px', fontWeight: '700', marginTop: '4px' }}>{job.panel_password}</div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Issue */}
-          {job.issue && (
+          {cleanIssue && (
             <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px 18px', marginBottom: '20px' }}>
               <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>Issue</div>
-              <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.5 }}>{job.issue}</div>
+              <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.5 }}>{cleanIssue}</div>
             </div>
           )}
 
           {/* CMS */}
-          {linkedCustomer && linkedCustomer.notes && (
+          {linkedCustomer && (linkedCustomer.cms_account_id || (linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes))) && (
             <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' }}>
-              {linkedCustomer.notes && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
+              {linkedCustomer.cms_account_id && <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '4px' }}>📡 CMS: {linkedCustomer.cms_account_id}</div>}
+              {linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes) && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
             </div>
           )}
 
@@ -792,7 +891,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </div>
 
           {/* Move status — bidirectional, any role, note travels with the card */}
-          <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} />
+          <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} onRequestSchedule={attemptSchedule} />
 
           {/* Notes */}
           <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
@@ -923,25 +1022,44 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Phone */}
-        {job.customer_phone && (
-          <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#e2e8f0', fontSize: '14px' }}>📞 {job.customer_phone}</span>
-            <a href={`tel:${job.customer_phone}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+        {parsePhoneNumbers(job.customer_phone || linkedCustomer?.phone).map((p, i) => (
+          <div key={i} style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#e2e8f0', fontSize: '14px' }}>📞 {p.display}{p.label ? ` · ${p.label}` : ''}</span>
+            <a href={`tel:${p.digits}`} style={{ color: '#22c55e', fontSize: '14px', fontWeight: '600', textDecoration: 'none' }}>Call →</a>
+          </div>
+        ))}
+
+        {/* Access codes */}
+        {(job.gate_code || job.panel_password) && (
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            {job.gate_code && (
+              <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '12px 16px' }}>
+                <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Gate Code</div>
+                <div style={{ color: '#f59e0b', fontSize: '18px', fontWeight: '700', marginTop: '4px' }}>{job.gate_code}</div>
+              </div>
+            )}
+            {job.panel_password && (
+              <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', padding: '12px 16px' }}>
+                <div style={{ color: '#cbd5e1', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Panel Password</div>
+                <div style={{ color: '#f59e0b', fontSize: '18px', fontWeight: '700', marginTop: '4px' }}>{job.panel_password}</div>
+              </div>
+            )}
           </div>
         )}
 
         {/* Issue */}
-        {job.issue && (
+        {cleanIssue && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', marginBottom: '16px' }}>
             <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '6px' }}>Issue</div>
-            <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}>{job.issue}</div>
+            <div style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}>{cleanIssue}</div>
           </div>
         )}
 
         {/* CMS */}
-        {linkedCustomer && linkedCustomer.notes && (
+        {linkedCustomer && (linkedCustomer.cms_account_id || (linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes))) && (
           <div style={{ background: '#1e293b', borderRadius: '12px', padding: '12px 16px', marginBottom: '16px' }}>
-            {linkedCustomer.notes && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
+            {linkedCustomer.cms_account_id && <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '4px' }}>📡 CMS: {linkedCustomer.cms_account_id}</div>}
+            {linkedCustomer.notes && !isMergeAuditText(linkedCustomer.notes) && <div style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>💬 {linkedCustomer.notes}</div>}
           </div>
         )}
 
@@ -975,7 +1093,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                   </div>
                 );
               })}
-              {JOB_TYPE_INFO[job.job_type]?.minutes && (
+              {Number(JOB_TYPE_INFO[job.job_type]?.minutes) > 0 && (
                 <div style={{ color: '#cbd5e1', fontSize: '11px', marginTop: '8px', textAlign: 'right' }}>⏱ Expected: {JOB_TYPE_INFO[job.job_type].minutes} min</div>
               )}
             </div>
@@ -983,7 +1101,9 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         })()}
 
         {/* Estimate */}
-        {job.estimate_amount && (
+        {/* `&&` on a NUMBER renders the number when it's 0 — that bare 0 above
+            the merge button was an estimate_amount of zero. Compare explicitly. */}
+        {Number(job.estimate_amount) > 0 && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px' }}>
             <div style={{ color: '#cbd5e1', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>Estimate</div>
             <div style={{ color: '#22c55e', fontSize: '22px', fontWeight: '700' }}>${parseFloat(job.estimate_amount).toLocaleString()}</div>
@@ -991,7 +1111,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         )}
 
         {/* Parts */}
-        {job.parts_needed && (
+        {!!job.parts_needed && (
           <div style={{ background: '#1e293b', borderRadius: '10px', padding: '12px', marginBottom: '16px', border: '1px solid #f59e0b30' }}>
             <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>📦 Parts Needed</div>
             <div style={{ color: '#e2e8f0', fontSize: '14px' }}>{job.parts_needed}</div>
@@ -1010,7 +1130,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                   {a.time_out && <span style={{ color: '#94a3b8', fontSize: '12px', marginLeft: '8px' }}>Out: {formatTimeOnly(a.time_out)}</span>}
                 </div>
                 <div>
-                  {a.actual_hours ? <span style={{ color: '#e8a33d', fontSize: '13px', fontWeight: '700' }}>{a.actual_hours.toFixed(1)}h</span>
+                  {a.actual_hours ? <span style={{ color: '#00c8e8', fontSize: '13px', fontWeight: '700' }}>{a.actual_hours.toFixed(1)}h</span>
                     : a.is_complete ? <span style={{ color: '#22c55e', fontSize: '12px' }}>✓ Done</span> : null}
                 </div>
               </div>
@@ -1029,7 +1149,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                 {job.time_out && <span style={{ color: '#94a3b8', fontSize: '12px', marginLeft: '8px' }}>Out: {formatTimeOnly(job.time_out)}</span>}
               </div>
               <div>
-                {job.actual_hours ? <span style={{ color: '#e8a33d', fontSize: '13px', fontWeight: '700' }}>{Number(job.actual_hours).toFixed(1)}h</span> : null}
+                {job.actual_hours ? <span style={{ color: '#00c8e8', fontSize: '13px', fontWeight: '700' }}>{Number(job.actual_hours).toFixed(1)}h</span> : null}
               </div>
             </div>
           </div>
@@ -1070,8 +1190,20 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           </button>
         )}
 
+        {/* Move status + notes — these used to exist ONLY on the `isScheduled`
+            branch above, so every ticket that wasn't scheduled (tasks, new,
+            ready, returns, estimates — i.e. most of the board) opened with no
+            way to write a note and no visible status control beyond a collapsed
+            "Change status manually…". Opening a card and being unable to say
+            anything about it is the reason people stop opening cards. */}
+        <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} onRequestSchedule={attemptSchedule} />
+
+        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+
+        <FieldVisits job={job} />
+
         {/* Duplicate merge */}
-        <button onClick={findPotentialDuplicates}
+        <button onClick={() => findPotentialDuplicates(false)}
           style={{ background: '#6366f115', color: '#6366f1', border: '1px solid #6366f140', borderRadius: '10px', padding: '12px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', width: '100%', textAlign: 'center', marginBottom: '12px' }}>
           🔗 Mark as Duplicate / Merge
         </button>

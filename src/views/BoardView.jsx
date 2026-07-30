@@ -106,6 +106,48 @@ const fmtDate = iso => {
 };
 
 // ── UUID Linker ───────────────────────────────────────────────────────────────
+function ShareButton({ job }) {
+  // Generates a short /j/<8chars> link and offers copy + email.
+  // The link resolves via ShortLink.jsx — no login required to VIEW the card,
+  // so Shana can text or email it to a client or sub and they open it directly.
+  const [copied, setCopied] = useState(false);
+  const shortCode = job.id.replace(/-/g, '').slice(0, 8);
+  const url = `${window.location.origin}/j/${shortCode}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const emailIt = () => {
+    const customer = job.customer_name || 'the job';
+    const issue   = job.issue || '';
+    const subject = encodeURIComponent(`DRH Security — ${customer}`);
+    const body    = encodeURIComponent(
+      `Hi,\n\nHere is the link to view the service ticket for ${customer}:\n${url}\n\n${issue ? `Issue: ${issue}\n\n` : ''}Let us know if you have any questions.\n\nDRH Security Services`
+    );
+    window.open(`mailto:?subject=${subject}&body=${body}`);
+  };
+
+  return (
+    <div style={{ display:'flex', gap:8, marginTop:6 }}>
+      <button onClick={copy}
+        style={{ flex:1, padding:'8px 10px', borderRadius:6, border:'1px solid #334155',
+                 background: copied ? '#166534' : '#1e293b', color: copied ? '#bbf7d0' : '#94a3b8',
+                 fontSize:12, fontWeight:600, cursor:'pointer' }}>
+        {copied ? '✓ Copied!' : '🔗 Copy link'}
+      </button>
+      <button onClick={emailIt}
+        style={{ flex:1, padding:'8px 10px', borderRadius:6, border:'1px solid #334155',
+                 background:'#1e293b', color:'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+        ✉ Email link
+      </button>
+    </div>
+  );
+}
+
 function UUIDLinker({ job, onLinked }) {
   const [query, setQuery] = useState(job.customer_name || '');
   const [results, setResults] = useState([]);
@@ -444,6 +486,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
                          borderRadius:8, padding:'9px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
                 👁 Watch this
               </button>
+              <ShareButton job={job} />
               <UUIDLinker job={job} onLinked={onUUIDLinked} />
               <MergeTool job={job} allJobs={allJobs} onMerge={onMerge}
                 accessToken={accessToken} userEmail={userEmail} />

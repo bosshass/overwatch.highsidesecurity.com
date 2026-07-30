@@ -21,14 +21,17 @@
 // The roster is PEOPLE, not techs. Office staff own plenty of work and were
 // unrepresentable while the only ownership field pointed at the techs table.
 export const ASSIGNEES = [
-  { email: 'shanaparks@drhsecurityservices.com', name: 'Shana' },
-  { email: 'jr@drhsecurityservices.com',          name: 'JR' },
-  { email: 'austin@drhsecurityservices.com',      name: 'Austin' },
-  { email: 'brian@drhsecurityservices.com',       name: 'Brian' },
-  { email: 'trevor@drhsecurityservices.com',      name: 'Trevor' },
-  { email: 'admin@jnbservice.com',                name: 'Sara' },
-  { email: 'subs@drhsecurityservices.com',        name: 'Subs' },
+  { email: 'shanaparks@drhsecurityservices.com', name: 'Shana',  phone: '8087474948' },
+  { email: 'jr@drhsecurityservices.com',          name: 'JR',    phone: '8088541757' },
+  { email: 'austin@drhsecurityservices.com',      name: 'Austin', phone: null },
+  { email: 'brian@drhsecurityservices.com',       name: 'Brian',  phone: null },
+  { email: 'trevor@drhsecurityservices.com',      name: 'Trevor', phone: null },
+  { email: 'admin@jnbservice.com',                name: 'Sara',   phone: null },
+  { email: 'subs@drhsecurityservices.com',        name: 'Subs',   phone: '7207500063' },
 ];
+export const PHONE_BY_EMAIL = Object.fromEntries(
+  ASSIGNEES.filter(a => a.phone).map(a => [a.email, a.phone])
+);
 
 // ── ONE PERSON, SEVERAL LOGINS ───────────────────────────────────────────────
 // JR signs in as info@ (the shared mailbox) but his ROSTER email is jr@.

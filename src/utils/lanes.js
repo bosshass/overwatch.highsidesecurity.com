@@ -162,14 +162,40 @@ export const laneColor = (job) => laneOf(job)?.color || '#64748b';
 // The moves offered from where a job is now — every lane except its own.
 // Deliberately NOT a restrictive transition table: the old one had five
 // statuses with no exits at all, so those tickets could not be moved.
+// ── Estimate sub-status moves ───────────────────────────────────────────────
+// These are not lanes — they are steps within the Estimates lane. They only
+// appear when the job is already in the estimates flow so the full board list
+// does not drown them out.
+const ESTIMATE_STEPS = [
+  { key: 'needs_estimate', label: '📋 Needs Estimate',   color: '#f59e0b', means: 'Not written yet — on us' },
+  { key: 'estimate_sent',  label: '📤 Estimate Sent',    color: '#3b82f6', means: 'Sent — waiting on customer' },
+  { key: 'won',            label: '🏆 Won',              color: '#10b981', means: 'Customer approved — schedule it' },
+  { key: 'lost',           label: '❌ Lost',             color: '#ef4444', means: 'Did not get the job' },
+];
+
+const ESTIMATE_STATUSES = new Set(ESTIMATE_STEPS.map(s => s.key));
+
 export function movesFor(job, { includeBilling = true, includeClear = true } = {}) {
   const here = laneOf(job)?.key;
+  const currentStatus = job?.status;
+
+  // When inside the estimates flow, show the sub-status steps instead of
+  // the full board list. The full list is still available via "Move to" but
+  // the primary options are the estimate progression.
+  if (ESTIMATE_STATUSES.has(currentStatus)) {
+    return [
+      ...ESTIMATE_STEPS.filter(s => s.key !== currentStatus),
+      // Always offer an escape hatch back to the main board
+      { key: 'ready_to_schedule', label: '✅ Ready to Schedule', color: '#22c55e', means: 'Estimate won — put it on the calendar' },
+      { key: 'new',              label: '📝 Back to New/Notes',  color: '#94a3b8', means: 'Not ready yet — needs more info' },
+    ];
+  }
+
   // Billed is only a sensible destination for work that is actually finished.
-  // Offering it on a job nobody has done yet invites marking unworked jobs paid.
-  const finished = ['complete', 'to_bill', 'billed'].includes(job?.status);
+  const finished = ['complete', 'to_bill', 'billed'].includes(currentStatus);
   return [
     ...LANES.slice(0, 2),        // New/Notes, Ready
-    RETURN_LANE,                 // its own destination, right after Ready
+    RETURN_LANE,
     ...LANES.slice(2),           // Tentative, Scheduled, Estimates
     ...(includeBilling ? [BILLING_LANE] : []),
     ...(includeBilling && finished ? [BILLED_LANE] : []),

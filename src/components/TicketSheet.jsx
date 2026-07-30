@@ -19,6 +19,9 @@
 
 import { useState } from 'react';
 import { supabase } from '../services/supabase.js';
+import { sendGmail } from '../services/gmailSend.js';
+import { assignmentMessage } from '../config/appBase.js';
+import { PHONE_BY_EMAIL } from '../utils/ownership.js';
 import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME } from '../utils/ownership.js';
 import { LANES, movesFor, laneOf, isHeld } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
@@ -96,6 +99,18 @@ export default function TicketSheet({
       if (error) throw error;
       setOwner(email ? (ASSIGNEES.find(a => a.email === email)?.name || email) : '\u0000');
       onAssigned?.(job.id, email);
+
+      // Notify the assignee — send email via Gmail using the same OAuth token
+      // that's already in scope. No Twilio, no server, no extra config.
+      // Falls back silently if the token lacks gmail.send scope.
+      if (email && accessToken) {
+        const name = ASSIGNEES.find(a => a.email === email)?.name || email;
+        sendGmail(accessToken, {
+          to: email,
+          subject: `[Overwatch] Assigned: ${job.customer_name || 'a job'}`,
+          body: assignmentMessage(job),
+        }).catch(() => {}); // never block the UI on a notification
+      }
     } catch (e) { setErr(e.message || 'Could not assign'); }
     finally { setSaving(false); }
   };

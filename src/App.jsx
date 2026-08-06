@@ -679,7 +679,14 @@ export default function App() {
 
     return (
       <div style={{
-        minHeight: '100vh', minHeight: '100dvh',
+        // NOT `minHeight: '100vh', minHeight: '100dvh'`. That is the CSS
+        // fallback pattern and it does NOT work in a JS object — a duplicate
+        // key is just overwritten, so the vh half was dead code that only
+        // produced a build warning. dvh is what actually applied, and it is
+        // what we want: on mobile Safari 100vh includes the address bar and
+        // pushes the bottom of the screen out of reach. A real fallback would
+        // need a stylesheet, not this.
+        minHeight: '100dvh',
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         background: 'radial-gradient(120% 80% at 50% 0%, #0d1422 0%, #070a11 60%, #05070c 100%)',
         padding: 'calc(56px + env(safe-area-inset-top)) 28px calc(28px + env(safe-area-inset-bottom))',

@@ -324,7 +324,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         <div onClick={closeSheet}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '16px 16px calc(24px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480, maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            style={{ background: '#ffffff', borderRadius: '20px 20px 0 0', padding: '16px 16px calc(24px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480, maxHeight: '92dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
             <div style={{ width: 40, height: 5, background: '#e5e7eb', borderRadius: 3, margin: '0 auto 14px' }} />
 

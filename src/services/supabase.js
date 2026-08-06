@@ -4,6 +4,11 @@
 // Customer is a SEPARATE model. Do not merge into jobs.
 
 import { createClient } from '@supabase/supabase-js';
+// Static, not `await import()`. This was the only dynamic importer of
+// calendars.js while twenty other files import it statically, so the bundler
+// could never split it out and warned on every build. A dynamic import that
+// cannot actually be code-split is just a slower static one.
+import { TECH_CALENDAR_MAP } from '../config/calendars.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://wolhqelloeypafmmvapn.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxODUsImV4cCI6MjA4NDg2MDE4NX0.wQZ14FMQ03A8cBYXBMS1-pII4lKhTL7VNPl9zBCs-EM';
@@ -96,7 +101,6 @@ export const techsApi = {
     if (calErr) throw calErr;
     if (calMatch) return calMatch;
 
-    const { TECH_CALENDAR_MAP } = await import('../config/calendars.js');
     const myCalId = TECH_CALENDAR_MAP[normalized];
     if (myCalId) {
       const altEmails = Object.entries(TECH_CALENDAR_MAP)

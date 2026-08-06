@@ -561,7 +561,8 @@ const overlay = {
 const sheet = {
   background: '#ffffff', borderRadius: '20px 20px 0 0',
   padding: '20px 18px calc(28px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480,
-  maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto',
+  // dvh only — a duplicate JS key is overwritten, not a CSS fallback.
+  maxHeight: '92dvh', overflowY: 'auto',
   boxShadow: '0 -4px 24px rgba(0,0,0,0.2)',
 };
 const hr = { height: 1, background: '#e5e7eb', margin: '12px 0' };

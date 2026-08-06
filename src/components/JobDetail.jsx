@@ -664,7 +664,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         <VisualSchedulerModal job={job} techs={schedTechs} accessToken={accessToken} userEmail={userEmail}
           onClose={() => setShowScheduleModal(false)}
           onScheduled={() => { setShowScheduleModal(false); loadJob(); onUpdate?.(); }}
-          userEmail={userEmail} userRole={userRole} accessToken={accessToken} />
+          userRole={userRole} />
       )}
       {showRescheduleModal && job && (
         <RescheduleModal job={job} assignments={assignments} onClose={() => setShowRescheduleModal(false)}

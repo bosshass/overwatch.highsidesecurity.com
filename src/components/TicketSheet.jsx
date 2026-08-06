@@ -126,8 +126,13 @@ export default function TicketSheet({
       return;
     }
     if (pending?.key !== lane.key) { setPending(lane); return; }
+    // A destination with no target is a BUG, not a no-op. It used to sail
+    // straight through to changeStatus(id, undefined), which wrote nothing and
+    // reported success. Say so instead of pretending the move happened.
+    const target = lane.target || lane.key;
+    if (!target) { setErr(`"${lane.label}" has no destination — tell Sara.`); return; }
     try {
-      await onMove?.(lane.target, note.trim() || null);
+      await onMove?.(target, note.trim() || null);
       setPending(null); setNote('');
     } catch (e) { setErr(e.message || 'Move failed'); }
   };

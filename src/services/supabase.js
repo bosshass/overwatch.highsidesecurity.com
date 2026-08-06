@@ -292,6 +292,15 @@ export const jobsApi = {
   },
 
   async changeStatus(id, newStatus, changedBy, notes = null) {
+    // THE SILENT-NO-OP GUARD.
+    // supabase-js serializes the update with JSON.stringify, which DROPS keys
+    // whose value is undefined. So changeStatus(id, undefined) sent a PATCH
+    // with no `status` at all: Postgres happily updated nothing, no error was
+    // raised, the toast said the move worked, and a history row was written
+    // with a null destination. Every Sent / Won / Lost click died here.
+    // A move with no destination is a programming error — throw.
+    if (!newStatus) throw new Error('changeStatus called with no status — the move button is missing its target.');
+
     const { data: current } = await supabase.from('jobs').select('status').eq('id', id).single();
     const oldStatus = current?.status;
 

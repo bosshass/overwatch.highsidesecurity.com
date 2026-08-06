@@ -166,11 +166,17 @@ export const laneColor = (job) => laneOf(job)?.color || '#64748b';
 // These are not lanes — they are steps within the Estimates lane. They only
 // appear when the job is already in the estimates flow so the full board list
 // does not drown them out.
+// EVERY ENTRY HERE NEEDS A `target`. These were written with only `key`, while
+// every lane above carries `target` — and TicketSheet commits a move with
+// `onMove(lane.target)`. So `target` was undefined, supabase-js dropped the
+// undefined `status` out of the PATCH body, the row came back unchanged, and
+// the UI reported success. Sent / Won / Lost looked clickable and did nothing.
+// That is why `won` has zero rows in the entire table.
 const ESTIMATE_STEPS = [
-  { key: 'needs_estimate', label: '📋 Needs Estimate',   color: '#f59e0b', means: 'Not written yet — on us' },
-  { key: 'estimate_sent',  label: '📤 Estimate Sent',    color: '#3b82f6', means: 'Sent — waiting on customer' },
-  { key: 'won',            label: '🏆 Won',              color: '#10b981', means: 'Customer approved — schedule it' },
-  { key: 'lost',           label: '❌ Lost',             color: '#ef4444', means: 'Did not get the job' },
+  { key: 'needs_estimate', target: 'needs_estimate', icon: '📋', label: 'Needs Estimate', color: '#f59e0b', means: 'Not written yet — on us' },
+  { key: 'estimate_sent',  target: 'estimate_sent',  icon: '📤', label: 'Estimate Sent',  color: '#3b82f6', means: 'Sent — waiting on customer' },
+  { key: 'won',            target: 'won',            icon: '🏆', label: 'Won',            color: '#10b981', means: 'Customer approved — schedule it' },
+  { key: 'lost',           target: 'lost',           icon: '❌', label: 'Lost',           color: '#ef4444', means: 'Did not get the job' },
 ];
 
 const ESTIMATE_STATUSES = new Set(ESTIMATE_STEPS.map(s => s.key));
@@ -185,9 +191,16 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
   if (ESTIMATE_STATUSES.has(currentStatus)) {
     return [
       ...ESTIMATE_STEPS.filter(s => s.key !== currentStatus),
-      // Always offer an escape hatch back to the main board
-      { key: 'ready_to_schedule', label: '✅ Ready to Schedule', color: '#22c55e', means: 'Estimate won — put it on the calendar' },
-      { key: 'new',              label: '📝 Back to New/Notes',  color: '#94a3b8', means: 'Not ready yet — needs more info' },
+      // Escape hatches back to the main board. These were missing `target`
+      // too, so an estimate job could not get out of the estimates flow either.
+      { key: 'ready_to_schedule', target: 'ready_to_schedule', icon: '✅', label: 'Ready to Schedule', color: '#22c55e', means: 'Estimate won — put it on the calendar' },
+      { key: 'new',               target: 'new',               icon: '📝', label: 'Back to New/Notes',  color: '#94a3b8', means: 'Not ready yet — needs more info' },
+      // The old comment claimed the full list was "still available via Move to."
+      // There is no such control — this list IS the control. Billing and Clear
+      // were therefore unreachable from any estimate status, which is how a
+      // needs_estimate note with nothing behind it could never be cleared.
+      ...(includeBilling ? [BILLING_LANE] : []),
+      ...(includeClear ? [CLEAR_LANE] : []),
     ];
   }
 

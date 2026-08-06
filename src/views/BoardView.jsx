@@ -179,13 +179,22 @@ function UUIDLinker({ job, onLinked }) {
     setSaving(false);
   };
 
-  const createAndLink = async () => {
+  const [dupes, setDupes] = useState(null);
+
+  const createAndLink = async (force = false) => {
     if (!newName.trim()) { setErr('Name required'); return; }
     setSaving(true);
     try {
-      const c = await customersApi.createLoose({ name:newName, phone:newPhone, address:newAddr });
+      const c = await customersApi.createLoose({ name:newName, phone:newPhone, address:newAddr }, { force });
+      setDupes(null);
       await link(c.id);
-    } catch(e) { setErr(e.message); }
+    } catch(e) {
+      // createLoose now refuses to mint a near-duplicate. Show the candidates
+      // so the person can link the existing customer in one tap — or insist,
+      // which is a real case (two people genuinely named Ferreri).
+      if (e.code === 'POSSIBLE_DUPLICATE') { setDupes(e.candidates); setErr(''); }
+      else setErr(e.message);
+    }
     setSaving(false);
   };
 
@@ -238,11 +247,34 @@ function UUIDLinker({ job, onLinked }) {
             </div>
           ))}
           <div style={{ display:'flex', gap:6, marginTop:8 }}>
-            <button onClick={() => setCreateMode(false)} style={{ flex:1, padding:8, borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:12, cursor:'pointer' }}>back</button>
-            <button onClick={createAndLink} disabled={saving||!newName.trim()} style={{ flex:2, padding:8, borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:12, cursor:'pointer' }}>
+            <button onClick={() => { setCreateMode(false); setDupes(null); }} style={{ flex:1, padding:8, borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:12, cursor:'pointer' }}>back</button>
+            <button onClick={() => createAndLink(false)} disabled={saving||!newName.trim()} style={{ flex:2, padding:8, borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:12, cursor:'pointer' }}>
               {saving ? 'saving…' : 'create & link'}
             </button>
           </div>
+
+          {/* Already exists? Link it instead of making a second one. */}
+          {dupes && dupes.length > 0 && (
+            <div style={{ marginTop:10, background:'#78350f33', border:'1px solid #f59e0b', borderRadius:8, padding:'9px 11px' }}>
+              <div style={{ fontSize:12, fontWeight:800, color:'#fbbf24', marginBottom:6 }}>
+                This may already exist — link one of these?
+              </div>
+              {dupes.map(c => (
+                <button key={c.id} onClick={() => { setDupes(null); link(c.id); }}
+                  style={{ display:'block', width:'100%', textAlign:'left', marginBottom:4, padding:'7px 9px',
+                           borderRadius:6, border:'1px solid #f59e0b55', background:'#0e1a2b',
+                           color:'#eaf1fb', fontSize:12, cursor:'pointer' }}>
+                  <b style={{ color:'#00c8e8' }}>{c.short_code}</b> {c.name}
+                  {c.address ? <span style={{ color:'#8497b0' }}> · {c.address}</span> : null}
+                </button>
+              ))}
+              <button onClick={() => createAndLink(true)} disabled={saving}
+                style={{ marginTop:4, width:'100%', padding:'7px', borderRadius:6, border:'1px solid #334155',
+                         background:'transparent', color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
+                None of these — create "{newName.trim()}" anyway
+              </button>
+            </div>
+          )}
         </>
       )}
       {err && <div style={{ color:'#ef4444', fontSize:11, marginTop:6 }}>{err}</div>}

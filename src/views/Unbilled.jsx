@@ -41,7 +41,7 @@ export const BUCKETS = [
   { key: 'dead',     label: '⚠️ Worked, then killed',  color: '#f59e0b',
     blurb: 'A tech spent these hours and the job was later marked dead, lost or archived. Somebody has to DECIDE: bill it anyway, or archive it as cost DRH absorbed. Right now it is just sitting there.' },
   { key: 'nojob',    label: '🔗 No job on the board',  color: '#94a3b8',
-    blurb: 'Work with no job attached. It cannot be tracked, chased or invoiced until it is linked.' },
+    blurb: 'Work with no job attached. Make a ticket to chase it, or — if it was already invoiced in QuickBooks — mark it billed straight from here without creating one.' },
   { key: 'nohours',  label: '⏱ To bill, no hours',    color: '#f97316',
     blurb: 'The job is marked To Bill but nobody logged time against it. It shows as done on the board and is invisible on an invoice. Either the hours were never clocked, or it should not be in To Bill. Open it and decide.' },
   { key: 'mismatch', label: '❓ Job says billed',      color: '#a855f7',
@@ -254,6 +254,39 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
+  // ORPHANED HOURS — no job on the board.
+  // This bucket used to be pure diagnosis: it named the problem and offered no
+  // way out, so the only route for hours you had ALREADY invoiced in QuickBooks
+  // was to create a ticket you did not want purely to close them. 16 of the 20
+  // billable entries sitting here on 2026-08-06 were in exactly that state,
+  // including both Jeanneret days.
+  //
+  // Marking billed here stamps the time entries and nothing else — there is no
+  // job to write through to, which is the whole point. Clearing archives with a
+  // reason rather than deleting, so the hours stay auditable.
+  const closeOrphan = async (g, target) => {
+    const ids = g.visits.map(v => v.id).filter(Boolean);
+    if (!ids.length) return;
+    const n = ids.length;
+    const msg = target === 'billed'
+      ? `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed?\n\nNo ticket is created. Use this when the work was already invoiced in QuickBooks.`
+      : `Clear ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name}?\n\nThe hours are archived, not deleted, and stop showing as unbilled.`;
+    if (!window.confirm(msg)) return;
+    setSaving(true);
+    try {
+      const patch = target === 'billed'
+        ? { billed: true, billed_at: new Date().toISOString(), invoice_ref: invoiceRef.trim() || null }
+        : { archived: true, archived_at: new Date().toISOString(), archived_by: userEmail,
+            archive_reason: 'Cleared from Billing — no job on the board, not billable' };
+      const { error } = await supabase.from('time_entries').update(patch).in('id', ids);
+      if (error) throw error;
+      setToast(`${g.name} — ${n} visit${n > 1 ? 's' : ''} ${target === 'billed' ? 'billed' : 'cleared'}`);
+      setTimeout(() => setToast(''), 2600);
+      await load();
+    } catch (e) { setToast('Could not update: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
   const markBilled = async () => {
     if (!sel.rows.length) return;
     const n = sel.rows.length;
@@ -447,6 +480,36 @@ export default function Unbilled({ onBack, userEmail }) {
                   dead end — "Select all visits" selects nothing and the invoice
                   button stays dead. What it needs is a DECISION, so offer the
                   three that actually exist. */}
+              {/* Orphaned hours: no job to tick through, so offer the decisions
+                  that actually exist instead of a dead-end explanation. */}
+              {open && !g.noEntries && g.bucket === 'nojob' && (
+                <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
+                              display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <button onClick={() => window.open('/board', '_self')}
+                    style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
+                             fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Make a ticket for this
+                  </button>
+                  <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
+                    style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
+                             color: '#22c55e', fontSize: 13, fontWeight: 700, padding: '9px 14px',
+                             cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Invoiced elsewhere — mark billed
+                  </button>
+                  <button onClick={() => closeOrphan(g, 'archived')} disabled={saving}
+                    style={{ background: 'transparent', border: '1px solid #64748b', borderRadius: 8,
+                             color: '#94a3b8', fontSize: 13, fontWeight: 700, padding: '9px 14px',
+                             cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Not billable — clear it
+                  </button>
+                  <div style={{ flexBasis: '100%', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                    Marking billed stamps these hours only — no ticket is created, and the
+                    invoice ref above is applied if you filled it in. Clearing archives them;
+                    nothing is deleted.
+                  </div>
+                </div>
+              )}
+
               {open && g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
                               display: 'flex', flexWrap: 'wrap', gap: 8 }}>

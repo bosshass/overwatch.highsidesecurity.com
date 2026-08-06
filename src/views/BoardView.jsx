@@ -557,6 +557,31 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
             ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
           </span>
         )}
+        {/* THE BOOKED DATE. The card showed who owned a job and how long it had
+            been sitting, but never WHEN it was going to happen — so a Scheduled
+            column was a list of jobs with no dates in it.
+            Parsed manually, NOT with new Date(str). jobs.scheduled_date is a
+            DATE ('2026-08-07'), and new Date() reads a bare date as UTC
+            midnight — which in Denver renders as the PREVIOUS DAY. That is the
+            same off-by-one that used to drop jobs into Needs Action at 6 PM.
+            Splitting the parts and building a local Date avoids it entirely. */}
+        {job.scheduled_date && !isHeld(job) && (() => {
+          const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+          if (!y || !m || !d) return null;
+          const when = new Date(y, m - 1, d);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          // Past-dated and still open = it did not happen. Say so in red rather
+          // than printing a date that quietly reads as fine.
+          const overdue = when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
+          const color = overdue ? '#ef4444' : '#38bdf8';
+          return (
+            <span style={{ fontSize:12, fontWeight:700, color, background:`${color}22`,
+                           padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+              📅 {when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
+              {overdue ? ' · past' : ''}
+            </span>
+          );
+        })()}
         {staleColor && (
           <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
             style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
@@ -732,18 +757,32 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       const ACTIVE = ['new','needs_details','needs_parts','pending_materials','pending_decision','blocked','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill','won'];
       const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:true}).limit(500);
       if (error) throw error;
-      // last_note_at — the last time a human actually SAID something about this
+      // last_activity — the last time a human actually DID something about this
       // job. This is what the staleness rule measures, NOT updated_at.
+      //
+      // It used to count typed notes ONLY. So moving a card from Needs Estimate
+      // to Estimate Sent — a deliberate act, the whole point of the board —
+      // left it reading "7d no comment," and the person who just worked it got
+      // told nobody had touched it. A status move IS the comment.
+      //
+      // Still excludes updated_at, which bumps on anything at all (a background
+      // sync, a calendar rewrite) and would make everything look fresh forever.
+      // What counts: a typed note, or a real transition where the status
+      // actually changed. Re-stamping the same status with no note does not.
       const ids = (data || []).map(x => x.id);
       let lastNote = {};
       if (ids.length) {
         const { data: notes } = await supabase
           .from('job_history')
-          .select('job_id, changed_at')
+          .select('job_id, changed_at, notes, from_status, to_status')
           .in('job_id', ids)
-          .not('notes', 'is', null)
           .order('changed_at', { ascending: false });
-        (notes || []).forEach(n => { if (!lastNote[n.job_id]) lastNote[n.job_id] = n.changed_at; });
+        (notes || []).forEach(n => {
+          if (lastNote[n.job_id]) return;                       // already have a newer one
+          const saidSomething = n.notes != null && String(n.notes).trim() !== '';
+          const movedIt = n.to_status && n.to_status !== n.from_status;
+          if (saidSomething || movedIt) lastNote[n.job_id] = n.changed_at;
+        });
       }
       setJobs((data || []).map(j => ({ ...j, last_note_at: lastNote[j.id] || null })));
       const j = data||[];

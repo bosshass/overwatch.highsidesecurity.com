@@ -647,21 +647,43 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                         </div>
                       )}
 
-                      {custNotes.map(n => (
-                        <div key={n.id} style={{ ...card, borderLeft: '3px solid #38bdf8', padding: '10px 13px' }}>
-                          <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#e2e8f0' }}>{n.body}</div>
-                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 7, fontSize: 11.5, color: '#64748b' }}>
-                            <span>{n.created_at ? new Date(n.created_at).toLocaleDateString() : ''}</span>
-                            {n.author_email && <span>{n.author_email.split('@')[0]}</span>}
-                            {n.lane && n.lane !== 'done' && (
-                              <span style={{ color: '#a78bfa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{n.lane}</span>
-                            )}
-                            {(n.ticket_id || n.job_id) && (
-                              <span style={{ color: '#22c55e', fontWeight: 700 }}>&rarr; ticket</span>
-                            )}
+                      {/* Open first, closed underneath. Every note rendered
+                          the same, so a live question about autopay sat in the
+                          middle of eighteen months of closed history and read
+                          exactly like it. A note is paper, not a card — no
+                          slab, no rounded box, just a rule and the words. */}
+                      {(() => {
+                        const open = custNotes.filter(n => n.lane !== 'done');
+                        const done = custNotes.filter(n => n.lane === 'done');
+                        const Note = ({ n, dim }) => (
+                          <div key={n.id} style={{
+                            borderLeft: `2px solid ${n.assigned_to ? '#a78bfa' : (dim ? '#1e293b' : '#38bdf8')}`,
+                            padding: '5px 0 9px 12px', marginBottom: 3, opacity: dim ? 0.55 : 1 }}>
+                            <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#e2e8f0' }}>{n.body}</div>
+                            <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 5, fontSize: 11, color: '#64748b' }}>
+                              <span>{n.created_at ? new Date(n.created_at).toLocaleDateString() : ''}</span>
+                              {n.author_email && <span>{n.author_email.split('@')[0]}</span>}
+                              {n.assigned_to && (
+                                <span style={{ color: '#a78bfa', fontWeight: 700 }}>
+                                  task &middot; {n.assigned_to.split('@')[0]}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                        return (
+                          <>
+                            {open.map(n => <Note key={n.id} n={n} />)}
+                            {done.length > 0 && (
+                              <div style={{ fontSize: 11, color: '#64748b', margin: '10px 0 6px',
+                                            textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                Closed ({done.length})
+                              </div>
+                            )}
+                            {done.map(n => <Note key={n.id} n={n} dim />)}
+                          </>
+                        );
+                      })()}
                     </>
                   )}
                 </div>

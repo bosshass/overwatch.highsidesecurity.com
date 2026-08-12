@@ -315,6 +315,22 @@ export const jobsApi = {
     // column. services/schedule.js is the only thing allowed to SET it.
     updates.tentative_date = null;
     updates.tentative_event_id = null;
+
+    // LEAVING SCHEDULED GIVES THE JOB BACK ITS DATE PROBLEM.
+    // A booking is only true while the status says scheduled. Moving to
+    // return_pending, blocked or ready_to_schedule means the old date is a
+    // date nobody is going to — but it was left on the row, so the job still
+    // read as booked and reappeared on the calendar it had just left.
+    // Ownership flips the same way: scheduled work belongs to the tech, and
+    // anything else is waiting on a person to decide something, so the office
+    // takes it back. services/schedule.js is the only thing that SETS these.
+    const UNSCHEDULES = ['return_pending', 'blocked', 'ready_to_schedule',
+                         'needs_estimate', 'estimate_sent', 'new'];
+    if (oldStatus === 'scheduled' && UNSCHEDULES.includes(newStatus)) {
+      updates.scheduled_date = null;
+      updates.scheduled_event_id = null;
+      updates.assigned_to = 'shanaparks@drhsecurityservices.com';
+    }
     // TWO OF THESE WROTE COLUMNS THAT DO NOT EXIST ON `jobs`:
     //   scheduled_at — never existed here. Scheduling state is scheduled_date
     //                  plus scheduled_event_id, written by services/schedule.js.

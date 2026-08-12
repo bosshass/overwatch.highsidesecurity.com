@@ -11,7 +11,7 @@
 
 import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
@@ -83,6 +83,7 @@ const editInput = { background: '#1e293b', border: '1px solid #334155', borderRa
 // ── component ────────────────────────────────────────────────
 export default function CustomerHistory({ onBack, userEmail, accessToken, initialCustomerId }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const me = userEmail || (typeof localStorage !== 'undefined' && localStorage.getItem('juce_v4_email')) || '';
 
   const [registry, setRegistry]   = useState([]);
@@ -91,6 +92,8 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [tagged, setTagged]       = useState([]);
   const [suggested, setSuggested] = useState([]);
   const [openWork, setOpenWork]   = useState([]);
+  const [custNotes, setCustNotes] = useState([]);
+  const [showNotes, setShowNotes] = useState(true);
   const [showDone, setShowDone]   = useState(true);
   const [loading, setLoading]     = useState(false);
   const [err, setErr]             = useState('');
@@ -168,6 +171,16 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     if (!error) setOpenWork(data || []); // keep ALL (open + done); split in render
   }, []);
 
+
+  const loadNotes = useCallback(async (customer) => {
+    const { data, error } = await supabase
+      .from('notes')
+      .select('id, body, author_email, created_at, lane, status, ticket_id, job_id')
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false });
+    if (!error) setCustNotes(data || []);
+  }, []);
+
   const loadEvents = useCallback(async (customer) => {
     setLoading(true); setErr('');
     try {
@@ -203,12 +216,22 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     }
   }, []);
 
+  // A note can be created from the global + menu while this screen is open,
+  // so the panel refreshes on focus rather than only on customer select.
+  useEffect(() => {
+    if (!selected) return;
+    const onFocus = () => loadNotes(selected);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [selected, loadNotes]);
+
   const pick = (customer) => {
     setSelected(customer);
     setCreateMode(null);
     setEditingDetails(false);
     loadEvents(customer);
     loadOpenWork(customer);
+    loadNotes(customer);
   };
 
   const startEditDetails = () => {
@@ -238,6 +261,9 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   };
 
   const refreshWork = () => { if (selected) loadOpenWork(selected); };
+
+  // Deep link into the job card. /board?job=<uuid> is the app's existing pattern.
+  const openJobCard = (id) => navigate(`/board?job=${id}`);
 
   // ── create actions ──
   const saveNote = async () => {
@@ -280,7 +306,12 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   };
   // promote a note/task into a real job → enters the schedule→bill flow.
   const promoteToJob = async (id) => {
-    try { await jobsApi.update(id, { job_type: 'service_res' }, me); refreshWork(); }
+    try {
+      await jobsApi.update(id, { job_type: 'service_res' }, me);
+      // A note that becomes a job needs scoping, scheduling and an owner.
+      // Leaving the user on the customer screen meant that never happened.
+      openJobCard(id);
+    }
     catch (e) { setErr(e.message || 'Failed to make a job'); }
   };
   const reopen = async (id) => {
@@ -351,7 +382,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     const actionable = j.job_type === 'note' || j.job_type === 'task';
     const miniBtn = (bg) => ({ flex: 1, background: `${bg}1f`, border: `1px solid ${bg}`, color: bg, borderRadius: 8, padding: '8px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' });
     return (
-      <div style={{ ...card, opacity: done ? 0.6 : 1 }}>
+      <div
+        onClick={() => { if (!actionable) openJobCard(j.id); }}
+        style={{ ...card, opacity: done ? 0.6 : 1, cursor: actionable ? 'default' : 'pointer' }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
           <Badge color={t.color}>{t.label}</Badge>
           {!done && <Badge color={s.color}>{s.label}</Badge>}
@@ -360,7 +394,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
         </div>
         {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none' }}>{j.issue}</div>}
         {actionable && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }} onClick={e => e.stopPropagation()}>
             {done ? (
               <button style={miniBtn('#64748b')} onClick={() => reopen(j.id)}>↩ Reopen</button>
             ) : (
@@ -456,7 +490,21 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               {selected.qbo_customer_id && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ flexShrink: 0 }}>📗</span>
-                  <span style={{ color: '#94a3b8' }}>QBO: {selected.qbo_customer_name || selected.qbo_customer_id}</span>
+                  {/* The QBO id was printed as dead text. It is the fastest
+                      route from a customer here to their invoices there, and
+                      it was a copy-paste job every time. */}
+                  {selected.qbo_customer_id ? (
+                    <a
+                      href={`https://app.qbo.intuit.com/app/customerdetail?nameId=${selected.qbo_customer_id}`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ color: '#38bdf8', textDecoration: 'none', borderBottom: '1px dotted #38bdf8' }}
+                      title="Open in QuickBooks"
+                    >
+                      QBO: {selected.qbo_customer_name || selected.qbo_customer_id} &#8599;
+                    </a>
+                  ) : (
+                    <span style={{ color: '#94a3b8' }}>QBO: {selected.qbo_customer_name || '\u2014'}</span>
+                  )}
                 </div>
               )}
               {!selected.address && !selected.phone && !selected.system_type && !selected.monitoring_tier &&
@@ -581,6 +629,42 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                     </>
                   );
                 })()}
+
+                {/* customer notes */}
+                <div style={{ marginTop: openWork.length ? 18 : 4 }}>
+                  <button
+                    onClick={() => setShowNotes(v => !v)}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...sectionLabel, color: '#38bdf8' }}
+                  >
+                    {showNotes ? '\u25be' : '\u25b8'} Notes ({custNotes.length})
+                  </button>
+
+                  {showNotes && (
+                    <>
+                      {custNotes.length === 0 && (
+                        <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                          No notes on this account yet.
+                        </div>
+                      )}
+
+                      {custNotes.map(n => (
+                        <div key={n.id} style={{ ...card, borderLeft: '3px solid #38bdf8', padding: '10px 13px' }}>
+                          <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#e2e8f0' }}>{n.body}</div>
+                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 7, fontSize: 11.5, color: '#64748b' }}>
+                            <span>{n.created_at ? new Date(n.created_at).toLocaleDateString() : ''}</span>
+                            {n.author_email && <span>{n.author_email.split('@')[0]}</span>}
+                            {n.lane && n.lane !== 'done' && (
+                              <span style={{ color: '#a78bfa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{n.lane}</span>
+                            )}
+                            {(n.ticket_id || n.job_id) && (
+                              <span style={{ color: '#22c55e', fontWeight: 700 }}>&rarr; ticket</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
 
                 {/* finished visits */}
                 <div style={{ ...sectionLabel, color: '#cbd5e1', marginTop: openWork.length ? 18 : 4 }}>

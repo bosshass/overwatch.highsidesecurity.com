@@ -128,6 +128,20 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   const myNotes = useMemo(() => notesFor(person), [notesFor, person]);
   const unowned = useMemo(() => jobs.filter(j => !assigneeOf(j)), [jobs]);
 
+  // A task had no exit. The card opened its job if it had one and did nothing
+  // if it didn't, so nothing could ever be finished — which is why they piled
+  // up. Two moves are all a note needs: pick it up, or be done with it.
+  const moveNote = async (id, lane) => {
+    const patch = lane === 'done'
+      ? { lane, status: 'closed', done_at: new Date().toISOString(), done_by: canonicalEmail(userEmail) }
+      : { lane };
+    const { error } = await supabase.from('notes').update(patch).eq('id', id);
+    if (error) { setErr(error.message); return; }
+    setNotes(prev => lane === 'done'
+      ? prev.filter(n => n.id !== id)
+      : prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
+  };
+
   // Their work, in the SAME five lanes the board uses.
   const byLane = useMemo(() => {
     const m = {};
@@ -371,21 +385,39 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                   {items.map(n => {
                     const job = n.job_id ? jobs.find(j => j.id === n.job_id) : null;
                     return (
-                      <button key={n.id}
-                        onClick={() => job ? setOpenJob(job) : null}
-                        style={{ display: 'block', width: '100%', textAlign: 'left',
-                                 background: C.raised, border: `1px solid ${C.line}`,
+                      <div key={n.id}
+                        style={{ background: C.raised, border: `1px solid ${C.line}`,
                                  borderLeft: `3px solid ${tl.color}`, borderRadius: 10,
-                                 padding: '11px 13px', marginBottom: 7,
-                                 cursor: job ? 'pointer' : 'default',
-                                 color: C.text, fontFamily: 'inherit' }}>
-                        <div style={{ fontSize: 14, lineHeight: 1.45 }}>{n.body}</div>
+                                 padding: '11px 13px', marginBottom: 7, color: C.text }}>
+                        <div
+                          onClick={() => job ? setOpenJob(job) : null}
+                          style={{ fontSize: 14, lineHeight: 1.45, cursor: job ? 'pointer' : 'default' }}>
+                          {n.body}
+                        </div>
                         {job && (
                           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 5 }}>
                             {job.customer_name} · {laneOf(job)?.label || job.status}
                           </div>
                         )}
-                      </button>
+                        {tl.key !== 'done' && (
+                          <div style={{ display: 'flex', gap: 7, marginTop: 9 }}>
+                            {tl.key === 'todo' && (
+                              <button onClick={() => moveNote(n.id, 'doing')}
+                                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',
+                                         background: 'transparent', border: `1px solid ${C.amber}`,
+                                         color: C.amber, fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                                Start
+                              </button>
+                            )}
+                            <button onClick={() => moveNote(n.id, 'done')}
+                              style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',
+                                       background: 'transparent', border: '1px solid #22c55e',
+                                       color: '#22c55e', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                              ✓ Done
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </Section>

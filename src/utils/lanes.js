@@ -14,6 +14,20 @@
 // Everything that moves a job imports from here. If a label needs changing, it
 // changes once and every screen follows.
 
+// BLOCKED IS NOT INTAKE. It was folded into triage, so a $65,688 job waiting
+// on a customer read as "New / Notes" — unfiled, unlooked-at, indistinguishable
+// from something nobody had typed a scope into yet. Blocked is the one state a
+// person asserts on purpose, and it is the only one that carries a reason.
+export const BLOCKED_LANE = {
+  key: 'blocked',
+  label: 'Blocked',
+  icon: '🛑',
+  color: '#ef4444',
+  target: 'blocked',
+  statuses: ['blocked'],
+  means: 'Cannot move until something outside us changes \u2014 say what',
+};
+
 export const LANES = [
   {
     key: 'triage',
@@ -23,7 +37,7 @@ export const LANES = [
     // Where a job LANDS when sent here.
     target: 'new',
     // Statuses that render in this lane.
-    statuses: ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked'],
+    statuses: ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision'],
     // What choosing this means, in the words a person would use.
     means: 'Not actionable yet — needs info, parts or a decision',
   },
@@ -131,7 +145,7 @@ export const ALL_LANES = [...LANES, RETURN_LANE, BILLING_LANE, BILLED_LANE, CLEA
 const STATUS_TO_LANE = {};
 // Order matters: RETURN_LANE registers LAST so return_pending resolves to
 // Return (its identity), not Ready (the column it happens to render in).
-[...LANES, BILLING_LANE, BILLED_LANE, CLEAR_LANE, RETURN_LANE]
+[...LANES, BLOCKED_LANE, BILLING_LANE, BILLED_LANE, CLEAR_LANE, RETURN_LANE]
   .forEach(l => l.statuses.forEach(s => { STATUS_TO_LANE[s] = l; }));
 
 // Which lane a job is currently sitting in. A tentative hold wins over the

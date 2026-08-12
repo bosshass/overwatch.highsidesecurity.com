@@ -46,7 +46,7 @@ const fmtMoney = n => n >= 1000
   ? `$${(n/1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
   : n ? `$${n}` : '';
 
-const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
+const KPI_EMAILS = ['accounting@drhsecurityservices.com'];
 
 export default function OpsHome({
   userName, isOperator, accessToken, userEmail,
@@ -88,7 +88,7 @@ export default function OpsHome({
           .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
           .limit(1000),
         supabase.from('notes')
-          .select('id, body, author_email, lane, created_at, updated_at')
+          .select('id, body, author_email, assigned_to, lane, created_at, updated_at')
           .limit(1000),
       ]);
 
@@ -97,7 +97,12 @@ export default function OpsHome({
 
       const rows = ASSIGNEES.map(person => {
         const theirJobs  = (jobs || []).filter(j => assigneeOf(j) === person.name);
-        const theirNotes = (notes || []).filter(n => n.author_email === person.email);
+        // A task is a note somebody OWNS, not one they typed. This matched on
+        // author_email, so a person's number counted everything they had ever
+        // written down — Shana read 49 items on a panel called Who's Stuck,
+        // 36 of them finished. Writing a note is not being stuck.
+        const theirNotes = (notes || []).filter(n =>
+          (n.assigned_to || '').toLowerCase() === person.email.toLowerCase());
 
         const todo  = theirJobs.length + theirNotes.filter(n => n.lane === 'todo').length;
         const doing = theirNotes.filter(n => n.lane === 'doing').length;
@@ -115,7 +120,13 @@ export default function OpsHome({
         const oldest = open[0] || null;
         return {
           ...person, todo, doing, done, watching,
-          total: todo + doing + done,
+          // Done is not stuck. Counting it made the headline number grow every
+          // time somebody finished something, which is backwards.
+          total: todo + doing,
+          // Same shape as their People tabs, so the summary and the page agree.
+          work: theirJobs.filter(j => !['scheduled'].includes(j.status)).length,
+          tasks: theirNotes.filter(n => n.lane !== 'done').length,
+          scheduled: theirJobs.filter(j => j.status === 'scheduled').length,
           oldest: oldest ? { ...oldest, days: daysSince(oldest.at) } : null,
         };
       })
@@ -371,7 +382,11 @@ export default function OpsHome({
                   </div>
 
                   <div style={{ display:'flex', gap:14, marginBottom:13 }}>
-                    {[['To Do', p.todo, C.amber], ['Doing', p.doing, C.blue], ['Done', p.done, C.green]].map(([l, n, col]) => (
+                    {/* To Do / Doing / Done are NOTE lanes. Most of what a
+                        person owns is jobs, which have no such states — so the
+                        summary was describing one screen and linking to
+                        another. Same three words as their tabs. */}
+                    {[['Work', p.work, C.amber], ['Tasks', p.tasks, C.blue], ['Schedule', p.scheduled, C.green]].map(([l, n, col]) => (
                       <div key={l}>
                         <div style={{ fontSize:24, fontWeight:900, lineHeight:1, color: n ? col : '#33455f' }}>{n}</div>
                         <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{l}</div>

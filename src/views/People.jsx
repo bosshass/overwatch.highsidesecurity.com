@@ -136,6 +136,25 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   // bucket that existed only because assignment was being treated as a
   // lifecycle stage, and it let real work sit in a pile nobody read.
   // Unowned jobs now appear in the lanes with everything else.
+  // The pill counted jobs. The tabs count work + tasks + schedule. So a
+  // person's number never matched the sum of what was under it — Shana read
+  // 11 while her three tabs added to something else. One definition now:
+  // open work you own, plus tasks assigned to you.
+  const countFor = useCallback((name) => {
+    const js = name === 'all'
+      ? jobs
+      : jobs.filter(j => assigneeOf(j) === name).concat(jobs.filter(j => !assigneeOf(j)));
+    const ns = name === 'all'
+      ? notes.filter(n => n.assigned_to && n.lane !== 'done')
+      : (() => {
+          const hit = ASSIGNEES.find(a => a.name === name);
+          if (!hit) return [];
+          const mine = new Set(emailsFor(hit.email));
+          return notes.filter(n => mine.has((n.assigned_to || '').toLowerCase()) && n.lane !== 'done');
+        })();
+    return js.length + ns.length;
+  }, [jobs, notes]);
+
   const myJobs = useMemo(() => {
     const own = jobsFor(person);
     if (person === 'all') return own;
@@ -315,10 +334,10 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '12px 16px',
                     borderBottom: `1px solid ${C.line}`, position: 'sticky', top: 53,
                     background: C.bg, zIndex: 55, WebkitOverflowScrolling: 'touch' }}>
-        <PersonChip name="all" count={jobs.length} color={C.cyan} active={person === 'all'} />
+        <PersonChip name="all" count={countFor('all')} color={C.cyan} active={person === 'all'} />
         {ASSIGNEES.map(a => (
           <PersonChip key={a.email} name={a.name}
-            count={jobsFor(a.name).length}
+            count={countFor(a.name)}
             color={TECH_COLORS[a.name] || C.cyan}
             active={person === a.name} />
         ))}

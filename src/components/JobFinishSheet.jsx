@@ -34,6 +34,7 @@ import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
+import { ASSIGNEES } from '../utils/ownership.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -211,6 +212,12 @@ export default function JobFinishSheet({
       scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
       calendar_event_id: event.id,
       scheduled_event_id: event.id,   // both, so the next lookup cannot miss
+      // The event knows whose calendar it came from — the adopt just never
+      // carried it, so every adopted job landed with no tech on it. That is
+      // how Chris Hare's second install day became an unowned job: a machine
+      // made it, and machines were not filling this in.
+      tech_name: event.techName || undefined,
+      assigned_to: ASSIGNEES.find(a => a.name === event.techName)?.email || undefined,
     }, `${userEmail} · adopted from calendar`);
     return created?.id || null;
   };
@@ -561,7 +568,8 @@ const overlay = {
 const sheet = {
   background: '#ffffff', borderRadius: '20px 20px 0 0',
   padding: '20px 18px calc(28px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480,
-  maxHeight: '92vh', maxHeight: '92dvh', overflowY: 'auto',
+  // dvh only — a duplicate JS key is overwritten, not a CSS fallback.
+  maxHeight: '92dvh', overflowY: 'auto',
   boxShadow: '0 -4px 24px rgba(0,0,0,0.2)',
 };
 const hr = { height: 1, background: '#e5e7eb', margin: '12px 0' };

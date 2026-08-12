@@ -297,6 +297,38 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
+  // ATTACH. Every orphan on this screen belongs to a customer who already has
+  // a job — Jeanneret had one, BG Auto has four, Shepard has three. The three
+  // actions here were make-a-new-ticket, mark-billed and clear, so the only
+  // way to fix a missing link was to create a second job or write the hours
+  // off. That is why 43 hours sat here: the right answer had no button.
+  const [attachFor, setAttachFor] = useState(null);   // the group being linked
+  const [attachOpts, setAttachOpts] = useState([]);
+
+  const openAttach = async (g) => {
+    setAttachFor(g); setAttachOpts([]);
+    const cid = g.entries?.[0]?.customer_id;
+    if (!cid) return;
+    const { data } = await supabase.from('jobs')
+      .select('id, status, issue, customer_name, scheduled_date, estimate_amount')
+      .eq('customer_id', cid)
+      .not('status', 'in', '(dead,archived,lost)')
+      .order('created_at', { ascending: false })
+      .limit(25);
+    setAttachOpts(data || []);
+  };
+
+  const attachTo = async (jobId) => {
+    if (!attachFor) return;
+    setSaving(true);
+    const ids = attachFor.entries.map(e => e.id);
+    const { error } = await supabase.from('time_entries')
+      .update({ job_id: jobId }).in('id', ids);
+    setSaving(false);
+    if (error) { alert('Could not attach: ' + error.message); return; }
+    setAttachFor(null); setAttachOpts([]); load();
+  };
+
   const markBilled = async () => {
     if (!sel.rows.length) return;
     const n = sel.rows.length;
@@ -495,10 +527,16 @@ export default function Unbilled({ onBack, userEmail }) {
               {open && !g.noEntries && g.bucket === 'nojob' && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
                               display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button onClick={() => window.open('/board', '_self')}
+                  <button onClick={() => openAttach(g)} disabled={saving}
                     style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Make a ticket for this
+                    Attach to an existing job
+                  </button>
+                  <button onClick={() => window.open('/board', '_self')}
+                    style={{ background: 'transparent', border: '1px solid #1d4ed8', borderRadius: 8,
+                             color: '#60a5fa', fontSize: 13, fontWeight: 700, padding: '9px 14px',
+                             cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Make a new ticket
                   </button>
                   <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
@@ -624,6 +662,58 @@ export default function Unbilled({ onBack, userEmail }) {
                 🔧 <b>Materials on this invoice:</b> {sel.materials.join(' · ')}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* Pick the job these hours belong to. Only that customer's jobs, so
+          there is no way to attach Jeanneret's install to somebody else. */}
+      {attachFor && (
+        <div onClick={() => setAttachFor(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,8,16,0.8)', zIndex: 950,
+                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 14,
+                     padding: 18, width: '100%', maxWidth: 560, maxHeight: '80dvh', overflowY: 'auto' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#e2e8f0', marginBottom: 3 }}>
+              Attach {fmtH(hrs(attachFor.entries.reduce((n, e) => n + (e.total_minutes || 0), 0)))} to a job
+            </div>
+            <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14 }}>
+              {attachFor.name} &middot; {attachFor.entries.length} {attachFor.entries.length === 1 ? 'visit' : 'visits'}
+            </div>
+
+            {attachOpts.length === 0 && (
+              <div style={{ fontSize: 13, color: '#94a3b8', padding: '10px 0' }}>
+                No open job for this customer. Make a new ticket instead.
+              </div>
+            )}
+
+            {attachOpts.map(j => (
+              <button key={j.id} onClick={() => attachTo(j.id)} disabled={saving}
+                style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 7,
+                         background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 10,
+                         padding: '10px 13px', cursor: 'pointer', color: '#e2e8f0', fontFamily: 'inherit' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase',
+                                 letterSpacing: 0.5, color: '#60a5fa' }}>{j.status}</span>
+                  {j.scheduled_date && (
+                    <span style={{ fontSize: 11.5, color: '#64748b' }}>{fmtD(j.scheduled_date)}</span>
+                  )}
+                  {Number(j.estimate_amount) > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa' }}>fixed fee</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>
+                  {(j.issue || j.customer_name || 'No description').slice(0, 120)}
+                </div>
+              </button>
+            ))}
+
+            <button onClick={() => setAttachFor(null)}
+              style={{ marginTop: 8, background: 'transparent', border: '1px solid #334155',
+                       borderRadius: 8, color: '#94a3b8', fontSize: 13, fontWeight: 700,
+                       padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              Cancel
+            </button>
           </div>
         </div>
       )}

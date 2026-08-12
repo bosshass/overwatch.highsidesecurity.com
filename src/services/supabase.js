@@ -4,6 +4,11 @@
 // Customer is a SEPARATE model. Do not merge into jobs.
 
 import { createClient } from '@supabase/supabase-js';
+// Static, not `await import()`. This was the only dynamic importer of
+// calendars.js while twenty other files import it statically, so the bundler
+// could never split it out and warned on every build. A dynamic import that
+// cannot actually be code-split is just a slower static one.
+import { TECH_CALENDAR_MAP } from '../config/calendars.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://wolhqelloeypafmmvapn.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxODUsImV4cCI6MjA4NDg2MDE4NX0.wQZ14FMQ03A8cBYXBMS1-pII4lKhTL7VNPl9zBCs-EM';
@@ -96,7 +101,6 @@ export const techsApi = {
     if (calErr) throw calErr;
     if (calMatch) return calMatch;
 
-    const { TECH_CALENDAR_MAP } = await import('../config/calendars.js');
     const myCalId = TECH_CALENDAR_MAP[normalized];
     if (myCalId) {
       const altEmails = Object.entries(TECH_CALENDAR_MAP)
@@ -292,6 +296,15 @@ export const jobsApi = {
   },
 
   async changeStatus(id, newStatus, changedBy, notes = null) {
+    // THE SILENT-NO-OP GUARD.
+    // supabase-js serializes the update with JSON.stringify, which DROPS keys
+    // whose value is undefined. So changeStatus(id, undefined) sent a PATCH
+    // with no `status` at all: Postgres happily updated nothing, no error was
+    // raised, the toast said the move worked, and a history row was written
+    // with a null destination. Every Sent / Won / Lost click died here.
+    // A move with no destination is a programming error — throw.
+    if (!newStatus) throw new Error('changeStatus called with no status — the move button is missing its target.');
+
     const { data: current } = await supabase.from('jobs').select('status').eq('id', id).single();
     const oldStatus = current?.status;
 
@@ -460,14 +473,44 @@ export const assignmentsApi = {
   },
 
   async create(assignment, createdBy) {
-    // Remove any existing non-complete assignment for this job+tech to avoid unique constraint violation
+    // A job can span days. This used to delete EVERY incomplete assignment for
+    // the job+tech before inserting, which meant booking day 2 silently erased
+    // day 1 — day_number never once exceeded 1 in 284 rows because the code
+    // would not allow it. A three-day install had to be entered as three
+    // separate jobs, and that is where the duplicate cards came from.
+    //
+    // The row that genuinely collides is the same tech, same job, same DAY.
+    // Replace that one; leave the other days alone.
     if (assignment.job_id && assignment.tech_id) {
-      await supabase
+      let q = supabase
         .from('job_assignments')
         .delete()
         .eq('job_id', assignment.job_id)
         .eq('tech_id', assignment.tech_id)
         .or('is_complete.is.null,is_complete.eq.false');
+
+      if (assignment.day_number != null) {
+        q = q.eq('day_number', assignment.day_number);
+      } else if (assignment.scheduled_for) {
+        // No explicit day number — scope by calendar day so a second booking
+        // on a different date is an additional day, not a replacement.
+        const d = new Date(assignment.scheduled_for);
+        const from = new Date(d); from.setHours(0, 0, 0, 0);
+        const to   = new Date(d); to.setHours(23, 59, 59, 999);
+        q = q.gte('scheduled_for', from.toISOString()).lte('scheduled_for', to.toISOString());
+      }
+      await q;
+    }
+
+    // Number the day if the caller didn't: next in sequence for this job.
+    if (assignment.job_id && assignment.day_number == null) {
+      const { data: existing } = await supabase
+        .from('job_assignments')
+        .select('day_number')
+        .eq('job_id', assignment.job_id)
+        .order('day_number', { ascending: false })
+        .limit(1);
+      assignment.day_number = (existing?.[0]?.day_number || 0) + 1;
     }
     const { data, error } = await supabase
       .from('job_assignments')
@@ -883,15 +926,76 @@ export const returnCardsApi = {
 // Extend the existing customersApi with a name-only create path.
 // Phone, address, email, cms_account_id all optional.
 
-customersApi.createLoose = async function(partial) {
+// THE DUPLICATE FACTORY, CLOSED.
+// This inserted unconditionally: type a name, get a row. Nine of the twenty-
+// three duplicate customers merged on 2026-08-06 came from right here, all
+// created in the preceding three weeks — ECK490, JEA489, LAI492, PAV494,
+// PER488, WAT495, HUA493, HUA192, MIK278. Every one had the same fingerprint:
+// cms_account_id = '', no CS number, no jobs, no hours. Somebody linking a job
+// typed a customer who already existed, and V9 happily made a second one.
+//
+// Now it looks first. An exact normalized-name hit returns the existing
+// customer outright. A fuzzy hit is REPORTED, not auto-merged — "Sainati" vs
+// "Santini" is a real pair of different people, so silently binding to the
+// wrong customer would be worse than the duplicate. The caller decides.
+//
+// Pass { force: true } to insert anyway once the person has seen the warning.
+customersApi.createLoose = async function(partial, opts = {}) {
   if (!partial?.name || !partial.name.trim()) {
     throw new Error('Customer name is required');
   }
+  const wanted = partial.name.trim();
+
+  if (!opts.force) {
+    // Only live rows — a merged-away duplicate must never be handed back as
+    // if it were the customer.
+    const { data: existing } = await supabase
+      .from('customers')
+      .select('id, name, short_code, address, cs_number')
+      .is('merged_into', null)
+      .limit(1000);
+
+    const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const target = norm(wanted);
+
+    const exact = (existing || []).find(c => norm(c.name) === target);
+    if (exact) return exact;                       // same customer, already here
+
+    // Deliberately NOT importing utils/fuzzyMatch.js: that module imports THIS
+    // one, and a circular import can leave the function undefined at init.
+    // Token overlap is enough for the case that actually bites — a name typed
+    // slightly differently from one already on file.
+    const tokens = s => new Set(
+      (s || '').toLowerCase().split(/[^a-z0-9]+/)
+        .filter(t => t.length > 2 && !['llc','inc','llp','the','and','corp'].includes(t))
+    );
+    const want = tokens(wanted);
+    const overlaps = (name) => {
+      const other = tokens(name);
+      if (!want.size || !other.size) return false;
+      let hit = 0;
+      for (const t of want) if (other.has(t)) hit++;
+      return hit / Math.min(want.size, other.size) >= 0.6;
+    };
+
+    const near = (existing || []).filter(c => overlaps(c.name)).slice(0, 5);
+    if (near.length) {
+      const err = new Error(
+        `"${wanted}" looks like it may already exist: ` +
+        near.map(c => `${c.short_code} ${c.name}`).join(', ')
+      );
+      err.code = 'POSSIBLE_DUPLICATE';
+      err.candidates = near;                       // caller can offer "use this one"
+      throw err;
+    }
+  }
+
   const payload = {
-    name: partial.name.trim(),
+    name: wanted,
     phone: partial.phone?.trim() || null,
     address: partial.address?.trim() || null,
     email: partial.email?.trim() || null,
+    // '' not null was the tell that marked every shell row. Store null.
     cms_account_id: partial.cms_account_id?.trim() || null,
     is_active: true,
   };

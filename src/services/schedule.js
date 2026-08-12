@@ -21,7 +21,7 @@
 // a maintenance window, not a Sunday 3am; until then this module IS the schema
 // as far as the app is concerned.
 
-import { supabase } from './supabase.js';
+import { supabase, assignmentsApi } from './supabase.js';
 
 // Lightweight audit trail for "who scheduled/rescheduled/held how much this
 // week" — a real question with no existing answer anywhere in the data.
@@ -191,7 +191,26 @@ export async function bookExtraDay({ job, tech, start, end, accessToken, dayLabe
     startTime: start,
     endTime: end,
   });
-  return { eventId: created?.id || null };
+  // The event alone was never enough. bookExtraDay used to create a calendar
+  // entry and return — no job_assignments row — so day 2 existed on Google and
+  // nowhere in the database. It could not be reported on, could not carry
+  // hours, and showed up in the Event Audit as an orphan with "never entered
+  // Overwatch" next to it. The row is the record; the event is a copy of it.
+  const eventId = created?.id || null;
+  try {
+    await assignmentsApi.create({
+      job_id: job.id,
+      tech_id: tech.id,
+      scheduled_for: start,
+      estimated_hours: (new Date(end) - new Date(start)) / 3600000 || null,
+      calendar_event_id: eventId,
+      calendar_synced_at: new Date().toISOString(),
+    }, job.updated_by || 'schedule.bookExtraDay');
+  } catch (e) {
+    // Never lose the booking over a bookkeeping row, but say so loudly.
+    console.error('bookExtraDay: event created but assignment row failed', e);
+  }
+  return { eventId };
 }
 
 // ── LINK: adopt an event somebody already made ─────────────────────────

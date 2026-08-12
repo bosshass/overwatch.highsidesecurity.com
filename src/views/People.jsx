@@ -120,13 +120,25 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     if (name === 'all') return notes;
     const hit = ASSIGNEES.find(a => a.name === name);
     if (!hit) return [];
+    // A task is a note somebody OWNS. This filtered on author_email, so the
+    // tab showed everything a person had ever written — Shana had 11 tasks
+    // because she typed 11 notes, not because any of them were hers to do.
+    // Assignment is what makes a note a task; that is the only thing to match.
     const mine = new Set(emailsFor(hit.email));
-    return notes.filter(n => mine.has((n.author_email || '').toLowerCase()));
+    return notes.filter(n => mine.has((n.assigned_to || '').toLowerCase()));
   }, [notes]);
 
-  const myJobs = useMemo(() => jobsFor(person), [jobsFor, person]);
+  // "Unassigned" was never a state. A job is scheduled or it isn't; a note is
+  // a note or, once somebody owns it, a task. Nobody-owns-this was a fourth
+  // bucket that existed only because assignment was being treated as a
+  // lifecycle stage, and it let real work sit in a pile nobody read.
+  // Unowned jobs now appear in the lanes with everything else.
+  const myJobs = useMemo(() => {
+    const own = jobsFor(person);
+    if (person === 'all') return own;
+    return own.concat(jobs.filter(j => !assigneeOf(j)));
+  }, [jobsFor, person, jobs]);
   const myNotes = useMemo(() => notesFor(person), [notesFor, person]);
-  const unowned = useMemo(() => jobs.filter(j => !assigneeOf(j)), [jobs]);
 
   // A task had no exit. The card opened its job if it had one and did nothing
   // if it didn't, so nothing could ever be finished — which is why they piled
@@ -142,10 +154,15 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       : prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
   };
 
-  // Their work, in the SAME five lanes the board uses.
+  // Work is what still needs a decision. Scheduled and Tentative are already
+  // the Schedule tab in full, with dates and a Reschedule button — listing
+  // them here too meant the same job appeared under two tabs and neither
+  // count meant anything.
+  const WORK_LANES = LANES.filter(l => !['scheduled', 'tentative'].includes(l.key));
+
   const byLane = useMemo(() => {
     const m = {};
-    LANES.forEach(l => { m[l.key] = []; });
+    WORK_LANES.forEach(l => { m[l.key] = []; });
     myJobs.forEach(j => {
       const lane = laneOf(j);
       if (lane && m[lane.key]) m[lane.key].push(j);
@@ -256,7 +273,7 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   );
 
   const TABS = [
-    { key: 'work',     label: 'Work',     badge: myJobs.length },
+    { key: 'work',     label: 'Work',     badge: WORK_LANES.reduce((n, l) => n + (byLane[l.key]?.length || 0), 0) },
     { key: 'tasks',    label: 'Tasks',    badge: myNotes.filter(n => n.lane !== 'done').length },
     { key: 'schedule', label: 'Schedule', badge: upcoming.length },
   ];
@@ -325,52 +342,16 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
               <Empty>
                 {person === 'all'
                   ? 'No open jobs.'
-                  : `${person} has no open work. Pick a job from Unassigned below and assign it from the ticket.`}
+                  : `${person} has no open work.`}
               </Empty>
             )}
-            {LANES.map(lane => byLane[lane.key]?.length ? (
+            {WORK_LANES.map(lane => byLane[lane.key]?.length ? (
               <Section key={lane.key} title={`${lane.icon} ${lane.label}`}
                 color={lane.color} count={byLane[lane.key].length}>
                 {byLane[lane.key].map(j => <JobRow key={j.id} job={j} />)}
               </Section>
             ) : null)}
 
-            {/* Unassigned is everyone's problem, so it sits under every person. */}
-            {unowned.length > 0 && (
-              <Section title="Nobody owns this" color={C.red} count={unowned.length}>
-                {unowned.slice(0, 12).map(j => (
-                  <div key={j.id} style={{ marginBottom: 7 }}>
-                    <JobRow job={j} />
-                    <div style={{ display: 'flex', gap: 7, marginLeft: 2, marginTop: -2 }}>
-                      {person !== 'all' && (
-                        <button onClick={() => giveTo(j, person)}
-                          style={{ background: 'transparent', border: `1px solid ${C.green}`,
-                                   borderRadius: 8, color: C.green, fontSize: 12, fontWeight: 700,
-                                   padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          {person === myName ? 'I’ll take it' : `Give to ${person}`}
-                        </button>
-                      )}
-                      {person === 'all' && myName && (
-                        <button onClick={() => giveTo(j, myName)}
-                          style={{ background: 'transparent', border: `1px solid ${C.green}`,
-                                   borderRadius: 8, color: C.green, fontSize: 12, fontWeight: 700,
-                                   padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          I’ll take it
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {unowned.length > 12 && (
-                  <button onClick={() => navigate('/board')}
-                    style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
-                             color: C.muted, fontSize: 12, padding: '8px 12px', cursor: 'pointer',
-                             fontFamily: 'inherit' }}>
-                    See all {unowned.length} on the board
-                  </button>
-                )}
-              </Section>
-            )}
           </>
         )}
 
@@ -389,6 +370,14 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                         style={{ background: C.raised, border: `1px solid ${C.line}`,
                                  borderLeft: `3px solid ${tl.color}`, borderRadius: 10,
                                  padding: '11px 13px', marginBottom: 7, color: C.text }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6,
+                                         textTransform: 'uppercase', color: tl.color,
+                                         border: `1px solid ${tl.color}55`, borderRadius: 4, padding: '1px 5px' }}>
+                            Task
+                          </span>
+                          <span style={{ fontSize: 11, color: C.muted }}>{fmtDay(n.created_at)}</span>
+                        </div>
                         <div
                           onClick={() => job ? setOpenJob(job) : null}
                           style={{ fontSize: 14, lineHeight: 1.45, cursor: job ? 'pointer' : 'default' }}>

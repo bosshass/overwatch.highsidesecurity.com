@@ -166,11 +166,17 @@ export const laneColor = (job) => laneOf(job)?.color || '#64748b';
 // These are not lanes — they are steps within the Estimates lane. They only
 // appear when the job is already in the estimates flow so the full board list
 // does not drown them out.
+// EVERY ENTRY HERE NEEDS A `target`. These were written with only `key`, while
+// every lane above carries `target` — and TicketSheet commits a move with
+// `onMove(lane.target)`. So `target` was undefined, supabase-js dropped the
+// undefined `status` out of the PATCH body, the row came back unchanged, and
+// the UI reported success. Sent / Won / Lost looked clickable and did nothing.
+// That is why `won` has zero rows in the entire table.
 const ESTIMATE_STEPS = [
-  { key: 'needs_estimate', label: '📋 Needs Estimate',   color: '#f59e0b', means: 'Not written yet — on us' },
-  { key: 'estimate_sent',  label: '📤 Estimate Sent',    color: '#3b82f6', means: 'Sent — waiting on customer' },
-  { key: 'won',            label: '🏆 Won',              color: '#10b981', means: 'Customer approved — schedule it' },
-  { key: 'lost',           label: '❌ Lost',             color: '#ef4444', means: 'Did not get the job' },
+  { key: 'needs_estimate', target: 'needs_estimate', icon: '📋', label: 'Needs Estimate', color: '#f59e0b', means: 'Not written yet — on us' },
+  { key: 'estimate_sent',  target: 'estimate_sent',  icon: '📤', label: 'Estimate Sent',  color: '#3b82f6', means: 'Sent — waiting on customer' },
+  { key: 'won',            target: 'won',            icon: '🏆', label: 'Won',            color: '#10b981', means: 'Customer approved — schedule it' },
+  { key: 'lost',           target: 'lost',           icon: '❌', label: 'Lost',           color: '#ef4444', means: 'Did not get the job' },
 ];
 
 const ESTIMATE_STATUSES = new Set(ESTIMATE_STEPS.map(s => s.key));
@@ -179,15 +185,35 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
   const here = laneOf(job)?.key;
   const currentStatus = job?.status;
 
+  // A note or task is not work. Nobody drives to it, it has no scope, no
+  // hours and no invoice — so the six-lane work ladder is nonsense on one.
+  // Two things can happen to it: somebody does it, or it turns out to be
+  // real work and becomes a job. Everything else on this list was noise.
+  if (job?.job_type === 'note' || job?.job_type === 'task') {
+    return [
+      { key: 'ready_to_schedule', target: 'ready_to_schedule', icon: '🔧', label: 'Make it a job',
+        color: '#97c459', means: 'This is real work — needs scoping and a calendar' },
+      { key: 'archived', target: 'archived', icon: '✅', label: 'Done',
+        color: '#22c55e', means: 'Handled. Stays on the customer record.' },
+    ];
+  }
+
   // When inside the estimates flow, show the sub-status steps instead of
   // the full board list. The full list is still available via "Move to" but
   // the primary options are the estimate progression.
   if (ESTIMATE_STATUSES.has(currentStatus)) {
     return [
       ...ESTIMATE_STEPS.filter(s => s.key !== currentStatus),
-      // Always offer an escape hatch back to the main board
-      { key: 'ready_to_schedule', label: '✅ Ready to Schedule', color: '#22c55e', means: 'Estimate won — put it on the calendar' },
-      { key: 'new',              label: '📝 Back to New/Notes',  color: '#94a3b8', means: 'Not ready yet — needs more info' },
+      // Escape hatches back to the main board. These were missing `target`
+      // too, so an estimate job could not get out of the estimates flow either.
+      { key: 'ready_to_schedule', target: 'ready_to_schedule', icon: '✅', label: 'Ready to Schedule', color: '#22c55e', means: 'Estimate won — put it on the calendar' },
+      { key: 'new',               target: 'new',               icon: '📝', label: 'Back to New/Notes',  color: '#94a3b8', means: 'Not ready yet — needs more info' },
+      // The old comment claimed the full list was "still available via Move to."
+      // There is no such control — this list IS the control. Billing and Clear
+      // were therefore unreachable from any estimate status, which is how a
+      // needs_estimate note with nothing behind it could never be cleared.
+      ...(includeBilling ? [BILLING_LANE] : []),
+      ...(includeClear ? [CLEAR_LANE] : []),
     ];
   }
 
@@ -201,4 +227,20 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
     ...(includeBilling && finished ? [BILLED_LANE] : []),
     ...(includeClear ? [CLEAR_LANE] : []),
   ].filter(l => l.key !== here);
+}
+// jobs.scheduled_date is a DATE ('2026-08-28'), not a timestamp. new Date() on
+// a bare date string reads it as UTC midnight, and in Denver that renders as
+// the PREVIOUS DAY — Aug 28 showing up as Thu Aug 27. Every screen that
+// printed a scheduled date was a day early. Split the parts and build a local
+// Date so the day is the day.
+export function localDate(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+export function fmtLocalDate(dateStr, opts = { weekday: 'short', month: 'short', day: 'numeric' }) {
+  const dt = localDate(dateStr);
+  return dt ? dt.toLocaleDateString('en-US', opts) : '';
 }

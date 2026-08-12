@@ -23,7 +23,7 @@ import { sendGmail } from '../services/gmailSend.js';
 import { assignmentMessage } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
 import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME } from '../utils/ownership.js';
-import { LANES, movesFor, laneOf, isHeld } from '../utils/lanes.js';
+import { LANES, movesFor, laneOf, isHeld, fmtLocalDate } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import FieldVisits from './FieldVisits.jsx';
@@ -126,8 +126,13 @@ export default function TicketSheet({
       return;
     }
     if (pending?.key !== lane.key) { setPending(lane); return; }
+    // A destination with no target is a BUG, not a no-op. It used to sail
+    // straight through to changeStatus(id, undefined), which wrote nothing and
+    // reported success. Say so instead of pretending the move happened.
+    const target = lane.target || lane.key;
+    if (!target) { setErr(`"${lane.label}" has no destination — tell Sara.`); return; }
     try {
-      await onMove?.(lane.target, note.trim() || null);
+      await onMove?.(target, note.trim() || null);
       setPending(null); setNote('');
     } catch (e) { setErr(e.message || 'Move failed'); }
   };
@@ -176,7 +181,7 @@ export default function TicketSheet({
           <Row label="Phone">{job.customer_phone}</Row>
           <Row label="Tech on site">{job.tech_name}</Row>{/* physical presence, NOT ownership — see the Assigned to block */}
           <Row label="Scheduled">{job.scheduled_date
-            ? new Date(job.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+            ? fmtLocalDate(job.scheduled_date)
             : null}</Row>
           <Row label="CMS">{job.cms_account_id}</Row>
         </div>

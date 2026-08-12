@@ -1,3 +1,4 @@
+import { fmtLocalDate } from '../utils/lanes.js';
 // ============================================
 // appBase — where THIS app actually lives
 // ============================================
@@ -53,8 +54,8 @@ export function assignmentMessage(job) {
   const who  = job.customer_name || 'a job';
   const ask  = (job.issue || '').trim();
   const when = job.scheduled_date
-    ? ` (scheduled ${new Date(job.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+    ? ` (scheduled ${fmtLocalDate(job.scheduled_date, { month: 'short', day: 'numeric' })})`
     : '';
   const askLine = ask ? ` — ${ask.length > 90 ? ask.slice(0, 88).trimEnd() + '…' : ask}` : '';
-  return `You've been assigned to ${who}${when}${askLine}\n${shortJobLink(job.id)}`;
+  return `You've been assigned to ${who}${when}${askLine}\n\nOpen it in Overwatch:\n${shortJobLink(job.id)}`;
 }

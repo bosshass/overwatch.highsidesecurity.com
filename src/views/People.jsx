@@ -117,7 +117,10 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     [jobs]);
 
   const notesFor = useCallback((name) => {
-    if (name === 'all') return notes;
+    // "all" used to return every note in the system, so a private note written
+    // by one person showed up on everybody's tab. A note is yours until you
+    // assign it; only an assigned one — a task — is anyone else's business.
+    if (name === 'all') return notes.filter(n => n.assigned_to);
     const hit = ASSIGNEES.find(a => a.name === name);
     if (!hit) return [];
     // A task is a note somebody OWNS. This filtered on author_email, so the
@@ -143,6 +146,16 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   // A task had no exit. The card opened its job if it had one and did nothing
   // if it didn't, so nothing could ever be finished — which is why they piled
   // up. Two moves are all a note needs: pick it up, or be done with it.
+  // Assigning is what turns a note into a task — it is the only difference
+  // between the two. Nothing in the app wrote assigned_to, so a note could
+  // never become one; it just sat where it was written forever.
+  const assignNote = async (id, email) => {
+    const { error } = await supabase.from('notes')
+      .update({ assigned_to: email }).eq('id', id);
+    if (error) { setErr(error.message); return; }
+    setNotes(prev => prev.map(n => (n.id === id ? { ...n, assigned_to: email } : n)));
+  };
+
   const moveNote = async (id, lane) => {
     const patch = lane === 'done'
       ? { lane, status: 'closed', done_at: new Date().toISOString(), done_by: canonicalEmail(userEmail) }
@@ -366,30 +379,70 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                   {items.map(n => {
                     const job = n.job_id ? jobs.find(j => j.id === n.job_id) : null;
                     return (
+                      // A note is a thing somebody wrote down. A job is a
+                      // visit that produces hours and an invoice. They were
+                      // rendered identically — same slab, same left rule, same
+                      // weight — so a scribbled reminder read as work.
+                      // Paper, not a card: lighter ground, no heavy border,
+                      // and a rule down the side that says who wrote it.
                       <div key={n.id}
-                        style={{ background: C.raised, border: `1px solid ${C.line}`,
-                                 borderLeft: `3px solid ${tl.color}`, borderRadius: 10,
-                                 padding: '11px 13px', marginBottom: 7, color: C.text }}>
+                        style={{ background: 'transparent',
+                                 borderLeft: `2px solid ${n.assigned_to ? tl.color : C.line}`,
+                                 borderRadius: 0,
+                                 padding: '6px 0 10px 12px', marginBottom: 4, color: C.text }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                          {/* Assignment is the only thing that separates the two.
+                              Labelling every row "Task" made a private note look
+                              like something somebody had been handed. */}
                           <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6,
-                                         textTransform: 'uppercase', color: tl.color,
-                                         border: `1px solid ${tl.color}55`, borderRadius: 4, padding: '1px 5px' }}>
-                            Task
+                                         textTransform: 'uppercase',
+                                         color: n.assigned_to ? tl.color : C.muted,
+                                         border: `1px solid ${n.assigned_to ? tl.color + '55' : C.line}`,
+                                         borderRadius: 4, padding: '1px 5px' }}>
+                            {n.assigned_to ? 'Task' : 'Note'}
                           </span>
                           <span style={{ fontSize: 11, color: C.muted }}>{fmtDay(n.created_at)}</span>
                         </div>
                         <div
                           onClick={() => job ? setOpenJob(job) : null}
-                          style={{ fontSize: 14, lineHeight: 1.45, cursor: job ? 'pointer' : 'default' }}>
+                          style={{ fontSize: 13.5, lineHeight: 1.5, color: C.text,
+                                   cursor: job ? 'pointer' : 'default' }}>
                           {n.body}
                         </div>
+                        {n.author_email && (
+                          <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+                            {NAME_BY_EMAIL[canonicalEmail(n.author_email)] || n.author_email.split('@')[0]} wrote this
+                          </div>
+                        )}
                         {job && (
                           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 5 }}>
                             {job.customer_name} · {laneOf(job)?.label || job.status}
                           </div>
                         )}
                         {tl.key !== 'done' && (
-                          <div style={{ display: 'flex', gap: 7, marginTop: 9 }}>
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginTop: 9 }}>
+                            <span style={{ fontSize: 11, color: C.muted, marginRight: 2 }}>
+                              {n.assigned_to ? 'Owner' : 'Give to'}
+                            </span>
+                            {ASSIGNEES.map(a => {
+                              const on = (n.assigned_to || '').toLowerCase() === a.email.toLowerCase();
+                              return (
+                                <button key={a.email}
+                                  onClick={() => assignNote(n.id, on ? null : a.email)}
+                                  title={on ? 'Unassign — back to a private note' : `Give to ${a.name}`}
+                                  style={{ padding: '3px 9px', borderRadius: 20, cursor: 'pointer',
+                                           background: on ? C.cyan : 'transparent',
+                                           border: `1px solid ${on ? C.cyan : C.line}`,
+                                           color: on ? '#0f172a' : C.muted,
+                                           fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                                  {a.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {tl.key !== 'done' && (
+                          <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
                             {tl.key === 'todo' && (
                               <button onClick={() => moveNote(n.id, 'doing')}
                                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',

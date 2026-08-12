@@ -23,12 +23,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { sendGmail } from '../services/gmailSend.js';
 import { supabase, jobsApi } from '../services/supabase.js';
 import {
   ASSIGNEES, assigneeOf, canonicalEmail, emailsFor,
   NAME_BY_EMAIL, CLOSED_STATUSES,
 } from '../utils/ownership.js';
-import { LANES, laneOf } from '../utils/lanes.js';
+import { LANES, laneOf, localDate } from '../utils/lanes.js';
 import { stalenessOf, STALE_COLOR } from '../utils/staleness.js';
 import { TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 import TicketSheet from '../components/TicketSheet.jsx';
@@ -173,6 +174,22 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       .update({ assigned_to: email }).eq('id', id);
     if (error) { setErr(error.message); return; }
     setNotes(prev => prev.map(n => (n.id === id ? { ...n, assigned_to: email } : n)));
+
+    // A task is the ONLY thing that needs a mail. A job reaches its tech
+    // through the calendar; a task has no other way of arriving. Unassigning
+    // sends nothing — there is nobody to tell.
+    if (email && accessToken) {
+      const note = notes.find(n => n.id === id);
+      const body = (note?.body || '').trim();
+      const who  = NAME_BY_EMAIL[canonicalEmail(email)] || email.split('@')[0];
+      sendGmail(accessToken, {
+        to: email,
+        subject: '[Overwatch] Task for you',
+        body: `${who},\n\n${body.length > 400 ? body.slice(0, 398) + '\u2026' : body}\n\n`
+            + `From ${NAME_BY_EMAIL[canonicalEmail(userEmail)] || userEmail}.\n`
+            + `It's on your Tasks tab in Overwatch.`,
+      }).catch(() => {}); // never block the UI on a notification
+    }
   };
 
   const moveNote = async (id, lane) => {
@@ -202,10 +219,31 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     return m;
   }, [myJobs]);
 
-  const upcoming = useMemo(() => myJobs
-    .filter(j => j.scheduled_date || j.tentative_date)
-    .sort((a, b) => new Date(a.scheduled_date || a.tentative_date) - new Date(b.scheduled_date || b.tentative_date)),
-    [myJobs]);
+  // A schedule is what is COMING. Done-To Bill and Complete were listed here
+  // because they still carry a date — so finished work sat in the calendar
+  // alongside next week's bookings and the tab count meant nothing. Anything
+  // already worked belongs in billing, not on a schedule.
+  const upcoming = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const FINISHED = ['to_bill', 'complete', 'billed', 'dead', 'lost', 'archived'];
+    return myJobs
+      .filter(j => (j.scheduled_date || j.tentative_date) && !FINISHED.includes(j.status))
+      .filter(j => localDate(j.scheduled_date || j.tentative_date) >= today)
+      .sort((a, b) => localDate(a.scheduled_date || a.tentative_date)
+                    - localDate(b.scheduled_date || b.tentative_date));
+  }, [myJobs]);
+
+  // Grouped by day so it reads as a calendar rather than a list of rows that
+  // happen to have dates on them.
+  const byDay = useMemo(() => {
+    const m = new Map();
+    upcoming.forEach(j => {
+      const key = String(j.scheduled_date || j.tentative_date).slice(0, 10);
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(j);
+    });
+    return [...m.entries()];
+  }, [upcoming]);
 
   // Claim / hand over in one tap. The old My Tasks had "I'll take it" and
   // People shipped without it, so the only route was open ticket -> assign.
@@ -496,17 +534,43 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                 Open a job from Work and choose Scheduled to book it.
               </Empty>
             )}
-            {upcoming.map(j => (
-              <div key={j.id} style={{ marginBottom: 7 }}>
-                <JobRow job={j} />
-                <button onClick={() => setScheduling(j)}
-                  style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
-                           color: C.cyan, fontSize: 12, fontWeight: 700, padding: '6px 12px',
-                           cursor: 'pointer', fontFamily: 'inherit', marginLeft: 2 }}>
-                  {j.scheduled_date ? 'Reschedule' : 'Book this hold'}
-                </button>
-              </div>
-            ))}
+            {byDay.map(([day, items]) => {
+              const d = localDate(day);
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              const isToday = d && d.getTime() === today.getTime();
+              return (
+                <div key={day} style={{ marginBottom: 18 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8,
+                                paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+                    <span style={{ fontSize: 15, fontWeight: 800,
+                                   color: isToday ? C.cyan : C.text }}>
+                      {d ? d.toLocaleDateString('en-US', { weekday: 'long' }) : day}
+                    </span>
+                    <span style={{ fontSize: 12.5, color: C.muted }}>
+                      {d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                    </span>
+                    {isToday && (
+                      <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6,
+                                     textTransform: 'uppercase', color: C.cyan }}>Today</span>
+                    )}
+                    <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
+                      {items.length} {items.length === 1 ? 'stop' : 'stops'}
+                    </span>
+                  </div>
+                  {items.map(j => (
+                    <div key={j.id} style={{ marginBottom: 7 }}>
+                      <JobRow job={j} />
+                      <button onClick={() => setScheduling(j)}
+                        style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
+                                 color: C.cyan, fontSize: 12, fontWeight: 700, padding: '6px 12px',
+                                 cursor: 'pointer', fontFamily: 'inherit', marginLeft: 2 }}>
+                        {j.scheduled_date ? 'Reschedule' : 'Book this hold'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </>
         )}
       </div>

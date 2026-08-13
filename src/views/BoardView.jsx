@@ -786,7 +786,13 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState({ total_open:0, needs_action:0, to_bill:0, returns_pending:0 });
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
-  const [expandedCol, setExpandedCol] = useState('triage'); // accordion: which section is open on mobile
+  // ?lane=<key> opens the board with that column already expanded. Home's
+  // roll-up tiles link straight here, so tapping "Scheduled · 31" lands on the
+  // Scheduled column instead of the top of the board with Triage open and 31
+  // cards somewhere below the fold. Keys are the LANES keys in utils/lanes.js:
+  // triage | ready | tentative | scheduled | estimates.
+  const [expandedCol, setExpandedCol] = useState(
+    () => new URLSearchParams(window.location.search).get('lane') || 'triage');
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);

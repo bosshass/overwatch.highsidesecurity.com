@@ -20,7 +20,6 @@ import Scheduler from './views/Scheduler.jsx';
 import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
-import HelpBot from './components/HelpBot.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import CustomerHistory from './views/CustomerHistory.jsx';
@@ -1115,7 +1114,8 @@ export default function App() {
         </div>
       )}
 
-      {/* HelpBot removed — the floating bubble sat on top of the + button. */}
+      {/* HelpBot removed 9.26.0 — the floating assistant bubble sat over the
+          bottom-right of every screen, including on top of card actions. */}
     </>
   );
 }

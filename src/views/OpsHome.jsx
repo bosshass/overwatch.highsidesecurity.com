@@ -47,6 +47,18 @@ const fmtMoney = n => n >= 1000
 
 const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
 
+// The board, grouped the way it reads on a phone. `lane` is the LANES key in
+// utils/lanes.js that the tile opens; To Bill has no board column — complete
+// and to_bill live on Billing — so it goes there instead.
+const BOARD_TILES = [
+  { key:'neu',       label:'New',               color:'#ef4444', lane:'triage'    },
+  { key:'estimates', label:'Needs Estimate',    color:'#f5a524', lane:'estimates' },
+  { key:'ready',     label:'Ready to Schedule', color:'#22d16f', lane:'ready'     },
+  { key:'scheduled', label:'Scheduled',         color:'#a855f7', lane:'scheduled' },
+  { key:'returns',   label:'Return Trips',      color:'#f5a524', lane:'ready'     },
+  { key:'tobill',    label:'To Bill',           color:'#16c7df', lane:null        },
+];
+
 export default function OpsHome({
   userName, isOperator, accessToken, userEmail,
   onNavigate, onSignOut, onSearch, onShowTour, onBackfill,
@@ -157,6 +169,7 @@ export default function OpsHome({
       const waiting = (jobs || []).filter(j =>
         NEW_STATUSES.includes(j.status) || ['ready_to_schedule', 'return_pending'].includes(j.status));
       setBoard({
+        tobill:    count('complete', 'to_bill'),
         neu:       count(...NEW_STATUSES),
         oldest:    waiting.reduce((max, j) => {
                      const d = Math.floor((Date.now() - new Date(j.created_at).getTime()) / 86400000);
@@ -259,34 +272,41 @@ export default function OpsHome({
             Google scan. It counted upcoming schedule as lost revenue and could
             not be right. What matters on open is the shape of the board. */}
         {board && (
-          <button onClick={() => go('/board')}
-            style={{ display:'block', width:'calc(100% - 32px)', margin:'16px', textAlign:'left',
-                     background:C.panel, border:`1px solid ${C.line}`, borderRadius:22,
-                     padding:'20px 22px', cursor:'pointer', color:'#fff', fontFamily:'inherit' }}>
-            <div style={{ fontSize:12, fontWeight:900, letterSpacing:'0.1em',
-                          textTransform:'uppercase', color:C.muted, marginBottom:14 }}>
-              The board
-            </div>
-            <div style={{ display:'flex', gap:38, flexWrap:'wrap', alignItems:'flex-end' }}>
-              <div>
-                <div style={{ fontSize:52, fontWeight:900, lineHeight:0.9, color:'#ef4444' }}>{board.neu}</div>
-                <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>new</div>
-              </div>
-              <div>
-                <div style={{ fontSize:52, fontWeight:900, lineHeight:0.9, color:C.green }}>{board.ready}</div>
-                <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>ready to schedule</div>
-              </div>
+          <div style={{ margin:'16px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:11 }}>
+              <span style={{ fontSize:12, fontWeight:900, letterSpacing:'0.1em',
+                             textTransform:'uppercase', color:C.muted }}>The board</span>
               {board.oldest > 0 && (
-                <div>
-                  <div style={{ fontSize:52, fontWeight:900, lineHeight:0.9,
-                                color: board.oldest > 14 ? '#ef4444' : board.oldest > 7 ? C.amber : C.muted }}>
-                    {board.oldest}
-                  </div>
-                  <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>days — oldest</div>
-                </div>
+                <span style={{ fontSize:12, fontWeight:800,
+                               color: board.oldest > 14 ? '#ef4444' : board.oldest > 7 ? C.amber : C.muted }}>
+                  oldest {board.oldest}d
+                </span>
               )}
             </div>
-          </button>
+            {/* Each tile opens the board with ITS column already expanded, via
+                ?lane= — see BoardView's expandedCol. Tapping "Scheduled · 31"
+                used to land on the top of the board with Triage open and those
+                31 cards somewhere below the fold. */}
+            <div style={{ display:'grid', gap:9,
+                          gridTemplateColumns:'repeat(auto-fill, minmax(132px, 1fr))' }}>
+              {BOARD_TILES.map(t => {
+                const n = board[t.key] || 0;
+                return (
+                  <button key={t.key}
+                    onClick={() => go(t.lane ? `/board?lane=${t.lane}` : '/unbilled')}
+                    style={{ textAlign:'left', background:C.panel, border:`1px solid ${C.line}`,
+                             borderRadius:14, padding:'13px 14px', cursor:'pointer',
+                             color:'#fff', fontFamily:'inherit' }}>
+                    <div style={{ fontSize:12, fontWeight:800, color:t.color, marginBottom:8 }}>
+                      {t.label}
+                    </div>
+                    <div style={{ fontSize:34, fontWeight:900, lineHeight:0.95,
+                                  color: n ? '#fff' : '#33455f' }}>{n}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* ══ 1b. STRANDED — scheduled, date passed, nobody dispositioned ══ */}
@@ -484,7 +504,7 @@ export default function OpsHome({
       </div>
 
       <button onClick={() => setShowNewJob(true)}
-        style={{ position:'fixed', bottom:80, right:20, width:56, height:56, borderRadius:999, background:C.green, border:'none', color:'#04130a', fontSize:28, fontWeight:900, cursor:'pointer', boxShadow:'0 8px 24px rgba(34,209,111,0.35)', zIndex:20, display:'grid', placeItems:'center' }}>
+        style={{ position:'fixed', bottom:88, right:18, width:76, height:76, borderRadius:999, background:C.green, border:'none', color:'#04130a', fontSize:44, fontWeight:900, lineHeight:1, cursor:'pointer', boxShadow:'0 10px 30px rgba(34,209,111,0.5)', zIndex:60, display:'grid', placeItems:'center' }}>
         +
       </button>
 

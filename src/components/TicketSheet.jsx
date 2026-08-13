@@ -28,6 +28,7 @@ import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME } from '../utils/ownership.js';
 import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
+import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
 
 const C = {
@@ -75,6 +76,11 @@ export default function TicketSheet({
 
   const here = laneOf(job);
   const moves = movesFor(job);
+  // Opened from the home screen's No Disposition list, this is the whole
+  // reason the card is in front of you. Say so at the top instead of making
+  // someone infer it from a status chip.
+  const awaitingDispo = needsDisposition(job);
+  const dispoDue = awaitingDispo ? dispositionDueAt(job.scheduled_date) : null;
   // JobDetail always stripped the intake form's fixed header ("Name: Phone:
   // ... Scope of Work:") before showing the issue text — TicketSheet never
   // picked that up when it replaced JobDetail on every surface tonight, so
@@ -274,9 +280,29 @@ export default function TicketSheet({
           </button>
         )}
 
+        {/* ── NO DISPOSITION — loudest thing on the card when it applies ── */}
+        {awaitingDispo && (
+          <div style={{ background:'#3f0d12', border:'2px solid #dc2626', borderRadius:12,
+                        padding:'13px 15px', marginBottom:14 }}>
+            <div style={{ fontSize:13, fontWeight:900, letterSpacing:'0.06em',
+                          textTransform:'uppercase', color:'#fca5a5', marginBottom:6 }}>
+              ⚠ Nobody said what happened
+            </div>
+            <div style={{ fontSize:13, color:'#fecaca', lineHeight:1.5 }}>
+              Scheduled {String(job.scheduled_date).slice(0,10)}
+              {dispoDue ? ` · was due ${dispoDue.toLocaleDateString('en-US',{ weekday:'short', month:'short', day:'numeric' })} 8am` : ''}.
+              {' '}Write a note, then pick a disposition below. Until you do there is no
+              time entry and nothing to invoice.
+            </div>
+          </div>
+        )}
+
         {/* ── WHERE NEXT — identical on every surface ── */}
-        <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>Where does this go next?</div>
+        <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14,
+                      border: awaitingDispo ? '2px solid #dc2626' : 'none' }}>
+          <div style={{ fontSize: awaitingDispo ? 16 : 14, fontWeight: 900, marginBottom: 2 }}>
+            {awaitingDispo ? 'What happened on site?' : 'Where does this go next?'}
+          </div>
           <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
             {here ? <>Currently <b style={{ color: here.color }}>{here.label}</b>.</> : null} Pick one.
           </div>

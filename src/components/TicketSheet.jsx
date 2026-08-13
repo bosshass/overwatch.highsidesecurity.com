@@ -28,6 +28,7 @@ import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME } from '../utils/ownership.js';
 import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
+import { releaseCalendar } from '../services/schedule.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
 
@@ -148,6 +149,13 @@ export default function TicketSheet({
     if (!target) { setErr(`"${lane.label}" has no destination — tell Sara.`); return; }
     try {
       await onMove?.(target, note.trim() || null);
+      // The job is over — take its event off the tech calendar. Non-fatal: a
+      // failed delete must not unwind a status move that already succeeded,
+      // and the job row is the record either way.
+      if (['billed', 'archived', 'dead', 'lost'].includes(target)) {
+        try { await releaseCalendar({ job, accessToken }); }
+        catch (e) { console.warn('calendar release failed (non-fatal)', e.message); }
+      }
       setPending(null); setNote('');
     } catch (e) { setErr(e.message || 'Move failed'); }
   };

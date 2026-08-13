@@ -55,6 +55,42 @@ async function deleteEvent(accessToken, calendarId, eventId) {
   } catch (e) { console.warn('event delete failed (non-fatal)', e.message); }
 }
 
+// ── RELEASE: the job is over, take it off the calendar ─────────────────
+// calendarSync.js has an onJobComplete() for this. It is exported and called
+// from nowhere, so nothing has ever removed an event when a job was cleared —
+// 46 archived/dead/lost/billed jobs are still holding live event ids and their
+// events are still on tech calendars.
+//
+// Deleting is deliberate rather than renaming with a [BILLED] tag: a title tag
+// is a string somebody has to parse back, and the whole point of this pass is
+// to stop deriving meaning from text. The job row keeps the history.
+export async function releaseCalendar({ job, accessToken }) {
+  if (!job?.id) return;
+  // Re-read for the same reason book() does — the caller's copy may predate
+  // the booking that created these ids.
+  const { data: fresh } = await supabase
+    .from('jobs')
+    .select('scheduled_event_id, scheduled_calendar_id, tentative_event_id')
+    .eq('id', job.id)
+    .single();
+  const j = fresh || job;
+  if (j.scheduled_event_id && j.scheduled_calendar_id) {
+    await deleteEvent(accessToken, j.scheduled_calendar_id, j.scheduled_event_id);
+  }
+  if (j.tentative_event_id) {
+    await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, j.tentative_event_id);
+  }
+  // Clear the pointers whether or not Google accepted the delete. Leaving a
+  // stale id behind is worse than leaving a stray event: it makes the next
+  // booking think there is something to remove and skip creating cleanly.
+  await supabase.from('jobs').update({
+    scheduled_event_id: null,
+    scheduled_calendar_id: null,
+    tentative_event_id: null,
+    tentative_date: null,
+  }).eq('id', job.id);
+}
+
 // ── READ: one answer to "what is this job's scheduling state?" ─────────
 // Returns { kind: 'booked'|'held'|'none', date, eventId, calendarId }
 export function scheduleOf(job) {
@@ -80,6 +116,19 @@ export function scheduleOf(job) {
 // the truth. tech_name carries all names so the board reads "JR + Austin".
 export async function book({ job, tech, start, end, accessToken, helpers = [], byEmail = null }) {
   if (!job?.id) throw new Error('No job');
+  // NEVER TRUST THE PASSED JOB. The board refreshes its list after a booking
+  // but not the object the open drawer is holding, so a second booking from
+  // that same drawer arrived here with scheduled_event_id still null — the
+  // delete below was skipped and a duplicate event was created. Re-read the
+  // row: one query, and no caller anywhere can hand us a stale copy again.
+  {
+    const { data: fresh } = await supabase
+      .from('jobs')
+      .select('id, status, scheduled_event_id, scheduled_calendar_id, tentative_event_id, customer_address, customer_name, customer_id, job_number, issue')
+      .eq('id', job.id)
+      .single();
+    if (fresh) job = { ...job, ...fresh };
+  }
   if (!tech?.id || !tech?.calendar_id) throw new Error('Pick a tech');
   if (!(start instanceof Date) || !(end instanceof Date) || end <= start) throw new Error('Bad time range');
   const isReschedule = job.status === 'scheduled' && !!job.scheduled_event_id;

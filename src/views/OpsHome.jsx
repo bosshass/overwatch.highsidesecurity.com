@@ -150,7 +150,18 @@ export default function OpsHome({
         .sort((a, b) => (b.days ?? 999) - (a.days ?? 999)));
 
       const count = (...st) => (jobs || []).filter(j => st.includes(j.status)).length;
+      // `neu` and `oldest` feed the roll-up tile that replaced the old red
+      // "Not in Overwatch" panel. Same query, two more derived numbers — no
+      // second loader and no second state object.
+      const NEW_STATUSES = ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked'];
+      const waiting = (jobs || []).filter(j =>
+        NEW_STATUSES.includes(j.status) || ['ready_to_schedule', 'return_pending'].includes(j.status));
       setBoard({
+        neu:       count(...NEW_STATUSES),
+        oldest:    waiting.reduce((max, j) => {
+                     const d = Math.floor((Date.now() - new Date(j.created_at).getTime()) / 86400000);
+                     return d > max ? d : max;
+                   }, 0),
         ready:     count('ready_to_schedule'),
         scheduled: count('scheduled'),
         estimates: count('needs_estimate', 'estimate_sent'),
@@ -165,39 +176,6 @@ export default function OpsHome({
   // events that will never produce a time entry, and jobs with nobody to bill.
   // This is the only thing on this screen that represents money already lost,
   // so it goes first and it is the largest element on the page.
-  // ── Board roll-up ──────────────────────────────────────────────────────
-  // Replaces the old red "Not in Overwatch" tile. That tile ran a Google
-  // Calendar scan on every page load: slow, needed an auth token, and
-  // reported a number that moved on its own. Worse, it counted NEXT WEEK's
-  // schedule as work that would never bill — most of what it showed had not
-  // happened yet.
-  //
-  // This comes straight from Postgres, is instant, and counts the two things
-  // worth acting on: what is waiting to be triaged, and what is ready to be
-  // scheduled — plus how long the oldest one has been sitting.
-  const loadBoard = useCallback(async () => {
-    try {
-      const { data } = await supabase
-        .from('jobs')
-        .select('id, status, created_at')
-        .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
-        .limit(2000);
-      const rows = data || [];
-      const inLane = (keys) => rows.filter(j => keys.includes(j.status));
-      const isNew   = inLane(['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked']);
-      const isReady = inLane(['ready_to_schedule', 'return_pending']);
-      const oldestOf = (list) => list.reduce((max, j) => {
-        const d = Math.floor((Date.now() - new Date(j.created_at).getTime()) / 86400000);
-        return d > max ? d : max;
-      }, 0);
-      setBoard({
-        neu: isNew.length,
-        ready: isReady.length,
-        oldest: oldestOf([...isNew, ...isReady]),
-      });
-    } catch (e) { console.warn('board rollup failed', e); }
-  }, []);
-
   const peopleRef = useRef(null);
 
   // Arriving from the board's "Who's stuck" button lands ON that section
@@ -211,10 +189,9 @@ export default function OpsHome({
   }, [loading, people]);
 
   useEffect(() => { loadPeople(); }, [loadPeople]);
-  useEffect(() => { loadBoard(); }, [loadBoard]);
 
   const today = new Date().toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
-  const hasBoard = !!board;
+  
 
   // Days-since colour. Under a week is normal, two weeks is a problem,
   // a month means nobody owns it.
@@ -259,7 +236,7 @@ export default function OpsHome({
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={() => setShowSpotlight(true)} title="Show me around"
               style={{ width:38, height:38, borderRadius:13, background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', fontWeight:900, fontSize:15, cursor:'pointer' }}>▶</button>
-            <button onClick={() => { loadPeople(); loadBoard(); }}
+            <button onClick={() => { loadPeople(); }}
               style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.text, fontWeight:900, fontSize:16, cursor:'pointer' }}>↻</button>
             {isOperator && (
               <button onClick={onSignOut}
@@ -281,7 +258,7 @@ export default function OpsHome({
         {/* Was a red "Not in Overwatch — will not bill" panel driven by a live
             Google scan. It counted upcoming schedule as lost revenue and could
             not be right. What matters on open is the shape of the board. */}
-        {hasBoard && (
+        {board && (
           <button onClick={() => go('/board')}
             style={{ display:'block', width:'calc(100% - 32px)', margin:'16px', textAlign:'left',
                      background:C.panel, border:`1px solid ${C.line}`, borderRadius:22,
@@ -434,7 +411,6 @@ export default function OpsHome({
                 ['Scheduled', board.scheduled, C.blue],
                 ['Estimates', board.estimates, C.amber],
                 ['Returns', board.returns, C.purple],
-                ['No disposition', gap?.manual ?? '—', C.red],
               ].map(([l, n, col]) => (
                 <div key={l}>
                   <div style={{ fontSize:28, fontWeight:900, lineHeight:1, color: n ? col : '#33455f' }}>{n}</div>
@@ -462,7 +438,7 @@ export default function OpsHome({
             <div style={{ background:C.panel, border:`1px solid ${C.line}`, borderRadius:18, overflow:'hidden' }}>
               {[
                 { path:'/audit?scan=1', icon:'🔍', label:'Event Audit',
-                  sub:'Calendar events with no job behind them', badge: gap?.manual || 0, badgeColor: C.red },
+                  sub:'Calendar events with no job behind them' },
                 { path:'/customers', icon:'👤', label:'Clients',
                   sub:'Every customer, their history and open work' },
                 { path:'/unbilled', icon:'💵', label:'Billing',

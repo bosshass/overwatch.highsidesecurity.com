@@ -242,11 +242,27 @@ Scope of Work: `;
     try {
       let customerId = selectedCustomer?.id;
       if (!customerId && form.customer_name.trim()) {
-        const newCustomer = await customersApi.create({
-          name: form.customer_name.trim(), address: form.customer_address, phone: form.customer_phone,
-          gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id, is_active: true
-        });
-        customerId = newCustomer.id;
+        // Look before creating. This path had the same hole as createLoose:
+        // if the person typed a name instead of picking from the search, it
+        // made a brand-new customer even when that customer already existed.
+        // Exact normalized-name match reuses the existing row silently; the
+        // fuzzy warning lives in the Board's link control, not here, because
+        // this modal's job is to create a job and blocking it mid-flow would
+        // just get worked around.
+        const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const wanted = norm(form.customer_name);
+        const { data: hits } = await supabase
+          .from('customers').select('id, name').is('merged_into', null).limit(1000);
+        const match = (hits || []).find(c => norm(c.name) === wanted);
+        if (match) {
+          customerId = match.id;
+        } else {
+          const newCustomer = await customersApi.create({
+            name: form.customer_name.trim(), address: form.customer_address, phone: form.customer_phone,
+            gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id, is_active: true
+          });
+          customerId = newCustomer.id;
+        }
       }
       const willSchedule = assignedTo && scheduleDate && scheduleTime;
       const job = await jobsApi.create({

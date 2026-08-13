@@ -61,13 +61,19 @@ export function ageLabel(iso) {
 // Terminal work is finished, not rotting.
 const TERMINAL = ['complete', 'billed', 'archived', 'dead', 'lost', 'won'];
 
+// A job is stale when nobody has SAID or DONE anything about it — a typed note
+// or a real status move both reset the clock. BoardView computes last_note_at;
+// see the comment there for what counts and why updated_at does not.
 export function stalenessOf(job) {
   if (!job || TERMINAL.includes(job.status)) return { level: 'ok', hours: 0, label: null };
   const T = thresholds();
   if (!T) return { level: 'ok', hours: 0, label: null };   // wall is off
   const last = job.last_note_at || job.created_at;
   const h = hoursSince(last);
-  const word = job.last_note_at ? 'no comment' : 'never commented';
+  // "no comment" was a lie once status moves started counting — a card could
+  // have been worked twice today and still say nobody commented. "no activity"
+  // is what this actually measures.
+  const word = job.last_note_at ? 'no activity' : 'never touched';
   if (h >= T.veryStale) return { level: 'very_stale', hours: h, label: `${ageLabel(last)} ${word}` };
   if (h >= T.stale)     return { level: 'stale',      hours: h, label: `${ageLabel(last)} ${word}` };
   return { level: 'ok', hours: h, label: null };

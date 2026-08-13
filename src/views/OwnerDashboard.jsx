@@ -577,19 +577,31 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
       let pipelineValue = 0;
       try {
         // Needs Estimate
+        // 'estimate_needed' is not a status this app has ever written — it is
+        // not in the jobs_status_check constraint. The OR branch matched
+        // nothing and only made the query look like it covered more.
         const { count: needsEst } = await supabase
           .from('jobs')
           .select('*', { count: 'exact', head: true })
-          .or('status.eq.needs_estimate,status.eq.estimate_needed');
+          .eq('status', 'needs_estimate');
         needsEstimate = needsEst || 0;
 
-        // Estimates Sent (Pending)
-        const { data: pending } = await supabase
-          .from('jobs')
-          .select('*')
-          .eq('qbo_estimate_status', 'Pending');
-        estimatesSent = (pending || []).length;
-        pipelineValue = (pending || []).reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0);
+        // Estimates Sent. This counted ONLY qbo_estimate_status = 'Pending',
+        // i.e. estimates that came from QuickBooks — so a job Shana marked
+        // Estimate Sent inside Overwatch never showed up here at all. Count
+        // both, deduped by job id.
+        const { data: qboPending } = await supabase
+          .from('jobs').select('*').eq('qbo_estimate_status', 'Pending');
+        const { data: sentHere } = await supabase
+          .from('jobs').select('*').eq('status', 'estimate_sent');
+        const sentIds = new Set();
+        [...(qboPending || []), ...(sentHere || [])].forEach(j => sentIds.add(j.id));
+        estimatesSent = sentIds.size;
+        // Pipeline value stays QBO-only on purpose: an Overwatch estimate_sent
+        // job has estimate_amount 0 until QBO syncs a real number onto it, and
+        // padding the pipeline with zeros would understate nothing but adds
+        // rows that mean nothing to a dollar figure.
+        pipelineValue = (qboPending || []).reduce((sum, j) => sum + (parseFloat(j.estimate_amount) || 0), 0);
       } catch (e) { /* ignore */ }
 
       // Projects value (sum of REMAINING amounts, not total estimate)

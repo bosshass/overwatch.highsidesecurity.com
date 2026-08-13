@@ -179,13 +179,22 @@ function UUIDLinker({ job, onLinked }) {
     setSaving(false);
   };
 
-  const createAndLink = async () => {
+  const [dupes, setDupes] = useState(null);
+
+  const createAndLink = async (force = false) => {
     if (!newName.trim()) { setErr('Name required'); return; }
     setSaving(true);
     try {
-      const c = await customersApi.createLoose({ name:newName, phone:newPhone, address:newAddr });
+      const c = await customersApi.createLoose({ name:newName, phone:newPhone, address:newAddr }, { force });
+      setDupes(null);
       await link(c.id);
-    } catch(e) { setErr(e.message); }
+    } catch(e) {
+      // createLoose now refuses to mint a near-duplicate. Show the candidates
+      // so the person can link the existing customer in one tap — or insist,
+      // which is a real case (two people genuinely named Ferreri).
+      if (e.code === 'POSSIBLE_DUPLICATE') { setDupes(e.candidates); setErr(''); }
+      else setErr(e.message);
+    }
     setSaving(false);
   };
 
@@ -238,11 +247,34 @@ function UUIDLinker({ job, onLinked }) {
             </div>
           ))}
           <div style={{ display:'flex', gap:6, marginTop:8 }}>
-            <button onClick={() => setCreateMode(false)} style={{ flex:1, padding:8, borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:12, cursor:'pointer' }}>back</button>
-            <button onClick={createAndLink} disabled={saving||!newName.trim()} style={{ flex:2, padding:8, borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:12, cursor:'pointer' }}>
+            <button onClick={() => { setCreateMode(false); setDupes(null); }} style={{ flex:1, padding:8, borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#94a3b8', fontSize:12, cursor:'pointer' }}>back</button>
+            <button onClick={() => createAndLink(false)} disabled={saving||!newName.trim()} style={{ flex:2, padding:8, borderRadius:6, border:'none', background:'#22c55e', color:'#fff', fontWeight:600, fontSize:12, cursor:'pointer' }}>
               {saving ? 'saving…' : 'create & link'}
             </button>
           </div>
+
+          {/* Already exists? Link it instead of making a second one. */}
+          {dupes && dupes.length > 0 && (
+            <div style={{ marginTop:10, background:'#78350f33', border:'1px solid #f59e0b', borderRadius:8, padding:'9px 11px' }}>
+              <div style={{ fontSize:12, fontWeight:800, color:'#fbbf24', marginBottom:6 }}>
+                This may already exist — link one of these?
+              </div>
+              {dupes.map(c => (
+                <button key={c.id} onClick={() => { setDupes(null); link(c.id); }}
+                  style={{ display:'block', width:'100%', textAlign:'left', marginBottom:4, padding:'7px 9px',
+                           borderRadius:6, border:'1px solid #f59e0b55', background:'#0e1a2b',
+                           color:'#eaf1fb', fontSize:12, cursor:'pointer' }}>
+                  <b style={{ color:'#00c8e8' }}>{c.short_code}</b> {c.name}
+                  {c.address ? <span style={{ color:'#8497b0' }}> · {c.address}</span> : null}
+                </button>
+              ))}
+              <button onClick={() => createAndLink(true)} disabled={saving}
+                style={{ marginTop:4, width:'100%', padding:'7px', borderRadius:6, border:'1px solid #334155',
+                         background:'transparent', color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
+                None of these — create "{newName.trim()}" anyway
+              </button>
+            </div>
+          )}
         </>
       )}
       {err && <div style={{ color:'#ef4444', fontSize:11, marginTop:6 }}>{err}</div>}
@@ -557,6 +589,31 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
             ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
           </span>
         )}
+        {/* THE BOOKED DATE. The card showed who owned a job and how long it had
+            been sitting, but never WHEN it was going to happen — so a Scheduled
+            column was a list of jobs with no dates in it.
+            Parsed manually, NOT with new Date(str). jobs.scheduled_date is a
+            DATE ('2026-08-07'), and new Date() reads a bare date as UTC
+            midnight — which in Denver renders as the PREVIOUS DAY. That is the
+            same off-by-one that used to drop jobs into Needs Action at 6 PM.
+            Splitting the parts and building a local Date avoids it entirely. */}
+        {job.scheduled_date && !isHeld(job) && (() => {
+          const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+          if (!y || !m || !d) return null;
+          const when = new Date(y, m - 1, d);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          // Past-dated and still open = it did not happen. Say so in red rather
+          // than printing a date that quietly reads as fine.
+          const overdue = when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
+          const color = overdue ? '#ef4444' : '#38bdf8';
+          return (
+            <span style={{ fontSize:12, fontWeight:700, color, background:`${color}22`,
+                           padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+              📅 {when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
+              {overdue ? ' · past' : ''}
+            </span>
+          );
+        })()}
         {staleColor && (
           <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
             style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
@@ -732,18 +789,32 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       const ACTIVE = ['new','needs_details','needs_parts','pending_materials','pending_decision','blocked','needs_estimate','estimate_sent','ready_to_schedule','return_pending','scheduled','complete','to_bill','won'];
       const { data, error } = await supabase.from('jobs').select('*').in('status', ACTIVE).order('created_at',{ascending:true}).limit(500);
       if (error) throw error;
-      // last_note_at — the last time a human actually SAID something about this
+      // last_activity — the last time a human actually DID something about this
       // job. This is what the staleness rule measures, NOT updated_at.
+      //
+      // It used to count typed notes ONLY. So moving a card from Needs Estimate
+      // to Estimate Sent — a deliberate act, the whole point of the board —
+      // left it reading "7d no comment," and the person who just worked it got
+      // told nobody had touched it. A status move IS the comment.
+      //
+      // Still excludes updated_at, which bumps on anything at all (a background
+      // sync, a calendar rewrite) and would make everything look fresh forever.
+      // What counts: a typed note, or a real transition where the status
+      // actually changed. Re-stamping the same status with no note does not.
       const ids = (data || []).map(x => x.id);
       let lastNote = {};
       if (ids.length) {
         const { data: notes } = await supabase
           .from('job_history')
-          .select('job_id, changed_at')
+          .select('job_id, changed_at, notes, from_status, to_status')
           .in('job_id', ids)
-          .not('notes', 'is', null)
           .order('changed_at', { ascending: false });
-        (notes || []).forEach(n => { if (!lastNote[n.job_id]) lastNote[n.job_id] = n.changed_at; });
+        (notes || []).forEach(n => {
+          if (lastNote[n.job_id]) return;                       // already have a newer one
+          const saidSomething = n.notes != null && String(n.notes).trim() !== '';
+          const movedIt = n.to_status && n.to_status !== n.from_status;
+          if (saidSomething || movedIt) lastNote[n.job_id] = n.changed_at;
+        });
       }
       setJobs((data || []).map(j => ({ ...j, last_note_at: lastNote[j.id] || null })));
       const j = data||[];

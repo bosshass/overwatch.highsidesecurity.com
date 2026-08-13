@@ -14,6 +14,20 @@
 // Everything that moves a job imports from here. If a label needs changing, it
 // changes once and every screen follows.
 
+// BLOCKED IS NOT INTAKE. It was folded into triage, so a $65,688 job waiting
+// on a customer read as "New / Notes" — unfiled, unlooked-at, indistinguishable
+// from something nobody had typed a scope into yet. Blocked is the one state a
+// person asserts on purpose, and it is the only one that carries a reason.
+export const BLOCKED_LANE = {
+  key: 'blocked',
+  label: 'Blocked',
+  icon: '🛑',
+  color: '#ef4444',
+  target: 'blocked',
+  statuses: ['blocked'],
+  means: 'Cannot move until something outside us changes \u2014 say what',
+};
+
 export const LANES = [
   {
     key: 'triage',
@@ -23,7 +37,7 @@ export const LANES = [
     // Where a job LANDS when sent here.
     target: 'new',
     // Statuses that render in this lane.
-    statuses: ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked'],
+    statuses: ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision'],
     // What choosing this means, in the words a person would use.
     means: 'Not actionable yet — needs info, parts or a decision',
   },
@@ -128,34 +142,10 @@ export const CLEAR_LANE = {
 
 export const ALL_LANES = [...LANES, RETURN_LANE, BILLING_LANE, BILLED_LANE, CLEAR_LANE];
 
-// ── When does clearing need a reason? ────────────────────────────────────────
-// A New/Note or a quick task is a scrap of paper. Nobody promised anything,
-// no truck moved, and binning it costs nothing — clear it freely.
-//
-// The moment it becomes Ready to Schedule, gets a date, or turns into a
-// Return, it is a COMMITMENT. Somebody told a customer, or a tech drove out.
-// Clearing one of those is a decision about money — "we are eating this" —
-// and it has to be classified when it happens, because in six months nobody
-// remembers. Same rule the Billing screen applies when you clear instead of
-// invoicing; there is only one rule, applied in two places.
-export const COMMITTED_STATUSES = [
-  'ready_to_schedule', 'return_pending', 'scheduled',
-  'complete', 'to_bill', 'won',
-];
-
-// scheduled_date is included deliberately: a job that WAS booked and then got
-// pushed back to New/Notes is still a commitment somebody made. Reading only
-// the current status would let it dodge the reason by taking a step backwards
-// first.
-export function requiresDisposition(job) {
-  if (!job) return false;
-  return COMMITTED_STATUSES.includes(job.status) || !!job.scheduled_date;
-}
-
 const STATUS_TO_LANE = {};
 // Order matters: RETURN_LANE registers LAST so return_pending resolves to
 // Return (its identity), not Ready (the column it happens to render in).
-[...LANES, BILLING_LANE, BILLED_LANE, CLEAR_LANE, RETURN_LANE]
+[...LANES, BLOCKED_LANE, BILLING_LANE, BILLED_LANE, CLEAR_LANE, RETURN_LANE]
   .forEach(l => l.statuses.forEach(s => { STATUS_TO_LANE[s] = l; }));
 
 // Which lane a job is currently sitting in. A tentative hold wins over the
@@ -209,6 +199,19 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
   const here = laneOf(job)?.key;
   const currentStatus = job?.status;
 
+  // A note or task is not work. Nobody drives to it, it has no scope, no
+  // hours and no invoice — so the six-lane work ladder is nonsense on one.
+  // Two things can happen to it: somebody does it, or it turns out to be
+  // real work and becomes a job. Everything else on this list was noise.
+  if (job?.job_type === 'note' || job?.job_type === 'task') {
+    return [
+      { key: 'ready_to_schedule', target: 'ready_to_schedule', icon: '🔧', label: 'Make it a job',
+        color: '#97c459', means: 'This is real work — needs scoping and a calendar' },
+      { key: 'archived', target: 'archived', icon: '✅', label: 'Done',
+        color: '#22c55e', means: 'Handled. Stays on the customer record.' },
+    ];
+  }
+
   // When inside the estimates flow, show the sub-status steps instead of
   // the full board list. The full list is still available via "Move to" but
   // the primary options are the estimate progression.
@@ -238,4 +241,30 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
     ...(includeBilling && finished ? [BILLED_LANE] : []),
     ...(includeClear ? [CLEAR_LANE] : []),
   ].filter(l => l.key !== here);
+}
+// jobs.scheduled_date is a DATE ('2026-08-28'), not a timestamp. new Date() on
+// a bare date string reads it as UTC midnight, and in Denver that renders as
+// the PREVIOUS DAY — Aug 28 showing up as Thu Aug 27. Every screen that
+// printed a scheduled date was a day early. Split the parts and build a local
+// Date so the day is the day.
+export function localDate(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+export function fmtLocalDate(dateStr, opts = { weekday: 'short', month: 'short', day: 'numeric' }) {
+  const dt = localDate(dateStr);
+  return dt ? dt.toLocaleDateString('en-US', opts) : '';
+}
+
+export const COMMITTED_STATUSES = [
+  "ready_to_schedule", "return_pending", "scheduled",
+  "complete", "to_bill", "won",
+];
+
+export function requiresDisposition(job) {
+  if (!job) return false;
+  return COMMITTED_STATUSES.includes(job.status) || !!job.scheduled_date;
 }

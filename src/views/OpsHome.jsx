@@ -21,7 +21,6 @@ import NewJobModal from '../components/NewJobModal.jsx';
 import Spotlight from '../components/Spotlight.jsx';
 import { ASSIGNEES, assigneeOf, CLOSED_STATUSES } from '../utils/ownership.js';
 import { shortCode } from '../config/appBase.js';
-import { scanForOrphans } from '../services/calendarSync.js';
 
 const C = {
   bg:     '#07111f',
@@ -46,7 +45,7 @@ const fmtMoney = n => n >= 1000
   ? `$${(n/1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
   : n ? `$${n}` : '';
 
-const KPI_EMAILS = ['accounting@drhsecurityservices.com'];
+const KPI_EMAILS = ['sara@jnbllc.com', 'admin@jnbservice.com'];
 
 export default function OpsHome({
   userName, isOperator, accessToken, userEmail,
@@ -56,7 +55,6 @@ export default function OpsHome({
   const [board, setBoard] = useState(null);
   // Jobs marked scheduled whose day came and went with nobody dispositioning them.
   const [stranded, setStranded] = useState([]);
-  const [gap, setGap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
 
@@ -88,7 +86,7 @@ export default function OpsHome({
           .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
           .limit(1000),
         supabase.from('notes')
-          .select('id, body, author_email, assigned_to, lane, created_at, updated_at')
+          .select('id, body, author_email, lane, created_at, updated_at')
           .limit(1000),
       ]);
 
@@ -97,12 +95,7 @@ export default function OpsHome({
 
       const rows = ASSIGNEES.map(person => {
         const theirJobs  = (jobs || []).filter(j => assigneeOf(j) === person.name);
-        // A task is a note somebody OWNS, not one they typed. This matched on
-        // author_email, so a person's number counted everything they had ever
-        // written down — Shana read 49 items on a panel called Who's Stuck,
-        // 36 of them finished. Writing a note is not being stuck.
-        const theirNotes = (notes || []).filter(n =>
-          (n.assigned_to || '').toLowerCase() === person.email.toLowerCase());
+        const theirNotes = (notes || []).filter(n => n.author_email === person.email);
 
         const todo  = theirJobs.length + theirNotes.filter(n => n.lane === 'todo').length;
         const doing = theirNotes.filter(n => n.lane === 'doing').length;
@@ -120,13 +113,7 @@ export default function OpsHome({
         const oldest = open[0] || null;
         return {
           ...person, todo, doing, done, watching,
-          // Done is not stuck. Counting it made the headline number grow every
-          // time somebody finished something, which is backwards.
-          total: todo + doing,
-          // Same shape as their People tabs, so the summary and the page agree.
-          work: theirJobs.filter(j => !['scheduled'].includes(j.status)).length,
-          tasks: theirNotes.filter(n => n.lane !== 'done').length,
-          scheduled: theirJobs.filter(j => j.status === 'scheduled').length,
+          total: todo + doing + done,
           oldest: oldest ? { ...oldest, days: daysSince(oldest.at) } : null,
         };
       })
@@ -173,25 +160,43 @@ export default function OpsHome({
     setLoading(false);
   }, []);
 
-  // ── The gap ────────────────────────────────────────────────────────────
+  // ── Board roll-up (was: the Google-scan gap tile) ──────────────────────
   // Work that HAPPENED but that Overwatch never captured: hand-made calendar
   // events that will never produce a time entry, and jobs with nobody to bill.
   // This is the only thing on this screen that represents money already lost,
   // so it goes first and it is the largest element on the page.
-  const loadGap = useCallback(async () => {
+  // ── Board roll-up ──────────────────────────────────────────────────────
+  // Replaces the old red "Not in Overwatch" tile. That tile ran a Google
+  // Calendar scan on every page load: slow, needed an auth token, and
+  // reported a number that moved on its own. Worse, it counted NEXT WEEK's
+  // schedule as work that would never bill — most of what it showed had not
+  // happened yet.
+  //
+  // This comes straight from Postgres, is instant, and counts the two things
+  // worth acting on: what is waiting to be triaged, and what is ready to be
+  // scheduled — plus how long the oldest one has been sitting.
+  const loadBoard = useCallback(async () => {
     try {
-      const { count: orphanJobs } = await supabase
-        .from('jobs').select('id', { count: 'exact', head: true })
-        .is('customer_id', null)
-        .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`);
-      let manual = 0;
-      if (accessToken) {
-        try { manual = ((await scanForOrphans(accessToken)).orphans || []).length; }
-        catch (e) { console.warn('orphan scan failed', e); }
-      }
-      setGap({ manual, orphanJobs: orphanJobs || 0 });
-    } catch (e) { console.warn('gap load failed', e); }
-  }, [accessToken]);
+      const { data } = await supabase
+        .from('jobs')
+        .select('id, status, created_at')
+        .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
+        .limit(2000);
+      const rows = data || [];
+      const inLane = (keys) => rows.filter(j => keys.includes(j.status));
+      const isNew   = inLane(['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked']);
+      const isReady = inLane(['ready_to_schedule', 'return_pending']);
+      const oldestOf = (list) => list.reduce((max, j) => {
+        const d = Math.floor((Date.now() - new Date(j.created_at).getTime()) / 86400000);
+        return d > max ? d : max;
+      }, 0);
+      setBoard({
+        neu: isNew.length,
+        ready: isReady.length,
+        oldest: oldestOf([...isNew, ...isReady]),
+      });
+    } catch (e) { console.warn('board rollup failed', e); }
+  }, []);
 
   const peopleRef = useRef(null);
 
@@ -206,10 +211,10 @@ export default function OpsHome({
   }, [loading, people]);
 
   useEffect(() => { loadPeople(); }, [loadPeople]);
-  useEffect(() => { loadGap(); }, [loadGap]);
+  useEffect(() => { loadBoard(); }, [loadBoard]);
 
   const today = new Date().toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
-  const hasGap = gap && (gap.manual > 0 || gap.orphanJobs > 0);
+  const hasBoard = !!board;
 
   // Days-since colour. Under a week is normal, two weeks is a problem,
   // a month means nobody owns it.
@@ -254,7 +259,7 @@ export default function OpsHome({
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={() => setShowSpotlight(true)} title="Show me around"
               style={{ width:38, height:38, borderRadius:13, background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', fontWeight:900, fontSize:15, cursor:'pointer' }}>▶</button>
-            <button onClick={() => { loadPeople(); loadGap(); }}
+            <button onClick={() => { loadPeople(); loadBoard(); }}
               style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.text, fontWeight:900, fontSize:16, cursor:'pointer' }}>↻</button>
             {isOperator && (
               <button onClick={onSignOut}
@@ -272,48 +277,40 @@ export default function OpsHome({
           <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
         )}
 
-        {/* ══ 1. THE WARNING ══ */}
-        {hasGap ? (
-          <button data-tour="home-databad" onClick={() => go('/audit?scan=1')}
+        {/* ══ 1. BOARD ROLL-UP ══ */}
+        {/* Was a red "Not in Overwatch — will not bill" panel driven by a live
+            Google scan. It counted upcoming schedule as lost revenue and could
+            not be right. What matters on open is the shape of the board. */}
+        {hasBoard && (
+          <button onClick={() => go('/board')}
             style={{ display:'block', width:'calc(100% - 32px)', margin:'16px', textAlign:'left',
-                     background:'linear-gradient(160deg,#4a0f0f,#2a0808)', border:`2px solid ${C.red}`,
-                     borderRadius:22, padding:'22px 22px 20px', cursor:'pointer', color:'#fff',
-                     fontFamily:'inherit', boxShadow:'0 10px 40px rgba(255,79,94,0.18)' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:14 }}>
-              <span style={{ fontSize:22 }}>🚨</span>
-              <span style={{ fontSize:13, fontWeight:900, letterSpacing:'0.1em', textTransform:'uppercase', color:'#ffb3ba', flex:1 }}>
-                Not in Overwatch — will not bill
-              </span>
-              <span onClick={(e) => { e.stopPropagation(); onShowTour?.('warning'); }}
-                style={{ width:22, height:22, borderRadius:999, border:'1px solid #ffb3ba66',
-                         color:'#ffb3ba', fontSize:12, fontWeight:800, display:'grid',
-                         placeItems:'center', cursor:'pointer' }}>?</span>
+                     background:C.panel, border:`1px solid ${C.line}`, borderRadius:22,
+                     padding:'20px 22px', cursor:'pointer', color:'#fff', fontFamily:'inherit' }}>
+            <div style={{ fontSize:12, fontWeight:900, letterSpacing:'0.1em',
+                          textTransform:'uppercase', color:C.muted, marginBottom:14 }}>
+              The board
             </div>
-            <div style={{ display:'flex', gap:34, flexWrap:'wrap', alignItems:'flex-end' }}>
-              {gap.manual > 0 && (
+            <div style={{ display:'flex', gap:38, flexWrap:'wrap', alignItems:'flex-end' }}>
+              <div>
+                <div style={{ fontSize:52, fontWeight:900, lineHeight:0.9, color:'#ef4444' }}>{board.neu}</div>
+                <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>new</div>
+              </div>
+              <div>
+                <div style={{ fontSize:52, fontWeight:900, lineHeight:0.9, color:C.green }}>{board.ready}</div>
+                <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>ready to schedule</div>
+              </div>
+              {board.oldest > 0 && (
                 <div>
-                  <div style={{ fontSize:62, fontWeight:900, lineHeight:0.9, color:C.red }}>{gap.manual}</div>
-                  <div style={{ fontSize:13, color:'#ffb3ba', marginTop:6 }}>calendar events made by hand</div>
+                  <div style={{ fontSize:52, fontWeight:900, lineHeight:0.9,
+                                color: board.oldest > 14 ? '#ef4444' : board.oldest > 7 ? C.amber : C.muted }}>
+                    {board.oldest}
+                  </div>
+                  <div style={{ fontSize:13, color:C.muted, marginTop:6 }}>days — oldest</div>
                 </div>
               )}
-              {gap.orphanJobs > 0 && (
-                <div>
-                  <div style={{ fontSize:62, fontWeight:900, lineHeight:0.9, color:C.amber }}>{gap.orphanJobs}</div>
-                  <div style={{ fontSize:13, color:'#ffd9a0', marginTop:6 }}>jobs with no client</div>
-                </div>
-              )}
-            </div>
-            <div style={{ fontSize:13, color:'#ffb3ba', marginTop:16, lineHeight:1.45 }}>
-              This work happened. Nobody dispositioned it, so it will never produce a time
-              entry or an invoice. <b style={{ color:'#fff' }}>Tap to fix →</b>
             </div>
           </button>
-        ) : gap ? (
-          <div style={{ margin:'16px', background:C.panel, border:`1px solid ${C.line}`, borderRadius:18, padding:'18px 20px' }}>
-            <div style={{ fontSize:14, fontWeight:800, color:C.green }}>✓ Everything is in Overwatch</div>
-            <div style={{ fontSize:12, color:C.muted, marginTop:4 }}>No hand-made calendar events, no jobs without a client.</div>
-          </div>
-        ) : null}
+        )}
 
         {/* ══ 1b. STRANDED — scheduled, date passed, nobody dispositioned ══ */}
         {stranded.length > 0 && (
@@ -362,7 +359,7 @@ export default function OpsHome({
         <div ref={peopleRef} data-tour="home-people" style={{ padding:'6px 16px 0', scrollMarginTop:90 }}>
           <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
             <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
-              Who's stuck
+              My Work
             </span>
             <Help topic="tasks" label="How My Tasks works" />
           </div>
@@ -382,11 +379,7 @@ export default function OpsHome({
                   </div>
 
                   <div style={{ display:'flex', gap:14, marginBottom:13 }}>
-                    {/* To Do / Doing / Done are NOTE lanes. Most of what a
-                        person owns is jobs, which have no such states — so the
-                        summary was describing one screen and linking to
-                        another. Same three words as their tabs. */}
-                    {[['Work', p.work, C.amber], ['Tasks', p.tasks, C.blue], ['Schedule', p.scheduled, C.green]].map(([l, n, col]) => (
+                    {[['To Do', p.todo, C.amber], ['Doing', p.doing, C.blue], ['Done', p.done, C.green]].map(([l, n, col]) => (
                       <div key={l}>
                         <div style={{ fontSize:24, fontWeight:900, lineHeight:1, color: n ? col : '#33455f' }}>{n}</div>
                         <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{l}</div>

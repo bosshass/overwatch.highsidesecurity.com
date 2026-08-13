@@ -41,6 +41,26 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
   const notePreview = job.completion_notes || job.issue || '';
   const truncatedNote = notePreview.length > 80 ? notePreview.substring(0, 80) + '...' : notePreview;
 
+  // ── NO NOTES ────────────────────────────────────────────────────────────
+  // The scheduled day came and went and nobody wrote anything against the job.
+  // No note means no disposition, which means no time entry, which means it
+  // cannot be invoiced and nobody downstream knows what happened on site.
+  // Only fires once the date is genuinely PAST — a job scheduled for tomorrow
+  // with no note is normal, not a problem.
+  // scheduled_date is a DATE column; parse the parts rather than new Date(str),
+  // which reads a bare 'YYYY-MM-DD' as UTC midnight and shifts it a day back
+  // in Denver.
+  const isPastScheduled = (() => {
+    if (!job.scheduled_date) return false;
+    const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const sched = new Date(y, m - 1, d);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return sched < today;
+  })();
+  const hasNote = !!(String(job.completion_notes || '').trim());
+  const noNotes = isPastScheduled && !hasNote && !isTerminal;
+
   if (isOrphan) {
     return (
       <div
@@ -142,6 +162,22 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
         }}>
           {typeInfo.icon} {typeInfo.label}
         </span>
+
+        {/* NO NOTES — scheduled date has passed and nothing was written */}
+        {noNotes && (
+          <span title="Scheduled date has passed with no note. No note = no disposition = nothing to bill."
+            style={{
+              background: '#dc2626',
+              color: '#fff',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              fontWeight: '800',
+              letterSpacing: '0.5px',
+            }}>
+            ⚠ NO NOTES
+          </span>
+        )}
 
         {/* Status badge */}
         <span style={{

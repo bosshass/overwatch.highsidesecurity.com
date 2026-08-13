@@ -148,7 +148,7 @@ const STEPS = [
   {
     key: 'warning',
     title: 'The red banner \u2014 fix these first',
-    body: 'These are calendar events somebody made by hand. Overwatch never created them, so nobody will ever disposition them, so they will never produce a time entry or an invoice. The work happened. It just won\u2019t get billed.',
+    body: 'Calendar events that no job in Overwatch points at. Some are scheduled work still waiting on a disposition, some were made by hand, some do not belong here. The scan tells you they are unlinked \u2014 it cannot tell you whether they will bill.',
     visual: (
       <div>
         <div style={{ background: 'linear-gradient(160deg,#4a0f0f,#2a0808)', border: `2px solid ${C.red}`,
@@ -157,7 +157,7 @@ const STEPS = [
             Not in Overwatch \u2014 will not bill
           </div>
           <div style={{ fontSize: 40, fontWeight: 900, color: C.red, lineHeight: 1, marginTop: 8 }}>12</div>
-          <div style={{ fontSize: 11, color: '#ffb3ba', marginTop: 3 }}>calendar events made by hand</div>
+          <div style={{ fontSize: 11, color: '#ffb3ba', marginTop: 3 }}>events with no job behind them</div>
         </div>
         <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>
           Tap it. You land on the open list. For each one: pick the client, then

@@ -1,8 +1,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
+import { supabase } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
+
+// ── DISPOSITION DEADLINE ────────────────────────────────────────────────────
+// The scheduled day ends at 6pm; 14 hours later (8am next morning) a
+// disposition is overdue. Weekends roll to Monday 8am, so nobody is chased at
+// the weekend for Friday's paperwork.
+// Dates are parsed by parts: new Date('2026-08-07') is UTC midnight, which is
+// the previous evening in Denver and would make everything look a day late.
+function dispoDueAt(scheduledDate) {
+  if (!scheduledDate) return null;
+  const [y, m, d] = String(scheduledDate).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const due = new Date(y, m - 1, d, 18, 0, 0, 0);
+  due.setHours(due.getHours() + 14);
+  while (due.getDay() === 0 || due.getDay() === 6) {
+    due.setDate(due.getDate() + 1);
+    due.setHours(8, 0, 0, 0);
+  }
+  return due;
+}
+const daysLate = (scheduledDate) => {
+  const due = dispoDueAt(scheduledDate);
+  return due ? Math.floor((Date.now() - due.getTime()) / 86400000) : 0;
+};
 
 const TECH_CAL_MAP = {
   'Austin':  CALENDARS.AUSTIN,  'austin':  CALENDARS.AUSTIN,
@@ -58,6 +82,11 @@ const TABS = [
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
   const today = dayStart(new Date());
   const [offset, setOffset]     = useState(0);
+  // Everything still sitting in `scheduled` past its deadline. This is the
+  // first time this view has read the database — it has always been a pure
+  // calendar reader, which is exactly why work from other days was invisible.
+  const [needNotes, setNeedNotes] = useState([]);
+  const [showNeedNotes, setShowNeedNotes] = useState(false);
   const [allEvents, setAll]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [activeTab, setTab]     = useState('new');
@@ -76,6 +105,34 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     if (offset === 1) return 'Tomorrow';
     if (offset === -1) return 'Yesterday';
     return viewDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const loadNeedNotes = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('jobs')
+        .select('id, customer_name, scheduled_date, tech_name, assigned_to')
+        .eq('status', 'scheduled')
+        .not('scheduled_date', 'is', null)
+        .limit(500);
+      const late = (data || [])
+        .filter(j => { const due = dispoDueAt(j.scheduled_date); return due && Date.now() > due.getTime(); })
+        .sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)));
+      setNeedNotes(late);
+    } catch (e) { console.warn('needs-notes load failed', e); }
+  }, []);
+
+  useEffect(() => { loadNeedNotes(); }, [loadNeedNotes]);
+
+  // Jump the day nav to a specific date, so the event and the finish sheet are
+  // right there instead of somewhere behind the < button.
+  const goToDate = (scheduledDate) => {
+    const [y, m, d] = String(scheduledDate).slice(0, 10).split('-').map(Number);
+    if (!y || !m || !d) return;
+    const want = new Date(y, m - 1, d); want.setHours(0, 0, 0, 0);
+    const now  = new Date();            now.setHours(0, 0, 0, 0);
+    setOffset(Math.round((want - now) / 86400000));
+    setShowNeedNotes(false);
   };
 
   const load = useCallback(async () => {
@@ -205,11 +262,65 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           </button>
           <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
-          <button onClick={load}
+          <button onClick={() => { load(); loadNeedNotes(); }}
             style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
             ↻
           </button>
         </div>
+
+        {/* ── NEEDS NOTES ── the loudest thing on the screen when it applies.
+            No note means no disposition, which means no time entry, which
+            means nothing to invoice and nobody downstream knows what happened
+            on site. ── */}
+        {needNotes.length > 0 && (
+          <div style={{ borderTop: '1px solid #e5e7eb' }}>
+            <button onClick={() => setShowNeedNotes(v => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                       background: '#dc2626', border: 'none', color: '#fff',
+                       padding: '13px 16px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              <span style={{ fontSize: 18 }}>&#9888;</span>
+              <span style={{ flex: 1, textAlign: 'left', fontSize: 15, fontWeight: 900,
+                             letterSpacing: '0.06em' }}>
+                {needNotes.length} NEED NOTES
+              </span>
+              <span style={{ fontSize: 16 }}>{showNeedNotes ? '\u25B2' : '\u25BC'}</span>
+            </button>
+            {showNeedNotes && (
+              <div style={{ background: '#fff1f2', borderBottom: '1px solid #fecaca' }}>
+                <div style={{ fontSize: 12, color: '#9f1239', padding: '10px 16px 6px', lineHeight: 1.5 }}>
+                  The day came and went and nobody said what happened. Tap one to jump
+                  to that day, then finish it — notes, hours, then a disposition.
+                </div>
+                {needNotes.map(j => {
+                  const late = daysLate(j.scheduled_date);
+                  return (
+                    <button key={j.id} onClick={() => goToDate(j.scheduled_date)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                               textAlign: 'left', background: 'none', border: 'none',
+                               borderTop: '1px solid #fecaca', padding: '11px 16px',
+                               cursor: 'pointer', fontFamily: 'inherit' }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 15, fontWeight: 700,
+                                       color: '#1B2A4A', overflow: 'hidden',
+                                       textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {j.customer_name || 'Unnamed'}
+                        </span>
+                        <span style={{ display: 'block', fontSize: 12, color: '#9f1239' }}>
+                          {j.tech_name || j.assigned_to || 'Unassigned'} \u00b7 {String(j.scheduled_date).slice(0, 10)}
+                        </span>
+                      </span>
+                      <span style={{ background: late >= 7 ? '#dc2626' : late >= 3 ? '#ea580c' : '#b45309',
+                                     color: '#fff', fontSize: 12, fontWeight: 800,
+                                     padding: '3px 9px', borderRadius: 6, flexShrink: 0 }}>
+                        {late > 0 ? late + 'd late' : 'due'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Day nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px' }}>

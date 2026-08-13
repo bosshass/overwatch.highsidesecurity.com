@@ -17,13 +17,15 @@
 // So: one panel, one lane picker (from utils/lanes.js), and optional sections.
 // Adding a surface means passing a prop, not writing a fourth design.
 
+import ArchiveModal from './ArchiveModal.jsx';
+import { reasonLabel } from '../config/archiveReasons.js';
 import { useState } from 'react';
 import { supabase } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
 import { assignmentMessage } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
 import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME } from '../utils/ownership.js';
-import { LANES, movesFor, laneOf, isHeld, fmtLocalDate } from '../utils/lanes.js';
+import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import FieldVisits from './FieldVisits.jsx';
@@ -57,6 +59,7 @@ export default function TicketSheet({
   busy = false,
 }) {
   const [note, setNote] = useState('');
+  const [clearing, setClearing] = useState(false);
   const [pending, setPending] = useState(null);
   const [err, setErr] = useState('');
   // OWNERSHIP LIVES HERE NOW.
@@ -126,6 +129,12 @@ export default function TicketSheet({
       return;
     }
     if (pending?.key !== lane.key) { setPending(lane); return; }
+    // Clearing committed work needs a reason, not a second tap. Identical to
+    // the Billing screen's clear-instead-of-invoice path — see lanes.js.
+    if ((lane.target || lane.key) === 'archived' && requiresDisposition(job)) {
+      setClearing(true);
+      return;
+    }
     // A destination with no target is a BUG, not a no-op. It used to sail
     // straight through to changeStatus(id, undefined), which wrote nothing and
     // reported success. Say so instead of pretending the move happened.
@@ -137,9 +146,22 @@ export default function TicketSheet({
     } catch (e) { setErr(e.message || 'Move failed'); }
   };
 
+  const commitClear = async (reason) => {
+    try {
+      await onMove?.('archived', `${reasonLabel(reason)}${note.trim() ? ' — ' + note.trim() : ''}`, reason);
+      setClearing(false); setPending(null); setNote('');
+    } catch (e) { setErr(e.message || 'Move failed'); }
+  };
+
   return (
     <div style={{ background: C.bg, color: C.text, minHeight: '100%',
                   fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif' }}>
+
+      {clearing && (
+        <ArchiveModal count={1} hours={null}
+          onCancel={() => { setClearing(false); setPending(null); }}
+          onConfirm={commitClear} />
+      )}
 
       {/* ── Header ── */}
       <div style={{ padding: '16px 18px 14px', borderBottom: `1px solid ${C.line}`,
@@ -181,7 +203,7 @@ export default function TicketSheet({
           <Row label="Phone">{job.customer_phone}</Row>
           <Row label="Tech on site">{job.tech_name}</Row>{/* physical presence, NOT ownership — see the Assigned to block */}
           <Row label="Scheduled">{job.scheduled_date
-            ? fmtLocalDate(job.scheduled_date)
+            ? new Date(job.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
             : null}</Row>
           <Row label="CMS">{job.cms_account_id}</Row>
         </div>

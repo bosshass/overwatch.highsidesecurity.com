@@ -23,13 +23,12 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { sendGmail } from '../services/gmailSend.js';
 import { supabase, jobsApi } from '../services/supabase.js';
 import {
   ASSIGNEES, assigneeOf, canonicalEmail, emailsFor,
   NAME_BY_EMAIL, CLOSED_STATUSES,
 } from '../utils/ownership.js';
-import { LANES, laneOf, localDate } from '../utils/lanes.js';
+import { LANES, laneOf } from '../utils/lanes.js';
 import { stalenessOf, STALE_COLOR } from '../utils/staleness.js';
 import { TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 import TicketSheet from '../components/TicketSheet.jsx';
@@ -118,100 +117,21 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     [jobs]);
 
   const notesFor = useCallback((name) => {
-    // "all" used to return every note in the system, so a private note written
-    // by one person showed up on everybody's tab. A note is yours until you
-    // assign it; only an assigned one — a task — is anyone else's business.
-    if (name === 'all') return notes.filter(n => n.assigned_to);
+    if (name === 'all') return notes;
     const hit = ASSIGNEES.find(a => a.name === name);
     if (!hit) return [];
-    // A task is a note somebody OWNS. This filtered on author_email, so the
-    // tab showed everything a person had ever written — Shana had 11 tasks
-    // because she typed 11 notes, not because any of them were hers to do.
-    // Assignment is what makes a note a task; that is the only thing to match.
     const mine = new Set(emailsFor(hit.email));
-    return notes.filter(n => mine.has((n.assigned_to || '').toLowerCase()));
+    return notes.filter(n => mine.has((n.author_email || '').toLowerCase()));
   }, [notes]);
 
-  // "Unassigned" was never a state. A job is scheduled or it isn't; a note is
-  // a note or, once somebody owns it, a task. Nobody-owns-this was a fourth
-  // bucket that existed only because assignment was being treated as a
-  // lifecycle stage, and it let real work sit in a pile nobody read.
-  // Unowned jobs now appear in the lanes with everything else.
-  // The pill counted jobs. The tabs count work + tasks + schedule. So a
-  // person's number never matched the sum of what was under it — Shana read
-  // 11 while her three tabs added to something else. One definition now:
-  // open work you own, plus tasks assigned to you.
-  const countFor = useCallback((name) => {
-    const js = name === 'all'
-      ? jobs
-      : jobs.filter(j => assigneeOf(j) === name).concat(jobs.filter(j => !assigneeOf(j)));
-    const ns = name === 'all'
-      ? notes.filter(n => n.assigned_to && n.lane !== 'done')
-      : (() => {
-          const hit = ASSIGNEES.find(a => a.name === name);
-          if (!hit) return [];
-          const mine = new Set(emailsFor(hit.email));
-          return notes.filter(n => mine.has((n.assigned_to || '').toLowerCase()) && n.lane !== 'done');
-        })();
-    return js.length + ns.length;
-  }, [jobs, notes]);
-
-  const myJobs = useMemo(() => {
-    const own = jobsFor(person);
-    if (person === 'all') return own;
-    return own.concat(jobs.filter(j => !assigneeOf(j)));
-  }, [jobsFor, person, jobs]);
+  const myJobs = useMemo(() => jobsFor(person), [jobsFor, person]);
   const myNotes = useMemo(() => notesFor(person), [notesFor, person]);
+  const unowned = useMemo(() => jobs.filter(j => !assigneeOf(j)), [jobs]);
 
-  // A task had no exit. The card opened its job if it had one and did nothing
-  // if it didn't, so nothing could ever be finished — which is why they piled
-  // up. Two moves are all a note needs: pick it up, or be done with it.
-  // Assigning is what turns a note into a task — it is the only difference
-  // between the two. Nothing in the app wrote assigned_to, so a note could
-  // never become one; it just sat where it was written forever.
-  const assignNote = async (id, email) => {
-    const { error } = await supabase.from('notes')
-      .update({ assigned_to: email }).eq('id', id);
-    if (error) { setErr(error.message); return; }
-    setNotes(prev => prev.map(n => (n.id === id ? { ...n, assigned_to: email } : n)));
-
-    // A task is the ONLY thing that needs a mail. A job reaches its tech
-    // through the calendar; a task has no other way of arriving. Unassigning
-    // sends nothing — there is nobody to tell.
-    if (email && accessToken) {
-      const note = notes.find(n => n.id === id);
-      const body = (note?.body || '').trim();
-      const who  = NAME_BY_EMAIL[canonicalEmail(email)] || email.split('@')[0];
-      sendGmail(accessToken, {
-        to: email,
-        subject: '[Overwatch] Task for you',
-        body: `${who},\n\n${body.length > 400 ? body.slice(0, 398) + '\u2026' : body}\n\n`
-            + `From ${NAME_BY_EMAIL[canonicalEmail(userEmail)] || userEmail}.\n`
-            + `It's on your Tasks tab in Overwatch.`,
-      }).catch(() => {}); // never block the UI on a notification
-    }
-  };
-
-  const moveNote = async (id, lane) => {
-    const patch = lane === 'done'
-      ? { lane, status: 'closed', done_at: new Date().toISOString(), done_by: canonicalEmail(userEmail) }
-      : { lane };
-    const { error } = await supabase.from('notes').update(patch).eq('id', id);
-    if (error) { setErr(error.message); return; }
-    setNotes(prev => lane === 'done'
-      ? prev.filter(n => n.id !== id)
-      : prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
-  };
-
-  // Work is what still needs a decision. Scheduled and Tentative are already
-  // the Schedule tab in full, with dates and a Reschedule button — listing
-  // them here too meant the same job appeared under two tabs and neither
-  // count meant anything.
-  const WORK_LANES = LANES.filter(l => !['scheduled', 'tentative'].includes(l.key));
-
+  // Their work, in the SAME five lanes the board uses.
   const byLane = useMemo(() => {
     const m = {};
-    WORK_LANES.forEach(l => { m[l.key] = []; });
+    LANES.forEach(l => { m[l.key] = []; });
     myJobs.forEach(j => {
       const lane = laneOf(j);
       if (lane && m[lane.key]) m[lane.key].push(j);
@@ -219,31 +139,10 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     return m;
   }, [myJobs]);
 
-  // A schedule is what is COMING. Done-To Bill and Complete were listed here
-  // because they still carry a date — so finished work sat in the calendar
-  // alongside next week's bookings and the tab count meant nothing. Anything
-  // already worked belongs in billing, not on a schedule.
-  const upcoming = useMemo(() => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const FINISHED = ['to_bill', 'complete', 'billed', 'dead', 'lost', 'archived'];
-    return myJobs
-      .filter(j => (j.scheduled_date || j.tentative_date) && !FINISHED.includes(j.status))
-      .filter(j => localDate(j.scheduled_date || j.tentative_date) >= today)
-      .sort((a, b) => localDate(a.scheduled_date || a.tentative_date)
-                    - localDate(b.scheduled_date || b.tentative_date));
-  }, [myJobs]);
-
-  // Grouped by day so it reads as a calendar rather than a list of rows that
-  // happen to have dates on them.
-  const byDay = useMemo(() => {
-    const m = new Map();
-    upcoming.forEach(j => {
-      const key = String(j.scheduled_date || j.tentative_date).slice(0, 10);
-      if (!m.has(key)) m.set(key, []);
-      m.get(key).push(j);
-    });
-    return [...m.entries()];
-  }, [upcoming]);
+  const upcoming = useMemo(() => myJobs
+    .filter(j => j.scheduled_date || j.tentative_date)
+    .sort((a, b) => new Date(a.scheduled_date || a.tentative_date) - new Date(b.scheduled_date || b.tentative_date)),
+    [myJobs]);
 
   // Claim / hand over in one tap. The old My Tasks had "I'll take it" and
   // People shipped without it, so the only route was open ticket -> assign.
@@ -259,8 +158,8 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     say(`${job.customer_name || 'Job'} → ${name}`);
   };
 
-  const moveJob = async (job, target, note) => {
-    await jobsApi.changeStatus(job.id, target, userEmail, note);
+  const moveJob = async (job, target, note, reason = null) => {
+    await jobsApi.changeStatus(job.id, target, userEmail, note, reason);
     setOpenJob(null);
     await load();
     say('Moved');
@@ -343,7 +242,7 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   );
 
   const TABS = [
-    { key: 'work',     label: 'Work',     badge: WORK_LANES.reduce((n, l) => n + (byLane[l.key]?.length || 0), 0) },
+    { key: 'work',     label: 'Work',     badge: myJobs.length },
     { key: 'tasks',    label: 'Tasks',    badge: myNotes.filter(n => n.lane !== 'done').length },
     { key: 'schedule', label: 'Schedule', badge: upcoming.length },
   ];
@@ -372,10 +271,10 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '12px 16px',
                     borderBottom: `1px solid ${C.line}`, position: 'sticky', top: 53,
                     background: C.bg, zIndex: 55, WebkitOverflowScrolling: 'touch' }}>
-        <PersonChip name="all" count={countFor('all')} color={C.cyan} active={person === 'all'} />
+        <PersonChip name="all" count={jobs.length} color={C.cyan} active={person === 'all'} />
         {ASSIGNEES.map(a => (
           <PersonChip key={a.email} name={a.name}
-            count={countFor(a.name)}
+            count={jobsFor(a.name).length}
             color={TECH_COLORS[a.name] || C.cyan}
             active={person === a.name} />
         ))}
@@ -412,16 +311,52 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
               <Empty>
                 {person === 'all'
                   ? 'No open jobs.'
-                  : `${person} has no open work.`}
+                  : `${person} has no open work. Pick a job from Unassigned below and assign it from the ticket.`}
               </Empty>
             )}
-            {WORK_LANES.map(lane => byLane[lane.key]?.length ? (
+            {LANES.map(lane => byLane[lane.key]?.length ? (
               <Section key={lane.key} title={`${lane.icon} ${lane.label}`}
                 color={lane.color} count={byLane[lane.key].length}>
                 {byLane[lane.key].map(j => <JobRow key={j.id} job={j} />)}
               </Section>
             ) : null)}
 
+            {/* Unassigned is everyone's problem, so it sits under every person. */}
+            {unowned.length > 0 && (
+              <Section title="Nobody owns this" color={C.red} count={unowned.length}>
+                {unowned.slice(0, 12).map(j => (
+                  <div key={j.id} style={{ marginBottom: 7 }}>
+                    <JobRow job={j} />
+                    <div style={{ display: 'flex', gap: 7, marginLeft: 2, marginTop: -2 }}>
+                      {person !== 'all' && (
+                        <button onClick={() => giveTo(j, person)}
+                          style={{ background: 'transparent', border: `1px solid ${C.green}`,
+                                   borderRadius: 8, color: C.green, fontSize: 12, fontWeight: 700,
+                                   padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          {person === myName ? 'I’ll take it' : `Give to ${person}`}
+                        </button>
+                      )}
+                      {person === 'all' && myName && (
+                        <button onClick={() => giveTo(j, myName)}
+                          style={{ background: 'transparent', border: `1px solid ${C.green}`,
+                                   borderRadius: 8, color: C.green, fontSize: 12, fontWeight: 700,
+                                   padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          I’ll take it
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {unowned.length > 12 && (
+                  <button onClick={() => navigate('/board')}
+                    style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
+                             color: C.muted, fontSize: 12, padding: '8px 12px', cursor: 'pointer',
+                             fontFamily: 'inherit' }}>
+                    See all {unowned.length} on the board
+                  </button>
+                )}
+              </Section>
+            )}
           </>
         )}
 
@@ -436,87 +371,21 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                   {items.map(n => {
                     const job = n.job_id ? jobs.find(j => j.id === n.job_id) : null;
                     return (
-                      // A note is a thing somebody wrote down. A job is a
-                      // visit that produces hours and an invoice. They were
-                      // rendered identically — same slab, same left rule, same
-                      // weight — so a scribbled reminder read as work.
-                      // Paper, not a card: lighter ground, no heavy border,
-                      // and a rule down the side that says who wrote it.
-                      <div key={n.id}
-                        style={{ background: 'transparent',
-                                 borderLeft: `2px solid ${n.assigned_to ? tl.color : C.line}`,
-                                 borderRadius: 0,
-                                 padding: '6px 0 10px 12px', marginBottom: 4, color: C.text }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                          {/* Assignment is the only thing that separates the two.
-                              Labelling every row "Task" made a private note look
-                              like something somebody had been handed. */}
-                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6,
-                                         textTransform: 'uppercase',
-                                         color: n.assigned_to ? tl.color : C.muted,
-                                         border: `1px solid ${n.assigned_to ? tl.color + '55' : C.line}`,
-                                         borderRadius: 4, padding: '1px 5px' }}>
-                            {n.assigned_to ? 'Task' : 'Note'}
-                          </span>
-                          <span style={{ fontSize: 11, color: C.muted }}>{fmtDay(n.created_at)}</span>
-                        </div>
-                        <div
-                          onClick={() => job ? setOpenJob(job) : null}
-                          style={{ fontSize: 13.5, lineHeight: 1.5, color: C.text,
-                                   cursor: job ? 'pointer' : 'default' }}>
-                          {n.body}
-                        </div>
-                        {n.author_email && (
-                          <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
-                            {NAME_BY_EMAIL[canonicalEmail(n.author_email)] || n.author_email.split('@')[0]} wrote this
-                          </div>
-                        )}
+                      <button key={n.id}
+                        onClick={() => job ? setOpenJob(job) : null}
+                        style={{ display: 'block', width: '100%', textAlign: 'left',
+                                 background: C.raised, border: `1px solid ${C.line}`,
+                                 borderLeft: `3px solid ${tl.color}`, borderRadius: 10,
+                                 padding: '11px 13px', marginBottom: 7,
+                                 cursor: job ? 'pointer' : 'default',
+                                 color: C.text, fontFamily: 'inherit' }}>
+                        <div style={{ fontSize: 14, lineHeight: 1.45 }}>{n.body}</div>
                         {job && (
                           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 5 }}>
                             {job.customer_name} · {laneOf(job)?.label || job.status}
                           </div>
                         )}
-                        {tl.key !== 'done' && (
-                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginTop: 9 }}>
-                            <span style={{ fontSize: 11, color: C.muted, marginRight: 2 }}>
-                              {n.assigned_to ? 'Owner' : 'Give to'}
-                            </span>
-                            {ASSIGNEES.map(a => {
-                              const on = (n.assigned_to || '').toLowerCase() === a.email.toLowerCase();
-                              return (
-                                <button key={a.email}
-                                  onClick={() => assignNote(n.id, on ? null : a.email)}
-                                  title={on ? 'Unassign — back to a private note' : `Give to ${a.name}`}
-                                  style={{ padding: '3px 9px', borderRadius: 20, cursor: 'pointer',
-                                           background: on ? C.cyan : 'transparent',
-                                           border: `1px solid ${on ? C.cyan : C.line}`,
-                                           color: on ? '#0f172a' : C.muted,
-                                           fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
-                                  {a.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {tl.key !== 'done' && (
-                          <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-                            {tl.key === 'todo' && (
-                              <button onClick={() => moveNote(n.id, 'doing')}
-                                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',
-                                         background: 'transparent', border: `1px solid ${C.amber}`,
-                                         color: C.amber, fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
-                                Start
-                              </button>
-                            )}
-                            <button onClick={() => moveNote(n.id, 'done')}
-                              style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',
-                                       background: 'transparent', border: '1px solid #22c55e',
-                                       color: '#22c55e', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
-                              ✓ Done
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      </button>
                     );
                   })}
                 </Section>
@@ -534,43 +403,17 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                 Open a job from Work and choose Scheduled to book it.
               </Empty>
             )}
-            {byDay.map(([day, items]) => {
-              const d = localDate(day);
-              const today = new Date(); today.setHours(0, 0, 0, 0);
-              const isToday = d && d.getTime() === today.getTime();
-              return (
-                <div key={day} style={{ marginBottom: 18 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8,
-                                paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
-                    <span style={{ fontSize: 15, fontWeight: 800,
-                                   color: isToday ? C.cyan : C.text }}>
-                      {d ? d.toLocaleDateString('en-US', { weekday: 'long' }) : day}
-                    </span>
-                    <span style={{ fontSize: 12.5, color: C.muted }}>
-                      {d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
-                    </span>
-                    {isToday && (
-                      <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6,
-                                     textTransform: 'uppercase', color: C.cyan }}>Today</span>
-                    )}
-                    <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
-                      {items.length} {items.length === 1 ? 'stop' : 'stops'}
-                    </span>
-                  </div>
-                  {items.map(j => (
-                    <div key={j.id} style={{ marginBottom: 7 }}>
-                      <JobRow job={j} />
-                      <button onClick={() => setScheduling(j)}
-                        style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
-                                 color: C.cyan, fontSize: 12, fontWeight: 700, padding: '6px 12px',
-                                 cursor: 'pointer', fontFamily: 'inherit', marginLeft: 2 }}>
-                        {j.scheduled_date ? 'Reschedule' : 'Book this hold'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
+            {upcoming.map(j => (
+              <div key={j.id} style={{ marginBottom: 7 }}>
+                <JobRow job={j} />
+                <button onClick={() => setScheduling(j)}
+                  style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8,
+                           color: C.cyan, fontSize: 12, fontWeight: 700, padding: '6px 12px',
+                           cursor: 'pointer', fontFamily: 'inherit', marginLeft: 2 }}>
+                  {j.scheduled_date ? 'Reschedule' : 'Book this hold'}
+                </button>
+              </div>
+            ))}
           </>
         )}
       </div>
@@ -594,7 +437,7 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                 ['ready_to_schedule', 'return_pending', 'scheduled'].includes(openJob.status)
                   ? () => { setScheduling(openJob); setOpenJob(null); } : null
               }
-              onMove={(target, note) => moveJob(openJob, target, note)}
+              onMove={(target, note, reason) => moveJob(openJob, target, note, reason)}
             />
           </div>
         </div>

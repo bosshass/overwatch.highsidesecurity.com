@@ -138,10 +138,10 @@ function LinkedTicket({ jobId, accessToken, userEmail, onUpdate, onClose }) {
           ['ready_to_schedule', 'return_pending', 'scheduled'].includes(job.status)
             ? () => setScheduling(true) : null
         }
-        onMove={async (target, note) => {
+        onMove={async (target, note, reason) => {
           setBusy(true);
           try {
-            await jobsApi.changeStatus(job.id, target, userEmail || 'unknown', note);
+            await jobsApi.changeStatus(job.id, target, userEmail || 'unknown', note, reason);
             await load(); onUpdate?.();
           } finally { setBusy(false); }
         }}

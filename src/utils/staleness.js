@@ -80,3 +80,45 @@ export function stalenessOf(job) {
 }
 
 export const STALE_COLOR = { ok: null, stale: '#f59e0b', very_stale: '#ef4444' };
+
+// ── DISPOSITION DEADLINE ────────────────────────────────────────────────────
+// Scheduled work is a promise. Once the day is over somebody has to say what
+// happened — Bill it, Return, Estimate, In progress. Until they do there is no
+// disposition, so no time entry, so nothing to invoice and nothing anyone
+// downstream can read. A silent visit is indistinguishable from one that never
+// occurred.
+//
+// THE RULE (Sara, 2026-08-13): the day ends at 6pm. Fourteen hours later —
+// 8am the next morning — a disposition is overdue. Weekends do not count, so
+// a Friday visit is not late until Monday 8am. Nobody is being chased at the
+// weekend for Friday's paperwork.
+//
+// Deliberately keyed on STATUS, not on notes. If the tech had dispositioned it
+// on the finish sheet the status would have moved off `scheduled`. Notes can be
+// written against an old visit and dragging a card writes history without
+// saying anything — neither proves this visit was written up. Status does.
+export const DAY_ENDS_HOUR = 18;          // 6pm
+export const DISPOSITION_GRACE_HOURS = 14; // -> 8am next day
+
+export function dispositionDueAt(scheduledDate) {
+  if (!scheduledDate) return null;
+  // Parse the parts. jobs.scheduled_date is a DATE, and new Date('2026-08-07')
+  // is UTC midnight, which is the previous evening in Denver.
+  const [y, m, d] = String(scheduledDate).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const due = new Date(y, m - 1, d, DAY_ENDS_HOUR, 0, 0, 0);
+  due.setHours(due.getHours() + DISPOSITION_GRACE_HOURS);
+  // Land on a weekend and it waits for Monday morning.
+  while (due.getDay() === 0 || due.getDay() === 6) {
+    due.setDate(due.getDate() + 1);
+    due.setHours(8, 0, 0, 0);
+  }
+  return due;
+}
+
+// Still sitting in `scheduled` past the deadline = nobody wrote it up.
+export function needsDisposition(job, now = new Date()) {
+  if (!job || job.status !== 'scheduled' || !job.scheduled_date) return false;
+  const due = dispositionDueAt(job.scheduled_date);
+  return !!due && now > due;
+}

@@ -15,7 +15,7 @@ import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail } from '../utils/ownership.js';
 import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
-import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
+import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
@@ -509,7 +509,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
             ['ready_to_schedule','return_pending','scheduled'].includes(job.status)
               ? () => onSchedule(job) : null
           }
-          onMove={async (target, note) => { await onStatusMove(job.id, target, note); }}
+          onMove={async (target, note, reason) => { await onStatusMove(job.id, target, note, reason); }}
           onAssigned={onAssigned}
           extras={
             <div style={{ marginTop: 14, display:'flex', flexDirection:'column', gap: 10 }}>
@@ -606,12 +606,25 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
           // than printing a date that quietly reads as fine.
           const overdue = when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
           const color = overdue ? '#ef4444' : '#38bdf8';
+          // Still `scheduled` past the deadline = nobody said what happened.
+          // See needsDisposition() in utils/staleness.js for the 6pm + 14h
+          // rule and the weekend roll.
+          const noDispo = needsDisposition(job);
           return (
+            <>
+            {noDispo && (
+              <span title="The scheduled day ended and nobody dispositioned this. Due 8am the next working morning."
+                style={{ fontSize:12, fontWeight:800, color:'#fff', background:'#dc2626',
+                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
+                ⚠ NO DISPOSITION
+              </span>
+            )}
             <span style={{ fontSize:12, fontWeight:700, color, background:`${color}22`,
                            padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
               📅 {when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
               {overdue ? ' · past' : ''}
             </span>
+            </>
           );
         })()}
         {staleColor && (
@@ -880,12 +893,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   }, [deepJobId, navigate]);
 
   // Status move — no note required, never touches created_at
-  const moveStatus = useCallback(async (jobId, newStatus, note = null) => {
+  const moveStatus = useCallback(async (jobId, newStatus, note = null, archiveReason = null) => {
     setMoving(true);
     try {
       // changeStatus writes the history row too, so the "why" typed into the
       // ticket sheet actually travels with the card instead of being dropped.
-      await jobsApi.changeStatus(jobId, newStatus, userEmail || 'info@drhsecurityservices.com', note);
+      await jobsApi.changeStatus(jobId, newStatus, userEmail || 'info@drhsecurityservices.com', note, archiveReason);
       setJobs(prev => prev.map(j => j.id===jobId ? {...j, status:newStatus} : j));
       setSelectedJob(prev => prev?.id===jobId ? {...prev, status:newStatus} : prev);
       showToast(`→ ${STATUS_INFO[newStatus]?.label||newStatus}`);
@@ -1105,7 +1118,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <DetailDrawer
           job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks} onAssigned={onAssigned}
           allJobs={jobs}
-          onStatusMove={(jobId, verb, note) => { moveStatus(jobId, verb, note); setSelectedJob(null); }}
+          onStatusMove={(jobId, verb, note, reason) => { moveStatus(jobId, verb, note, reason); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}
           onClose={() => setSelectedJob(null)}
           onUUIDLinked={handleUUIDLinked}

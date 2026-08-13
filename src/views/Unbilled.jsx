@@ -23,6 +23,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, jobsApi } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
+import { reasonLabel } from '../config/archiveReasons.js';
 
 
 // ── BUCKETS ──────────────────────────────────────────────────────────
@@ -77,6 +78,11 @@ export default function Unbilled({ onBack, userEmail }) {
   const [toast, setToast] = useState('');
   const [search, setSearch] = useState('');
   const [archiving, setArchiving] = useState(false);
+  // When a "clear" action opens the modal, this holds what to clear. The modal
+  // is the ONLY route out of Billing that is not an invoice, so it is the only
+  // place the absorbed-vs-never-happened distinction can be captured — and
+  // after the fact nobody remembers. See config/archiveReasons.js.
+  const [clearTarget, setClearTarget] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -249,6 +255,9 @@ export default function Unbilled({ onBack, userEmail }) {
   const closeNoHours = async (g, target) => {
     if (!g.job?.id) return;
     const label = target === 'billed' ? 'billed' : 'cleared';
+    // Clearing needs a reason, not a confirm box. "Not billable" collapsed a
+    // warranty callback and a test entry into one string.
+    if (target !== 'billed') { setClearTarget({ kind: 'job', group: g }); return; }
     if (!window.confirm(`Mark ${g.name} as ${label}?\n\nNo hours are attached, so nothing goes on an invoice. This only moves the card off the board.`)) return;
     setSaving(true);
     try {
@@ -277,9 +286,8 @@ export default function Unbilled({ onBack, userEmail }) {
     const ids = g.visits.map(v => v.id).filter(Boolean);
     if (!ids.length) return;
     const n = ids.length;
-    const msg = target === 'billed'
-      ? `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed?\n\nNo ticket is created. Use this when the work was already invoiced in QuickBooks.`
-      : `Clear ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name}?\n\nThe hours are archived, not deleted, and stop showing as unbilled.`;
+    if (target !== 'billed') { setClearTarget({ kind: 'orphan', group: g }); return; }
+    const msg = `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed?\n\nNo ticket is created. Use this when the work was already invoiced in QuickBooks.`;
     if (!window.confirm(msg)) return;
     setSaving(true);
     try {
@@ -291,6 +299,40 @@ export default function Unbilled({ onBack, userEmail }) {
       if (error) throw error;
       setToast(`${g.name} — ${n} visit${n > 1 ? 's' : ''} ${target === 'billed' ? 'billed' : 'cleared'}`);
       setTimeout(() => setToast(''), 2600);
+      await load();
+    } catch (e) { setToast('Could not update: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // Clearing with a reason. `archive_reason` stores the KEY (warranty,
+  // goodwill, sales_call...) not a sentence, so isRealCost() can classify it
+  // later. Writing prose here is what made 44 rows unclassifiable.
+  const doClearWithReason = async (reason) => {
+    const t = clearTarget;
+    if (!t) return;
+    setSaving(true);
+    try {
+      if (t.kind === 'orphan') {
+        const ids = t.group.visits.map(v => v.id).filter(Boolean);
+        const { error } = await supabase.from('time_entries').update({
+          archived: true, archived_at: new Date().toISOString(),
+          archived_by: userEmail, archive_reason: reason,
+        }).in('id', ids);
+        if (error) throw error;
+      } else {
+        await jobsApi.changeStatus(t.group.job.id, 'archived', userEmail,
+          `Cleared from Billing — ${reasonLabel(reason)}`);
+        const ids = (t.group.visits || []).map(v => v.id).filter(Boolean);
+        if (ids.length) {
+          await supabase.from('time_entries').update({
+            archived: true, archived_at: new Date().toISOString(),
+            archived_by: userEmail, archive_reason: reason,
+          }).in('id', ids);
+        }
+      }
+      setToast(`${t.group.name} — ${reasonLabel(reason)}`);
+      setTimeout(() => setToast(''), 2600);
+      setClearTarget(null);
       await load();
     } catch (e) { setToast('Could not update: ' + (e.message || e)); }
     setSaving(false);
@@ -509,7 +551,7 @@ export default function Unbilled({ onBack, userEmail }) {
                     style={{ background: 'transparent', border: '1px solid #64748b', borderRadius: 8,
                              color: '#94a3b8', fontSize: 13, fontWeight: 700, padding: '9px 14px',
                              cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Not billable — clear it
+                    Not billable — pick a reason
                   </button>
                   <div style={{ flexBasis: '100%', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
                     Marking billed stamps these hours only — no ticket is created, and the
@@ -537,7 +579,7 @@ export default function Unbilled({ onBack, userEmail }) {
                     style={{ background: 'transparent', border: '1px solid #64748b', borderRadius: 8,
                              color: '#94a3b8', fontSize: 13, fontWeight: 700, padding: '9px 14px',
                              cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Not billable — clear it
+                    Not billable — pick a reason
                   </button>
                   <div style={{ flexBasis: '100%', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
                     If the work really happened and the hours were never entered, open the
@@ -587,6 +629,15 @@ export default function Unbilled({ onBack, userEmail }) {
         })}
       </div>
 
+      {clearTarget && (
+        <ArchiveModal
+          count={clearTarget.kind === 'orphan' ? (clearTarget.group.visits || []).length : 1}
+          hours={fmtH(clearTarget.group.hours || 0)}
+          onCancel={() => setClearTarget(null)}
+          onConfirm={doClearWithReason}
+        />
+      )}
+
       {archiving && (
         <ArchiveModal
           count={sel.rows.length}
@@ -611,7 +662,7 @@ export default function Unbilled({ onBack, userEmail }) {
               <button onClick={() => setArchiving(true)} disabled={saving}
                 title="Junk / test data. Leaves the queue WITHOUT being marked billed."
                 style={{ background: 'none', border: '1px solid #64748b', color: '#cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
-                🗑️ Archive (not billable)
+                🗑️ Archive — pick a reason
               </button>
               <button onClick={markBilled} disabled={saving}
                 style={{ marginLeft: 'auto', background: '#22c55e', border: 'none', color: '#052e16', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>

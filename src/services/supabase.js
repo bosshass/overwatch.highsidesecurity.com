@@ -295,7 +295,11 @@ export const jobsApi = {
     return data;
   },
 
-  async changeStatus(id, newStatus, changedBy, notes = null) {
+  // archiveReason is the KEY from config/archiveReasons.js ('warranty',
+  // 'goodwill', 'sales_call'...), never a sentence. isRealCost() classifies a
+  // key; it cannot classify prose. Prose is what made 44 existing rows
+  // impossible to put on either side of the profitability ledger.
+  async changeStatus(id, newStatus, changedBy, notes = null, archiveReason = null) {
     // THE SILENT-NO-OP GUARD.
     // supabase-js serializes the update with JSON.stringify, which DROPS keys
     // whose value is undefined. So changeStatus(id, undefined) sent a PATCH
@@ -309,28 +313,13 @@ export const jobsApi = {
     const oldStatus = current?.status;
 
     const updates = { status: newStatus, updated_by: changedBy };
+    if (archiveReason) updates.return_reason = archiveReason;
     // A hold is a pencil mark, and ANY deliberate status move supersedes it.
     // Nothing cleared this before, so a job that was held and then moved on
     // kept its tentative_date forever and stayed pinned in the Tentative
     // column. services/schedule.js is the only thing allowed to SET it.
     updates.tentative_date = null;
     updates.tentative_event_id = null;
-
-    // LEAVING SCHEDULED GIVES THE JOB BACK ITS DATE PROBLEM.
-    // A booking is only true while the status says scheduled. Moving to
-    // return_pending, blocked or ready_to_schedule means the old date is a
-    // date nobody is going to — but it was left on the row, so the job still
-    // read as booked and reappeared on the calendar it had just left.
-    // Ownership flips the same way: scheduled work belongs to the tech, and
-    // anything else is waiting on a person to decide something, so the office
-    // takes it back. services/schedule.js is the only thing that SETS these.
-    const UNSCHEDULES = ['return_pending', 'blocked', 'ready_to_schedule',
-                         'needs_estimate', 'estimate_sent', 'new'];
-    if (oldStatus === 'scheduled' && UNSCHEDULES.includes(newStatus)) {
-      updates.scheduled_date = null;
-      updates.scheduled_event_id = null;
-      updates.assigned_to = 'shanaparks@drhsecurityservices.com';
-    }
     // TWO OF THESE WROTE COLUMNS THAT DO NOT EXIST ON `jobs`:
     //   scheduled_at — never existed here. Scheduling state is scheduled_date
     //                  plus scheduled_event_id, written by services/schedule.js.
@@ -489,44 +478,14 @@ export const assignmentsApi = {
   },
 
   async create(assignment, createdBy) {
-    // A job can span days. This used to delete EVERY incomplete assignment for
-    // the job+tech before inserting, which meant booking day 2 silently erased
-    // day 1 — day_number never once exceeded 1 in 284 rows because the code
-    // would not allow it. A three-day install had to be entered as three
-    // separate jobs, and that is where the duplicate cards came from.
-    //
-    // The row that genuinely collides is the same tech, same job, same DAY.
-    // Replace that one; leave the other days alone.
+    // Remove any existing non-complete assignment for this job+tech to avoid unique constraint violation
     if (assignment.job_id && assignment.tech_id) {
-      let q = supabase
+      await supabase
         .from('job_assignments')
         .delete()
         .eq('job_id', assignment.job_id)
         .eq('tech_id', assignment.tech_id)
         .or('is_complete.is.null,is_complete.eq.false');
-
-      if (assignment.day_number != null) {
-        q = q.eq('day_number', assignment.day_number);
-      } else if (assignment.scheduled_for) {
-        // No explicit day number — scope by calendar day so a second booking
-        // on a different date is an additional day, not a replacement.
-        const d = new Date(assignment.scheduled_for);
-        const from = new Date(d); from.setHours(0, 0, 0, 0);
-        const to   = new Date(d); to.setHours(23, 59, 59, 999);
-        q = q.gte('scheduled_for', from.toISOString()).lte('scheduled_for', to.toISOString());
-      }
-      await q;
-    }
-
-    // Number the day if the caller didn't: next in sequence for this job.
-    if (assignment.job_id && assignment.day_number == null) {
-      const { data: existing } = await supabase
-        .from('job_assignments')
-        .select('day_number')
-        .eq('job_id', assignment.job_id)
-        .order('day_number', { ascending: false })
-        .limit(1);
-      assignment.day_number = (existing?.[0]?.day_number || 0) + 1;
     }
     const { data, error } = await supabase
       .from('job_assignments')

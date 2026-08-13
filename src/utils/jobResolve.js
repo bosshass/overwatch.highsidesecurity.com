@@ -102,7 +102,30 @@ export const isUnbilled = (entry) => entry?.billed !== true && !entry?.archived;
 
 // Why an hour isn't billable yet. Shared by the Unbilled screen and the home
 // tile so the two can never report different numbers again.
-export function unbilledBucket(job) {
+//
+// PRECEDENCE — this is the whole fix. The ENTRY is the thing that gets
+// invoiced, so the entry's own fields outrank the job's status. Reading
+// job.status first is what put 164 already-invoiced visits in "To bill", and
+// what dropped sales calls into "Worked, then killed".
+//
+//   1. resolved_at        settled. Not a bucket — the caller should filter it
+//                         out entirely before getting here.
+//   2. billed/invoice_ref an invoice exists. Nothing else can outrank that.
+//   3. billable === false covered by a contract, never separately invoiced.
+//                         Label comes from non_billable_reason ("project hours").
+//   4. archived           real cost DRH absorbed; archive_reason says why.
+//   5. disposition        what the tech said in the field.
+//   6. job.status         last resort, and only when the entry says nothing.
+export function unbilledBucket(job, entry = null) {
+  if (entry) {
+    if (entry.resolved_at)                      return 'resolved';
+    if (entry.billed || entry.invoice_ref)      return 'billed';
+    if (entry.billable === false)               return 'project';
+    if (entry.archived)                         return 'absorbed';
+    if (entry.disposition === 'estimate')       return 'sales';
+    if (entry.disposition === 'in_progress')    return 'progress';
+    if (entry.disposition === 'return')         return 'return';
+  }
   if (!job) return 'nojob';
   const s = job.status;
   if (s === 'complete' || s === 'to_bill') return 'ready';

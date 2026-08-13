@@ -32,10 +32,14 @@ import ArchiveModal from '../components/ArchiveModal.jsx';
 // job at all. Showing them together wastes your time and hides the real
 // problem, so an hour now goes in the bucket that says what has to happen next.
 export const BUCKETS = [
-  { key: 'contract', label: '\u{1F4CB} Held on a contract', color: '#a78bfa',
-    blurb: 'Fixed-fee work. These hours are already sold — they belong to a contract, not to an hourly invoice, and billing them by the hour would charge the customer twice. They sit here until the contract is progress-billed. Jeanneret is the one to watch: 28 hours against a $19,420 fixed fee.' },
   { key: 'ready',    label: '✅ Ready to bill',        color: '#22c55e',
     blurb: 'The work is done and the job is closed out. Invoice these.' },
+  { key: 'project',  label: '📐 Project hours',        color: '#8b5cf6',
+    blurb: 'Covered by a fixed-fee contract. These hours are real cost against the project and are NOT invoiced separately — but they stay visible here until the project closes, so the cost never disappears.' },
+  { key: 'sales',    label: '💬 Sales / pre-sale',     color: '#0ea5e9',
+    blurb: 'Estimates and sales calls. Time spent winning the work, not delivering it. Never invoiceable.' },
+  { key: 'absorbed', label: '🧾 Absorbed cost',        color: '#64748b',
+    blurb: 'Warranty, goodwill, duplicate or contract work already archived with a reason. Real cost with zero revenue — kept visible so profitability stays honest.' },
   { key: 'return',   label: '🔄 Waiting on a return',  color: '#ec4899',
     blurb: 'You CANNOT bill these until someone goes back. The customer is waiting, and every day this sits is a day of unbilled work AND a day of bad service.' },
   { key: 'progress', label: '🚧 Still in progress',    color: '#3b82f6',
@@ -79,9 +83,12 @@ export default function Unbilled({ onBack, userEmail }) {
     try {
       const { data: entries, error } = await supabase
         .from('time_entries')
-        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, archived, job_id, calendar_event_id')
+        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, billed_at, invoice_ref, archived, archive_reason, billable, non_billable_reason, resolved_at, resolution_reason, job_id, calendar_event_id')
         .or('billed.is.null,billed.eq.false')
-        .or('archived.is.null,archived.eq.false')
+        // resolved_at is the ONE switch that takes a visit off this screen for
+        // good. 193 pre-July entries were closed out in migration 042; without
+        // this filter every one of them still reported as unbilled work.
+        .is('resolved_at', null)
         // .gt('total_minutes', 0) REMOVED — it dropped every visit with no
         // clocked time straight out of the result set, with nothing on any
         // screen to say so. A job could read "To Bill" on the board and simply
@@ -94,7 +101,7 @@ export default function Unbilled({ onBack, userEmail }) {
       // calendar_event_id instead, so we resolve both ways.
       const { data: jobRows } = await supabase
         .from('jobs')
-        .select('id, status, calendar_event_id, customer_name, updated_at, estimate_amount, estimated_hours, qbo_estimate_ref')
+        .select('id, status, calendar_event_id, customer_name, updated_at')
         .limit(5000);
       const jobById = {}, jobByEvent = {};
       (jobRows || []).forEach(j => {
@@ -114,17 +121,9 @@ export default function Unbilled({ onBack, userEmail }) {
       (entries || []).forEach(e0 => {
         const job = jobFor(e0);
         // Zero clocked minutes is its own problem, not a 'ready to bill'.
-        const b0 = bucketOf(job);
-        // A job with a contract on it is never hourly. This was the screen
-        // telling you to invoice Jeanneret by the hour while $19,420 of it
-        // was already sold — the reason fixed-fee work kept getting offered
-        // and kept getting skipped, and why nothing on this list could be
-        // trusted enough to act on.
-        const onContract = !!(job && (Number(job.estimate_amount) > 0 || job.qbo_estimate_ref));
+        const b0 = bucketOf(job, e0);
         const e = { ...e0, _job: job,
-                    _bucket: onContract && e0.total_minutes > 0
-                      ? 'contract'
-                      : ((b0 === 'ready' && !(e0.total_minutes > 0)) ? 'nohours' : b0) };
+                    _bucket: (b0 === 'ready' && !(e0.total_minutes > 0)) ? 'nohours' : b0 };
         // Group on the customer UUID where we have one. Where we don't, the
         // entry is ORPHANED — it still needs billing, but it also needs a
         // client attached, and we say so instead of quietly merging it in.
@@ -295,38 +294,6 @@ export default function Unbilled({ onBack, userEmail }) {
       await load();
     } catch (e) { setToast('Could not update: ' + (e.message || e)); }
     setSaving(false);
-  };
-
-  // ATTACH. Every orphan on this screen belongs to a customer who already has
-  // a job — Jeanneret had one, BG Auto has four, Shepard has three. The three
-  // actions here were make-a-new-ticket, mark-billed and clear, so the only
-  // way to fix a missing link was to create a second job or write the hours
-  // off. That is why 43 hours sat here: the right answer had no button.
-  const [attachFor, setAttachFor] = useState(null);   // the group being linked
-  const [attachOpts, setAttachOpts] = useState([]);
-
-  const openAttach = async (g) => {
-    setAttachFor(g); setAttachOpts([]);
-    const cid = g.entries?.[0]?.customer_id;
-    if (!cid) return;
-    const { data } = await supabase.from('jobs')
-      .select('id, status, issue, customer_name, scheduled_date, estimate_amount')
-      .eq('customer_id', cid)
-      .not('status', 'in', '(dead,archived,lost)')
-      .order('created_at', { ascending: false })
-      .limit(25);
-    setAttachOpts(data || []);
-  };
-
-  const attachTo = async (jobId) => {
-    if (!attachFor) return;
-    setSaving(true);
-    const ids = attachFor.entries.map(e => e.id);
-    const { error } = await supabase.from('time_entries')
-      .update({ job_id: jobId }).in('id', ids);
-    setSaving(false);
-    if (error) { alert('Could not attach: ' + error.message); return; }
-    setAttachFor(null); setAttachOpts([]); load();
   };
 
   const markBilled = async () => {
@@ -527,16 +494,10 @@ export default function Unbilled({ onBack, userEmail }) {
               {open && !g.noEntries && g.bucket === 'nojob' && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
                               display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button onClick={() => openAttach(g)} disabled={saving}
+                  <button onClick={() => window.open('/board', '_self')}
                     style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Attach to an existing job
-                  </button>
-                  <button onClick={() => window.open('/board', '_self')}
-                    style={{ background: 'transparent', border: '1px solid #1d4ed8', borderRadius: 8,
-                             color: '#60a5fa', fontSize: 13, fontWeight: 700, padding: '9px 14px',
-                             cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Make a new ticket
+                    Make a ticket for this
                   </button>
                   <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
@@ -662,58 +623,6 @@ export default function Unbilled({ onBack, userEmail }) {
                 🔧 <b>Materials on this invoice:</b> {sel.materials.join(' · ')}
               </div>
             )}
-          </div>
-        </div>
-      )}
-      {/* Pick the job these hours belong to. Only that customer's jobs, so
-          there is no way to attach Jeanneret's install to somebody else. */}
-      {attachFor && (
-        <div onClick={() => setAttachFor(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(3,8,16,0.8)', zIndex: 950,
-                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 14,
-                     padding: 18, width: '100%', maxWidth: 560, maxHeight: '80dvh', overflowY: 'auto' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#e2e8f0', marginBottom: 3 }}>
-              Attach {fmtH(hrs(attachFor.entries.reduce((n, e) => n + (e.total_minutes || 0), 0)))} to a job
-            </div>
-            <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14 }}>
-              {attachFor.name} &middot; {attachFor.entries.length} {attachFor.entries.length === 1 ? 'visit' : 'visits'}
-            </div>
-
-            {attachOpts.length === 0 && (
-              <div style={{ fontSize: 13, color: '#94a3b8', padding: '10px 0' }}>
-                No open job for this customer. Make a new ticket instead.
-              </div>
-            )}
-
-            {attachOpts.map(j => (
-              <button key={j.id} onClick={() => attachTo(j.id)} disabled={saving}
-                style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 7,
-                         background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 10,
-                         padding: '10px 13px', cursor: 'pointer', color: '#e2e8f0', fontFamily: 'inherit' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase',
-                                 letterSpacing: 0.5, color: '#60a5fa' }}>{j.status}</span>
-                  {j.scheduled_date && (
-                    <span style={{ fontSize: 11.5, color: '#64748b' }}>{fmtD(j.scheduled_date)}</span>
-                  )}
-                  {Number(j.estimate_amount) > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa' }}>fixed fee</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 13, marginTop: 4, lineHeight: 1.4 }}>
-                  {(j.issue || j.customer_name || 'No description').slice(0, 120)}
-                </div>
-              </button>
-            ))}
-
-            <button onClick={() => setAttachFor(null)}
-              style={{ marginTop: 8, background: 'transparent', border: '1px solid #334155',
-                       borderRadius: 8, color: '#94a3b8', fontSize: 13, fontWeight: 700,
-                       padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
-              Cancel
-            </button>
           </div>
         </div>
       )}

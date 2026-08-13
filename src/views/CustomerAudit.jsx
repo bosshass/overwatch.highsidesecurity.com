@@ -10,8 +10,9 @@
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '../services/supabase.js';
-import { archiveEvent, scanForOrphans } from '../services/calendarSync.js';
+import { archiveEvent, scanForOrphans, ORPHAN_SCAN_DEEP } from '../services/calendarSync.js';
 import { missingLabel } from '../utils/completeness.js';
+import { buildEventIndex, resolveJobForEvent } from '../utils/jobResolve.js';
 import { MergeTool } from './BoardView.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
@@ -154,12 +155,28 @@ export default function CustomerAudit({ onBack, accessToken }) {
           .select('id, event_title, event_start, created_at, calendar_event_id, customer_id, tech_name, total_minutes, disposition, materials, notes, customer_name_raw')
           .or('archived.is.null,archived.eq.false')
           .gte('created_at', SINCE).limit(2000),
-        supabase.from('jobs').select('id, status, calendar_event_id').not('calendar_event_id', 'is', null).limit(3000),
+        // THE DUPLICATE FACTORY, FIXED.
+        // This selected ONLY calendar_event_id, and the filter below excluded
+        // every job that has no calendar_event_id at all. But a job that was
+        // booked through the scheduler carries the tech's Google event id in
+        // scheduled_event_id — calendar_event_id holds the ORIGINAL intake
+        // event, or nothing. So when a tech dispositioned from their own
+        // calendar, the time_entry's calendar_event_id was the SCHEDULED id,
+        // this map missed it, Event Audit showed "no ticket," and one click on
+        // Push to Board manufactured a second card while the real one sat
+        // untouched. 23 duplicate jobs in the table came from exactly this.
+        // utils/jobResolve.js exists to prevent this and warns in its header
+        // against a "fourth subset" — this was the fourth subset.
+        supabase.from('jobs')
+          .select('id, status, calendar_event_id, scheduled_event_id, tentative_event_id')
+          .or('calendar_event_id.not.is.null,scheduled_event_id.not.is.null,tentative_event_id.not.is.null')
+          .limit(3000),
       ]);
       if (e1) throw e1; if (e2) throw e2; if (e3) throw e3;
       setRegistry(reg || []);
-      const map = {};
-      for (const j of (jobs || [])) if (j.calendar_event_id) map[j.calendar_event_id] = { id: j.id, status: j.status };
+      // buildEventIndex keys every job under ALL of its event ids. Do not
+      // rebuild this by hand.
+      const map = buildEventIndex(jobs || []).byEvent;
       setJobByEvent(map);
       setEvents((ev || []).sort((a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at)));
 
@@ -239,13 +256,21 @@ export default function CustomerAudit({ onBack, accessToken }) {
 
   // Pile 3 — calendar events Overwatch never created. Hits Google, so it runs
   // on demand rather than blocking the page load.
-  async function scanManual() {
+  // `deep` reaches back to June 1 instead of the Aug 13 default. Everything
+  // before Aug 13 was settled in the database (migrations 041/042/045), so the
+  // normal scan skips it — but a pre-Aug-13 event with no job and no time
+  // entry appears on no other screen, so the deeper sweep stays available.
+  const [deepScanned, setDeepScanned] = useState(false);
+
+  async function scanManual({ deep = false } = {}) {
     if (!accessToken) { alert('Not signed in to Google — cannot scan the calendars.'); return; }
     setScanning(true);
     try {
-      const res = await scanForOrphans(accessToken);
+      const res = await scanForOrphans(accessToken, deep ? { since: ORPHAN_SCAN_DEEP } : {});
       setManualEvents(res.orphans || []);
+      if (deep) setDeepScanned(true);
       if ((res.orphans || []).length) setManualOpen(true);
+      else if (deep) alert('Nothing found back to June 1 — every event has a job or a time entry.');
     } catch (e) {
       alert('Scan failed: ' + (e.message || e));
     }
@@ -314,9 +339,17 @@ export default function CustomerAudit({ onBack, accessToken }) {
   // Create or update a board ticket — ONLY called after explicit confirm.
   async function pushToBoard(ev) {
     const target = DISPO_STATUS[ev.disposition] || JOB_STATUS.SCHEDULED;
-    const existing = ev.calendar_event_id ? jobByEvent[ev.calendar_event_id] : null;
     setTicketBusyId(ev.id); setConfirmTicketId(null);
     try {
+      // The map above is a snapshot taken at page load. Between then and this
+      // click a tech can disposition from the field, the scheduler can book the
+      // job, or someone on another screen can adopt the same event — and the
+      // snapshot would still say "no ticket." Ask the database, right now,
+      // across all three event-id columns. Creating a job is the one action
+      // here that cannot be undone by re-running it, so it gets the live check.
+      const existing = ev.calendar_event_id
+        ? (jobByEvent[ev.calendar_event_id] || await resolveJobForEvent(ev.calendar_event_id))
+        : null;
       if (existing) {
         await jobsApi.changeStatus(existing.id, target, userEmail, `Set to ${statusLabel(target)} from Audit`);
         setJobByEvent(m => ({ ...m, [ev.calendar_event_id]: { ...existing, status: target } }));
@@ -438,6 +471,16 @@ export default function CustomerAudit({ onBack, accessToken }) {
                     {scanning ? 'scanning…' : 'scan'}
                   </button>
                 )}
+                {scanned && !deepScanned && (
+                  <button onClick={() => scanManual({ deep: true })} disabled={scanning}
+                    title="The normal scan starts 13 Aug 2026. Everything before that was closed out in the database. Use this to sweep back to 1 June anyway."
+                    style={{ marginLeft: 6, background: 'none', border: '1px solid #475569', borderRadius: 6, color: '#94a3b8', fontSize: 12, fontWeight: 700, padding: '2px 8px', cursor: 'pointer' }}>
+                    {scanning ? 'scanning…' : '↩ scan back to Jun 1'}
+                  </button>
+                )}
+                {deepScanned && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: '#64748b' }}>· swept from Jun 1</span>
+                )}
               </span>
             </div>
           </div>
@@ -513,7 +556,13 @@ export default function CustomerAudit({ onBack, accessToken }) {
                   <div style={{ fontSize: 12, color: '#cbd5e1' }}>
                     {o.calendar?.name} · {o.event.start?.dateTime ? new Date(o.event.start.dateTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
                   </div>
-                  <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>never entered Overwatch — will not bill</div>
+                  {/* This line used to be printed unconditionally on every card,
+                      including cards that displayed "already open: X" two lines
+                      below. Both cannot be true. scanForOrphans only pushes an
+                      event here when resolveJobForEvent() found nothing, so the
+                      honest statement is that no job references it — not a
+                      claim about billing, which this screen cannot know. */}
+                  <div style={{ fontSize: 12, color: '#fbbf24', marginTop: 2 }}>no job references this event</div>
                   {o.possibleDuplicate && (
                     <div style={{ fontSize: 12, color: '#fdba74', fontWeight: 700, marginTop: 4, background: '#7c2d1230', borderRadius: 6, padding: '4px 8px' }}>
                       ⚠️ Possible duplicate — already open: {o.possibleDuplicate.customer_name} ({o.possibleDuplicate.status})

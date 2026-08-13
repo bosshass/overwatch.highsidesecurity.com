@@ -20,7 +20,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate, parsePhoneNumbers } from '../utils/statusMachine.js';
-import { findDuplicateJobs } from '../utils/fuzzyMatch.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
@@ -145,7 +144,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       // "JAllen" spelling variant. That's the actual reason duplicates have
       // kept slipping through despite this tool existing. Now uses the same
       // calibrated fuzzy matcher used for the automatic on-load check.
-      const dupes = await findDuplicateJobs(job.customer_name, job.id);
+      const dupes = []; // name matching removed 2026-08-13 — see calendarSync.js
       const byAddress = job.customer_address ? await (async () => {
         const { data } = await supabase.from('jobs').select('*')
           .not('status', 'eq', 'archived').limit(500);
@@ -664,7 +663,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         <VisualSchedulerModal job={job} techs={schedTechs} accessToken={accessToken} userEmail={userEmail}
           onClose={() => setShowScheduleModal(false)}
           onScheduled={() => { setShowScheduleModal(false); loadJob(); onUpdate?.(); }}
-          userEmail={userEmail} userRole={userRole} accessToken={accessToken} />
+          userRole={userRole} />
       )}
       {showRescheduleModal && job && (
         <RescheduleModal job={job} assignments={assignments} onClose={() => setShowRescheduleModal(false)}

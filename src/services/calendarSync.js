@@ -5,7 +5,6 @@
 // Views decide WHEN to call these. No state machine.
 
 import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
-import { nameSimilarity, isFuzzyMatch } from '../utils/fuzzyMatch.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
 import { jobDeepLink } from '../config/appBase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
@@ -332,27 +331,35 @@ export async function onJobComplete(accessToken, job, completionType, oldCalenda
 // ORPHAN DETECTION (read-only scan)
 // ============================================
 
-export async function scanForOrphans(accessToken) {
-  const results = { synced: 0, orphans: [], errors: [] };
+// Default back-wall for the orphan scan. Exported so the UI can offer a
+// deeper sweep without hardcoding the date in two places.
+export const ORPHAN_SCAN_FROM = '2026-08-13T00:00:00';
+// The old wall, kept as the "look further back" option rather than deleted —
+// an event before Aug 13 with no job AND no time entry is invisible everywhere
+// else in the app, so the ability to go find it has to survive somewhere.
+export const ORPHAN_SCAN_DEEP = '2026-06-01T00:00:00';
 
-  // Fetched ONCE, not per-event — an in-memory fuzzy pass against every open
-  // job is what covers "or is in Event Audit" for the forced-duplicate flag.
-  // A calendar-only item that fuzzy-matches an already-open job is exactly
-  // the case that would otherwise sit here quietly and become a second
-  // ticket the moment someone adopts it — same disease as Vinyard Church's
-  // three cards, just caught one step earlier.
-  const { data: openJobs } = await supabase
-    .from('jobs')
-    .select('id, customer_name, status')
-    .not('status', 'in', '(billed,archived,dead,lost)')
-    .limit(500);
+export async function scanForOrphans(accessToken, { since = ORPHAN_SCAN_FROM } = {}) {
+  const results = { synced: 0, orphans: [], errors: [], since };
 
-  // June 1 back-wall, per Sara: everything on the calendars since then either
-  // billed (invoice number in the title / completed marker), became a job, or
-  // is exactly the leak this scan exists to surface — work that happened with
-  // no notes, no time entry, no bill. Seven days of lookback was hiding two
-  // months of that.
-  const timeMin = new Date('2026-06-01T00:00:00');
+  // NO NAME MATCHING. Removed 2026-08-13.
+  // This used to fuzzy-match each orphan's TITLE against every open job's
+  // customer_name and present the winner as "Possible duplicate". Matching a
+  // free-text title against a name column is guessing: "Battery Plus cr123
+  // for David" resolved to HUANG, DAVID out of twelve customers named David
+  // or Dave, and "Boys and Girls Club Loveland" resolved to BG AUTOMOTIVE-
+  // LOVELAND1 on the token "Loveland" — an hour billed to the wrong customer.
+  // An event's customer is known from a link or it is not known. A blank
+  // field a human fills in is correct; a confident wrong answer is not.
+
+  // AUGUST 13 2026 BACK-WALL. Moved from June 1 on 2026-08-13.
+  // Everything before this date has been closed out in the database:
+  // migration 041 deleted the QA test data, 042 stamped resolved_at on all
+  // 193 pre-July time entries, and 045 removed the test jobs and notes.
+  // Scanning back past it re-surfaces work that has already been decided and
+  // is what kept this list reading ~53 when the real number was a handful.
+  // The past is settled. This scan is for what happens from here forward.
+  const timeMin = new Date(since);
   const timeMax = new Date();
   timeMax.setDate(timeMax.getDate() + 30);
 
@@ -400,15 +407,8 @@ export async function scanForOrphans(accessToken) {
         if (linkedJob) {
           results.synced++;
         } else if (!isOrphanIgnored(event.id)) {
-          // Force the duplicate flag here too: does this orphan's title
-          // fuzzy-match an already-open job? If so, tag it — someone
-          // reviewing Event Audit should see "this might already be a
-          // ticket" instead of adopting it blind into a second one.
-          const possibleDuplicate = (openJobs || [])
-            .map(j => ({ ...j, similarity: nameSimilarity(j.customer_name, event.summary || '') }))
-            .filter(j => isFuzzyMatch(j.customer_name, event.summary || ''))
-            .sort((a, b) => b.similarity - a.similarity)[0] || null;
-          results.orphans.push({ event, calendar: cal, possibleDuplicate });
+          // No guess is offered. The reviewer picks the customer.
+          results.orphans.push({ event, calendar: cal, possibleDuplicate: null });
         }
       }
     } catch (err) {

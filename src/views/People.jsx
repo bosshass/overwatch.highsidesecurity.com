@@ -121,11 +121,39 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     const hit = ASSIGNEES.find(a => a.name === name);
     if (!hit) return [];
     const mine = new Set(emailsFor(hit.email));
-    return notes.filter(n => mine.has((n.author_email || '').toLowerCase()));
+    // A task is a note somebody OWNS. This matched on author_email, so the
+    // tab counted everything a person had ever written down — Shana read 11
+    // tasks because she typed 11 notes, none of them hers to do. Assignment
+    // is the only thing that turns a note into a task.
+    return notes.filter(n => mine.has((n.assigned_to || '').toLowerCase()));
   }, [notes]);
 
   const myJobs = useMemo(() => jobsFor(person), [jobsFor, person]);
   const myNotes = useMemo(() => notesFor(person), [notesFor, person]);
+
+  // Assigning is what turns a note into a task — it is the only difference
+  // between the two, and nothing in the app wrote assigned_to, so a note could
+  // never become one. It just sat where it was written.
+  const assignNote = async (id, email) => {
+    const { error } = await supabase.from('notes')
+      .update({ assigned_to: email }).eq('id', id);
+    if (error) { setErr?.(error.message); return; }
+    setNotes(prev => prev.map(n => (n.id === id ? { ...n, assigned_to: email } : n)));
+  };
+
+  // A task had no exit. The card opened its job if it had one and did nothing
+  // if it didn't, so nothing could ever be finished — which is why they piled
+  // up. Two moves are all a note needs: pick it up, or be done with it.
+  const moveNote = async (id, lane) => {
+    const patch = lane === 'done'
+      ? { lane, status: 'archived', done_at: new Date().toISOString(), done_by: canonicalEmail(userEmail) }
+      : { lane };
+    const { error } = await supabase.from('notes').update(patch).eq('id', id);
+    if (error) { setErr?.(error.message); return; }
+    setNotes(prev => lane === 'done'
+      ? prev.filter(n => n.id !== id)
+      : prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
+  };
   const unowned = useMemo(() => jobs.filter(j => !assigneeOf(j)), [jobs]);
 
   // Their work, in the SAME five lanes the board uses.
@@ -371,21 +399,79 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
                   {items.map(n => {
                     const job = n.job_id ? jobs.find(j => j.id === n.job_id) : null;
                     return (
-                      <button key={n.id}
-                        onClick={() => job ? setOpenJob(job) : null}
-                        style={{ display: 'block', width: '100%', textAlign: 'left',
-                                 background: C.raised, border: `1px solid ${C.line}`,
-                                 borderLeft: `3px solid ${tl.color}`, borderRadius: 10,
-                                 padding: '11px 13px', marginBottom: 7,
-                                 cursor: job ? 'pointer' : 'default',
-                                 color: C.text, fontFamily: 'inherit' }}>
-                        <div style={{ fontSize: 14, lineHeight: 1.45 }}>{n.body}</div>
+                      // A note is a thing somebody wrote down; a job is a visit
+                      // that produces hours and an invoice. They rendered
+                      // identically, so a scribbled reminder read as work.
+                      // Paper, not a card.
+                      <div key={n.id}
+                        style={{ borderLeft: `2px solid ${n.assigned_to ? tl.color : C.line}`,
+                                 padding: '7px 0 10px 12px', marginBottom: 5, color: C.text }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6,
+                                         textTransform: 'uppercase',
+                                         color: n.assigned_to ? tl.color : C.muted,
+                                         border: `1px solid ${n.assigned_to ? tl.color + '55' : C.line}`,
+                                         borderRadius: 4, padding: '1px 5px' }}>
+                            {n.assigned_to ? 'Task' : 'Note'}
+                          </span>
+                          {n.author_email && (
+                            <span style={{ fontSize: 11, color: C.muted }}>
+                              {NAME_BY_EMAIL[canonicalEmail(n.author_email)] || n.author_email.split('@')[0]} wrote this
+                            </span>
+                          )}
+                        </div>
+
+                        <div onClick={() => job ? setOpenJob(job) : null}
+                          style={{ fontSize: 13.5, lineHeight: 1.5, cursor: job ? 'pointer' : 'default' }}>
+                          {n.body}
+                        </div>
                         {job && (
                           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 5 }}>
                             {job.customer_name} · {laneOf(job)?.label || job.status}
                           </div>
                         )}
-                      </button>
+
+                        {tl.key !== 'done' && (
+                          <>
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginTop: 9 }}>
+                              <span style={{ fontSize: 11, color: C.muted, marginRight: 2 }}>
+                                {n.assigned_to ? 'Owner' : 'Give to'}
+                              </span>
+                              {ASSIGNEES.map(a => {
+                                const on = (n.assigned_to || '').toLowerCase() === a.email.toLowerCase();
+                                return (
+                                  <button key={a.email}
+                                    onClick={() => assignNote(n.id, on ? null : a.email)}
+                                    title={on ? 'Unassign — back to a private note' : `Give to ${a.name}`}
+                                    style={{ padding: '3px 9px', borderRadius: 20, cursor: 'pointer',
+                                             background: on ? C.cyan : 'transparent',
+                                             border: `1px solid ${on ? C.cyan : C.line}`,
+                                             color: on ? '#0f172a' : C.muted,
+                                             fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                                    {a.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                              {tl.key === 'todo' && (
+                                <button onClick={() => moveNote(n.id, 'doing')}
+                                  style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',
+                                           background: 'transparent', border: `1px solid ${C.amber}`,
+                                           color: C.amber, fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                                  Start
+                                </button>
+                              )}
+                              <button onClick={() => moveNote(n.id, 'done')}
+                                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer',
+                                         background: 'transparent', border: '1px solid #22c55e',
+                                         color: '#22c55e', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
+                                ✓ Done
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     );
                   })}
                 </Section>

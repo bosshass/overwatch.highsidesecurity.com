@@ -15,6 +15,7 @@ import ReconcileView from './views/ReconcileView.jsx';
 import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Notes from './views/Notes.jsx';
+import SoldWork from './views/SoldWork.jsx';
 import Tour, { shouldShowTour, tourKey } from './components/Tour.jsx';
 import Scheduler from './views/Scheduler.jsx';
 import Projects from './views/Projects.jsx';
@@ -956,6 +957,11 @@ export default function App() {
         <Route path="/workspace/:who" element={<Navigate to="/people" replace />} />
         {/* Notes are NOT jobs and deliberately have no board presence. */}
         <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/people')} /></ViewShell>} />
+        {/* Sold work. Accepted estimates with a balance live ONLY here until
+            somebody creates a job from one or closes it out. An estimate is
+            not a visit, and putting them on the board is how 36 QuickBooks
+            imports became cards nobody could action. */}
+        <Route path="/sold" element={<ViewShell><SoldWork userEmail={userEmail} onBack={() => navigate('/')} onOpenJob={() => navigate('/board')} /></ViewShell>} />
         <Route path="/scheduler" element={<ViewShell><Scheduler accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
         <Route path="/projects" element={<OperatorOnly><ViewShell><Projects accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />

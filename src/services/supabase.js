@@ -478,14 +478,42 @@ export const assignmentsApi = {
   },
 
   async create(assignment, createdBy) {
-    // Remove any existing non-complete assignment for this job+tech to avoid unique constraint violation
+    // A job can span days. This used to delete EVERY incomplete assignment for
+    // the job+tech before inserting, which meant booking day 2 silently erased
+    // day 1 — day_number never once exceeded 1 in 284 rows because the code
+    // would not allow it. A three-day install had to be entered as three
+    // separate jobs, and that is where the duplicate cards came from.
+    //
+    // The row that genuinely collides is the same tech, same job, same DAY.
+    // Replace that one; leave the other days alone.
     if (assignment.job_id && assignment.tech_id) {
-      await supabase
+      let q = supabase
         .from('job_assignments')
         .delete()
         .eq('job_id', assignment.job_id)
         .eq('tech_id', assignment.tech_id)
         .or('is_complete.is.null,is_complete.eq.false');
+
+      if (assignment.day_number != null) {
+        q = q.eq('day_number', assignment.day_number);
+      } else if (assignment.scheduled_for) {
+        const d = new Date(assignment.scheduled_for);
+        const from = new Date(d); from.setHours(0, 0, 0, 0);
+        const to   = new Date(d); to.setHours(23, 59, 59, 999);
+        q = q.gte('scheduled_for', from.toISOString()).lte('scheduled_for', to.toISOString());
+      }
+      await q;
+    }
+
+    // Number the day if the caller didn't: next in sequence for this job.
+    if (assignment.job_id && assignment.day_number == null) {
+      const { data: existing } = await supabase
+        .from('job_assignments')
+        .select('day_number')
+        .eq('job_id', assignment.job_id)
+        .order('day_number', { ascending: false })
+        .limit(1);
+      assignment.day_number = (existing?.[0]?.day_number || 0) + 1;
     }
     const { data, error } = await supabase
       .from('job_assignments')

@@ -4,3 +4,4 @@ dist
 .env.local
 .env*
 .DS_Store
+apply_*.py

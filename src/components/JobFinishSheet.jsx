@@ -34,6 +34,7 @@ import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
+import { uploadPhoto } from '../services/photos.js';
 import { ASSIGNEES } from '../utils/ownership.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -65,7 +66,13 @@ export default function JobFinishSheet({
 }) {
   const [notes, setNotes]               = useState('');
   const [materials, setMaterials]       = useState('');
-  const [photoLink, setPhotoLink]       = useState('');
+  // photoLink was state with no input rendered anywhere — a tech was meant to
+  // upload a picture somewhere else, copy the URL and paste it into a box that
+  // did not exist. Real upload instead: camera to Supabase Storage, attached
+  // to the visit, free.
+  const [photos, setPhotos]             = useState([]);
+  const [uploading, setUploading]       = useState(false);
+  const [photoErr, setPhotoErr]         = useState('');
   const [timeEntry, setTimeEntry]       = useState(emptyTimeEntry());
   const [linkedCustomer, setLinkedCust] = useState(prefillCustomer);
   const [returnReason, setReturnReason] = useState('');
@@ -239,9 +246,23 @@ export default function JobFinishSheet({
       total_minutes:      payload.total_minutes,
       entry_method:       payload.entry_method,
       disposition,
-      notes:              [notes.trim(), photoLink.trim() ? `📎 Photos: ${photoLink.trim()}` : ''].filter(Boolean).join('\n\n') || null,
+      notes:              notes.trim() || null,
+      photos:             photos.length ? photos : null,
+
       materials:          materials.trim() || null,
     });
+  };
+
+  const addPhotos = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setUploading(true); setPhotoErr('');
+    for (const f of files) {
+      const r = await uploadPhoto(f, { customerCode: linkedCustomer?.short_code || 'misc' });
+      if (r.ok) setPhotos(prev => [...prev, r.url]);
+      else setPhotoErr(r.error || 'Upload failed');
+    }
+    setUploading(false);
   };
 
   // ── Disposition handlers ──────────────────────────────────────────
@@ -430,6 +451,44 @@ export default function JobFinishSheet({
         placeholder="What was done / what's needed — required to finish"
         style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
+
+      {/* Photos — capture="environment" opens the rear camera straight away on
+          a phone rather than a file browser. The pictures go with the visit,
+          so they are still findable when the invoice is queried in November. */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px' }}>
+        📷 Photos {photos.length ? `(${photos.length})` : ''}
+      </div>
+
+      {photos.length > 0 && (
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
+          {photos.map((u, i) => (
+            <div key={u} style={{ position: 'relative' }}>
+              <img src={u} alt="" style={{ width: 74, height: 74, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }} />
+              <button
+                onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                aria-label="Remove photo"
+                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11,
+                         border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 800,
+                         lineHeight: '20px', cursor: 'pointer', padding: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <label
+        style={{ display: 'block', textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                 border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                 fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer', marginBottom: 14 }}>
+        {uploading ? 'Uploading…' : '📷 Add photos'}
+        <input type="file" accept="image/*" capture="environment" multiple
+          disabled={uploading}
+          onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+          style={{ display: 'none' }} />
+      </label>
+
+      {photoErr && (
+        <div style={{ fontSize: 12, color: '#dc2626', marginTop: -8, marginBottom: 12 }}>{photoErr}</div>
+      )}
 
       {/* Materials */}
       <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>

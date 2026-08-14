@@ -81,21 +81,7 @@ const TABS = [
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
   const today = dayStart(new Date());
-  // ?d=YYYY-MM-DD opens Today on that day instead of today. Undispositioned
-  // work is linked here from the home screen, and the event it needs is on the
-  // day it was scheduled — this view reads the calendar one day at a time, so
-  // without the date the tech lands on today and sees nothing relevant.
-  // Parsed by parts: new Date('2026-08-06') is UTC midnight, which is the
-  // previous evening in Denver and would open the wrong day.
-  const [offset, setOffset]     = useState(() => {
-    const d = new URLSearchParams(window.location.search).get('d');
-    if (!d) return 0;
-    const [y, m, day] = String(d).slice(0, 10).split('-').map(Number);
-    if (!y || !m || !day) return 0;
-    const want = new Date(y, m - 1, day); want.setHours(0, 0, 0, 0);
-    const now  = new Date();             now.setHours(0, 0, 0, 0);
-    return Math.round((want - now) / 86400000);
-  });
+  const [offset, setOffset]     = useState(0);
   // Everything still sitting in `scheduled` past its deadline. This is the
   // first time this view has read the database — it has always been a pure
   // calendar reader, which is exactly why work from other days was invisible.

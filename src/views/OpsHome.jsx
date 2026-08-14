@@ -168,10 +168,7 @@ export default function OpsHome({
       const NEW_STATUSES = ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked'];
       const waiting = (jobs || []).filter(j =>
         NEW_STATUSES.includes(j.status) || ['ready_to_schedule', 'return_pending'].includes(j.status));
-      const _t = new Date(); _t.setHours(0, 0, 0, 0);
-      const _todayStr = `${_t.getFullYear()}-${String(_t.getMonth() + 1).padStart(2, '0')}-${String(_t.getDate()).padStart(2, '0')}`;
       setBoard({
-        today:     (jobs || []).filter(j => String(j.scheduled_date || '').slice(0, 10) === _todayStr).length,
         tobill:    count('complete', 'to_bill'),
         neu:       count(...NEW_STATUSES),
         oldest:    waiting.reduce((max, j) => {
@@ -266,49 +263,6 @@ export default function OpsHome({
 
       <div style={{ flex:1, overflowY:'auto', paddingBottom:100 }}>
 
-        {/* ══ 0. TODAY ══ */}
-        {/* Home had no route into Work To Do Today — the screen a tech opens
-            every morning and the only place a visit can actually be finished.
-            Built to read as a calendar page rather than another stat tile, so
-            it is obvious what it is without a label explaining it. */}
-        {(() => {
-          const now = new Date();
-          const MON = now.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
-          const DOW = now.toLocaleDateString('en-US', { weekday: 'long' });
-          const n = board?.today ?? null;
-          return (
-            <button onClick={() => go('/work')}
-              style={{ display:'flex', alignItems:'center', gap:16, width:'calc(100% - 32px)',
-                       margin:'16px', textAlign:'left', background:C.panel,
-                       border:`1px solid ${C.line}`, borderRadius:20, padding:'16px 18px',
-                       cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
-              {/* the page */}
-              <span style={{ display:'block', width:72, borderRadius:12, overflow:'hidden',
-                             border:`1px solid ${C.line2}`, flexShrink:0,
-                             boxShadow:'0 6px 18px rgba(0,0,0,0.35)' }}>
-                <span style={{ display:'block', background:'#dc2626', color:'#fff',
-                               fontSize:10, fontWeight:900, letterSpacing:'0.12em',
-                               textAlign:'center', padding:'4px 0' }}>{MON}</span>
-                <span style={{ display:'block', background:'#f8fafc', color:'#0f172a',
-                               fontSize:34, fontWeight:900, lineHeight:1.15,
-                               textAlign:'center', padding:'6px 0 8px' }}>{now.getDate()}</span>
-              </span>
-              <span style={{ flex:1, minWidth:0 }}>
-                <span style={{ display:'block', fontSize:19, fontWeight:900 }}>Today</span>
-                <span style={{ display:'block', fontSize:13, color:C.muted, marginTop:3 }}>{DOW}</span>
-                <span style={{ display:'block', fontSize:13, marginTop:8,
-                               color: n ? C.cyan : C.muted, fontWeight:700 }}>
-                  {n === null ? 'Open the day \u2192'
-                    : n === 0 ? 'Nothing booked \u2014 open the day \u2192'
-                    : `${n} on the calendar \u2192`}
-                </span>
-              </span>
-            </button>
-          );
-        })()}
-
-
-
         {showSpotlight && (
           <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
         )}
@@ -373,12 +327,10 @@ export default function OpsHome({
               will never reach an invoice.
             </div>
             {stranded.map(j => (
-              <button key={j.id} onClick={() => go(j.date ? `/work?d=${String(j.date).slice(0, 10)}` : '/work')}
+              <button key={j.id} onClick={() => go(`/j/${shortCode(j.id)}?returnTo=${encodeURIComponent('/')}`)}
                 style={{ display:'flex', width:'100%', alignItems:'center', gap:10, textAlign:'left',
-                         background:'#1a1206', border:`1px solid ${C.line}`,
-                         borderLeft:`3px solid ${(j.days ?? 0) >= 7 ? '#dc2626' : (j.days ?? 0) >= 3 ? '#ea580c' : '#b45309'}`,
-                         borderRadius:10, marginBottom:6,
-                         padding:'11px 13px', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
+                         background:'transparent', border:'none', borderTop:`1px solid ${C.amber}33`,
+                         padding:'10px 0', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
                 <span style={{ flex:1, minWidth:0 }}>
                   <span style={{ display:'block', fontSize:14, fontWeight:700, whiteSpace:'nowrap',
                                  overflow:'hidden', textOverflow:'ellipsis' }}>{j.name}</span>
@@ -462,9 +414,33 @@ export default function OpsHome({
           </button>
         </div>
 
-        {/* The board summary that used to sit here is gone. It was the same
-            numbers as the tiles at the top of this screen, and showing them
-            twice on one page meant neither was authoritative. ── */}
+        {/* ══ 3. BOARD ROLLUP ══ */}
+        <div style={{ padding:'22px 16px 0' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+            <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
+              The board
+            </span>
+            <Help topic="dispositions" label="How jobs move and close" />
+          </div>
+          <button onClick={() => go('/board')}
+            style={{ width:'100%', textAlign:'left', background:C.panel, border:`1px solid ${C.line}`,
+                     borderRadius:18, padding:'16px 18px', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
+            <div style={{ display:'flex', gap:26, flexWrap:'wrap' }}>
+              {board && [
+                ['Ready to schedule', board.ready, C.green],
+                ['Scheduled', board.scheduled, C.blue],
+                ['Estimates', board.estimates, C.amber],
+                ['Returns', board.returns, C.purple],
+              ].map(([l, n, col]) => (
+                <div key={l}>
+                  <div style={{ fontSize:28, fontWeight:900, lineHeight:1, color: n ? col : '#33455f' }}>{n}</div>
+                  <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize:12, color:C.cyan, marginTop:14 }}>Open the board →</div>
+          </button>
+        </div>
 
         {/* ══ 4. ADMIN TOOLS ══ */}
         {/* The screens you go to on purpose, not the ones that should be

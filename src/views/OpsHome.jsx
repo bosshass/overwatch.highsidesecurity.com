@@ -16,6 +16,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import DidYouGo from '../components/DidYouGo.jsx';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import Spotlight from '../components/Spotlight.jsx';
@@ -308,6 +309,10 @@ export default function OpsHome({
             </div>
           </div>
         )}
+
+        <div style={{ padding: '16px 16px 0' }}>
+          <DidYouGo userEmail={userEmail} userName={userName} />
+        </div>
 
         {/* ══ 1b. STRANDED — scheduled, date passed, nobody dispositioned ══ */}
         {stranded.length > 0 && (

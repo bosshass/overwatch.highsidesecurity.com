@@ -62,7 +62,7 @@ const USER_CONFIG = {
   // It isn't shared — it's JR's. The identity prompt is gone; it just signs
   // him in as himself. Sara reaches the app on admin@jnbservice.com and
   // sara@jnbllc.com, Shana on shanaparks@, so nobody loses a way in.
-  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'board' },
+  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'board' , needsIdentity: true },
     // jr@ lands on HOME, not /work — he's the owner, and the tour we show him is
   // about My Tasks and the warning banner, both of which live there. NOTE his
   // role is still 'tech', so Admin Tools and the operator screens stay hidden

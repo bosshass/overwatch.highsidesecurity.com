@@ -115,6 +115,12 @@ export function canonicalName(raw) {
 // rest, so a fresh assignment always moves the job.
 export function assigneeOf(job) {
   if (!job) return null;
+  // Once a job is SCHEDULED the tech standing at the door owns it.
+  // assigned_to is a pre-scheduling idea and keeping it alive afterwards
+  // meant a job could be assigned to one person and booked to another.
+  if (job.status === 'scheduled' && job.tech_name) {
+    return canonicalName(job.tech_name);
+  }
   if (job.assigned_to) {
     const canon = canonicalEmail(job.assigned_to);
     return NAME_BY_EMAIL[canon] || NAME_BY_EMAIL[job.assigned_to] || job.assigned_to;

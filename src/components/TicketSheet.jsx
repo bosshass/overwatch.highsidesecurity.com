@@ -63,6 +63,33 @@ export default function TicketSheet({
   const [note, setNote] = useState('');
   const [clearing, setClearing] = useState(false);
   const [pending, setPending] = useState(null);
+  // Contract capture on the Won step.
+  const [askContract, setAskContract] = useState(false);
+  const [contractDone, setContractDone] = useState(false);
+  const [cAmount, setCAmount] = useState('');
+  const [cHours, setCHours] = useState('');
+  const [cRef, setCRef] = useState('');
+  const [cSaving, setCSaving] = useState(false);
+
+  const saveContract = async (skip) => {
+    setCSaving(true);
+    if (!skip) {
+      const { error } = await supabase.from('jobs').update({
+        estimate_amount:  cAmount ? Number(cAmount) : null,
+        estimated_hours:  cHours ? Number(cHours) : null,
+        qbo_estimate_ref: cRef.trim() || null,
+      }).eq('id', job.id);
+      if (error) { setCSaving(false); setErr(error.message); return; }
+    }
+    setCSaving(false);
+    setAskContract(false);
+    setContractDone(true);
+    // Let the move through now that the contract is on the job.
+    try {
+      await onMove?.('won', note.trim() || null);
+      setPending(null); setNote('');
+    } catch (e) { setErr(e.message || 'Move failed'); }
+  };
   const [err, setErr] = useState('');
   // OWNERSHIP LIVES HERE NOW.
   // 9.11.0 rebuilt every ticket surface around this component but did not bring
@@ -136,6 +163,17 @@ export default function TicketSheet({
       return;
     }
     if (pending?.key !== lane.key) { setPending(lane); return; }
+
+    // WON IS WHERE A CONTRACT IS BORN.
+    // Nothing in the app ever wrote estimate_amount, so no job knew it was
+    // fixed fee — and Billing kept offering Jeanneret's 28 hours hourly
+    // against a $19,420 contract they were already sold under. The moment
+    // somebody says the estimate came back accepted is the moment the number
+    // is known and the only moment anyone will type it.
+    if ((lane.target || lane.key) === 'won' && !contractDone) {
+      setAskContract(true);
+      return;
+    }
     // Clearing committed work needs a reason, not a second tap. Identical to
     // the Billing screen's clear-instead-of-invoice path — see lanes.js.
     if ((lane.target || lane.key) === 'archived' && requiresDisposition(job)) {
@@ -379,6 +417,73 @@ export default function TicketSheet({
             a ticket. ── */}
         {extras}
       </div>
+
+      {/* What did we sell? Asked once, at the only moment anyone knows. */}
+      {askContract && (
+        <div onClick={() => setAskContract(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,8,16,0.82)', zIndex: 970,
+                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 14,
+                     padding: 20, width: '100%', maxWidth: 440 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#e2e8f0' }}>What did we sell?</div>
+            <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3, marginBottom: 16 }}>
+              {job.customer_name || 'This job'} \u2014 accepted estimate
+            </div>
+
+            <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4,
+                            textTransform: 'uppercase', color: '#94a3b8', marginBottom: 5 }}>
+              Contract amount
+            </label>
+            <input type="number" inputMode="decimal" value={cAmount} autoFocus
+              onChange={e => setCAmount(e.target.value)} placeholder="19420"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 9,
+                       border: '1px solid #1e293b', background: '#0b1220', color: '#e2e8f0',
+                       fontSize: 16, fontFamily: 'inherit', marginBottom: 12 }} />
+
+            <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4,
+                            textTransform: 'uppercase', color: '#94a3b8', marginBottom: 5 }}>
+              Labour hours sold
+            </label>
+            <input type="number" inputMode="decimal" value={cHours}
+              onChange={e => setCHours(e.target.value)} placeholder="125"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 9,
+                       border: '1px solid #1e293b', background: '#0b1220', color: '#e2e8f0',
+                       fontSize: 16, fontFamily: 'inherit', marginBottom: 12 }} />
+
+            <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4,
+                            textTransform: 'uppercase', color: '#94a3b8', marginBottom: 5 }}>
+              Estimate number
+            </label>
+            <input value={cRef} onChange={e => setCRef(e.target.value)} placeholder="5511, 5512"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 9,
+                       border: '1px solid #1e293b', background: '#0b1220', color: '#e2e8f0',
+                       fontSize: 15, fontFamily: 'inherit' }} />
+
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 10, lineHeight: 1.5 }}>
+              With an amount on it the hours are held against the contract instead of
+              being offered hourly in Billing. Leave it blank for time and materials.
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button onClick={() => saveContract(true)} disabled={cSaving}
+                style={{ flex: 1, padding: '11px 0', borderRadius: 9, background: 'transparent',
+                         border: '1px solid #334155', color: '#94a3b8', fontSize: 13.5,
+                         fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Time &amp; materials
+              </button>
+              <button onClick={() => saveContract(false)} disabled={cSaving || !cAmount}
+                style={{ flex: 2, padding: '11px 0', borderRadius: 9, border: 'none',
+                         background: cAmount ? '#10b981' : '#1e293b',
+                         color: cAmount ? '#052e16' : '#475569',
+                         fontSize: 14.5, fontWeight: 800,
+                         cursor: cAmount ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>
+                {cSaving ? 'Saving\u2026' : 'Fixed fee \u2014 mark won'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

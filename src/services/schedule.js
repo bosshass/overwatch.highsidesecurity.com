@@ -148,6 +148,11 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     scheduled_date: localDateStr(start),
     tech_assigned: tech.id,
     tech_name: [tech.name, ...helpers.map(h => h.name)].filter(Boolean).join(' + '),
+    // Booking settles ownership. assigned_to was "who is looking into
+    // this"; once there is a tech and a date that question is answered,
+    // and leaving the old value behind gives the job two owners who
+    // disagree. Jeanneret was assigned to Shana and worked by Austin.
+    assigned_to: null,
     tentative_date: null,
     tentative_event_id: null,
     updated_at: new Date().toISOString(),

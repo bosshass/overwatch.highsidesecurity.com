@@ -41,6 +41,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
 
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
+  const [contractRows, setContractRows] = useState([]);
   const [scheduleActions, setScheduleActions] = useState([]);
   const [focusText, setFocusText] = useState('');
   const [noteDrafts, setNoteDrafts] = useState({});
@@ -73,6 +74,49 @@ export default function WeeklyRecap({ userEmail, onBack }) {
       const live = (te || []).filter(e => !e.archived);
       setEntries(live.map(e => ({ ...e, job: jobById[e.job_id] || null })));
       setScheduleActions(hist || []);
+
+      // ── FIXED FEE ────────────────────────────────────────────────────
+      // What we sold, what we have delivered, what is left. All time, not
+      // this week: the point is to see a project running away before it
+      // has run away, and that never lines up with a Monday.
+      //
+      // The rate comes from the contract itself — Jeanneret is $19,420 over
+      // 125 hours, so $155/hr. Dividing by an assumed 115 or 135 would tell
+      // a different story than the one the customer signed.
+      const { data: ffJobs } = await supabase.from('jobs')
+        .select('id, customer_name, estimate_amount, estimated_hours, invoiced_amount, qbo_estimate_ref')
+        .gt('estimate_amount', 0)
+        .not('status', 'in', '(dead,archived,lost)')
+        .limit(200);
+
+      if (ffJobs?.length) {
+        const { data: ffTe } = await supabase.from('time_entries')
+          .select('job_id, total_minutes, archived')
+          .in('job_id', ffJobs.map(j => j.id))
+          .limit(2000);
+
+        const usedByJob = {};
+        (ffTe || []).filter(e => !e.archived).forEach(e => {
+          usedByJob[e.job_id] = (usedByJob[e.job_id] || 0) + (e.total_minutes || 0);
+        });
+
+        setContractRows(ffJobs.map(j => {
+          const soldHrs  = Number(j.estimated_hours) || 0;
+          const amount   = Number(j.estimate_amount) || 0;
+          const invoiced = Number(j.invoiced_amount) || 0;
+          const usedHrs  = (usedByJob[j.id] || 0) / 60;
+          return {
+            id: j.id,
+            name: j.customer_name || 'Job',
+            ref: j.qbo_estimate_ref || '',
+            amount, invoiced, soldHrs, usedHrs,
+            rate: soldHrs > 0 ? amount / soldHrs : 0,
+            remainingHrs: Math.max(0, soldHrs - usedHrs),
+            remainingAmt: Math.max(0, amount - invoiced),
+            pct: soldHrs > 0 ? Math.min(999, Math.round((usedHrs / soldHrs) * 100)) : 0,
+          };
+        }).sort((a, b) => b.amount - a.amount));
+      }
     } catch (e) { console.error('recap load', e); }
     setLoading(false);
   }, [weekStart]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,6 +236,57 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 </div>
               )}
             </div>
+
+            {/* ── Fixed fee — sold, delivered, left ── */}
+            {contractRows.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
+                  Fixed fee ({contractRows.length})
+                </div>
+                {contractRows.map(c => {
+                  const over = c.soldHrs > 0 && c.usedHrs > c.soldHrs;
+                  const money = n => '$' + Math.round(n).toLocaleString();
+                  return (
+                    <div key={c.id}
+                      style={{ background: C.raised, border: `1px solid ${C.line}`,
+                               borderLeft: `3px solid ${over ? '#ef4444' : '#a78bfa'}`,
+                               borderRadius: 10, padding: '11px 13px', marginBottom: 7 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 14, fontWeight: 700 }}>{c.name}</span>
+                        {c.ref && <span style={{ fontSize: 11, color: C.muted }}>est {c.ref}</span>}
+                        <span style={{ marginLeft: 'auto', fontSize: 15, fontWeight: 800 }}>{money(c.amount)}</span>
+                      </div>
+
+                      <div style={{ height: 6, borderRadius: 3, background: C.line,
+                                    margin: '9px 0 7px', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(100, c.pct)}%`, height: '100%',
+                                      background: over ? '#ef4444' : '#a78bfa' }} />
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: C.muted }}>
+                        <span>
+                          <b style={{ color: over ? '#ef4444' : C.text }}>{c.usedHrs.toFixed(1)}</b>
+                          {' of '}{c.soldHrs || '?'} hrs{c.soldHrs > 0 ? ` \u00b7 ${c.pct}%` : ''}
+                        </span>
+                        {c.soldHrs > 0 && !over && (
+                          <span><b style={{ color: C.text }}>{c.remainingHrs.toFixed(1)}</b> hrs left</span>
+                        )}
+                        {over && (
+                          <span style={{ color: '#ef4444', fontWeight: 700 }}>
+                            over by {(c.usedHrs - c.soldHrs).toFixed(1)} hrs
+                          </span>
+                        )}
+                        {c.rate > 0 && <span>{money(c.rate)}/hr</span>}
+                        <span>
+                          invoiced <b style={{ color: C.text }}>{money(c.invoiced)}</b>
+                          {' \u00b7 '}<b style={{ color: C.text }}>{money(c.remainingAmt)}</b> left
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* ── Completed jobs — pick some to add the human story to ── */}
             <div style={{ marginBottom: 16 }}>

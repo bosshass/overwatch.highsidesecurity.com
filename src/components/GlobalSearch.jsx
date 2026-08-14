@@ -74,10 +74,27 @@ export default function GlobalSearch({ onClose, onNavigate }) {
     let jobs = [], entries = [];
     if (safe.length >= 2) {
       try {
+        // Search the CUSTOMERS table and fold its ids into the job query.
+        // Searching only jobs.customer_name missed everything: that column is
+        // a denormalised snapshot, null on many rows, and carries no short_code
+        // at all — so "SHE395" found nothing. jobs.issue was never searched
+        // either, so a job could not be found by what it actually says.
+        let custIds = [];
+        try {
+          const { data: cust } = await supabase.from('customers')
+            .select('id').is('merged_into', null)
+            .or(`name.ilike.%${safe}%,short_code.ilike.%${safe}%,address.ilike.%${safe}%,phone.ilike.%${safe}%`)
+            .limit(40);
+          custIds = (cust || []).map(c => c.id);
+        } catch (e) { console.warn('Customer search failed:', e); }
+
+        const ors = [`p_number.ilike.%${safe}%,customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`, `issue.ilike.%${safe}%`];
+        if (custIds.length) ors.push(`customer_id.in.(${custIds.join(',')})`);
+
         const { data } = await supabase
           .from('jobs')
           .select('id, customer_name, customer_phone, p_number, status, customer_address, created_at')
-          .or(`p_number.ilike.%${safe}%,customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`)
+          .or(ors.join(','))
           .not('status', 'in', '(dead,billed,archived,lost)')
           .order('created_at', { ascending: false })
           .limit(20);

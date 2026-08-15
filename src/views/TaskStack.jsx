@@ -146,6 +146,11 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
   // one — "what do I owe Raintree" is a question people ask constantly and the
   // only previous answer was scrolling. Matches the customer OR the body, since
   // half of these are typed before a customer is attached.
+  // EMBEDDED = ONE CARD. The home screen is not a list; it is the next thing
+  // to deal with. Three task cards stacked under the visit prompt buries the
+  // board and turns the screen into a scroll, which is exactly what DidYouGo
+  // avoids by asking about one visit at a time. Act on it and the next appears.
+  // Everything else is one tap away at /tasks.
   const list = useMemo(() => {
     const all = buckets[tab] || [];
     const needle = q.trim().toLowerCase();
@@ -230,6 +235,24 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
   return (
     <div style={{ background: embedded ? 'transparent' : C.bg, minHeight: embedded ? 0 : '100vh', color: C.text, paddingBottom: embedded ? 0 : 70 }}>
+      {embedded && (rows == null || (buckets.todo.length + buckets.doing.length) > 0) && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 9 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em',
+                         textTransform: 'uppercase', color: C.muted }}>
+            Your tasks
+          </span>
+          <span style={{ fontSize: 12, color: C.muted }}>
+            {rows == null ? '' : `${buckets.todo.length + buckets.doing.length} open`}
+          </span>
+          <button onClick={() => onNavigate?.('/tasks')}
+            style={{ marginLeft: 'auto', background: 'transparent', border: 'none',
+                     color: C.blue, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
+                     fontFamily: 'inherit', padding: 0 }}>
+            See all &rsaquo;
+          </button>
+        </div>
+      )}
+
       {!embedded && (
         <div style={{ padding: '16px 16px 0' }}>
           <div style={{ fontSize: 21, fontWeight: 900 }}>Tasks</div>
@@ -239,7 +262,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
         </div>
       )}
 
-      {isOperator && (
+      {!embedded && isOperator && (
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
                       padding: embedded ? '2px 0 6px' : '10px 16px 4px' }}>
           {[{ email: 'me', name: 'Me' }, ...ASSIGNEES].map(a => {
@@ -258,7 +281,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
         </div>
       )}
 
-      <div style={{ padding: embedded ? '4px 0 0' : '10px 16px 0' }}>
+      <div style={{ padding: '10px 16px 0', display: embedded ? 'none' : 'block' }}>
         <input value={q} onChange={e => setQ(e.target.value)}
           placeholder="Filter by client or text…"
           style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px',
@@ -266,7 +289,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                    color: C.text, fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
       </div>
 
-      <div style={{ display: 'flex', gap: 7, padding: embedded ? '8px 0 4px' : '10px 16px 4px' }}>
+      <div style={{ display: embedded ? 'none' : 'flex', gap: 7, padding: '10px 16px 4px' }}>
         {TABS.map(t => {
           const n = buckets[t.key].length;
           const on = tab === t.key;
@@ -284,13 +307,13 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
       </div>
 
       <div style={{ padding: embedded ? '10px 0 0' : '10px 16px 0' }}>
-        {rows != null && list.length === 0 && (
+        {!embedded && rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
             {tab === 'done' ? 'Nothing waiting on you.' : 'Nothing here.'}
           </div>
         )}
 
-        {list.map(n => {
+        {(embedded ? list.slice(0, 1) : list).map(n => {
           const age  = ageDays(n.created_at);
           const open = panel?.id === n.id;
           const back = tab === 'done';
@@ -360,7 +383,12 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                 </span>
               </div>
 
-              <div style={{ fontSize: 15.5, lineHeight: 1.45, marginBottom: 13, whiteSpace: 'pre-wrap' }}>
+              {/* Rupert's walkthrough is 900 characters. Unclamped, one task
+                  card is longer than the rest of the home screen combined. */}
+              <div style={{ fontSize: 15.5, lineHeight: 1.45, marginBottom: 13,
+                            whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+                            ...(embedded ? { display: '-webkit-box', WebkitLineClamp: 3,
+                                             WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }}>
                 {n.body || '(no detail)'}
               </div>
 
@@ -436,7 +464,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
           );
         })}
 
-        {loose > 0 && (
+        {!embedded && loose > 0 && (
           <button onClick={() => onNavigate?.('/notes')}
             style={{ width: '100%', marginTop: 4, padding: '12px 14px', borderRadius: 12,
                      background: 'transparent', border: `1px dashed ${C.line2}`, color: C.muted,

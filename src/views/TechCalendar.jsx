@@ -988,6 +988,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                       colors={CALENDAR_COLORS}
                       onOpenEvent={openEvent}
                       onNavigate={(to) => navigate(to)}
+                      weekDates={weekDates}
                     />
                   : calViewMode === 'week' ? renderWeekView() : renderDayView()
               )}

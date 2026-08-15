@@ -398,18 +398,14 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                 {n.body || '(no detail)'}
               </div>
 
-              {/* Tasks spawned from a job carry job_id. This is how Sara gets
-                  from "JR says the estimate is written" to the board card she
-                  has to move to Estimate Sent, without going looking for it. */}
-              {n.job_id && (
-                <button onClick={() => onNavigate?.(`/board?job=${n.job_id}`)}
-                  style={{ background: 'transparent', border: `1px solid ${C.line2}`,
-                           borderRadius: 8, color: C.blue, fontSize: 12.5, fontWeight: 800,
-                           padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit',
-                           marginBottom: 12 }}>
-                  Open the job &rsaquo;
-                </button>
-              )}
+              {/* "Open the job >" REMOVED. It deep-linked to /board?job=<id>,
+                  and most of these tasks hang off a job that has since been
+                  ARCHIVED — five of the seven live ones do — so the link either
+                  landed on nothing or on a dead card. A button that usually
+                  fails is worse than no button.
+                  The useful destination is the CUSTOMER record, which is where
+                  the history and the open work actually live. That is a real
+                  link to build, not a rename of this one. */}
 
               {!open && back && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>

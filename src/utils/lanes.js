@@ -204,10 +204,14 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
   // Two things can happen to it: somebody does it, or it turns out to be
   // real work and becomes a job. Everything else on this list was noise.
   if (job?.job_type === 'note' || job?.job_type === 'task') {
+    // A note has three exits and they are equals. Make it a job, hand it to
+    // somebody as a task, or it is already handled. "Make it a task" is not in
+    // this list because it is not a status move — it writes a row in `notes`
+    // via the composer above, which is why it renders as its own button.
     return [
       { key: 'ready_to_schedule', target: 'ready_to_schedule', icon: '🔧', label: 'Make it a job',
-        color: '#97c459', means: 'This is real work — needs scoping and a calendar' },
-      { key: 'archived', target: 'archived', icon: '✅', label: 'Done',
+        color: '#97c459', means: 'Real work — needs a customer, then a calendar' },
+      { key: 'archived', target: 'archived', icon: '✅', label: 'Mark it done',
         color: '#22c55e', means: 'Handled. Stays on the customer record.' },
     ];
   }

@@ -255,18 +255,30 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   const [showWorkToDo, setShowWorkToDo] = useState(autoWorkToDo === true);
 
   const openEvent = async (event) => {
-    if (event._juceJobId) { setSelectedJobId(event._juceJobId); return; }
+    // WHERE A TAP LANDS DEPENDS ON WHO YOU ARE.
+    // Everybody got the tech finish sheet — "what happened on site, how many
+    // hours" — which is the right question for the person who drove there and
+    // the wrong one for whoever is running the day. An operator tapping an
+    // event wants the TICKET: move it, assign it, bill it, spawn a task.
+    // Techs are unchanged.
+    const toTicket = (jobId) => {
+      if (isOperator && !isRestricted) { navigate(`/board?job=${jobId}`); return true; }
+      setSelectedJobId(jobId);
+      return true;
+    };
+
+    if (event._juceJobId) { toTicket(event._juceJobId); return; }
     setEventLoading(true);
     try {
       const assignment = await assignmentsApi.getByCalendarEventId(event.id);
-      if (assignment?.job_id) { setSelectedJobId(assignment.job_id); setEventLoading(false); return; }
+      if (assignment?.job_id) { toTicket(assignment.job_id); setEventLoading(false); return; }
       const summary = (event.summary || '').toLowerCase();
       if (summary.length > 3) {
         const { data: matchedJobs } = await supabase
           .from('jobs').select('id, customer_name, issue')
           .or(`customer_name.ilike.%${summary.slice(0, 30)}%,issue.ilike.%${summary.slice(0, 30)}%`)
           .limit(1);
-        if (matchedJobs?.length > 0) { setSelectedJobId(matchedJobs[0].id); setEventLoading(false); return; }
+        if (matchedJobs?.length > 0) { toTicket(matchedJobs[0].id); setEventLoading(false); return; }
       }
     } catch (e) { console.warn('Event match error:', e); }
     // No matching job → open the finish sheet directly (same flow as Work To Do Today).

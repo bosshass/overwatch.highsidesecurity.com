@@ -141,7 +141,11 @@ export default function TicketSheet({
   // brings it home when the assignee marks it done.
   const createTask = async () => {
     const body = taskBody.trim();
-    if (!body || !taskWho) return;
+    // ONE ASSIGNEE ROW, NOT TWO. The card already asks who owns this directly
+    // under the customer; asking again inside the composer was the same
+    // question twice, and the two could disagree.
+    const who = ownerEmail;
+    if (!body || !who) return;
     setSaving(true); setTaskMsg('');
     try {
       const meEmail = canonicalEmail(userEmail);
@@ -150,15 +154,14 @@ export default function TicketSheet({
         job_id: job.id,
         customer_id: job.customer_id || null,
         author_email: meEmail,
-        assigned_to: taskWho,
+        assigned_to: who,
         assigned_by: meEmail,
         handoff_to: taskNext || null,
         lane: 'todo',
         status: 'open',
       });
       if (error) throw error;
-      const who = ASSIGNEES.find(a => a.email === taskWho)?.name || taskWho;
-      setTaskMsg(`Task sent to ${who}.`);
+      setTaskMsg(`Task sent to ${ASSIGNEES.find(a => a.email === who)?.name || who}.`);
       setTaskBody(''); setTaskWho(''); setTaskNext(''); setTaskOpen(false);
     } catch (e) { setTaskMsg(e.message || String(e)); }
     setSaving(false);
@@ -222,6 +225,15 @@ export default function TicketSheet({
     // reported success. Say so instead of pretending the move happened.
     const target = lane.target || lane.key;
     if (!target) { setErr(`"${lane.label}" has no destination — tell Sara.`); return; }
+    // A JOB WITHOUT A CUSTOMER IS NOT A JOB. Notes get filed against nobody all
+    // the time and that is fine — a note is a thought. The moment it becomes
+    // real work somebody has to drive to, it needs an address to drive to, and
+    // promoting it silently is how a card ends up on the board that cannot be
+    // scheduled, billed, or found by customer.
+    if (target === 'ready_to_schedule' && !job.customer_id && !job.customer_name) {
+      setErr('This needs a customer before it can be a job — add one above, or file it as a task instead.');
+      return;
+    }
     try {
       await onMove?.(target, note.trim() || null);
       // The job is over — take its event off the tech calendar. Non-fatal: a
@@ -408,31 +420,27 @@ export default function TicketSheet({
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 9,
                          border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
                          fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
-              <div style={{ fontSize: 12, color: C.muted, margin: '11px 0 7px' }}>Who owes it?</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {ASSIGNEES.map(a => (
-                  <button key={a.email} onClick={() => setTaskWho(taskWho === a.email ? '' : a.email)}
-                    style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
-                             background: taskWho === a.email ? '#9b6cff' : 'transparent',
-                             border: `1px solid ${taskWho === a.email ? '#9b6cff' : '#334155'}`,
-                             color: taskWho === a.email ? '#0b0618' : C.muted,
-                             fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
-                    {a.name}
-                  </button>
-                ))}
+              {/* NO SECOND PILL ROW. The card asks who owns this directly under
+                  the customer — asking again here was the same question twice
+                  and the two answers could disagree. */}
+              <div style={{ fontSize: 12.5, color: ownerName ? '#93c5fd' : '#f59e0b',
+                            margin: '11px 0 2px', fontWeight: 700 }}>
+                {ownerName
+                  ? `Goes to ${ownerName}`
+                  : 'Nobody is assigned yet — pick someone above first.'}
               </div>
               {/* THEN IT GOES TO — optional. When the doer is not the person who
                   closes the loop with the customer, this is the field that was
                   missing: two live tasks had the chain written out in prose
                   ("once it's complete, Shana will reach out to the client")
                   because there was nowhere to put it. */}
-              {taskWho && (
+              {ownerEmail && (
                 <div style={{ marginTop: 13 }}>
                   <div style={{ fontSize: 12, color: C.muted, marginBottom: 7 }}>
                     Then it goes to… <span style={{ opacity: 0.7 }}>(optional)</span>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {ASSIGNEES.filter(a => a.email !== taskWho).map(a => {
+                    {ASSIGNEES.filter(a => a.email !== ownerEmail).map(a => {
                       const on = taskNext === a.email;
                       return (
                         <button key={a.email} onClick={() => setTaskNext(on ? '' : a.email)}
@@ -450,7 +458,7 @@ export default function TicketSheet({
               )}
 
               <div style={{ display: 'flex', gap: 7, marginTop: 13 }}>
-                <button onClick={createTask} disabled={saving || !taskBody.trim() || !taskWho}
+                <button onClick={createTask} disabled={saving || !taskBody.trim() || !ownerEmail}
                   style={{ flex: 2, padding: '11px 0', borderRadius: 9, background: '#22d16f',
                            border: 'none', color: '#052e16', fontSize: 14, fontWeight: 800,
                            fontFamily: 'inherit', cursor: 'pointer',

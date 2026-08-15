@@ -381,13 +381,22 @@ export default function TicketSheet({
         {/* ── SPAWN A TASK ────────────────────────────────────────────────
             An estimate that needs writing is not a stage of the job, it is a
             thing one person owes. It gets a task; the job stays the record. */}
-        <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+        <div style={{ background: taskOpen ? C.panel : 'transparent',
+                      borderRadius: 12, padding: taskOpen ? 14 : 0, marginBottom: 14 }}>
           {!taskOpen ? (
             <button onClick={() => { setTaskOpen(true); setTaskMsg(''); }}
-              style={{ width: '100%', padding: '11px 0', borderRadius: 9, cursor: 'pointer',
-                       background: 'transparent', border: `1px solid ${C.line || '#334155'}`,
-                       color: '#93c5fd', fontSize: 13.5, fontWeight: 800, fontFamily: 'inherit' }}>
-              ＋ Create a task from this job
+              style={{ width: '100%', padding: '16px 14px', borderRadius: 12, cursor: 'pointer',
+                       background: '#9b6cff', border: 'none', color: '#0b0618',
+                       fontSize: 16, fontWeight: 900, fontFamily: 'inherit',
+                       display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left' }}>
+              <span style={{ fontSize: 22 }}>＋</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block' }}>Create a task</span>
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 700,
+                               opacity: 0.72, marginTop: 2 }}>
+                  Hand a piece of this to someone
+                </span>
+              </span>
             </button>
           ) : (
             <div>

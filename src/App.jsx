@@ -1005,7 +1005,13 @@ export default function App() {
             { icon:'⌂', label:'Home',  path:'/' },
             { icon:'✓', label:'Today', path:'/work' },
             { icon:'▤', label:'Board', path:'/board' },
-            { icon:'👤', label:'People',  path:'/people' },
+            // TASKS, NOT PEOPLE. People opens on its Work tab — every job
+            // assigned to you rendered as full paragraphs, with an Estimates
+            // section. That is a roster for whoever is running the day, and it
+            // is one tap from every screen in the app, so a tech tapping the
+            // person icon expecting "my stuff" got a wall of text instead.
+            // Operators still reach People from the board's "Who's stuck".
+            { icon:'✓', label:'Tasks', path:'/tasks' },
             { icon:'📅', label:'Cal',  path:'/calendar' },
           ].map(t => {
             const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);

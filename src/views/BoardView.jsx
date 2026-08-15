@@ -1023,7 +1023,8 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             👥 Who's stuck
           </button>
-          <button data-tour="my-tasks-link" onClick={() => navigate('/people')}
+          {/* Said "My Tasks" and opened the roster. Now it opens tasks. */}
+          <button data-tour="my-tasks-link" onClick={() => navigate('/tasks')}
             style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             🗂️ My Tasks

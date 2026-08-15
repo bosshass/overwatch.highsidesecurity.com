@@ -45,11 +45,15 @@ const C = {
 // A job's lane says where the WORK goes next; a task lane says what the PERSON
 // is doing about it. Conflating them is what made My Tasks feel like a second,
 // disagreeing board.
+// WATCHING IS GONE. It was a place to put a job you cared about without owning
+// it, which is a place things go to die — six sat there for up to 19 days, none
+// assigned to anyone, every one of them a shadow of a job already on the board.
+// The assigner round-trip replaced it: a finished task goes back to whoever
+// asked, so caring about something now means being on the hook for it.
 const TASK_LANES = [
-  { key: 'todo',     label: 'To do',    color: C.cyan,  empty: 'Nothing queued. Add a note or pick up a job below.' },
-  { key: 'doing',    label: 'Doing',    color: C.amber, empty: 'Nothing in progress.' },
-  { key: 'watching', label: 'Watching', color: '#a855f7', empty: 'Not watching anything. Hand a job off and it lands here.' },
-  { key: 'done',     label: 'Done',     color: C.dim,   empty: 'Nothing finished yet.' },
+  { key: 'todo',  label: 'To do', color: C.cyan,  empty: 'Nothing queued.' },
+  { key: 'doing', label: 'Doing', color: C.amber, empty: 'Nothing in progress.' },
+  { key: 'done',  label: 'Done',  color: C.dim,   empty: 'Nothing finished yet.' },
 ];
 
 const fmtDay = (iso) => iso

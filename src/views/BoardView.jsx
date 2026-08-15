@@ -513,11 +513,12 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           onAssigned={onAssigned}
           extras={
             <div style={{ marginTop: 14, display:'flex', flexDirection:'column', gap: 10 }}>
-              <button onClick={() => onWatch?.(job)}
-                style={{ background:'transparent', color:'#f59e0b', border:'1px solid #f59e0b55',
-                         borderRadius:8, padding:'9px 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                👁 Watch this
-              </button>
+              {/* "👁 Watch this" REMOVED. It wrote a note into lane 'watching'
+                  — caring about a job without owning it. Six accumulated in up
+                  to 19 days, none assigned, every one a duplicate of a job
+                  already on the board. Watching is where things go to die.
+                  Create a task on the ticket instead: that puts a name and a
+                  return path on it. */}
               <ShareButton job={job} />
               <UUIDLinker job={job} onLinked={onUUIDLinked} />
               <MergeTool job={job} allJobs={allJobs} onMerge={onMerge}
@@ -942,25 +943,11 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     return assigneeOf(j) === assigneeFilter;
   };
 
-  // Put a board card into MY Tasks → Watching without taking ownership. She is
-  // not the assignee and the job does not move; she just stops having to
-  // remember to come back and check on it.
-  const watchInMyTasks = useCallback(async (job) => {
-    try {
-      const { error } = await supabase.from('notes').insert([{
-        body: job.customer_name || 'Job',
-        author_email: canonicalEmail(userEmail),
-        job_id: job.id,
-        lane: 'watching',
-        status: 'open',
-        last_seen_status: job.status,
-      }]);
-      // Unique index (migration 032) means a second watch on the same job is a
-      // conflict, not a duplicate card. Say so rather than failing silently.
-      if (error) { showToast(/duplicate|unique/i.test(error.message) ? 'Already in My Tasks' : 'Could not add'); return; }
-      showToast('Watching in My Tasks ✓');
-    } catch (e) { showToast('Could not add'); }
-  }, [userEmail]);
+  // watchInMyTasks REMOVED with the watching lane. It inserted a note with
+  // lane 'watching', a job_id and last_seen_status — a job-tracking
+  // subscription living in the task table, owned by nobody. The DB constraint
+  // no longer permits that value, so leaving this here would throw.
+  const watchInMyTasks = null;
 
   // The WRITE moved into TicketSheet (one control, every surface). This only
   // syncs the board's local copy so the card repaints without a full reload.
@@ -1128,7 +1115,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
 
       {selectedJob && (
         <DetailDrawer
-          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onWatch={watchInMyTasks} onAssigned={onAssigned}
+          job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onAssigned={onAssigned}
           allJobs={jobs}
           onStatusMove={(jobId, verb, note, reason) => { moveStatus(jobId, verb, note, reason); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}

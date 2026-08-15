@@ -233,6 +233,21 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
 
   // Billed is only a sensible destination for work that is actually finished.
   const finished = ['complete', 'to_bill', 'billed'].includes(currentStatus);
+  // ── NEW HAS TWO EXITS ────────────────────────────────────────────────
+  // Anything sitting in New either gets a person on it — which makes it a
+  // task, done with Create a task on the ticket — or it is real work and
+  // becomes Ready to Schedule. Offering the whole ladder from New is how a
+  // brand-new card gets pushed straight to Estimates or Tentative before
+  // anyone has decided what it is, and then ages there with no owner.
+  // Clear stays: a card filed in error has to be able to leave.
+  if (currentStatus === 'new') {
+    const ready = LANES.find(l => l.key === 'ready' || l.target === 'ready_to_schedule');
+    return [
+      ...(ready ? [ready] : []),
+      ...(includeClear ? [CLEAR_LANE] : []),
+    ].filter(l => l.key !== here);
+  }
+
   return [
     ...LANES.slice(0, 2),        // New/Notes, Ready
     RETURN_LANE,

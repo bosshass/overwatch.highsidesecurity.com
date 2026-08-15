@@ -10,7 +10,7 @@ import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase }
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
 import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId, CALENDARS } from '../config/calendars.js';
 import CustomerPicker from './CustomerPicker.jsx';
-import { canonicalEmail } from '../utils/ownership.js';
+import { canonicalEmail, ASSIGNEES } from '../utils/ownership.js';
 
 const TECH_PILL_COLORS = {
   'Austin': '#3b82f6',
@@ -332,10 +332,16 @@ Scope of Work: `;
     try {
       // No UI ever set noteForm.assignedTo (it was dead state from the old
       // job-based flow) — dropped rather than left as a silent no-op.
+      // A NOTE IS NOT A TASK. This wrote lane 'todo' with no assignee, so every
+      // note filed here was born as a To Do belonging to nobody — 9 sat in that
+      // lane with only 3 assigned. lane 'note' says plainly that nobody owns it
+      // yet; assigning is what makes it a task, and it is the only thing that
+      // does. (lane is NOT NULL with default 'todo', so it needs a real value —
+      // leaving the default is exactly how the orphans got made.)
       const { data, error } = await supabase.from('notes').insert([{
         body: noteForm.content.trim(),
         author_email: canonicalEmail(userEmail),
-        lane: 'todo',
+        lane: 'note',
         status: 'open',
         customer_id: noteForm.customerId || null,
         on_customer_record: !!noteForm.customerId,
@@ -349,11 +355,18 @@ Scope of Work: `;
   // customer job, and should never have been eligible to sit on the board.
   const handleSubmitTask = async () => {
     if (!taskForm.title.trim()) return;
+    // A TASK WITHOUT AN OWNER IS A NOTE. taskForm.assignedTo was dead state —
+    // declared, never set by any control, never written. Nothing enforced the
+    // one rule that separates the two things.
+    if (!taskForm.assignedTo) return;
     setIsSaving(true);
     try {
+      const meEmail = canonicalEmail(userEmail);
       const { data, error } = await supabase.from('notes').insert([{
         body: taskForm.title.trim(),
-        author_email: canonicalEmail(userEmail),
+        author_email: meEmail,
+        assigned_to: taskForm.assignedTo,
+        assigned_by: meEmail,
         lane: 'todo',
         status: 'open',
         customer_id: taskForm.customerId || null,
@@ -577,10 +590,44 @@ Scope of Work: `;
               onChange={(id) => setTaskForm(f => ({ ...f, customerId: id }))}
               placeholder="Who's it about?" />
           </div>
-          <button onClick={handleSubmitTask} disabled={!taskForm.title.trim() || isSaving}
-            style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700', background: taskForm.title.trim() ? '#f59e0b' : '#334155', color: taskForm.title.trim() ? '#000' : '#64748b', border: 'none', borderRadius: '12px', cursor: taskForm.title.trim() ? 'pointer' : 'default' }}>
-            {isSaving ? 'Creating...' : '✓ Create Task'}
-          </button>
+          {/* REQUIRED. A task with nobody on it is a note, and this control did
+              not exist — taskForm.assignedTo was declared and never set, so
+              every "task" created here was an orphan in lane todo. */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Who owes it? *</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {ASSIGNEES.map(a => {
+                const on = taskForm.assignedTo === a.email;
+                return (
+                  <button key={a.email}
+                    onClick={() => setTaskForm(f => ({ ...f, assignedTo: on ? '' : a.email }))}
+                    style={{ padding: '9px 13px', borderRadius: 8, cursor: 'pointer',
+                             background: on ? '#9b6cff' : 'transparent',
+                             border: `1px solid ${on ? '#9b6cff' : '#334155'}`,
+                             color: on ? '#0b0618' : '#94a3b8',
+                             fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+                    {a.name}
+                  </button>
+                );
+              })}
+            </div>
+            {!taskForm.assignedTo && (
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                No owner? File it as a Note instead — it lands on the board.
+              </div>
+            )}
+          </div>
+          {(() => {
+            const ready = taskForm.title.trim() && taskForm.assignedTo;
+            return (
+              <button onClick={handleSubmitTask} disabled={!ready || isSaving}
+                style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700',
+                         background: ready ? '#f59e0b' : '#334155', color: ready ? '#000' : '#64748b',
+                         border: 'none', borderRadius: '12px', cursor: ready ? 'pointer' : 'default' }}>
+                {isSaving ? 'Creating...' : '✓ Create Task'}
+              </button>
+            );
+          })()}
         </div>
       </div>
     );

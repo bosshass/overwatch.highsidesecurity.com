@@ -99,7 +99,7 @@ export default function OpsHome({
           .not('status', 'in', `(${CLOSED_STATUSES.join(',')})`)
           .limit(1000),
         supabase.from('notes')
-          .select('id, body, author_email, lane, created_at, updated_at')
+          .select('id, body, author_email, assigned_to, lane, created_at, updated_at')
           .limit(1000),
       ]);
 
@@ -108,12 +108,21 @@ export default function OpsHome({
 
       const rows = ASSIGNEES.map(person => {
         const theirJobs  = (jobs || []).filter(j => assigneeOf(j) === person.name);
-        const theirNotes = (notes || []).filter(n => n.author_email === person.email);
+        // TASKS ARE ASSIGNED, NOT AUTHORED. This matched author_email, so the
+        // column counted everything a person had ever typed — Shana read 11
+        // tasks because she wrote 11 notes, none of them hers to do.
+        const theirNotes = (notes || []).filter(n =>
+          (n.assigned_to || '').toLowerCase() === person.email.toLowerCase());
 
-        const todo  = theirJobs.length + theirNotes.filter(n => n.lane === 'todo').length;
+        // JOBS AND TASKS WERE BEING ADDED TOGETHER. `theirJobs.length +
+        // notes in lane 'todo'` put a job status count and a task lane count
+        // into one number labelled To Do — 7 jobs and 1 task read as 8, and
+        // no screen anywhere could reconcile it. They are separate counts of
+        // separate things and they stay separate.
+        const todo  = theirNotes.filter(n => n.lane === 'todo').length;
         const doing = theirNotes.filter(n => n.lane === 'doing').length;
         const done  = theirNotes.filter(n => n.lane === 'done').length;
-        const watching = theirNotes.filter(n => n.lane === 'watching').length;
+        const watching = 0;   // lane retired
 
         // Oldest OPEN item by last movement. Done is excluded — a finished
         // thing sitting untouched is finished, not stalled.

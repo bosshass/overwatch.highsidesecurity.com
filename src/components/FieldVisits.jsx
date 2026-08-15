@@ -46,7 +46,7 @@ function parseIssueNotes(issue) {
 const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const FIELDS =
-  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, customer_name_raw, calendar_event_id, customer_id, created_at, archived, archived_at, archived_by, archive_reason';
+  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, photos, customer_name_raw, calendar_event_id, customer_id, created_at, archived, archived_at, archived_by, archive_reason';
 
 const PREVIEW = 3;
 
@@ -85,7 +85,12 @@ export default function FieldVisits({ job }) {
     return parsed.filter(n => !visitNoteSet.has(norm(n.body)));
   }, [job?.issue, entries]);
 
-  const visitsWithNotes = useMemo(() => entries.filter(e => e.notes || e.materials), [entries]);
+    // A visit that produced only PHOTOS is still evidence of the visit — it was
+  // being filtered out entirely, so a tech who documented the job with pictures
+  // and typed nothing left no trace on the ticket.
+  const visitsWithNotes = useMemo(
+    () => entries.filter(e => e.notes || e.materials || (e.photos && e.photos.length)),
+    [entries]);
   const total = visitsWithNotes.length + issueNotes.length;
 
   const shownVisits = showAll ? visitsWithNotes : visitsWithNotes.slice(0, PREVIEW);
@@ -135,6 +140,20 @@ export default function FieldVisits({ job }) {
             </div>
             {e.materials && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 4 }}>🔧 {e.materials}</div>}
             {e.notes && <div style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{e.notes}</div>}
+            {/* Job photos. Uploaded from the finish sheet, and until now visible
+                nowhere in the app — the files were in Storage with nothing
+                pointing at them. Tap opens the full size in a new tab. */}
+            {e.photos && e.photos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {e.photos.map((url, pi) => (
+                  <a key={pi} href={url} target="_blank" rel="noreferrer">
+                    <img src={url} alt={`Visit photo ${pi + 1}`}
+                      style={{ width: 74, height: 74, objectFit: 'cover', borderRadius: 8,
+                               border: '1px solid #334155', display: 'block' }} />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}

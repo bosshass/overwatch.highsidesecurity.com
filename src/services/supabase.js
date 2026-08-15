@@ -806,6 +806,12 @@ export const timeEntriesApi = {
       disposition: entry.disposition,
       notes: entry.notes || null,
       materials: entry.materials || null,
+      // PHOTOS WERE BEING DROPPED HERE. This payload is an explicit whitelist,
+      // and `photos` was never on it — the finish sheet uploaded to Storage,
+      // handed the URLs over, and create() silently discarded them. The column
+      // default is '{}', so every row read as an empty array and the files sat
+      // in the bucket with nothing pointing at them.
+      photos: entry.photos && entry.photos.length ? entry.photos : null,
       project_ref: entry.project_ref || extractProjectRef(entry.event_title) || null,
     };
     const { data, error } = await supabase.from('time_entries').insert([payload]).select().single();

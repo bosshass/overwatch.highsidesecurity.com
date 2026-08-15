@@ -823,10 +823,10 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       }}>
         {(isOperator ? [
           { key: 'calendar', label: '📅 Calendar' },
-          { key: 'tasks', label: '📋 Tasks 🚧' },
+          { key: 'tasks', label: '📊 Utilization' },
         ] : [
           { key: 'calendar', label: '📅 Calendar' },
-          { key: 'tasks', label: '📋 My Day 🚧' },
+          { key: 'tasks', label: '📋 My Day' },
         ]).map(t => (
           <button key={t.key} onClick={() => {
             setMainTab(t.key);

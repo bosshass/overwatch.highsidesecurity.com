@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
-import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId, CALENDARS } from '../config/calendars.js';
+import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 import CustomerPicker from './CustomerPicker.jsx';
 import { canonicalEmail, ASSIGNEES } from '../utils/ownership.js';
 
@@ -289,30 +289,24 @@ Scope of Work: `;
       onClose();
       try { onCreated?.(job); } catch (_) {}
 
-      // If not scheduled, write to Service/Urgent calendar so it appears in Queue
-      if (!willSchedule) {
-        const today = new Date().toISOString().split('T')[0];
-        const queueEvent = {
-          summary: `${form.customer_name.trim()} - ${JOB_TYPE_INFO[form.job_type]?.full || 'Service Call'}`,
-          location: form.customer_address || '',
-          description: [
-            form.issue && `Issue: ${form.issue}`,
-            form.customer_phone && `Phone: ${form.customer_phone}`,
-            form.gate_code && `Gate: ${form.gate_code}`,
-            form.panel_password && `Panel PW: ${form.panel_password}`,
-            form.cms_account_id && `CMS: ${form.cms_account_id}`,
-          ].filter(Boolean).join('\n'),
-          start: { date: today },
-          end:   { date: today },
-        };
-        fetch(
-          // Uses the config constant now. This was a HARDCODED calendar id that
-          // bypassed config/calendars.js entirely — which is why fixing the
-          // config alone could never have fixed this writer.
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDARS.TENTATIVELY_SCHEDULED)}/events`,
-          { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(queueEvent) }
-        ).catch(e => console.warn('Queue event write failed:', e));
-      }
+      // QUEUE CALENDAR EVENT REMOVED.
+      // Creating a job with no date used to POST an ALL-DAY event onto the
+      // Tentatively Scheduled calendar, dated today. That made sense when the
+      // calendar WAS the queue. It has not been for a long time: the job lands
+      // in Triage on the board the moment it is created, so this wrote a second
+      // copy of the same work onto a calendar, stamped with a date nobody chose
+      // and that has nothing to do with when it will happen.
+      //
+      // What it cost: every all-day event sits above the time grid, so a week
+      // with six new jobs in it opened with six banners over the actual
+      // schedule. They were never deleted when the job WAS scheduled, so the
+      // banner stayed after the real booking existed — two calendar entries for
+      // one job, one of them lying about the date.
+      //
+      // Holds are the deliberate way to put something on Tent: services/
+      // schedule.js hold(), which writes a real timed event and stamps
+      // tentative_event_id so it can be cleared again. That path is untouched.
+
     } catch (e) {
       console.error('Create job error:', e);
       alert('Error creating job: ' + e.message);

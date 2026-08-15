@@ -37,6 +37,12 @@ import { supabase } from '../services/supabase.js';
 
 const CAP_KEY = 'calendar_capacity';
 const DEFAULT_CAP = 8;
+// Utilisation measures PEOPLE. Tentatively Scheduled, Installations, Service
+// Queue, Sales & Accounting and Completed are buckets, not techs — measuring
+// them against a 40h week is meaningless and it padded the shop total to 80h.
+// Brian is is_active=false and Shana does not carry billable field hours.
+const FIELD_TECHS = ['JR', 'Austin', 'Trevor', 'Subs'];
+
 const WORKDAYS = 5;   // weekly capacity = daily x this. A holiday week is wrong
                       // by one day and nobody has been misled about anything
                       // important; making it a second setting to maintain is a
@@ -140,17 +146,28 @@ function WeekGrid({ weekDates, events, calendars, colors, onOpenEvent, logged, n
           const subW = `(${colW} / ${e._of || 1})`;
           const left = `calc(${GUTTER}px + ${di} * ${colW} + ${e._slot || 0} * ${subW} + 2px)`;
           const color = e.color || colors[e.calendarName] || '#6b7280';
-          const noHours = !logged[e.id] && en < now;
+          // COMPLETED IS NOT A PROBLEM. Events land on the Completed calendar
+          // AFTER the work is billed and closed out, so they are past by
+          // definition and carry no time entry — which meant every one of them
+          // lit up with the red "no hours" outline. An alarm firing on the one
+          // category that is genuinely finished.
+          const done = e.calendarName === 'Completed';
+          const noHours = !done && !logged[e.id] && en < now;
           return (
             <div key={`${di}-${e.id}`} onClick={() => onOpenEvent?.(e)}
               title={`${e.calendarName} · ${e.summary}`}
               style={{ position: 'absolute', top, left, width: `calc(${subW} - 4px)`, height,
-                       background: '#16233a', borderLeft: `3px solid ${color}`,
-                       border: `1px solid ${noHours ? '#ff4f5e88' : color + '55'}`,
+                       background: done ? '#0e1626' : '#16233a',
+                       borderLeft: `3px solid ${done ? '#33455f' : color}`,
+                       border: `1px solid ${noHours ? '#ff4f5e88' : done ? '#1d2f48' : color + '55'}`,
                        borderRadius: 6, padding: '2px 4px', cursor: 'pointer',
-                       overflow: 'hidden', zIndex: 2 }}>
-              <div style={{ color, fontSize: 8.5, fontWeight: 900, lineHeight: 1.1 }}>
-                {e.calendarName}
+                       overflow: 'hidden', zIndex: 2, opacity: done ? 0.65 : 1 }}>
+              {/* Done work recedes. It still shows — that IS the record of
+                  visits made and calls run — but it should sit behind the week
+                  you still have to work, not compete with it. */}
+              <div style={{ color: done ? '#64748b' : color, fontSize: 8.5,
+                            fontWeight: 900, lineHeight: 1.1 }}>
+                {done ? '✓ done' : e.calendarName}
               </div>
               <div style={{ color: '#e2e8f0', fontSize: 9.5, fontWeight: 700, lineHeight: 1.15,
                             overflow: 'hidden' }}>
@@ -257,11 +274,11 @@ export default function CalendarTechDay({
     const log    = mine.reduce((acc, e) => {
       const t = logged[e.id];
       if (t) { acc.hrs += t.hrs; acc.billed += t.billed; }
-      else acc.missing += hoursOf(e);   // booked, nothing logged against it
+      else if (new Date(e.end) < now) acc.missing += hoursOf(e);   // only PAST work can be missing hours
       return acc;
     }, { hrs: 0, billed: 0, missing: 0 });
     return { cal, events: layout(mine), booked, ...log, cap: capFor(cal.name) };
-  }), [calendars, events, sameDay, caps, logged]);
+  }), [calendars, events, sameDay, caps, logged, now]);
 
   // The visible window follows the work. A fixed 6am–8pm spends half the screen
   // on hours nothing ever happens in.
@@ -282,7 +299,10 @@ export default function CalendarTechDay({
   // rather than a second implementation that can disagree with the first.
   const weekCols = useMemo(() => {
     if (!weekDates?.length) return [];
-    return calendars.map(cal => {
+    // Hard-filtered here rather than relying on the calendar checkboxes: those
+    // are remembered per user in localStorage, so an old selection kept ten
+    // rows on screen long after the default changed.
+    return calendars.filter(c => FIELD_TECHS.includes(c.name)).map(cal => {
       const perDay = weekDates.map(d => {
         const mine = events.filter(e => {
           if (e.isAllDay || e.calendarName !== cal.name) return false;
@@ -291,9 +311,16 @@ export default function CalendarTechDay({
               && a.getDate() === d.getDate();
         });
         const booked = mine.reduce((s, e) => s + hoursOf(e), 0);
+        // NEVER LOGGED ONLY APPLIES TO THE PAST.
+        // This counted any booked hour with no time entry as missing, with no
+        // check on whether the work had happened yet — so a week that had not
+        // started read "39.0h never logged" for hours nobody could possibly
+        // have logged. Only an event that has already ENDED can be missing its
+        // hours; anything still ahead is simply booked.
         const log = mine.reduce((acc, e) => {
           const t = logged[e.id];
-          if (t) acc.hrs += t.hrs; else acc.missing += hoursOf(e);
+          if (t) acc.hrs += t.hrs;
+          else if (new Date(e.end) < now) acc.missing += hoursOf(e);
           return acc;
         }, { hrs: 0, missing: 0 });
         return { date: d, booked, ...log };
@@ -331,16 +358,37 @@ export default function CalendarTechDay({
         missing: perDay.reduce((s, d) => s + d.missing, 0),
       };
     });
-  }, [calendars, events, weekDates, caps, logged]);
+  }, [calendars, events, weekDates, caps, logged, now]);
 
-  const totalBooked  = columns.reduce((s, c) => s + c.booked, 0);
-  const totalCap     = columns.reduce((s, c) => s + c.cap, 0);
-  const totalLogged  = columns.reduce((s, c) => s + c.hrs, 0);
-  const totalMissing = columns.reduce((s, c) => s + c.missing, 0);
+  // The shop line has to sum the SAME set the rows below it show. It was
+  // summing every column — hence "21.0 of 80h" with ten calendars counted as
+  // ten people.
+  const totalSrc = showUtilization && range === 'week' ? weekCols : columns;
+  const totalBooked  = totalSrc.reduce((s, c) => s + c.booked, 0);
+  const totalCap     = totalSrc.reduce((s, c) => s + c.cap, 0);
+  const totalLogged  = totalSrc.reduce((s, c) => s + c.hrs, 0);
+  const totalMissing = totalSrc.reduce((s, c) => s + c.missing, 0);
 
   return (
     <div>
       {/* ── UTILISATION ROW ─────────────────────────────────────────────── */}
+      {/* WHICH WEEK. The panel showed percentages with no dates on them, so
+          there was no way to tell this week from next. */}
+      {showUtilization && weekDates?.length > 0 && (
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: '#8ea0b8', marginBottom: 7 }}>
+          {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          {' – '}
+          {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          {(() => {
+            const t = new Date(); t.setHours(0,0,0,0);
+            const a = new Date(weekDates[0]); a.setHours(0,0,0,0);
+            const b = new Date(weekDates[6]); b.setHours(0,0,0,0);
+            if (t >= a && t <= b) return '  ·  this week';
+            return t < a ? '  ·  upcoming' : '  ·  past';
+          })()}
+        </div>
+      )}
+
       {showUtilization && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     marginBottom: 8, padding: '0 2px' }}>
         <div style={{ fontSize: 12.5, color: '#94a3b8' }}>

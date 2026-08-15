@@ -1023,10 +1023,10 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           {/* Straight to Who's stuck. "← Home" technically got you there, but
               it drops you at the top of the page and you have to scroll past
               the warnings to find the person you were thinking about. */}
-          <button data-tour="whos-stuck" onClick={() => navigate('/?focus=people')}
+          <button data-tour="whos-stuck" onClick={() => navigate('/tasks')}   /* was /?focus=people — that section is gone; Tasks has the person filter */
             style={{ background:'#1e293b', border:'1px solid #334155', color:'#e2e8f0', padding:'7px 14px',
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
-            👥 Who's stuck
+            👥 Who owes what
           </button>
           {/* Said "My Tasks" and opened the roster. Now it opens tasks. */}
           <button data-tour="my-tasks-link" onClick={() => navigate('/tasks')}

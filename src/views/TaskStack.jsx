@@ -82,7 +82,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     // memory keeps the counts on the tabs honest.
     const { data, error } = await supabase
       .from('notes')
-      .select('id, body, lane, status, assigned_to, assigned_by, author_email, done_at, done_by, customer_id, job_id, created_at, scheduled_for')
+      .select('id, body, lane, status, assigned_to, assigned_by, handoff_to, author_email, done_at, done_by, customer_id, job_id, created_at, scheduled_for')
       .eq('status', 'open')
       .not('assigned_to', 'is', null)
       .gte('created_at', floor)
@@ -166,10 +166,32 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     setPanel(null); setAnswer(''); setToWhom('');
   };
 
-  // Assignee finished. Goes to the assigner, NOT closed.
-  const markDone = n => patch(n, {
-    lane: 'done', done_at: new Date().toISOString(), done_by: me,
-  });
+  // Assignee finished. Two different things can happen, and which one is
+  // right depends on why the task existed.
+  //
+  //   handoff_to set  -> the work MOVES ON. Nobody is verifying; the next pair
+  //                      of hands takes it. Accounting fixes Henke's autopay,
+  //                      Shana rings the customer. Lands in their To Do as a
+  //                      fresh task, with the chain recorded in the body so
+  //                      they can see who did what before them.
+  //
+  //   no handoff      -> back to the ASSIGNER to confirm. "I asked for parts,
+  //                      tell me they arrived."
+  const markDone = (n) => {
+    const stamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const meName = NAME_BY_EMAIL[me] || userName || me;
+    if (n.handoff_to) {
+      return patch(n, {
+        assigned_to: n.handoff_to,
+        assigned_by: me,
+        handoff_to: null,          // the chain is one link; a new one gets set deliberately
+        lane: 'todo',
+        done_at: null, done_by: null,
+        body: `${n.body || ''}\n\n— ${meName} finished their part, ${stamp}. Over to you.`.trim(),
+      });
+    }
+    return patch(n, { lane: 'done', done_at: new Date().toISOString(), done_by: me });
+  };
 
   const markDoing = n => patch(n, { lane: 'doing' }, false);
 
@@ -287,7 +309,13 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 {/* The JOB's status, carried onto the task. "Ed Rupert — Needs
                     Estimate" is the whole context in five words. */}
-                {n._jobStatus && STATUS_INFO[n._jobStatus] && (
+                {/* ARCHIVED/DEAD JOBS DO NOT GET A CHIP. Five of the seven
+                    live tasks point at a job that has since been archived, so
+                    this stamped "Archived" across work somebody still owes.
+                    The task's own state is what matters; the job's status is
+                    only context when the job is still going. */}
+                {n._jobStatus && !['archived','dead','lost','billed'].includes(n._jobStatus)
+                  && STATUS_INFO[n._jobStatus] && (
                   <span style={{ fontSize: 12, fontWeight: 900, padding: '4px 10px', borderRadius: 7,
                                  color: STATUS_INFO[n._jobStatus].color,
                                  background: `${STATUS_INFO[n._jobStatus].color}1a`,
@@ -305,6 +333,14 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                   <span style={{ fontSize: 11, fontWeight: 900, color: C.blue,
                                  border: `1px solid ${C.blue}55`, borderRadius: 6, padding: '4px 9px' }}>
                     WORKING ON IT
+                  </span>
+                )}
+                {/* Say where it goes next BEFORE they press the button, not
+                    after. Otherwise "Did it" looks like it closes the thing. */}
+                {n.handoff_to && !back && (
+                  <span style={{ fontSize: 11, fontWeight: 900, color: C.amber,
+                                 border: `1px solid ${C.amber}55`, borderRadius: 6, padding: '4px 9px' }}>
+                    THEN → {NAME_BY_EMAIL[canonicalEmail(n.handoff_to)] || n.handoff_to}
                   </span>
                 )}
               </div>
@@ -353,7 +389,12 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
               {!open && !back && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                   <Btn tone="go" flex={2} disabled={busy === n.id}
-                    onClick={() => markDone(n)}>{busy === n.id ? '…' : 'Did it'}</Btn>
+                    onClick={() => markDone(n)}>
+                    {busy === n.id ? '…'
+                      : n.handoff_to
+                        ? `Done → ${NAME_BY_EMAIL[canonicalEmail(n.handoff_to)] || 'next'}`
+                        : 'Did it'}
+                  </Btn>
                   {n.lane !== 'doing' && (
                     <Btn tone="doing" disabled={busy === n.id}
                       onClick={() => markDoing(n)}>On it</Btn>

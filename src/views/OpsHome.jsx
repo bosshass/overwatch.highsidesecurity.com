@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import DidYouGo from '../components/DidYouGo.jsx';
+import TaskStack from './TaskStack.jsx';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import Spotlight from '../components/Spotlight.jsx';
@@ -277,7 +278,26 @@ export default function OpsHome({
           <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
         )}
 
-        {/* ══ 0. GO SOMEWHERE ══
+        {/* ══ 0. WHAT IS LOSING MONEY RIGHT NOW ══
+            Hours that happened and never became a time entry. This sat BELOW
+            the board rollup, so the first thing on the screen was a count of
+            statuses and the thing that actually costs money was under it. */}
+        <div style={{ padding: '16px 16px 0' }}>
+          <DidYouGo userEmail={userEmail} userName={userName} />
+        </div>
+
+        {/* ══ 0b. WHAT YOU OWE ══
+            Was "My Work" — a card per person showing todo/doing/done COUNTS,
+            which tells you the shape of everyone's pile and gives you nothing
+            to press. Same task cards as /tasks now, and yours only: other
+            people's work is something to go and look at deliberately, not
+            something to wade through on the way to your own. */}
+        <div style={{ padding: '8px 16px 0' }}>
+          <TaskStack userEmail={userEmail} userName={userName}
+            onNavigate={onNavigate} embedded />
+        </div>
+
+        {/* ══ 0c. GO SOMEWHERE ══
             Calendar and Clients are the two screens people open on purpose all
             day, and neither had a door on the home screen — Calendar was only
             in the footer, Clients only inside Admin tools behind a scroll.
@@ -341,9 +361,6 @@ export default function OpsHome({
           </div>
         )}
 
-        <div style={{ padding: '16px 16px 0' }}>
-          <DidYouGo userEmail={userEmail} userName={userName} />
-        </div>
 
         {/* STRANDED LIST REMOVED. It sat directly BELOW DidYouGo asking the
             same question — "the day came and went and nobody dispositioned
@@ -354,77 +371,13 @@ export default function OpsHome({
             any of them. Two prompts for one problem, and the one that could
             not fix anything was louder. */}
 
-        {/* ══ 2. PEOPLE ══ */}
-        <div ref={peopleRef} data-tour="home-people" style={{ padding:'6px 16px 0', scrollMarginTop:90 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
-            <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
-              My Work
-            </span>
-            <Help topic="tasks" label="How My Tasks works" />
-          </div>
-          {loading && !people ? (
-            <div style={{ color:C.muted, fontSize:13, padding:'20px 0' }}>Loading…</div>
-          ) : !people || people.length === 0 ? (
-            <div style={{ color:C.muted, fontSize:13, padding:'20px 0' }}>Nobody has anything assigned yet.</div>
-          ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:12 }}>
-              {people.map(p => (
-                <button key={p.email} onClick={() => go('/tasks')}   /* /workspace/:who is a
-                    Navigate redirect to /people that DROPS the name, so clicking
-                    a person landed on the unfiltered roster. Go straight there. */
-                  style={{ textAlign:'left', background:C.panel, border:`1px solid ${p.oldest?.days >= 14 ? C.amber + '66' : C.line}`,
-                           borderRadius:18, padding:'15px 16px', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
-                  <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', marginBottom:12 }}>
-                    <div style={{ fontSize:17, fontWeight:800 }}>{p.name}</div>
-                    <div style={{ fontSize:12, color:C.muted }}>{p.total} item{p.total === 1 ? '' : 's'}</div>
-                  </div>
-
-                  <div style={{ display:'flex', gap:14, marginBottom:13 }}>
-                    {[['To Do', p.todo, C.amber], ['Doing', p.doing, C.blue], ['Done', p.done, C.green]].map(([l, n, col]) => (
-                      <div key={l}>
-                        <div style={{ fontSize:24, fontWeight:900, lineHeight:1, color: n ? col : '#33455f' }}>{n}</div>
-                        <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{l}</div>
-                      </div>
-                    ))}
-                    {p.watching > 0 && (
-                      <div>
-                        <div style={{ fontSize:24, fontWeight:900, lineHeight:1, color:C.purple }}>{p.watching}</div>
-                        <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>Watching</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {p.oldest ? (
-                    <div style={{ borderTop:`1px solid ${C.line}`, paddingTop:10 }}>
-                      <div style={{ fontSize:10, color:C.muted, textTransform:'uppercase', letterSpacing:'0.05em' }}>Oldest, no movement</div>
-                      <div style={{ fontSize:13, marginTop:3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{p.oldest.label}</div>
-                      <div style={{ fontSize:12, fontWeight:800, color:staleColor(p.oldest.days), marginTop:2 }}>
-                        {p.oldest.days === 0 ? 'today' : `${p.oldest.days} day${p.oldest.days === 1 ? '' : 's'}`}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ borderTop:`1px solid ${C.line}`, paddingTop:10, fontSize:12, color:C.muted }}>Nothing open</div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <button onClick={() => go('/tasks')}
-            style={{ marginTop:12, width:'100%', background:'transparent', color:C.cyan,
-                     border:`1px solid ${C.cyan}44`, borderRadius:14, padding:'11px 0',
-                     fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-            See everyone's tasks →
-          </button>
-        </div>
-
-        {/* SECOND BOARD ROLLUP REMOVED. This screen drew the board TWICE —
-            the tile grid above, then four of the same numbers again under the
-            heading "The board". Every figure here already appeared higher up,
-            and the tiles are strictly better because each one opens its own
-            lane instead of dropping you on the board to find it. The header
-            comment on this file says the board was "demoted to one rollup";
-            this was the one that was supposed to go. */}
+        {/* PEOPLE ROLLUP REMOVED. It was a card per person with To Do /
+            Doing / Done counts and the oldest untouched thing — a shape-of-the-
+            pile readout that you could not act on from where it sat. Your own
+            work now renders as real task cards above, and somebody else's list
+            is a question you ask on purpose: Tasks has a person filter for
+            operators. Two screens were answering "who owes what" and neither
+            let you do anything about it. */}
 
         {/* ══ 4. ADMIN TOOLS ══ */}
         {/* The screens you go to on purpose, not the ones that should be

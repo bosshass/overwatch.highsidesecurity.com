@@ -106,6 +106,7 @@ export default function TicketSheet({
   const [taskBody, setTaskBody] = useState('');
   const [taskWho, setTaskWho]   = useState('');
   const [taskMsg, setTaskMsg]   = useState('');
+  const [taskNext, setTaskNext] = useState('');   // handoff_to
 
   if (!job) return null;
 
@@ -151,13 +152,14 @@ export default function TicketSheet({
         author_email: meEmail,
         assigned_to: taskWho,
         assigned_by: meEmail,
+        handoff_to: taskNext || null,
         lane: 'todo',
         status: 'open',
       });
       if (error) throw error;
       const who = ASSIGNEES.find(a => a.email === taskWho)?.name || taskWho;
       setTaskMsg(`Task sent to ${who}.`);
-      setTaskBody(''); setTaskWho(''); setTaskOpen(false);
+      setTaskBody(''); setTaskWho(''); setTaskNext(''); setTaskOpen(false);
     } catch (e) { setTaskMsg(e.message || String(e)); }
     setSaving(false);
   };
@@ -419,6 +421,34 @@ export default function TicketSheet({
                   </button>
                 ))}
               </div>
+              {/* THEN IT GOES TO — optional. When the doer is not the person who
+                  closes the loop with the customer, this is the field that was
+                  missing: two live tasks had the chain written out in prose
+                  ("once it's complete, Shana will reach out to the client")
+                  because there was nowhere to put it. */}
+              {taskWho && (
+                <div style={{ marginTop: 13 }}>
+                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 7 }}>
+                    Then it goes to… <span style={{ opacity: 0.7 }}>(optional)</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {ASSIGNEES.filter(a => a.email !== taskWho).map(a => {
+                      const on = taskNext === a.email;
+                      return (
+                        <button key={a.email} onClick={() => setTaskNext(on ? '' : a.email)}
+                          style={{ padding: '7px 11px', borderRadius: 8, cursor: 'pointer',
+                                   background: on ? '#ffb020' : 'transparent',
+                                   border: `1px solid ${on ? '#ffb020' : '#334155'}`,
+                                   color: on ? '#231600' : C.muted,
+                                   fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
+                          {a.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 7, marginTop: 13 }}>
                 <button onClick={createTask} disabled={saving || !taskBody.trim() || !taskWho}
                   style={{ flex: 2, padding: '11px 0', borderRadius: 9, background: '#22d16f',

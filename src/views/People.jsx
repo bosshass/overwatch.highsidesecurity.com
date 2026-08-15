@@ -69,7 +69,11 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     return hit ? hit.name : (myName || 'all');
   });
 
-  const [tab, setTab] = useState('work');
+  // TASKS IS THE ONLY TAB. Work and Schedule are gone — a job's home is the
+  // board and the calendar, and re-rendering them here as paragraphs per
+  // person is what made this screen a wall of text nobody could act on.
+  // A person view answers one question now: what does this person owe?
+  const [tab, setTab] = useState('tasks');
   const [jobs, setJobs] = useState([]);
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -295,11 +299,9 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     </div>
   );
 
-  const TABS = [
-    { key: 'work',     label: 'Work',     badge: myJobs.length },
-    { key: 'tasks',    label: 'Tasks',    badge: myNotes.filter(n => n.lane !== 'done').length },
-    { key: 'schedule', label: 'Schedule', badge: upcoming.length },
-  ];
+  // One tab is not a tab strip. The person chips above are the only control
+  // this screen needs.
+  const TABS = [];
 
   return (
     <div style={{ background: C.bg, minHeight: '100dvh', color: C.text,
@@ -325,10 +327,14 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '12px 16px',
                     borderBottom: `1px solid ${C.line}`, position: 'sticky', top: 53,
                     background: C.bg, zIndex: 55, WebkitOverflowScrolling: 'touch' }}>
-        <PersonChip name="all" count={jobs.length} color={C.cyan} active={person === 'all'} />
+        {/* The chip badge counts TASKS now, not jobs. It sat above a jobs list
+            and now sits above a task list — leaving it counting jobs would put
+            a 7 on JR's chip and one card underneath it. */}
+        <PersonChip name="all" count={notes.filter(n => n.assigned_to && n.lane !== 'done').length}
+          color={C.cyan} active={person === 'all'} />
         {ASSIGNEES.map(a => (
           <PersonChip key={a.email} name={a.name}
-            count={jobsFor(a.name).length}
+            count={notesFor(a.name).filter(n => n.lane !== 'done').length}
             color={TECH_COLORS[a.name] || C.cyan}
             active={person === a.name} />
         ))}
@@ -359,7 +365,7 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
         {err && <div style={{ color: '#fca5a5', fontSize: 13 }}>Couldn’t load: {err}</div>}
 
         {/* ── WORK ── their jobs, in the board's five lanes ── */}
-        {!loading && tab === 'work' && (
+        {false && !loading && tab === 'work' && (
           <>
             {myJobs.length === 0 && (
               <Empty>
@@ -376,7 +382,12 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
             ) : null)}
 
             {/* Unassigned is everyone's problem, so it sits under every person. */}
-            {unowned.length > 0 && (
+            {/* ONLY ON EVERYONE. This list is the whole shop's unclaimed work,
+                but it rendered inside every person's view, so filtering to JR
+                and seeing "Nobody owns this" read as JR's problem when it is
+                nobody's yet. It belongs where you are looking at the shop, not
+                where you are looking at a person. */}
+            {person === 'all' && unowned.length > 0 && (
               <Section title="Nobody owns this" color={C.red} count={unowned.length}>
                 {unowned.slice(0, 12).map(j => (
                   <div key={j.id} style={{ marginBottom: 7 }}>
@@ -507,7 +518,7 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
         )}
 
         {/* ── SCHEDULE ── what's booked, and a way to book more ── */}
-        {!loading && tab === 'schedule' && (
+        {false && !loading && tab === 'schedule' && (
           <>
             {upcoming.length === 0 && (
               <Empty>

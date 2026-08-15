@@ -31,7 +31,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '../services/supabase.js';
+import { supabase, STATUS_INFO } from '../services/supabase.js';
 import { ASSIGNEES, emailsFor, canonicalEmail, NAME_BY_EMAIL } from '../utils/ownership.js';
 
 const C = {
@@ -48,7 +48,7 @@ const TABS = [
 
 const ageDays = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null;
 
-export default function TaskStack({ userEmail, userName, onNavigate }) {
+export default function TaskStack({ userEmail, userName, onNavigate, embedded = false }) {
   const [rows, setRows]   = useState(null);
   const [tab, setTab]     = useState('todo');
   const [busy, setBusy]   = useState(null);
@@ -82,7 +82,28 @@ export default function TaskStack({ userEmail, userName, onNavigate }) {
       .order('created_at', { ascending: true })
       .limit(300);
     if (error) { console.warn('TaskStack load:', error.message); setRows([]); return; }
-    setRows(data || []);
+    const list = data || [];
+
+    // A task card has to read like the job card it came from — customer at the
+    // top, status underneath. A bare paragraph of body text gives no idea WHO
+    // it is about, which is the first thing anyone needs to know.
+    const custIds = [...new Set(list.map(n => n.customer_id).filter(Boolean))];
+    const jobIds  = [...new Set(list.map(n => n.job_id).filter(Boolean))];
+    const [cRes, jRes] = await Promise.all([
+      custIds.length ? supabase.from('customers').select('id, name').in('id', custIds) : { data: [] },
+      jobIds.length  ? supabase.from('jobs').select('id, customer_name, status').in('id', jobIds) : { data: [] },
+    ]);
+    const cById = Object.fromEntries((cRes.data || []).map(c => [c.id, c]));
+    const jById = Object.fromEntries((jRes.data || []).map(j => [j.id, j]));
+
+    setRows(list.map(n => {
+      const j = n.job_id ? jById[n.job_id] : null;
+      return {
+        ...n,
+        _customer: cById[n.customer_id]?.name || j?.customer_name || null,
+        _jobStatus: j?.status || null,
+      };
+    }));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -155,15 +176,17 @@ export default function TaskStack({ userEmail, userName, onNavigate }) {
   };
 
   return (
-    <div style={{ background: C.bg, minHeight: '100vh', color: C.text, paddingBottom: 70 }}>
-      <div style={{ padding: '16px 16px 0' }}>
-        <div style={{ fontSize: 21, fontWeight: 900 }}>Tasks</div>
-        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>
-          {rows == null ? 'Loading…' : `${buckets.todo.length} to do · ${buckets.doing.length} doing${buckets.done.length ? ` · ${buckets.done.length} back to you` : ''}`}
+    <div style={{ background: embedded ? 'transparent' : C.bg, minHeight: embedded ? 0 : '100vh', color: C.text, paddingBottom: embedded ? 0 : 70 }}>
+      {!embedded && (
+        <div style={{ padding: '16px 16px 0' }}>
+          <div style={{ fontSize: 21, fontWeight: 900 }}>Tasks</div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>
+            {rows == null ? 'Loading…' : `${buckets.todo.length} to do · ${buckets.doing.length} doing${buckets.done.length ? ` · ${buckets.done.length} back to you` : ''}`}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div style={{ display: 'flex', gap: 7, padding: '13px 16px 4px' }}>
+      <div style={{ display: 'flex', gap: 7, padding: embedded ? '4px 0 4px' : '13px 16px 4px' }}>
         {TABS.map(t => {
           const n = buckets[t.key].length;
           const on = tab === t.key;
@@ -180,7 +203,7 @@ export default function TaskStack({ userEmail, userName, onNavigate }) {
         })}
       </div>
 
-      <div style={{ padding: '10px 16px 0' }}>
+      <div style={{ padding: embedded ? '10px 0 0' : '10px 16px 0' }}>
         {rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
             {tab === 'done' ? 'Nothing waiting on you.' : 'Nothing here.'}
@@ -196,22 +219,51 @@ export default function TaskStack({ userEmail, userName, onNavigate }) {
               style={{ background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
                        border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
 
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+              {/* CUSTOMER FIRST — same as the job card. A paragraph of body
+                  text with no name on it tells you nothing about who it is for,
+                  which is the first thing anybody needs. */}
+              <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>
+                {n._customer || 'No customer'}
+              </div>
+
+              <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                {/* The JOB's status, carried onto the task. "Ed Rupert — Needs
+                    Estimate" is the whole context in five words. */}
+                {n._jobStatus && STATUS_INFO[n._jobStatus] && (
+                  <span style={{ fontSize: 12, fontWeight: 900, padding: '4px 10px', borderRadius: 7,
+                                 color: STATUS_INFO[n._jobStatus].color,
+                                 background: `${STATUS_INFO[n._jobStatus].color}1a`,
+                                 border: `1px solid ${STATUS_INFO[n._jobStatus].color}66` }}>
+                    {STATUS_INFO[n._jobStatus].icon} {STATUS_INFO[n._jobStatus].label}
+                  </span>
+                )}
                 {back && (
-                  <span style={{ fontSize: 10, fontWeight: 900, color: C.purple,
-                                 border: `1px solid ${C.purple}55`, borderRadius: 5, padding: '2px 6px' }}>
-                    {NAME_BY_EMAIL[canonicalEmail(n.done_by || '')] || 'They'} SAY DONE
+                  <span style={{ fontSize: 11, fontWeight: 900, color: C.purple,
+                                 border: `1px solid ${C.purple}55`, borderRadius: 6, padding: '4px 9px' }}>
+                    {NAME_BY_EMAIL[canonicalEmail(n.done_by || '')] || 'They'} SAYS DONE
                   </span>
                 )}
                 {n.lane === 'doing' && !back && (
-                  <span style={{ fontSize: 10, fontWeight: 900, color: C.blue,
-                                 border: `1px solid ${C.blue}55`, borderRadius: 5, padding: '2px 6px' }}>
-                    IN PROGRESS
+                  <span style={{ fontSize: 11, fontWeight: 900, color: C.blue,
+                                 border: `1px solid ${C.blue}55`, borderRadius: 6, padding: '4px 9px' }}>
+                    WORKING ON IT
                   </span>
                 )}
-                {age != null && age >= 7 && (
-                  <span style={{ fontSize: 10.5, color: age >= 21 ? C.red : C.amber }}>{age} days old</span>
-                )}
+              </div>
+
+              {/* WHO ASKED, AND WHEN. Big, because "who is waiting on me and
+                  how long have they been waiting" is the thing that decides
+                  whether this gets done today. */}
+              <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', marginBottom: 11,
+                            paddingBottom: 11, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>
+                  {NAME_BY_EMAIL[canonicalEmail(n.assigned_by || n.author_email || '')] || 'Someone'}
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 700,
+                               color: age >= 21 ? C.red : age >= 7 ? C.amber : C.muted }}>
+                  {new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {age > 0 ? ` · ${age}d` : ' · today'}
+                </span>
               </div>
 
               <div style={{ fontSize: 15.5, lineHeight: 1.45, marginBottom: 13, whiteSpace: 'pre-wrap' }}>
@@ -285,12 +337,14 @@ export default function TaskStack({ userEmail, userName, onNavigate }) {
           );
         })}
 
-        <button onClick={() => onNavigate?.('/board')}
-          style={{ width: '100%', marginTop: 6, padding: '13px 0', borderRadius: 12,
-                   background: 'transparent', border: 'none', color: C.muted,
-                   fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-          Open the board
-        </button>
+        {!embedded && (
+          <button onClick={() => onNavigate?.('/board')}
+            style={{ width: '100%', marginTop: 6, padding: '13px 0', borderRadius: 12,
+                     background: 'transparent', border: 'none', color: C.muted,
+                     fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Open the board
+          </button>
+        )}
       </div>
     </div>
   );

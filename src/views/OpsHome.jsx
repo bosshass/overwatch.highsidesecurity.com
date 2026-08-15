@@ -207,6 +207,45 @@ export default function OpsHome({
   // events that will never produce a time entry, and jobs with nobody to bill.
   // This is the only thing on this screen that represents money already lost,
   // so it goes first and it is the largest element on the page.
+  // TILE COUNTS. This effect was supposed to land in an earlier build and the
+  // insert silently matched nothing, so tileCounts stayed null and both tiles
+  // read "Checking…" forever. Errors now resolve to 0 rather than leaving the
+  // UI hanging on a promise nobody sees fail.
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      const mine = emailsFor(userEmail);
+      const { count: tasks } = await supabase
+        .from('notes').select('id', { count: 'exact', head: true })
+        .eq('status', 'open').neq('lane', 'done')
+        .in('assigned_to', mine.length ? mine : ['__none__']);
+
+      // Visits owed a disposition: scheduled, the day has passed, no hours.
+      const { data: past } = await supabase.from('jobs')
+        .select('id, scheduled_event_id, calendar_event_id')
+        .eq('status', 'scheduled')
+        .lt('scheduled_date', new Date().toISOString().slice(0, 10))
+        .limit(200);
+
+      let visits = 0;
+      if (past?.length) {
+        const ids = past.flatMap(j => [j.scheduled_event_id, j.calendar_event_id].filter(Boolean));
+        const { data: te } = ids.length
+          ? await supabase.from('time_entries').select('calendar_event_id').in('calendar_event_id', ids)
+          : { data: [] };
+        const seen = new Set((te || []).map(t => t.calendar_event_id));
+        visits = past.filter(j =>
+          !(j.scheduled_event_id && seen.has(j.scheduled_event_id)) &&
+          !(j.calendar_event_id && seen.has(j.calendar_event_id))).length;
+      }
+      if (!dead) setTileCounts({ visits, tasks: tasks || 0 });
+    })().catch(e => {
+      console.warn('tile counts failed:', e?.message || e);
+      if (!dead) setTileCounts({ visits: 0, tasks: 0 });
+    });
+    return () => { dead = true; };
+  }, [userEmail, sheet]);
+
   const peopleRef = useRef(null);
 
   // Arriving from the board's "Who's stuck" button lands ON that section
@@ -304,7 +343,22 @@ export default function OpsHome({
                 </button>
               </div>
 
-              {sheet === 'visits' && <DidYouGo userEmail={userEmail} userName={userName} />}
+              {sheet === 'visits' && (
+                <>
+                  <DidYouGo userEmail={userEmail} userName={userName} />
+                  {/* DidYouGo renders NOTHING when this account has nothing to
+                      close — including accounts it never asks at all, like
+                      accounting@. An empty sheet reads as broken, so say which
+                      of the two it is. */}
+                  {!tileCounts.visits && (
+                    <div style={{ textAlign:'center', color:C.muted, fontSize:13.5,
+                                  padding:'26px 10px', lineHeight:1.5 }}>
+                      Nothing to close out. Visits land here once the day has passed
+                      and no hours were logged against them.
+                    </div>
+                  )}
+                </>
+              )}
 
               {sheet === 'tasks' && (
                 <TaskStack userEmail={userEmail} userName={userName} accessToken={accessToken}

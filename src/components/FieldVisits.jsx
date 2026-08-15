@@ -48,7 +48,12 @@ const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 const FIELDS =
   'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, photos, customer_name_raw, calendar_event_id, customer_id, created_at, archived, archived_at, archived_by, archive_reason';
 
-const PREVIEW = 3;
+// ONE VISIT, NOT THREE. Each card carries a disposition chip, tech, date,
+// hours, materials and the note body, so three of them is most of a phone
+// screen — and they sat between the actions and the notes box, pushing both
+// off the bottom. The newest visit is the one that explains the card's current
+// state; the rest are history and open on demand.
+const PREVIEW = 1;
 
 export default function FieldVisits({ job }) {
   const [entries, setEntries] = useState([]);

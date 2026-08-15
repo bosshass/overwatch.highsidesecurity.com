@@ -108,6 +108,7 @@ export default function TicketSheet({
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
   const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
+  const [showMoves, setShowMoves] = useState(false);
 
   // WHAT IS ALREADY OUT THERE. Without this the card happily lets you send a
   // third copy of the same ask to a third person, and none of them know about
@@ -119,6 +120,10 @@ export default function TicketSheet({
       const { data } = await supabase.from('notes')
         .select('id, body, assigned_to')
         .eq('job_id', job.id).eq('status', 'open')
+        // lane 'done' means the doer finished — it sits with the assigner for
+        // confirmation but nobody is working it. Counting it as open told you
+        // Shana was on something she had already handed back.
+        .neq('lane', 'done')
         .not('assigned_to', 'is', null);
       if (!dead) setOpenTasks(data || []);
     })();
@@ -469,12 +474,21 @@ export default function TicketSheet({
         <div style={{ background: taskOpen ? C.panel : 'transparent',
                       borderRadius: 12, padding: taskOpen ? 14 : 0, marginBottom: 14 }}>
           {!taskOpen ? (
+            // DEMOTED WHEN THE SCHEDULER IS THE ANSWER. A card in Ready to
+            // Schedule has one obvious next move and it is the purple button
+            // above; a second full-weight purple button under it competes with
+            // the thing the card is actually for. Solid when there is no
+            // scheduler CTA, outlined when there is.
             <button onClick={() => { setTaskOpen(true); setTaskMsg(''); }}
-              style={{ width: '100%', padding: '16px 14px', borderRadius: 12, cursor: 'pointer',
-                       background: '#9b6cff', border: 'none', color: '#0b0618',
-                       fontSize: 16, fontWeight: 900, fontFamily: 'inherit',
+              style={{ width: '100%', padding: onSchedulePrimary ? '12px 14px' : '16px 14px',
+                       borderRadius: 12, cursor: 'pointer',
+                       background: onSchedulePrimary ? 'transparent' : '#9b6cff',
+                       border: onSchedulePrimary ? '1px solid #9b6cff66' : 'none',
+                       color: onSchedulePrimary ? '#c4a6ff' : '#0b0618',
+                       fontSize: onSchedulePrimary ? 14 : 16, fontWeight: 900,
+                       fontFamily: 'inherit',
                        display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left' }}>
-              <span style={{ fontSize: 22 }}>＋</span>
+              <span style={{ fontSize: onSchedulePrimary ? 18 : 22 }}>＋</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block' }}>
                   {openTasks.length ? 'Create another task' : 'Create a task'}
@@ -565,10 +579,26 @@ export default function TicketSheet({
             {awaitingDispo ? 'What happened on site?' : 'Where does this go next?'}
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
-            {here ? <>Currently <b style={{ color: here.color }}>{here.label}</b>.</> : null} Pick one.
+            {here ? <>Currently <b style={{ color: here.color }}>{here.label}</b>.</> : null}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 7 }}>
+          {/* SEVEN LANES, COLLAPSED. A card in Ready to Schedule wants ONE
+              thing — the scheduler, which is the purple button above. Every
+              other lane is an exception, and laying all seven out full height
+              made the exceptions louder than the answer and pushed the notes
+              off the bottom of the screen.
+              Left open when a disposition is owed: that IS the question then. */}
+          {!awaitingDispo && !showMoves && (
+            <button onClick={() => setShowMoves(true)}
+              style={{ width: '100%', padding: '11px 0', borderRadius: 9, cursor: 'pointer',
+                       background: 'transparent', border: `1px solid ${C.line}`,
+                       color: C.muted, fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+              Move it somewhere else ▾
+            </button>
+          )}
+
+          <div style={{ display: (awaitingDispo || showMoves) ? 'grid' : 'none',
+                        gridTemplateColumns: '1fr', gap: 7 }}>
             {moves.map(lane => {
               const armed = pending?.key === lane.key;
               // The two estimate moves carry the money and are the two that get

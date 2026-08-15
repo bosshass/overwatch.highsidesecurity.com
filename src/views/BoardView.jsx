@@ -836,7 +836,27 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           if (saidSomething || movedIt) lastNote[n.job_id] = n.changed_at;
         });
       }
-      setJobs((data || []).map(j => ({ ...j, last_note_at: lastNote[j.id] || null })));
+      // WHO IS ALREADY ON A PIECE OF THIS. A card can sit in New forever with a
+      // task hanging off it — that is a normal state, not a problem — but the
+      // board showed it identically to a card nobody has touched.
+      const taskOwners = {};
+      {
+        const ids = (data || []).map(j => j.id);
+        if (ids.length) {
+          const { data: tasks } = await supabase.from('notes')
+            .select('job_id, assigned_to')
+            .in('job_id', ids).eq('status', 'open').not('assigned_to', 'is', null);
+          (tasks || []).forEach(t => {
+            const who = NAME_BY_EMAIL[canonicalEmail(t.assigned_to)] || t.assigned_to;
+            (taskOwners[t.job_id] ||= new Set()).add(who);
+          });
+        }
+      }
+      setJobs((data || []).map(j => ({
+        ...j,
+        last_note_at: lastNote[j.id] || null,
+        _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
+      })));
       const j = data||[];
       setStats({
         total_open: j.length,

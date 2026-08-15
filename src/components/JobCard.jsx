@@ -11,6 +11,12 @@ import { assigneeOf } from '../utils/ownership.js';
 const TERMINAL_STATUSES = [JOB_STATUS.BILLED, JOB_STATUS.ARCHIVED, JOB_STATUS.LOST, JOB_STATUS.DEAD];
 
 export default function JobCard({ job, onClick, compact = false, showTime = false, isOrphan = false }) {
+  // TASK FLAG. Set by BoardView from open notes carrying this job_id. A card
+  // with somebody on a piece of it should not look identical to one nobody has
+  // touched — and "Unassigned" on the job is still TRUE, so the fix is to add
+  // the fact rather than overwrite it.
+  const taskOwners = job?._taskOwners || [];
+
   const age = getJobAge(job.created_at);
   const ageInfo = getAgeUrgency(age);
   const typeInfo = JOB_TYPE_INFO[job.job_type] || JOB_TYPE_INFO.service;
@@ -110,6 +116,14 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
           {job.customer_name || 'Unknown Customer'}
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+          {taskOwners.length > 0 && (
+            <span title={`Task with ${taskOwners.join(', ')}`}
+              style={{ color: '#c4a6ff', fontSize: '11px', fontWeight: 900,
+                       background: '#9b6cff1a', border: '1px solid #9b6cff55',
+                       padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+              ✋ {taskOwners.length === 1 ? taskOwners[0] : `${taskOwners.length} tasks`}
+            </span>
+          )}
           {!isTerminal && age > 0 && (
             <span style={{
               color: ageInfo.color,

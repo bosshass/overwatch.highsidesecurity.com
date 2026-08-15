@@ -97,6 +97,13 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
     // are the only ones who actually drive somewhere. The rest are one tap away
     // on the filter row and the choice is remembered per user.
     const FIELD = new Set(['JR', 'Austin', 'Trevor', 'Subs']);
+    const keep = USER_CALENDARS.filter(c => FIELD.has(c.name));
+    // NEVER HIDE EVERYTHING. This matched calendar names exactly, so any user
+    // whose visible set does not contain one of those four names had ALL of
+    // them hidden and got a blank calendar that looked like a failure to load.
+    // A restricted tech is exactly that case — their own calendar may not be
+    // named any of these.
+    if (!keep.length) return new Set();
     return new Set(USER_CALENDARS.map(c => c.name).filter(n => !FIELD.has(n)));
   });
   // LANDS ON TECHS. One column per person is the only layout where utilisation
@@ -876,7 +883,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
           {/* Action row */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={() => window.location.href = '/work'} style={{
-              flex: 2, background: 'linear-gradient(135deg, #1e3a2f, #0f2820)',
+              flex: 1, background: 'linear-gradient(135deg, #1e3a2f, #0f2820)',
               border: '1px solid #16a34a', borderRadius: 12,
               padding: '14px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               cursor: 'pointer',
@@ -887,14 +894,9 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               </div>
               <span style={{ color: '#22c55e', fontSize: 20 }}>›</span>
             </button>
-            <button onClick={() => { setAdoptingOrphan(null); setShowNewJob(true); }} style={{
-              flex: 1, background: '#1e2d4a', border: '1px solid #3b82f6',
-              borderRadius: 12, padding: '14px 12px', cursor: 'pointer',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4
-            }}>
-              <span style={{ fontSize: 22, color: '#3b82f6' }}>＋</span>
-              <span style={{ color: '#3b82f6', fontSize: 11, fontWeight: 700 }}>New Job / Task</span>
-            </button>
+            {/* The green ＋ floats on every screen already. A second, differently
+                styled "New Job / Task" panel next to it was two doors to one
+                place, and it ate a third of the action row. */}
           </div>
 
           {/* Search bar */}
@@ -1007,7 +1009,25 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               {calLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#cbd5e1', fontSize: 13 }}>Loading calendars...</div>
               ) : (
-                calViewMode === 'techs'
+                USER_CALENDARS.every(c => hiddenCalendars.has(c.name))
+                  ? (
+                    <div style={{ textAlign:'center', padding:'40px 20px', color:'#94a3b8' }}>
+                      <div style={{ fontSize:15, fontWeight:800, color:'#e2e8f0', marginBottom:8 }}>
+                        Every calendar is filtered out
+                      </div>
+                      <div style={{ fontSize:13, marginBottom:14 }}>
+                        Nothing is hidden or broken — the filter row above has them all switched off.
+                      </div>
+                      <button onClick={() => { setHiddenCalendars(new Set());
+                          try { localStorage.setItem(`juce-cal-hidden-${userEmail}`, '[]'); } catch {} }}
+                        style={{ background:'#1e293b', border:'1px solid #334155', borderRadius:9,
+                                 color:'#93c5fd', fontSize:13, fontWeight:800, padding:'9px 16px',
+                                 cursor:'pointer', fontFamily:'inherit' }}>
+                        Show them all
+                      </button>
+                    </div>
+                  )
+                : calViewMode === 'techs'
                   ? <CalendarTechDay
                       date={weekDates[selectedDay]}
                       events={visibleEvents}

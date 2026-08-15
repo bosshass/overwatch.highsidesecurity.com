@@ -440,7 +440,30 @@ export default function TicketSheet({
           </div>
         )}
 
-        {/* ── SPAWN A TASK ────────────────────────────────────────────────
+        {/* THIS CARD HAS TASKS ON IT. The job stays exactly where it is — a note
+          in New with a task hanging off it is a perfectly normal state — but
+          the card has to SAY so, or the only way to know somebody is already
+          working a piece of it is to open the composer and read the button. */}
+      {openTasks.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
+                      background: '#1a1533', border: '1px solid #9b6cff66',
+                      borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.06em',
+                         color: '#c4a6ff', border: '1px solid #9b6cff66',
+                         borderRadius: 5, padding: '3px 7px' }}>
+            {openTasks.length === 1 ? 'TASK' : `${openTasks.length} TASKS`}
+          </span>
+          <span style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 700 }}>
+            {[...new Set(openTasks.map(t =>
+              ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to))].join(', ')}
+          </span>
+          <span style={{ fontSize: 11.5, color: C.muted, marginLeft: 'auto' }}>
+            working a piece of this
+          </span>
+        </div>
+      )}
+
+      {/* ── SPAWN A TASK ────────────────────────────────────────────────
             An estimate that needs writing is not a stage of the job, it is a
             thing one person owes. It gets a task; the job stays the record. */}
         <div style={{ background: taskOpen ? C.panel : 'transparent',

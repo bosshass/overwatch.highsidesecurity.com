@@ -21,7 +21,7 @@ import TaskStack from './TaskStack.jsx';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import Spotlight from '../components/Spotlight.jsx';
-import { ASSIGNEES, assigneeOf, CLOSED_STATUSES } from '../utils/ownership.js';
+import { ASSIGNEES, assigneeOf, CLOSED_STATUSES, emailsFor } from '../utils/ownership.js';
 import { shortCode } from '../config/appBase.js';
 
 const C = {
@@ -66,6 +66,13 @@ export default function OpsHome({
   onNavigate, onSignOut, onSearch, onShowTour, onBackfill,
 }) {
   const [people, setPeople] = useState(null);
+  // HOME IS A GRID OF DOORS, NOT A STACK OF PANELS. The prompt and the task
+  // card were rendered inline at full width above two small tiles, so the
+  // screen had three different shapes on it and you scrolled past the nav to
+  // reach the board. Four equal tiles; the two that need a workspace open one
+  // ON TOP of home instead of pushing everything down.
+  const [sheet, setSheet] = useState(null);   // 'visits' | 'tasks' | null
+  const [tileCounts, setTileCounts] = useState({ visits: null, tasks: null });
   const [board, setBoard] = useState(null);
   // Jobs marked scheduled whose day came and went with nobody dispositioning them.
   const [stranded, setStranded] = useState([]);
@@ -274,47 +281,68 @@ export default function OpsHome({
 
       <div style={{ flex:1, overflowY:'auto', paddingBottom:100 }}>
 
+        {/* SHEET — sits ON TOP of home rather than growing inside it. The
+            prompt and the task stack both need room to work; giving it to them
+            inline is what pushed the board below the fold. */}
+        {sheet && (
+          <div onClick={() => setSheet(null)}
+            style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.82)', zIndex:800,
+                     display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ width:'100%', maxWidth:620, maxHeight:'88vh', overflowY:'auto',
+                       background:C.bg, borderTopLeftRadius:20, borderTopRightRadius:20,
+                       border:`1px solid ${C.line}`, padding:'14px 16px 26px' }}>
+              <div style={{ display:'flex', alignItems:'center', marginBottom:12 }}>
+                <span style={{ fontSize:17, fontWeight:900 }}>
+                  {sheet === 'visits' ? 'Close out visits' : 'Your tasks'}
+                </span>
+                <button onClick={() => setSheet(null)}
+                  style={{ marginLeft:'auto', background:'transparent', border:`1px solid ${C.line2}`,
+                           borderRadius:9, color:C.muted, fontSize:13, fontWeight:800,
+                           padding:'7px 13px', cursor:'pointer', fontFamily:'inherit' }}>
+                  Close
+                </button>
+              </div>
+
+              {sheet === 'visits' && <DidYouGo userEmail={userEmail} userName={userName} />}
+
+              {sheet === 'tasks' && (
+                <TaskStack userEmail={userEmail} userName={userName} accessToken={accessToken}
+                  onNavigate={(to) => { setSheet(null); onNavigate?.(to); }} embedded />
+              )}
+            </div>
+          </div>
+        )}
+
         {showSpotlight && (
           <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
         )}
 
-        {/* ══ 0. WHAT IS LOSING MONEY RIGHT NOW ══
-            Hours that happened and never became a time entry. This sat BELOW
-            the board rollup, so the first thing on the screen was a count of
-            statuses and the thing that actually costs money was under it. */}
-        <div style={{ padding: '16px 16px 0' }}>
-          <DidYouGo userEmail={userEmail} userName={userName} />
-        </div>
-
-        {/* ══ 0b. WHAT YOU OWE ══
-            Was "My Work" — a card per person showing todo/doing/done COUNTS,
-            which tells you the shape of everyone's pile and gives you nothing
-            to press. Same task cards as /tasks now, and yours only: other
-            people's work is something to go and look at deliberately, not
-            something to wade through on the way to your own. */}
-        <div style={{ padding: '8px 16px 0' }}>
-          <TaskStack userEmail={userEmail} userName={userName} accessToken={accessToken}
-            onNavigate={onNavigate} embedded />
-        </div>
-
-        {/* ══ 0c. GO SOMEWHERE ══
-            Calendar and Clients are the two screens people open on purpose all
-            day, and neither had a door on the home screen — Calendar was only
-            in the footer, Clients only inside Admin tools behind a scroll.
-            Big, first, both also in the footer for when you are deep in
-            something else. */}
-        <div style={{ display:'flex', gap:11, margin:'16px 16px 0' }}>
+        {/* ══ 0. FOUR DOORS ══ */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:11, margin:'16px 16px 0' }}>
           {[
+            { key:'visits', icon:'📍', label:'Close out visits',
+              sub: tileCounts.visits == null ? 'Checking…'
+                 : tileCounts.visits ? `${tileCounts.visits} with no hours` : 'All caught up',
+              hot: !!tileCounts.visits, sheet:'visits' },
+            { key:'tasks', icon:'📋', label:'Your tasks',
+              sub: tileCounts.tasks == null ? 'Checking…'
+                 : tileCounts.tasks ? `${tileCounts.tasks} open` : 'Nothing open',
+              sheet:'tasks' },
             { path:'/calendar',  icon:'📅', label:'Calendar', sub:"Who's booked, and how full" },
             { path:'/customers', icon:'🏠', label:'Clients',  sub:'History and open work' },
           ].map(t => (
-            <button key={t.path} onClick={() => go(t.path)}
-              style={{ flex:1, textAlign:'left', background:C.panel, border:`1px solid ${C.line}`,
+            <button key={t.key || t.path}
+              onClick={() => t.sheet ? setSheet(t.sheet) : go(t.path)}
+              style={{ textAlign:'left', background:C.panel,
+                       border:`1px solid ${t.hot ? C.amber : C.line}`,
+                       borderLeft: t.hot ? `4px solid ${C.amber}` : `1px solid ${C.line}`,
                        borderRadius:16, padding:'15px 15px', cursor:'pointer', color:C.text,
-                       fontFamily:'inherit' }}>
+                       fontFamily:'inherit', minHeight:104 }}>
               <div style={{ fontSize:23, marginBottom:7 }}>{t.icon}</div>
               <div style={{ fontSize:15, fontWeight:900 }}>{t.label}</div>
-              <div style={{ fontSize:11, color:C.muted, marginTop:3, lineHeight:1.35 }}>{t.sub}</div>
+              <div style={{ fontSize:11, color: t.hot ? C.amber : C.muted, marginTop:3,
+                            lineHeight:1.35, fontWeight: t.hot ? 800 : 400 }}>{t.sub}</div>
             </button>
           ))}
         </div>

@@ -302,7 +302,10 @@ export default function CalendarTechDay({
     // Hard-filtered here rather than relying on the calendar checkboxes: those
     // are remembered per user in localStorage, so an old selection kept ten
     // rows on screen long after the default changed.
-    return calendars.filter(c => FIELD_TECHS.includes(c.name)).map(cal => {
+    const field = calendars.filter(c => FIELD_TECHS.includes(c.name));
+    // If none of the four are present — a tech looking at their own calendar —
+    // measure whoever IS here rather than rendering an empty panel.
+    return (field.length ? field : calendars).map(cal => {
       const perDay = weekDates.map(d => {
         const mine = events.filter(e => {
           if (e.isAllDay || e.calendarName !== cal.name) return false;

@@ -19,7 +19,7 @@
 
 import ArchiveModal from './ArchiveModal.jsx';
 import { reasonLabel } from '../config/archiveReasons.js';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
 import { assignmentMessage } from '../config/appBase.js';
@@ -107,6 +107,23 @@ export default function TicketSheet({
   const [taskWho, setTaskWho]   = useState('');
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
+  const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
+
+  // WHAT IS ALREADY OUT THERE. Without this the card happily lets you send a
+  // third copy of the same ask to a third person, and none of them know about
+  // each other.
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      if (!job?.id) return;
+      const { data } = await supabase.from('notes')
+        .select('id, body, assigned_to')
+        .eq('job_id', job.id).eq('status', 'open')
+        .not('assigned_to', 'is', null);
+      if (!dead) setOpenTasks(data || []);
+    })();
+    return () => { dead = true; };
+  }, [job?.id, taskMsg]);
 
   if (!job) return null;
 
@@ -161,8 +178,14 @@ export default function TicketSheet({
         status: 'open',
       });
       if (error) throw error;
-      setTaskMsg(`Task sent to ${ASSIGNEES.find(a => a.email === who)?.name || who}.`);
+      // CLOSE THE SHEET. It used to collapse back to exactly the state you were
+      // in before, with a grey line of confirmation text under a purple button
+      // — so the only evidence anything happened was easy to miss, and the
+      // obvious read was that the button had done nothing.
       setTaskBody(''); setTaskWho(''); setTaskNext(''); setTaskOpen(false);
+      const name = ASSIGNEES.find(a => a.email === who)?.name || who;
+      setTaskMsg(`Task sent to ${name}.`);
+      setTimeout(() => { try { onClose?.(); } catch (_) {} }, 650);
     } catch (e) { setTaskMsg(e.message || String(e)); }
     setSaving(false);
   };
@@ -405,10 +428,20 @@ export default function TicketSheet({
                        display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left' }}>
               <span style={{ fontSize: 22 }}>＋</span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block' }}>Create a task</span>
+                <span style={{ display: 'block' }}>
+                  {openTasks.length ? 'Create another task' : 'Create a task'}
+                </span>
+                {/* SAY WHAT IS ALREADY OUT THERE. Nothing stopped you sending a
+                    second and third copy of the same ask to different people,
+                    none of whom knew about the others. Still allowed — a job
+                    can genuinely need two — but not by accident. */}
                 <span style={{ display: 'block', fontSize: 12, fontWeight: 700,
                                opacity: 0.72, marginTop: 2 }}>
-                  Hand a piece of this to someone
+                  {openTasks.length
+                    ? `${openTasks.length} already open · ${[...new Set(openTasks
+                        .map(t => ASSIGNEES.find(a => a.email === t.assigned_to)?.name
+                                  || t.assigned_to))].join(', ')}`
+                    : 'Hand a piece of this to someone'}
                 </span>
               </span>
             </button>

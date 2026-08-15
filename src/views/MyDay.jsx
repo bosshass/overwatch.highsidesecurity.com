@@ -145,7 +145,7 @@ export default function MyDay({ userEmail, userName, accessToken, onNavigate }) 
     const patch = { body, updated_at: new Date().toISOString() };
     // Handing off moves ownership. Keeping it assigned to JR as well is how a
     // thing ends up with two owners who each think the other has it.
-    if (toWhom) { patch.assigned_to = toWhom; patch.lane = 'todo'; }
+    if (toWhom) { patch.assigned_to = toWhom; patch.assigned_by = me; patch.lane = 'todo'; }
 
     const { error } = await supabase.from('notes').update(patch).eq('id', note.id);
     setBusy(null);
@@ -345,7 +345,7 @@ export default function MyDay({ userEmail, userName, accessToken, onNavigate }) 
 
         {/* See all — the roster screen, where the pills live and where anything
             not assigned to him still sits. */}
-        <button onClick={() => onNavigate?.('/people')}
+        <button onClick={() => onNavigate?.('/tasks')}
           style={{ width: '100%', marginTop: 8, padding: '13px 0', borderRadius: 12,
                    background: 'transparent', border: `1px solid ${C.line2}`, color: C.text,
                    fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>

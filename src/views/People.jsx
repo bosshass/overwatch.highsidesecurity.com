@@ -151,9 +151,13 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
   // Assigning is what turns a note into a task — it is the only difference
   // between the two, and nothing in the app wrote assigned_to, so a note could
   // never become one. It just sat where it was written.
+  // assigned_by is stamped HERE, at the moment of assignment — it is the only
+  // record of who is owed the answer. When the assignee marks the task done it
+  // goes back to this person to confirm, not straight to closed. For a parts
+  // order that round trip is the whole point: "ordered" is not "arrived".
   const assignNote = async (id, email) => {
     const { error } = await supabase.from('notes')
-      .update({ assigned_to: email }).eq('id', id);
+      .update({ assigned_to: email, assigned_by: canonicalEmail(userEmail) }).eq('id', id);
     if (error) { setErr?.(error.message); return; }
     setNotes(prev => prev.map(n => (n.id === id ? { ...n, assigned_to: email } : n)));
   };

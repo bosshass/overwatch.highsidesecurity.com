@@ -24,7 +24,7 @@ import { supabase } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
 import { assignmentMessage } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
-import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME } from '../utils/ownership.js';
+import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME, canonicalEmail } from '../utils/ownership.js';
 import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
@@ -99,6 +99,13 @@ export default function TicketSheet({
   // My Tasks and /j/ links cannot drift apart again.
   const [owner, setOwner] = useState(null);   // local echo after a write
   const [saving, setSaving] = useState(false);
+  // Spawn-a-task composer. Lives on the job card because that is where the
+  // work is described — retyping it into a separate notes screen is how the
+  // task ends up saying something different from the job.
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [taskBody, setTaskBody] = useState('');
+  const [taskWho, setTaskWho]   = useState('');
+  const [taskMsg, setTaskMsg]   = useState('');
 
   if (!job) return null;
 
@@ -127,6 +134,34 @@ export default function TicketSheet({
   // WRITES assigned_to (migration 030) — the real column. It does NOT touch
   // tech_name: that field means "who was physically on site", and overwriting
   // it to record an office assignment is how the two meanings got tangled.
+  // Spawn a task off this job. The note carries job_id, so the task can link
+  // straight back to the card and Sara can move the job to Estimate Sent from
+  // the same place she reads that JR finished writing it. assigned_by is what
+  // brings it home when the assignee marks it done.
+  const createTask = async () => {
+    const body = taskBody.trim();
+    if (!body || !taskWho) return;
+    setSaving(true); setTaskMsg('');
+    try {
+      const meEmail = canonicalEmail(userEmail);
+      const { error } = await supabase.from('notes').insert({
+        body,
+        job_id: job.id,
+        customer_id: job.customer_id || null,
+        author_email: meEmail,
+        assigned_to: taskWho,
+        assigned_by: meEmail,
+        lane: 'todo',
+        status: 'open',
+      });
+      if (error) throw error;
+      const who = ASSIGNEES.find(a => a.email === taskWho)?.name || taskWho;
+      setTaskMsg(`Task sent to ${who}.`);
+      setTaskBody(''); setTaskWho(''); setTaskOpen(false);
+    } catch (e) { setTaskMsg(e.message || String(e)); }
+    setSaving(false);
+  };
+
   const assign = async (email) => {
     setErr(''); setSaving(true);
     try {
@@ -343,6 +378,58 @@ export default function TicketSheet({
           </div>
         )}
 
+        {/* ── SPAWN A TASK ────────────────────────────────────────────────
+            An estimate that needs writing is not a stage of the job, it is a
+            thing one person owes. It gets a task; the job stays the record. */}
+        <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          {!taskOpen ? (
+            <button onClick={() => { setTaskOpen(true); setTaskMsg(''); }}
+              style={{ width: '100%', padding: '11px 0', borderRadius: 9, cursor: 'pointer',
+                       background: 'transparent', border: `1px solid ${C.line || '#334155'}`,
+                       color: '#93c5fd', fontSize: 13.5, fontWeight: 800, fontFamily: 'inherit' }}>
+              ＋ Create a task from this job
+            </button>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 900, marginBottom: 8 }}>What needs doing?</div>
+              <textarea value={taskBody} onChange={e => setTaskBody(e.target.value)} rows={3} autoFocus
+                placeholder="Write the estimate for this scope…"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 9,
+                         border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
+                         fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
+              <div style={{ fontSize: 12, color: C.muted, margin: '11px 0 7px' }}>Who owes it?</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {ASSIGNEES.map(a => (
+                  <button key={a.email} onClick={() => setTaskWho(taskWho === a.email ? '' : a.email)}
+                    style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
+                             background: taskWho === a.email ? '#9b6cff' : 'transparent',
+                             border: `1px solid ${taskWho === a.email ? '#9b6cff' : '#334155'}`,
+                             color: taskWho === a.email ? '#0b0618' : C.muted,
+                             fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 7, marginTop: 13 }}>
+                <button onClick={createTask} disabled={saving || !taskBody.trim() || !taskWho}
+                  style={{ flex: 2, padding: '11px 0', borderRadius: 9, background: '#22d16f',
+                           border: 'none', color: '#052e16', fontSize: 14, fontWeight: 800,
+                           fontFamily: 'inherit', cursor: 'pointer',
+                           opacity: (saving || !taskBody.trim() || !taskWho) ? 0.5 : 1 }}>
+                  {saving ? 'Sending…' : 'Send task'}
+                </button>
+                <button onClick={() => { setTaskOpen(false); setTaskBody(''); setTaskWho(''); }}
+                  style={{ flex: 1, padding: '11px 0', borderRadius: 9, background: 'transparent',
+                           border: '1px solid #334155', color: C.muted, fontSize: 14,
+                           fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {taskMsg && <div style={{ fontSize: 12.5, color: '#93c5fd', marginTop: 9 }}>{taskMsg}</div>}
+        </div>
+
         {/* ── WHERE NEXT — identical on every surface ── */}
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14,
                       border: awaitingDispo ? '2px solid #dc2626' : 'none' }}>
@@ -356,19 +443,23 @@ export default function TicketSheet({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 7 }}>
             {moves.map(lane => {
               const armed = pending?.key === lane.key;
+              // The two estimate moves carry the money and are the two that get
+              // missed — an estimate nobody wrote and an estimate nobody chased
+              // both look exactly like a quiet board. Give them size.
+              const big = lane.key === 'needs_estimate' || lane.key === 'estimate_sent';
               return (
                 <button key={lane.key} onClick={() => choose(lane)} disabled={busy}
-                  style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left',
-                           background: armed ? `${lane.color}22` : C.raised,
-                           border: `1px solid ${armed ? lane.color : C.line}`,
-                           borderRadius: 10, padding: '11px 13px', cursor: 'pointer',
-                           color: C.text, fontFamily: 'inherit' }}>
-                  <span style={{ fontSize: 17 }}>{lane.icon}</span>
+                  style={{ display: 'flex', alignItems: 'center', gap: big ? 13 : 11, textAlign: 'left',
+                           background: armed ? `${lane.color}22` : big ? `${lane.color}14` : C.raised,
+                           border: `${big ? 2 : 1}px solid ${armed ? lane.color : big ? `${lane.color}88` : C.line}`,
+                           borderRadius: big ? 12 : 10, padding: big ? '17px 15px' : '11px 13px',
+                           cursor: 'pointer', color: C.text, fontFamily: 'inherit' }}>
+                  <span style={{ fontSize: big ? 24 : 17 }}>{lane.icon}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: lane.color }}>
+                    <span style={{ display: 'block', fontSize: big ? 17 : 14, fontWeight: big ? 900 : 700, color: lane.color }}>
                       {lane.label}
                     </span>
-                    <span style={{ display: 'block', fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.35 }}>
+                    <span style={{ display: 'block', fontSize: big ? 12.5 : 11, color: C.muted, marginTop: 2, lineHeight: 1.35 }}>
                       {lane.needsScheduler
                         ? (lane.needsScheduler === 'hold' ? 'Opens the scheduler — pick a day to hold' : 'Opens the scheduler — pick tech + time')
                         : lane.means}

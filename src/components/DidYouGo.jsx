@@ -61,6 +61,9 @@ const readSkips = () => {
   } catch { return {}; }
 };
 
+const clearSkips = () => { try { localStorage.removeItem(SKIP_KEY); } catch { /* nothing to clear */ } };
+const skipCount = () => Object.keys(readSkips()).length;
+
 const addSkip = (jobId) => {
   try {
     localStorage.setItem(SKIP_KEY, JSON.stringify({ ...readSkips(), [jobId]: todayStr() }));
@@ -188,7 +191,28 @@ export default function DidYouGo({ userEmail, userName, onDone }) {
     next();
   };
 
-  if (!mine || !job) return null;
+  // EMPTY QUEUE IS NOT ALWAYS EMPTY. Skipping removed items from the queue and
+  // this returned null, so skipping everything made the whole card vanish with
+  // no way back until tomorrow. A skip the user cannot undo is a delete.
+  if (!mine) return null;
+  if (!job) {
+    const n = skipCount();
+    if (!n) return null;
+    return (
+      <div style={{ background: '#111f34', border: '1px solid #263a55', borderRadius: 14,
+                    padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 13, color: '#8ea0b8' }}>
+          {n} visit{n === 1 ? '' : 's'} skipped today
+        </span>
+        <button onClick={() => { clearSkips(); load(); }}
+          style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #263a55',
+                   borderRadius: 8, color: '#4b8dff', fontSize: 12.5, fontWeight: 800,
+                   padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+          Bring them back
+        </button>
+      </div>
+    );
+  }
 
   const remaining = queue.length - i;
 

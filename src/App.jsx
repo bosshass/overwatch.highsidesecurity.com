@@ -8,6 +8,7 @@ import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OpsHome from './views/OpsHome.jsx';
 import MyDay from './views/MyDay.jsx';
+import TaskStack from './views/TaskStack.jsx';
 import People from './views/People.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
@@ -911,6 +912,12 @@ export default function App() {
             only ever shows what belongs to whoever is signed in. */}
         <Route path="/my" element={
           <ViewShell><MyDay userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onNavigate={navigate} /></ViewShell>
+        } />
+
+        {/* /tasks — one card at a time, To Do / Doing / Done. Replaces
+            sending people to People, which opens on a jobs list. */}
+        <Route path="/tasks" element={
+          <ViewShell><TaskStack userEmail={userEmail} userName={effectiveName} onNavigate={navigate} /></ViewShell>
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />

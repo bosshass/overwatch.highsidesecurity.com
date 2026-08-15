@@ -50,6 +50,7 @@ const ageDays = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) /
 
 export default function TaskStack({ userEmail, userName, onNavigate, embedded = false }) {
   const [rows, setRows]   = useState(null);
+  const [loose, setLoose] = useState(0);   // notes nobody owns
   const [tab, setTab]     = useState('todo');
   const [busy, setBusy]   = useState(null);
   const [panel, setPanel] = useState(null);   // {id, mode}
@@ -95,6 +96,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     ]);
     const cById = Object.fromEntries((cRes.data || []).map(c => [c.id, c]));
     const jById = Object.fromEntries((jRes.data || []).map(j => [j.id, j]));
+
+    // Notes with no owner are not tasks and never appear above — but /notes is
+    // linked from nowhere in the app, so a note filed with the + button went
+    // somewhere nobody could navigate to. Counting them here puts the door
+    // where somebody looking for work is already standing.
+    const { count } = await supabase
+      .from('notes').select('id', { count: 'exact', head: true })
+      .eq('status', 'open').is('assigned_to', null);
+    setLoose(count || 0);
 
     setRows(list.map(n => {
       const j = n.job_id ? jById[n.job_id] : null;
@@ -336,6 +346,16 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
             </div>
           );
         })}
+
+        {loose > 0 && (
+          <button onClick={() => onNavigate?.('/notes')}
+            style={{ width: '100%', marginTop: 4, padding: '12px 14px', borderRadius: 12,
+                     background: 'transparent', border: `1px dashed ${C.line2}`, color: C.muted,
+                     fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
+                     textAlign: 'left' }}>
+            {loose} note{loose === 1 ? '' : 's'} nobody owns &rsaquo;
+          </button>
+        )}
 
         {!embedded && (
           <button onClick={() => onNavigate?.('/board')}

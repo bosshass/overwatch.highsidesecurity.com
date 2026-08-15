@@ -356,6 +356,45 @@ export const jobsApi = {
     const { data, error } = await supabase.from('jobs').update(updates).eq('id', id).select().single();
     if (error) throw error;
     await this.logHistory(id, oldStatus, newStatus, changedBy, notes);
+
+    // ── SCHEDULING IS SOMEBODY'S JOB ─────────────────────────────────────
+    // Work landing in Ready to Schedule or Return Pending used to just sit in
+    // a board column waiting to be noticed. Rick Ferreri sat in Ready for
+    // seven weeks. A column is not an owner.
+    //
+    // Reaching either status now hands Shana a task. Whether it is a first
+    // visit or a return does not matter — both mean somebody has to put it on
+    // a calendar, and that somebody is her.
+    //
+    // IDEMPOTENT: bouncing a job in and out of Ready must not stack up five
+    // identical tasks, so an existing OPEN scheduling task for this job is
+    // left alone.
+    const SCHEDULER = 'shanaparks@drhsecurityservices.com';
+    if (['ready_to_schedule', 'return_pending'].includes(newStatus)
+        && !['ready_to_schedule', 'return_pending'].includes(oldStatus)) {
+      try {
+        const { data: existing } = await supabase.from('notes')
+          .select('id').eq('job_id', id).eq('assigned_to', SCHEDULER)
+          .eq('status', 'open').limit(1);
+        if (!existing?.length) {
+          const kind = newStatus === 'return_pending' ? 'Return visit' : 'Ready to schedule';
+          await supabase.from('notes').insert({
+            body: `${kind}: ${data?.customer_name || 'job'}${data?.issue ? ` — ${String(data.issue).replace(/\s+/g, ' ').slice(0, 120)}` : ''}`,
+            job_id: id,
+            customer_id: data?.customer_id || null,
+            author_email: changedBy,
+            assigned_to: SCHEDULER,
+            assigned_by: changedBy,
+            lane: 'todo',
+            status: 'open',
+          });
+        }
+      } catch (e) {
+        // Never unwind a status move because the task write failed.
+        console.warn('scheduling task not created (non-fatal):', e.message);
+      }
+    }
+
     return data;
   },
 

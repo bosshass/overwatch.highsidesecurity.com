@@ -13,6 +13,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   const [activity, setActivity] = useState([]);
   const [showActivity, setShowActivity] = useState(false);
   const [showAllNotes, setShowAllNotes] = useState(false);
+  const [openNoteId, setOpenNoteId] = useState(null);
   // How many notes render before the feed collapses. Below this, the whole
   // thread shows — see THREAD_LIMIT note below displayNotes.
   const THREAD_LIMIT = 5;
@@ -222,9 +223,30 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
   // Now: short threads render whole, long ones still collapse so a card with
   // twenty-nine notes does not become a wall. The truck case is preserved;
   // the conversation case is fixed.
+  // SLIMMED. Five notes of unbounded length made the card enormous — jobs
+  // average 4.1 note entries, 127 carry more than five, one carries 32.
+  //
+  // But "just show the last one" is what this used to do, and it caused the
+  // FORT COLLINS NURSERY failure described above: the newest note was JR's own
+  // question, so the answer sitting one row below it never rendered and he
+  // asked again. Collapsing by COUNT is what broke; the count was never the
+  // point.
+  //
+  // So: the newest note, plus the newest note from anybody ELSE. If the last
+  // word is yours you still see who you are waiting on; if the last word is
+  // theirs, that IS the newest and you get one line. One or two rows instead of
+  // five, and the conversation case stays fixed.
+  const collapsed = (() => {
+    if (!ordered.length) return [];
+    const first = ordered[0];
+    const who = (first.created_by || '').toLowerCase();
+    const reply = ordered.find(n => (n.created_by || '').toLowerCase() !== who);
+    return reply ? [first, reply] : [first];
+  })();
+
   const displayNotes = maxNotes
     ? ordered.slice(0, maxNotes)
-    : (showAllNotes ? ordered : ordered.slice(0, THREAD_LIMIT));
+    : (showAllNotes ? ordered : collapsed);
 
   // Compact mode: just show note count + quick add
   if (compact && !expanded) {
@@ -316,16 +338,15 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           {displayNotes.map(note => (
             <div key={note.id} style={{
               background: '#0f1729', borderRadius: '8px', padding: '8px 10px',
-              border: note.from_status !== note.to_status ? '1px solid #334155' : '1px solid transparent'
+              border: '1px solid transparent'
             }}>
-              {/* Status change indicator */}
-              {note.from_status && note.to_status && note.from_status !== note.to_status && (
-                <div style={{ fontSize: '10px', color: '#94a3b8', marginBottom: '4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                  <span style={{ color: STATUS_INFO[note.from_status]?.color }}>{STATUS_INFO[note.from_status]?.label}</span>
-                  <span>→</span>
-                  <span style={{ color: STATUS_INFO[note.to_status]?.color }}>{STATUS_INFO[note.to_status]?.label}</span>
-                </div>
-              )}
+              {/* STATUS TRANSITION LINE REMOVED. Every note carried a
+                  "Needs Estimate → Estimate Sent" header, so the card printed
+                  the disposition once per note on top of the lane the card is
+                  already sitting in. The lane IS the disposition; repeating it
+                  N times is noise, and two copies of the same fact are two
+                  things that can disagree. The transitions are still in
+                  job_history and still render in the Activity trail below. */}
 
               {editingId === note.id ? (
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -350,7 +371,19 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
                 </div>
               ) : (
                 <>
-                  <div style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.4' }}>{note.text}</div>
+                  {/* Length was the other half of the bloat. An intake note can
+                      run several hundred words and it rendered in full on the
+                      card, so even ONE note could fill the screen. Clamped to
+                      four lines; tap the note to open it. */}
+                  <div onClick={() => setOpenNoteId(openNoteId === note.id ? null : note.id)}
+                    style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: '1.4',
+                             cursor: 'pointer',
+                             ...(openNoteId === note.id ? {} : {
+                               display: '-webkit-box', WebkitLineClamp: 4,
+                               WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                             }) }}>
+                    {note.text}
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                     <span style={{ color: '#94a3b8', fontSize: '11px' }}>
                       {formatAuthor(note.created_by)} · {formatTime(note.created_at)}
@@ -379,14 +412,14 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
               saying "show 2 earlier notes" next to two visible notes is a lie.
               Given contrast and a filled background because the borderless
               grey version was, demonstrably, not being pressed. */}
-          {!maxNotes && ordered.length > THREAD_LIMIT && (
+          {!maxNotes && ordered.length > collapsed.length && (
             <button onClick={() => setShowAllNotes(v => !v)}
               style={{ width: '100%', background: '#1e293b', border: '1px solid #334155',
                        borderRadius: 8, color: '#cbd5e1', fontSize: '12px', fontWeight: 700,
                        padding: '10px 0', cursor: 'pointer', marginTop: 6, fontFamily: 'inherit' }}>
               {showAllNotes
                 ? '▴ Show recent only'
-                : `▾ Show ${ordered.length - THREAD_LIMIT} older note${ordered.length - THREAD_LIMIT === 1 ? '' : 's'}`}
+                : `▾ Show ${ordered.length - collapsed.length} earlier note${ordered.length - collapsed.length === 1 ? '' : 's'}`}
             </button>
           )}
 

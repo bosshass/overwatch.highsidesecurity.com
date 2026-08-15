@@ -82,9 +82,93 @@ function layout(events) {
   return out;
 }
 
+// ── WEEK GRID ───────────────────────────────────────────────────────────────
+// Seven day columns, every selected calendar's events inside them, coloured by
+// whose they are. This is what "show me the week" means to somebody looking at
+// a schedule — not seven copies of the per-tech utilisation bars.
+function WeekGrid({ weekDates, events, calendars, colors, onOpenEvent, logged, now }) {
+  const names = new Set(calendars.map(c => c.name));
+  const perDay = weekDates.map(d => layout(events.filter(e => {
+    if (e.isAllDay || !names.has(e.calendarName)) return false;
+    const a = new Date(e.start);
+    return a.getFullYear() === d.getFullYear() && a.getMonth() === d.getMonth()
+        && a.getDate() === d.getDate();
+  })));
+
+  const all = perDay.flat();
+  const from = all.length ? Math.max(0, Math.min(...all.map(e => new Date(e.start).getHours()), 7) - 1) : 7;
+  const to   = all.length ? Math.min(24, Math.max(...all.map(e => Math.ceil(new Date(e.end).getHours() + new Date(e.end).getMinutes() / 60)), 18) + 1) : 18;
+  const hours = Array.from({ length: to - from }, (_, i) => from + i);
+  const isToday = d => new Date().toDateString() === d.toDateString();
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`,
+                    borderBottom: '1px solid #1e293b', position: 'sticky', top: 0,
+                    background: '#0f1729', zIndex: 5 }}>
+        <div />
+        {weekDates.map((d, i) => (
+          <div key={i} style={{ textAlign: 'center', padding: '7px 0 8px' }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b' }}>
+              {d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 900, marginTop: 2,
+                          color: isToday(d) ? '#04121f' : '#e2e8f0',
+                          background: isToday(d) ? '#4b8dff' : 'transparent',
+                          borderRadius: 7, display: 'inline-block', padding: '1px 7px' }}>
+              {d.getDate()}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ position: 'relative', overflowY: 'auto', maxHeight: 'calc(100vh - 300px)' }}>
+        {hours.map(h => (
+          <div key={h} style={{ display: 'grid', gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`,
+                                height: HOUR_PX, borderTop: '1px solid #1e293b' }}>
+            <div style={{ fontSize: 10.5, color: '#64748b', textAlign: 'right',
+                          paddingRight: 7, marginTop: -6, fontWeight: 600 }}>{fmtHour(h)}</div>
+            {weekDates.map((_, i) => <div key={i} style={{ borderLeft: '1px solid #1e293b' }} />)}
+          </div>
+        ))}
+
+        {perDay.map((evs, di) => evs.map(e => {
+          const s2 = new Date(e.start), en = new Date(e.end);
+          const top = ((s2.getHours() + s2.getMinutes() / 60) - from) * HOUR_PX;
+          const height = Math.max(((en.getHours() + en.getMinutes() / 60) - (s2.getHours() + s2.getMinutes() / 60)) * HOUR_PX - 2, 20);
+          const colW = `((100% - ${GUTTER}px) / 7)`;
+          const subW = `(${colW} / ${e._of || 1})`;
+          const left = `calc(${GUTTER}px + ${di} * ${colW} + ${e._slot || 0} * ${subW} + 2px)`;
+          const color = e.color || colors[e.calendarName] || '#6b7280';
+          const noHours = !logged[e.id] && en < now;
+          return (
+            <div key={`${di}-${e.id}`} onClick={() => onOpenEvent?.(e)}
+              title={`${e.calendarName} · ${e.summary}`}
+              style={{ position: 'absolute', top, left, width: `calc(${subW} - 4px)`, height,
+                       background: '#16233a', borderLeft: `3px solid ${color}`,
+                       border: `1px solid ${noHours ? '#ff4f5e88' : color + '55'}`,
+                       borderRadius: 6, padding: '2px 4px', cursor: 'pointer',
+                       overflow: 'hidden', zIndex: 2 }}>
+              <div style={{ color, fontSize: 8.5, fontWeight: 900, lineHeight: 1.1 }}>
+                {e.calendarName}
+              </div>
+              <div style={{ color: '#e2e8f0', fontSize: 9.5, fontWeight: 700, lineHeight: 1.15,
+                            overflow: 'hidden' }}>
+                {e.summary || '(untitled)'}
+              </div>
+            </div>
+          );
+        }))}
+      </div>
+    </div>
+  );
+}
+
 export default function CalendarTechDay({
   date, events = [], calendars = [], onOpenEvent, colors = {}, onNavigate,
   weekDates = null,        // when present, the Week toggle is available
+  showUtilization = false, // utilisation lives in the Tasks tab, not on the calendar
+  onRangeChange,           // so the header arrows know whether to step a day or a week
 }) {
   // DAY vs WEEK are two different questions and they want two different
   // pictures. Day answers WHERE things sit — a grid you place work on. Week
@@ -97,7 +181,8 @@ export default function CalendarTechDay({
   // Weekly is also the honest unit. Austin at 6 billable hours a day reads as
   // a failure on the day he drove to Cheyenne and back, and reads correctly
   // across five days.
-  const [range, setRange] = useState('day');
+  const [range, setRange] = useState('week');   // land on the week — the day is
+                                               // a drill-down, not the question
   const [caps, setCaps]       = useState({});
   const [editCap, setEditCap] = useState(false);
   const [savingCap, setSaving] = useState(false);
@@ -213,9 +298,34 @@ export default function CalendarTechDay({
         }, { hrs: 0, missing: 0 });
         return { date: d, booked, ...log };
       });
-      const cap = capFor(cal.name) * WORKDAYS;
+      // CAPACITY IS ONLY THE DAYS THAT HAVE HAPPENED.
+      // This was daily x 5 flat, so on a Wednesday three days of booked hours
+      // were divided by a whole week — a tech who is completely full through
+      // Wednesday read as 60% and looked like he was coasting. The week is not
+      // over; the denominator said it was.
+      //
+      // Past and future weeks still use all five: a finished week should be
+      // judged on the whole thing, and a week you are planning has all of it
+      // left to fill.
+      //
+      // Weekends count in BOOKED but never in capacity. A Saturday call is real
+      // hours and it should push the number ABOVE 100% — that is overtime, and
+      // it is worth seeing, not worth hiding by quietly widening the week.
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const weekHasToday = weekDates.some(d => {
+        const x = new Date(d); x.setHours(0, 0, 0, 0);
+        return x.getTime() === today.getTime();
+      });
+      const countedDays = weekDates.filter(d => {
+        const dow = d.getDay();
+        if (dow === 0 || dow === 6) return false;         // Mon-Fri is the work week
+        if (!weekHasToday) return true;                    // past or future week: all five
+        const x = new Date(d); x.setHours(0, 0, 0, 0);
+        return x.getTime() <= today.getTime();             // this week: only days that exist yet
+      });
+      const cap = capFor(cal.name) * (countedDays.length || WORKDAYS);
       return {
-        cal, perDay, cap,
+        cal, perDay, cap, countedDays: countedDays.length, weekHasToday,
         booked: perDay.reduce((s, d) => s + d.booked, 0),
         hrs: perDay.reduce((s, d) => s + d.hrs, 0),
         missing: perDay.reduce((s, d) => s + d.missing, 0),
@@ -231,7 +341,7 @@ export default function CalendarTechDay({
   return (
     <div>
       {/* ── UTILISATION ROW ─────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      {showUtilization && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     marginBottom: 8, padding: '0 2px' }}>
         <div style={{ fontSize: 12.5, color: '#94a3b8' }}>
           <b style={{ color: '#e2e8f0', fontSize: 15 }}>
@@ -250,12 +360,21 @@ export default function CalendarTechDay({
                    cursor: 'pointer', fontFamily: 'inherit' }}>
           {editCap ? 'Done' : 'Capacity'}
         </button>
-      </div>
+      </div>}
+
+      {/* WEEK WITHOUT UTILISATION = the actual week calendar: one column per
+          day, all selected techs' events in it, colour-coded. The utilisation
+          table lives in the Tasks tab now — the calendar is for seeing where
+          work sits, not for grading anybody. */}
+      {!showUtilization && range === 'week' && weekDates?.length > 0 && (
+        <WeekGrid weekDates={weekDates} events={events} calendars={calendars}
+          colors={colors} onOpenEvent={onOpenEvent} logged={logged} now={now} />
+      )}
 
       {weekDates?.length > 0 && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
           {[['day','Day'],['week','This week']].map(([k, label]) => (
-            <button key={k} onClick={() => setRange(k)}
+            <button key={k} onClick={() => { setRange(k); onRangeChange?.(k); }}
               style={{ flex: 1, padding: '9px 0', borderRadius: 9, cursor: 'pointer',
                        background: range === k ? '#4b8dff' : 'transparent',
                        border: `1px solid ${range === k ? '#4b8dff' : '#263a55'}`,
@@ -267,9 +386,9 @@ export default function CalendarTechDay({
         </div>
       )}
 
-      {range === 'week' && (
+      {showUtilization && range === 'week' && (
         <div style={{ marginBottom: 14 }}>
-          {weekCols.map(({ cal, perDay, cap, booked, hrs, missing }) => {
+          {weekCols.map(({ cal, perDay, cap, booked, hrs, missing, countedDays, weekHasToday }) => {
             const pct  = cap ? Math.min(booked / cap, 1) : 0;
             const over = cap && booked > cap;
             const tone = over ? '#ff4f5e' : pct >= 0.75 ? '#22d16f' : pct >= 0.4 ? '#ffb020' : '#475569';
@@ -281,6 +400,14 @@ export default function CalendarTechDay({
                   <span style={{ fontSize: 15, fontWeight: 900 }}>{cal.name}</span>
                   <span style={{ fontSize: 13, fontWeight: 800, color: tone }}>
                     {booked.toFixed(1)} / {cap}h booked
+                  </span>
+                  {/* Say what the denominator IS. "21 of 30" and "21 of 18"
+                      are different stories and the number alone cannot tell
+                      them apart. */}
+                  <span style={{ fontSize: 11, color: '#64748b' }}>
+                    {weekHasToday
+                      ? `${countedDays} day${countedDays === 1 ? '' : 's'} in so far`
+                      : 'full week'}
                   </span>
                   <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800,
                                  color: missing > 0.25 ? '#ff4f5e' : '#64748b' }}>
@@ -294,16 +421,22 @@ export default function CalendarTechDay({
                     empty is a different problem from one that is evenly thin. */}
                 <div style={{ display: 'flex', gap: 4, marginTop: 9 }}>
                   {perDay.map((d, i) => {
+                    const weekend = d.date.getDay() === 0 || d.date.getDay() === 6;
+                    // A weekend bar is not a gap in the week — it is a day
+                    // nobody was expected to work. Dimmed unless something is
+                    // actually booked on it, in which case it is worth seeing.
                     const dayCap = capFor(cal.name);
                     const p = dayCap ? Math.min(d.booked / dayCap, 1) : 0;
                     return (
                       <div key={i} style={{ flex: 1, textAlign: 'center' }}>
-                        <div style={{ height: 26, borderRadius: 4, background: '#0b1220',
+                        <div style={{ height: 26, borderRadius: 4,
+                                      background: weekend ? '#080f1c' : '#0b1220',
                                       display: 'flex', alignItems: 'flex-end', overflow: 'hidden' }}>
                           <div style={{ width: '100%', height: `${p * 100}%`,
                                         background: d.missing > 0.25 ? '#ff4f5e' : tone }} />
                         </div>
-                        <div style={{ fontSize: 9, color: '#64748b', marginTop: 3 }}>
+                        <div style={{ fontSize: 9, marginTop: 3,
+                                      color: weekend && !d.booked ? '#33455f' : '#64748b' }}>
                           {d.date.toLocaleDateString('en-US', { weekday: 'narrow' })}
                         </div>
                       </div>
@@ -316,7 +449,7 @@ export default function CalendarTechDay({
         </div>
       )}
 
-      {editCap && (
+      {showUtilization && editCap && (
         <div style={{ background: '#111f34', border: '1px solid #263a55', borderRadius: 12,
                       padding: '12px 14px', marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 9 }}>

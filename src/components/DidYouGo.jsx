@@ -217,9 +217,14 @@ export default function DidYouGo({ userEmail, userName, onDone }) {
   const remaining = queue.length - i;
 
   return (
+    // Same panel treatment as the Calendar and Clients tiles below it —
+    // #101d31 on #1d2f48, 16px radius — so the home screen reads as one set of
+    // cards rather than an alert bolted above some tiles. The amber rail stays:
+    // this is the only card on the screen that is costing money while it sits
+    // there, and it should not look like a navigation tile.
     <div style={{
-      background: '#0f172a', border: '1px solid #1e293b', borderLeft: '4px solid #f59e0b',
-      borderRadius: 14, padding: '16px 18px', marginBottom: 16, color: '#e2e8f0',
+      background: '#101d31', border: '1px solid #1d2f48', borderLeft: '4px solid #f59e0b',
+      borderRadius: 16, padding: '16px 18px', marginBottom: 14, color: '#edf4ff',
     }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
                     color: '#f59e0b', marginBottom: 8 }}>
@@ -238,25 +243,33 @@ export default function DidYouGo({ userEmail, userName, onDone }) {
       {asking === null && (
         <>
           <div style={{ fontSize: 15, marginBottom: 10 }}>Did you go?</div>
+          {/* THREE ANSWERS, ONE ROW. Yes stays weighted because it is the one
+              that produces a time entry, but No and Skip are real answers and
+              now look like it. */}
           <div style={{ display: 'flex', gap: 9 }}>
             <button onClick={() => setAsking('hours')}
-              style={{ flex: 2, padding: '13px 0', borderRadius: 10, border: 'none',
+              style={{ flex: 2, padding: '15px 0', borderRadius: 12, border: 'none',
                        background: '#22c55e', color: '#052e16', fontSize: 16, fontWeight: 800,
                        cursor: 'pointer', fontFamily: 'inherit' }}>
               Yes
             </button>
             <button onClick={() => setAsking('why')}
-              style={{ flex: 1, padding: '13px 0', borderRadius: 10, cursor: 'pointer',
+              style={{ flex: 1, padding: '15px 0', borderRadius: 12, cursor: 'pointer',
                        background: 'transparent', border: '1px solid #334155', color: '#94a3b8',
-                       fontSize: 16, fontWeight: 700, fontFamily: 'inherit' }}>
+                       fontSize: 16, fontWeight: 800, fontFamily: 'inherit' }}>
               No
             </button>
-          </div>
+          {/* SKIP IS A REAL ANSWER, so it gets a real button. As borderless
+              grey text under two big ones it read as a footnote, and the only
+              way to dismiss the card was to look like you were ignoring it. */}
           <button onClick={() => { addSkip(job.id); next(); }}
-            style={{ marginTop: 10, background: 'none', border: 'none', color: '#475569',
-                     fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
-            Skip — ask me tomorrow
+            style={{ flex: 1, padding: '15px 0', borderRadius: 12, cursor: 'pointer',
+                     background: 'transparent', border: '1px solid #334155',
+                     color: '#94a3b8', fontSize: 16, fontWeight: 800,
+                     fontFamily: 'inherit' }}>
+            Skip
           </button>
+          </div>
         </>
       )}
 

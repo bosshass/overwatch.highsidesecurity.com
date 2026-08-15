@@ -52,6 +52,10 @@ function formatHour(h) {
 
 export default function TechCalendar({ accessToken, userEmail, defaultCalendar, isRestricted, isOperator, userName, autoWorkToDo, defaultTab, autoNewJob, onJobCreated }) {
   const navigate = useNavigate();
+  // The Day/Week toggle lives inside CalendarTechDay, but the header arrows
+  // live out here — so stepping "next" moved one DAY while the screen was
+  // showing a WEEK, and the week never changed until it rolled off Sunday.
+  const [techRange, setTechRange] = useState('week');
   const [mainTab, setMainTab] = useState(
     defaultTab || (autoWorkToDo ? 'tasks' : isOperator ? 'calendar' : isRestricted ? 'calendar' : 'tasks')
   );
@@ -86,7 +90,14 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       const allNames = USER_CALENDARS.filter(c => c.type !== 'completed').map(c => c.name);
       return new Set(allNames.filter(n => n !== defaultCalendar));
     }
-    return new Set();
+    // FIELD TECHS ONLY, BY DEFAULT. Everything visible meant ten columns —
+    // Tentatively Scheduled, Installations, Service Queue, Sales & Accounting
+    // and Completed were being counted as PEOPLE, which is where "21.0 of 80h"
+    // came from and why the headers overlapped into unreadable mush. These four
+    // are the only ones who actually drive somewhere. The rest are one tap away
+    // on the filter row and the choice is remembered per user.
+    const FIELD = new Set(['JR', 'Austin', 'Trevor', 'Subs']);
+    return new Set(USER_CALENDARS.map(c => c.name).filter(n => !FIELD.has(n)));
   });
   // LANDS ON TECHS. One column per person is the only layout where utilisation
   // is legible without being computed — a half-empty column IS spare capacity.
@@ -931,13 +942,16 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                   {/* Day view header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: '4px 0' }}>
                     <button onClick={() => {
+                      if (calViewMode === 'techs' && techRange === 'week') { setWeekOffset(w => w - 1); return; }
                       if (selectedDay === 0) { setWeekOffset(w => w - 1); setSelectedDay(6); }
                       else setSelectedDay(d => d - 1);
                     }} style={{ background: '#1e293b', border: 'none', borderRadius: '50%', width: 38, height: 38, color: '#e2e8f0', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
 
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ color: '#e2e8f0', fontSize: 24, fontWeight: 700 }}>
-                        {weekDates[selectedDay]?.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                        {calViewMode === 'techs' && techRange === 'week'
+                          ? `${weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                          : weekDates[selectedDay]?.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                       </div>
                       <div style={{ color: '#cbd5e1', fontSize: 13 }}>
                         Week {Math.ceil(((weekDates[selectedDay] - new Date(weekDates[selectedDay].getFullYear(), 0, 1)) / 86400000 + 1) / 7)} of {weekDates[selectedDay]?.getFullYear()}
@@ -945,6 +959,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                     </div>
 
                     <button onClick={() => {
+                      if (calViewMode === 'techs' && techRange === 'week') { setWeekOffset(w => w + 1); return; }
                       if (selectedDay === 6) { setWeekOffset(w => w + 1); setSelectedDay(0); }
                       else setSelectedDay(d => d + 1);
                     }} style={{ background: '#1e293b', border: 'none', borderRadius: '50%', width: 38, height: 38, color: '#e2e8f0', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>›</button>
@@ -989,6 +1004,8 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                       onOpenEvent={openEvent}
                       onNavigate={(to) => navigate(to)}
                       weekDates={weekDates}
+                      showUtilization={false}
+                      onRangeChange={setTechRange}
                     />
                   : calViewMode === 'week' ? renderWeekView() : renderDayView()
               )}
@@ -1000,6 +1017,25 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       {/* ===== TASKS TAB ===== */}
       {mainTab === 'tasks' && (
         <>
+          {/* UTILISATION LIVES HERE, NOT ON THE CALENDAR. The calendar answers
+              "where does work sit"; this answers "is anybody full, and did the
+              booked hours come back as time entries". Grading people on the
+              scheduling screen made it noisy for the person just trying to see
+              their week — and techs do not get this tab at all. */}
+          {isOperator && (
+            <div style={{ padding: '12px 14px 0' }}>
+              <CalendarTechDay
+                date={weekDates[selectedDay]}
+                weekDates={weekDates}
+                events={visibleEvents}
+                calendars={USER_CALENDARS.filter(c => !hiddenCalendars.has(c.name))}
+                colors={CALENDAR_COLORS}
+                onOpenEvent={openEvent}
+                onNavigate={(to) => navigate(to)}
+                showUtilization
+              />
+            </div>
+          )}
           <div style={{
             margin: '10px 12px 0', padding: '10px 14px', borderRadius: 10,
             background: 'repeating-linear-gradient(45deg, rgba(245,158,11,0.12) 0 12px, rgba(26,18,0,0.9) 12px 24px)',

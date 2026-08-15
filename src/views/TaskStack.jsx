@@ -152,13 +152,20 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
   // avoids by asking about one visit at a time. Act on it and the next appears.
   // Everything else is one tap away at /tasks.
   const list = useMemo(() => {
-    const all = buckets[tab] || [];
+    // EMBEDDED IGNORES THE TAB. It showed buckets[tab] and the tab defaults to
+    // To Do, so a person whose open work all sat in Doing got a header reading
+    // "2 open" with nothing underneath it. There are no tabs on the home
+    // screen — there is only "the next thing", so take To Do first and fall
+    // through to Doing.
+    const all = embedded
+      ? (buckets.todo.length ? buckets.todo : buckets.doing)
+      : (buckets[tab] || []);
     const needle = q.trim().toLowerCase();
     if (!needle) return all;
     return all.filter(n =>
       (n._customer || '').toLowerCase().includes(needle) ||
       (n.body || '').toLowerCase().includes(needle));
-  }, [buckets, tab, q]);
+  }, [buckets, tab, q, embedded]);
 
   const patch = async (n, fields, remove = true) => {
     setBusy(n.id);
@@ -236,21 +243,20 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
   return (
     <div style={{ background: embedded ? 'transparent' : C.bg, minHeight: embedded ? 0 : '100vh', color: C.text, paddingBottom: embedded ? 0 : 70 }}>
       {embedded && (rows == null || (buckets.todo.length + buckets.doing.length) > 0) && (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 9 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em',
-                         textTransform: 'uppercase', color: C.muted }}>
-            Your tasks
+        <button onClick={() => onNavigate?.('/tasks')}
+          style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 12,
+                   textAlign: 'left', background: '#101d31', border: `1px solid ${C.line}`,
+                   borderRadius: 16, padding: '13px 16px', marginBottom: 11,
+                   cursor: 'pointer', color: C.text, fontFamily: 'inherit' }}>
+          <span style={{ fontSize: 21 }}>📋</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 15, fontWeight: 900 }}>Your tasks</span>
+            <span style={{ display: 'block', fontSize: 11, color: C.muted, marginTop: 3 }}>
+              {rows == null ? 'Loading…' : `${buckets.todo.length + buckets.doing.length} open${buckets.done.length ? ` · ${buckets.done.length} back to you` : ''}`}
+            </span>
           </span>
-          <span style={{ fontSize: 12, color: C.muted }}>
-            {rows == null ? '' : `${buckets.todo.length + buckets.doing.length} open`}
-          </span>
-          <button onClick={() => onNavigate?.('/tasks')}
-            style={{ marginLeft: 'auto', background: 'transparent', border: 'none',
-                     color: C.blue, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
-                     fontFamily: 'inherit', padding: 0 }}>
-            See all &rsaquo;
-          </button>
-        </div>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: C.blue }}>See all &rsaquo;</span>
+        </button>
       )}
 
       {!embedded && (

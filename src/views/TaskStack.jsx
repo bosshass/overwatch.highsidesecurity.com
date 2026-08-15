@@ -48,9 +48,15 @@ const TABS = [
 
 const ageDays = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null;
 
-export default function TaskStack({ userEmail, userName, onNavigate, embedded = false }) {
+export default function TaskStack({ userEmail, userName, onNavigate, embedded = false, isOperator = false }) {
   const [rows, setRows]   = useState(null);
   const [loose, setLoose] = useState(0);   // notes nobody owns
+  const [q, setQ]         = useState('');   // client filter
+  // WHOSE STACK. People was the only screen that could answer "what does Shana
+  // owe" and it is being retired, so that question moves here. Operators only —
+  // a tech has no business reading somebody else's list, and for them this
+  // never renders.
+  const [who, setWho]     = useState('me');
   const [tab, setTab]     = useState('todo');
   const [busy, setBusy]   = useState(null);
   const [panel, setPanel] = useState(null);   // {id, mode}
@@ -118,8 +124,12 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
   useEffect(() => { load(); }, [load]);
 
-  const isMine    = n => mine.includes((n.assigned_to || '').toLowerCase());
-  const iAssigned = n => mine.includes((n.assigned_by || n.author_email || '').toLowerCase());
+  const viewing = who === 'me'
+    ? mine
+    : [String(who).toLowerCase()];
+
+  const isMine    = n => viewing.includes((n.assigned_to || '').toLowerCase());
+  const iAssigned = n => viewing.includes((n.assigned_by || n.author_email || '').toLowerCase());
 
   const buckets = useMemo(() => {
     const all = rows || [];
@@ -130,9 +140,20 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
       // myself sits with whoever asked, not here.
       done:  all.filter(n => n.lane === 'done' && iAssigned(n) && !isMine(n)),
     };
-  }, [rows, mine]);
+  }, [rows, mine, who]);
 
-  const list = buckets[tab] || [];
+  // CLIENT SEARCH. Tasks carry a customer now, so the stack can be narrowed to
+  // one — "what do I owe Raintree" is a question people ask constantly and the
+  // only previous answer was scrolling. Matches the customer OR the body, since
+  // half of these are typed before a customer is attached.
+  const list = useMemo(() => {
+    const all = buckets[tab] || [];
+    const needle = q.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter(n =>
+      (n._customer || '').toLowerCase().includes(needle) ||
+      (n.body || '').toLowerCase().includes(needle));
+  }, [buckets, tab, q]);
 
   const patch = async (n, fields, remove = true) => {
     setBusy(n.id);
@@ -196,7 +217,34 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 7, padding: embedded ? '4px 0 4px' : '13px 16px 4px' }}>
+      {isOperator && (
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
+                      padding: embedded ? '2px 0 6px' : '10px 16px 4px' }}>
+          {[{ email: 'me', name: 'Me' }, ...ASSIGNEES].map(a => {
+            const on = who === a.email;
+            return (
+              <button key={a.email} onClick={() => setWho(a.email)}
+                style={{ padding: '7px 13px', borderRadius: 999, cursor: 'pointer',
+                         whiteSpace: 'nowrap', background: on ? C.blue : 'transparent',
+                         border: `1px solid ${on ? C.blue : C.line2}`,
+                         color: on ? '#04121f' : C.muted,
+                         fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
+                {a.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ padding: embedded ? '4px 0 0' : '10px 16px 0' }}>
+        <input value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Filter by client or text…"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+                   borderRadius: 10, border: `1px solid ${C.line2}`, background: '#0b1220',
+                   color: C.text, fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 7, padding: embedded ? '8px 0 4px' : '10px 16px 4px' }}>
         {TABS.map(t => {
           const n = buckets[t.key].length;
           const on = tab === t.key;

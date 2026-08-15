@@ -90,7 +90,7 @@ const STEPS = [
         <Lane label="Watching" color={C.amber} note="Handed off, but you still need to know" />
       </div>
     ),
-    cta: { label: 'Open People', path: '/people' },
+    cta: { label: 'Open Tasks', path: '/tasks' },
   },
   {
     key: 'inbox',
@@ -236,7 +236,7 @@ const STEPS = [
     title: 'That\u2019s it',
     body: 'Every section on the home screen has a \u2753 next to it \u2014 tap one and it opens the instructions for that exact thing, then takes you there. If something here doesn\u2019t match what you actually see on screen, that\u2019s worth telling Sara \u2014 it means the app and the tour disagree, and one of them is wrong.',
     visual: null,
-    cta: { label: 'Go to People', path: '/people' },
+    cta: { label: 'Go to Tasks', path: '/tasks' },
   },
 ];
 

@@ -61,7 +61,7 @@ const BOARD_TILES = [
 ];
 
 export default function OpsHome({
-  userName, isOperator, accessToken, userEmail,
+  userName, isOperator, isSuperAdmin, accessToken, userEmail,
   onNavigate, onSignOut, onSearch, onShowTour, onBackfill,
 }) {
   const [people, setPeople] = useState(null);
@@ -277,6 +277,28 @@ export default function OpsHome({
           <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
         )}
 
+        {/* ══ 0. GO SOMEWHERE ══
+            Calendar and Clients are the two screens people open on purpose all
+            day, and neither had a door on the home screen — Calendar was only
+            in the footer, Clients only inside Admin tools behind a scroll.
+            Big, first, both also in the footer for when you are deep in
+            something else. */}
+        <div style={{ display:'flex', gap:11, margin:'16px 16px 0' }}>
+          {[
+            { path:'/calendar',  icon:'📅', label:'Calendar', sub:"Who's booked, and how full" },
+            { path:'/customers', icon:'🏠', label:'Clients',  sub:'History and open work' },
+          ].map(t => (
+            <button key={t.path} onClick={() => go(t.path)}
+              style={{ flex:1, textAlign:'left', background:C.panel, border:`1px solid ${C.line}`,
+                       borderRadius:16, padding:'15px 15px', cursor:'pointer', color:C.text,
+                       fontFamily:'inherit' }}>
+              <div style={{ fontSize:23, marginBottom:7 }}>{t.icon}</div>
+              <div style={{ fontSize:15, fontWeight:900 }}>{t.label}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:3, lineHeight:1.35 }}>{t.sub}</div>
+            </button>
+          ))}
+        </div>
+
         {/* ══ 1. BOARD ROLL-UP ══ */}
         {/* Was a red "Not in Overwatch — will not bill" panel driven by a live
             Google scan. It counted upcoming schedule as lost revenue and could
@@ -323,48 +345,14 @@ export default function OpsHome({
           <DidYouGo userEmail={userEmail} userName={userName} />
         </div>
 
-        {/* ══ 1b. STRANDED — scheduled, date passed, nobody dispositioned ══ */}
-        {stranded.length > 0 && (
-          <div data-tour="home-stranded" style={{ margin:'14px 16px 0', background:'#2a1f08', border:`1px solid ${C.amber}`,
-                        borderRadius:18, padding:'16px 18px' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-              <span style={{ fontSize:17 }}>⏰</span>
-              <span style={{ fontSize:12, fontWeight:900, letterSpacing:'0.08em',
-                             textTransform:'uppercase', color:C.amber }}>
-                Scheduled, then nothing happened
-              </span>
-              <Help topic="dispositions" label="What a disposition does" />
-            </div>
-            <div style={{ fontSize:12, color:'#fcd9a0', marginBottom:12, lineHeight:1.45 }}>
-              The day came and went and nobody dispositioned these. They're most likely still
-              sitting on Work To Do Today with no note against them — so any hours worked
-              will never reach an invoice.
-            </div>
-            {stranded.map(j => (
-              <button key={j.id} onClick={() => go(`/j/${shortCode(j.id)}?returnTo=${encodeURIComponent('/')}`)}
-                style={{ display:'flex', width:'100%', alignItems:'center', gap:10, textAlign:'left',
-                         background:'transparent', border:'none', borderTop:`1px solid ${C.amber}33`,
-                         padding:'10px 0', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
-                <span style={{ flex:1, minWidth:0 }}>
-                  <span style={{ display:'block', fontSize:14, fontWeight:700, whiteSpace:'nowrap',
-                                 overflow:'hidden', textOverflow:'ellipsis' }}>{j.name}</span>
-                  <span style={{ display:'block', fontSize:11, color:C.muted, marginTop:2 }}>
-                    {/* Was "{tech} · never given a date" — a name glued directly
-                        to a phrase that reads as someone's personal failing.
-                        Nobody has a duty called "assign a date" that got
-                        skipped; the record just doesn't have one yet. Describe
-                        the RECORD's state, not a person's. */}
-                    {j.tech || 'no tech'} ·{' '}
-                    {j.days == null
-                      ? 'no date on record'
-                      : `${j.days} day${j.days === 1 ? '' : 's'} since the scheduled date`}
-                  </span>
-                </span>
-                <span style={{ color:'#4a5f7a', fontSize:18 }}>›</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {/* STRANDED LIST REMOVED. It sat directly BELOW DidYouGo asking the
+            same question — "the day came and went and nobody dispositioned
+            these" — except DidYouGo asks the person who was actually there,
+            one visit at a time, and writes the time entry when they answer.
+            This was a read-only list of five things nobody could act on from
+            where it sat, shown to everybody including people who were not on
+            any of them. Two prompts for one problem, and the one that could
+            not fix anything was louder. */}
 
         {/* ══ 2. PEOPLE ══ */}
         <div ref={peopleRef} data-tour="home-people" style={{ padding:'6px 16px 0', scrollMarginTop:90 }}>
@@ -381,7 +369,9 @@ export default function OpsHome({
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:12 }}>
               {people.map(p => (
-                <button key={p.email} onClick={() => go(`/workspace/${p.name.toLowerCase()}`)}
+                <button key={p.email} onClick={() => go('/tasks')}   /* /workspace/:who is a
+                    Navigate redirect to /people that DROPS the name, so clicking
+                    a person landed on the unfiltered roster. Go straight there. */
                   style={{ textAlign:'left', background:C.panel, border:`1px solid ${p.oldest?.days >= 14 ? C.amber + '66' : C.line}`,
                            borderRadius:18, padding:'15px 16px', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
                   <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', marginBottom:12 }}>
@@ -420,7 +410,7 @@ export default function OpsHome({
             </div>
           )}
 
-          <button onClick={() => go('/people/all')}
+          <button onClick={() => go('/tasks')}
             style={{ marginTop:12, width:'100%', background:'transparent', color:C.cyan,
                      border:`1px solid ${C.cyan}44`, borderRadius:14, padding:'11px 0',
                      fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
@@ -428,33 +418,13 @@ export default function OpsHome({
           </button>
         </div>
 
-        {/* ══ 3. BOARD ROLLUP ══ */}
-        <div style={{ padding:'22px 16px 0' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
-            <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
-              The board
-            </span>
-            <Help topic="dispositions" label="How jobs move and close" />
-          </div>
-          <button onClick={() => go('/board')}
-            style={{ width:'100%', textAlign:'left', background:C.panel, border:`1px solid ${C.line}`,
-                     borderRadius:18, padding:'16px 18px', cursor:'pointer', color:C.text, fontFamily:'inherit' }}>
-            <div style={{ display:'flex', gap:26, flexWrap:'wrap' }}>
-              {board && [
-                ['Ready to schedule', board.ready, C.green],
-                ['Scheduled', board.scheduled, C.blue],
-                ['Estimates', board.estimates, C.amber],
-                ['Returns', board.returns, C.purple],
-              ].map(([l, n, col]) => (
-                <div key={l}>
-                  <div style={{ fontSize:28, fontWeight:900, lineHeight:1, color: n ? col : '#33455f' }}>{n}</div>
-                  <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{l}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize:12, color:C.cyan, marginTop:14 }}>Open the board →</div>
-          </button>
-        </div>
+        {/* SECOND BOARD ROLLUP REMOVED. This screen drew the board TWICE —
+            the tile grid above, then four of the same numbers again under the
+            heading "The board". Every figure here already appeared higher up,
+            and the tiles are strictly better because each one opens its own
+            lane instead of dropping you on the board to find it. The header
+            comment on this file says the board was "demoted to one rollup";
+            this was the one that was supposed to go. */}
 
         {/* ══ 4. ADMIN TOOLS ══ */}
         {/* The screens you go to on purpose, not the ones that should be
@@ -471,20 +441,22 @@ export default function OpsHome({
             </div>
             <div style={{ background:C.panel, border:`1px solid ${C.line}`, borderRadius:18, overflow:'hidden' }}>
               {[
-                { path:'/audit?scan=1', icon:'🔍', label:'Event Audit',
-                  sub:'Calendar events with no job behind them' },
-                { path:'/customers', icon:'👤', label:'Clients',
-                  sub:'Every customer, their history and open work' },
+                // Event Audit is a repair tool for whoever maintains the data,
+                // not something the office should be reading. Super admin only.
+                ...(isSuperAdmin ? [{ path:'/audit?scan=1', icon:'🔍', label:'Event Audit',
+                  sub:'Calendar events with no job behind them' }] : []),
+                // Clients moved to a primary button at the top of this screen
+                // and into the footer. Listing it here as well was the same
+                // duplication the board rollup had.
                 { path:'/unbilled', icon:'💵', label:'Billing',
                   sub:'Every unbilled hour and material, by customer' },
                 { path:'/recap', icon:'📊', label:'Weekly Recap',
                   sub:'Completed jobs, locations visited, who scheduled what' },
                 { action:'tour', icon:'🎓', label:'How this works',
                   sub:'Tasks, dispositions, Tent calendar, scheduling' },
-                // Bulk rewrite. Lives here, spelled out, instead of as a chain
-                // emoji next to the help button on every screen.
-                { action:'backfill', icon:'⚠️', label:'Backfill from calendar',
-                  sub:'Bulk import — changes many records at once' },
+                // Backfill from calendar REMOVED. The bulk import it ran is
+                // done; leaving a button that rewrites many records at once on
+                // the home screen is a loaded gun with no job left to do.
               ].map((t, i) => (
                 <button key={t.path || t.action}
                   onClick={() => t.action === 'tour' ? onShowTour?.('intro')

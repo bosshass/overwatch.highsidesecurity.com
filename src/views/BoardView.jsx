@@ -957,6 +957,24 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     showToast(email ? `Assigned to ${NAME_BY_EMAIL[email] || email} \u2713` : 'Unassigned \u2713');
   }, []);
 
+  // CLIENT JUMP. Board search filtered JOBS by customer name, which answers
+  // "what work does this customer have" but not "open this customer". A client
+  // with no open job was unreachable from the board entirely — you had to know
+  // /customers existed. Matching clients now surface above the results.
+  const [clientHits, setClientHits] = useState([]);
+  useEffect(() => {
+    const q = (search || '').trim();
+    if (q.length < 2) { setClientHits([]); return; }
+    let dead = false;
+    const t = setTimeout(async () => {
+      try {
+        const r = await customersApi.search(q);
+        if (!dead) setClientHits((r || []).slice(0, 4));
+      } catch { if (!dead) setClientHits([]); }
+    }, 220);
+    return () => { dead = true; clearTimeout(t); };
+  }, [search]);
+
   const filtered = search
     ? jobs.filter(j => assigneeMatch(j) && (
         (j.customer_name||'').toLowerCase().includes(search.toLowerCase()) ||
@@ -1072,6 +1090,50 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
             style={{ padding:'6px 12px', borderRadius:8, border:'1px solid #1e293b', background:'#1e293b', color:'#fff', fontSize:13, width:200 }} />
         </div>
       </div>
+
+      {/* WHAT HAPPENED THIS WEEK. The recap lived behind an Admin tools row on
+          a screen most people never scroll to, so the one view that says
+          whether the week actually produced anything was the hardest to reach.
+          Counts come from what is already loaded — no extra query. */}
+      {(() => {
+        const wk = new Date(); wk.setDate(wk.getDate() - 7);
+        const since = (d) => d && new Date(d) >= wk;
+        const doneWk = jobs.filter(j => ['complete','to_bill','billed'].includes(j.status) && since(j.updated_at)).length;
+        const newWk  = jobs.filter(j => since(j.created_at)).length;
+        const schWk  = jobs.filter(j => j.status === 'scheduled' && since(j.updated_at)).length;
+        return (
+          <button onClick={() => navigate('/recap')}
+            style={{ display:'flex', width:'100%', alignItems:'center', gap:16, textAlign:'left',
+                     background:'#0d1526', border:'none', borderBottom:'1px solid #1e293b',
+                     padding:'11px 14px', cursor:'pointer', color:'#e2e8f0', fontFamily:'inherit' }}>
+            <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.07em',
+                           textTransform:'uppercase', color:'#64748b' }}>This week</span>
+            <span style={{ fontSize:13 }}><b style={{ fontSize:16 }}>{newWk}</b> in</span>
+            <span style={{ fontSize:13 }}><b style={{ fontSize:16 }}>{schWk}</b> booked</span>
+            <span style={{ fontSize:13, color: doneWk ? '#22d16f' : '#64748b' }}>
+              <b style={{ fontSize:16 }}>{doneWk}</b> done
+            </span>
+            <span style={{ marginLeft:'auto', fontSize:12, color:'#93c5fd', fontWeight:700 }}>Recap &rsaquo;</span>
+          </button>
+        );
+      })()}
+
+      {clientHits.length > 0 && (
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center',
+                      padding:'9px 14px', borderBottom:'1px solid #1e293b', background:'#0d1526' }}>
+          <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.07em',
+                         textTransform:'uppercase', color:'#64748b' }}>Clients</span>
+          {clientHits.map(c => (
+            <button key={c.id}
+              onClick={() => navigate(`/customers?customerId=${c.id}&returnTo=${encodeURIComponent('/board')}`)}
+              style={{ background:'transparent', border:'1px solid #334155', borderRadius:8,
+                       color:'#93c5fd', fontSize:12.5, fontWeight:700, padding:'6px 11px',
+                       cursor:'pointer', fontFamily:'inherit' }}>
+              {c.name} &rsaquo;
+            </button>
+          ))}
+        </div>
+      )}
 
       {!isMobile && (
         <div style={{ display:'flex', overflowX:'auto', borderBottom:'1px solid #1e293b' }}>

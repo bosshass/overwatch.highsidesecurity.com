@@ -9,7 +9,9 @@ import TechCalendar from './views/TechCalendar.jsx';
 import OpsHome from './views/OpsHome.jsx';
 import MyDay from './views/MyDay.jsx';
 import TaskStack from './views/TaskStack.jsx';
-import People from './views/People.jsx';
+// People.jsx is no longer routed — retired, not deleted. The file stays so its
+// history and the assignment logic in it are still readable if any of this
+// needs unwinding.
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
 import TechWorkToday from './views/TechWorkToday.jsx';
@@ -904,20 +906,20 @@ export default function App() {
       )}
       <Routes>
         <Route path="/" element={
-          <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
+          <OpsHome userName={userName} isOperator={isOperator} isSuperAdmin={isSuperAdmin} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
         } />
 
         {/* /my — JR's landing. The visit prompt plus his assigned notes.
             Not operator-gated: everyone has assigned work, and the screen
             only ever shows what belongs to whoever is signed in. */}
         <Route path="/my" element={
-          <ViewShell><MyDay userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onNavigate={navigate} /></ViewShell>
+          <ViewShell><MyDay userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onNavigate={navigate} isOperator={isOperator} /></ViewShell>
         } />
 
         {/* /tasks — one card at a time, To Do / Doing / Done. Replaces
             sending people to People, which opens on a jobs list. */}
         <Route path="/tasks" element={
-          <ViewShell><TaskStack userEmail={userEmail} userName={effectiveName} onNavigate={navigate} /></ViewShell>
+          <ViewShell><TaskStack userEmail={userEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} /></ViewShell>
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
@@ -960,9 +962,14 @@ export default function App() {
         {/* People — one screen for who owns what. /workspace and /office both
             land here: My Tasks was always just People filtered to you, and
             OfficeHub was the same idea reading a table nobody filled in. */}
-        <Route path="/people" element={<ViewShell><People userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
-        <Route path="/people/:who" element={<ViewShell><People userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onBack={() => navigate('/')} /></ViewShell>} />
-        <Route path="/office" element={<Navigate to="/people" replace />} />
+        {/* PEOPLE IS RETIRED. It was a roster of jobs-by-person, then a roster
+            of tasks-by-person, and Tasks now does the second job better with a
+            person filter for operators. "People" as a destination is gone —
+            the thing you actually browse is CLIENTS. Old links land there. */}
+        <Route path="/people" element={<Navigate to="/tasks" replace />} />
+        <Route path="/people/:who" element={<Navigate to="/tasks" replace />} />
+        <Route path="/office" element={<Navigate to="/tasks" replace />} />
+        <Route path="/clients" element={<Navigate to="/customers" replace />} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
         <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
@@ -971,7 +978,7 @@ export default function App() {
         <Route path="/workspace" element={<Navigate to="/people" replace />} />
         <Route path="/workspace/:who" element={<Navigate to="/people" replace />} />
         {/* Notes are NOT jobs and deliberately have no board presence. */}
-        <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/people')} /></ViewShell>} />
+        <Route path="/notes" element={<ViewShell><Notes userEmail={userEmail} accessToken={accessToken} onBack={() => navigate('/tasks')} /></ViewShell>} />
         {/* Sold work. Accepted estimates with a balance live ONLY here until
             somebody creates a job from one or closes it out. An estimate is
             not a visit, and putting them on the board is how 36 QuickBooks
@@ -1011,7 +1018,8 @@ export default function App() {
             // is one tap from every screen in the app, so a tech tapping the
             // person icon expecting "my stuff" got a wall of text instead.
             // Operators still reach People from the board's "Who's stuck".
-            { icon:'✓', label:'Tasks', path:'/tasks' },
+            { icon:'📋', label:'Tasks', path:'/tasks' },   // was ✓ — identical to Today's icon
+            { icon:'🏠', label:'Clients', path:'/customers' },
             { icon:'📅', label:'Cal',  path:'/calendar' },
           ].map(t => {
             const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);
@@ -1019,7 +1027,7 @@ export default function App() {
               <button key={t.path} onClick={() => navigate(t.path)}
                 style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: active ? '#00c8e8' : '#8ea0b8', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
                 <span style={{ fontSize:20 }}>{t.icon}</span>
-                <span style={{ fontSize:10, fontWeight:700 }}>{t.label}</span>
+                <span style={{ fontSize:9.5, fontWeight:700, whiteSpace:'nowrap' }}>{t.label}</span>
               </button>
             );
           })}

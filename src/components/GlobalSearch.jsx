@@ -233,7 +233,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         {results.todos.length > 0 && (
           <Section label={`Things To Do (${results.todos.length})`}>
             {results.todos.map(t => (
-              <ResultCard key={t.id} onClick={() => { onNavigate('/people'); onClose(); }}>
+              <ResultCard key={t.id} onClick={() => { onNavigate('/tasks'); onClose(); }}>
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{t.title}</div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                   {t.assignedTo && <Chip color="#f59e0b">{t.assignedTo}</Chip>}

@@ -10,7 +10,7 @@
 import DidYouGo from '../components/DidYouGo.jsx';
 import TaskStack from './TaskStack.jsx';
 
-export default function MyDay({ userEmail, userName, accessToken, onNavigate }) {
+export default function MyDay({ userEmail, userName, accessToken, onNavigate, isOperator = false }) {
   return (
     <div style={{ background: '#07111f', minHeight: '100vh', color: '#edf4ff', paddingBottom: 70 }}>
       <div style={{ padding: '18px 16px 0' }}>
@@ -27,7 +27,7 @@ export default function MyDay({ userEmail, userName, accessToken, onNavigate }) 
 
       <div style={{ padding: '6px 16px 0' }}>
         <TaskStack userEmail={userEmail} userName={userName}
-          onNavigate={onNavigate} embedded />
+          onNavigate={onNavigate} isOperator={isOperator} embedded />
       </div>
 
       <div style={{ padding: '4px 16px 0' }}>

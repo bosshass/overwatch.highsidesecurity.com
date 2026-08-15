@@ -7,6 +7,7 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OpsHome from './views/OpsHome.jsx';
+import MyDay from './views/MyDay.jsx';
 import People from './views/People.jsx';
 import OwnerDashboard from './views/OwnerDashboard.jsx';
 import CommandCenter from './views/CommandCenter.jsx';
@@ -69,7 +70,7 @@ const USER_CONFIG = {
   // role is still 'tech', so Admin Tools and the operator screens stay hidden
   // on this login. That is the unresolved question from earlier: info@ makes
   // him an operator, jr@ makes him a tech, and it's the same person.
-  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: null },
+  'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'my' },
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
@@ -82,7 +83,7 @@ const USER_CONFIG = {
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
   { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: 'board' },
-  { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: 'board' },
+  { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: 'my' },
   { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
 ];
 
@@ -903,6 +904,13 @@ export default function App() {
       <Routes>
         <Route path="/" element={
           <OpsHome userName={userName} isOperator={isOperator} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
+        } />
+
+        {/* /my — JR's landing. The visit prompt plus his assigned notes.
+            Not operator-gated: everyone has assigned work, and the screen
+            only ever shows what belongs to whoever is signed in. */}
+        <Route path="/my" element={
+          <ViewShell><MyDay userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onNavigate={navigate} /></ViewShell>
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />

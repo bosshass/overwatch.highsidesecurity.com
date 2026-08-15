@@ -40,6 +40,33 @@ const NOT_REASONS = [
   { key: 'someone_else',label: 'Someone else went',note: 'Covered by another tech.' },
 ];
 
+// ── SKIP THAT STICKS ────────────────────────────────────────────────────────
+// "Skip for now" only advanced an index, so every reload put the same visit
+// back at the front. A prompt that ignores being dismissed gets dismissed
+// permanently — by the person closing the app.
+//
+// A skip is good until tomorrow, not forever. The visit is still money that
+// never reached an invoice; it deserves to be asked again, just not four times
+// in one morning. Stored per browser rather than in a table: skipping is a
+// scratch preference, and giving it a schema means migrating it later.
+const SKIP_KEY = 'didyougo_skips';
+const todayStr = () => new Date().toLocaleDateString('en-CA');
+
+const readSkips = () => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SKIP_KEY) || '{}');
+    const today = todayStr();
+    // Yesterday's skips are dropped on read, so the store never grows.
+    return Object.fromEntries(Object.entries(raw).filter(([, d]) => d === today));
+  } catch { return {}; }
+};
+
+const addSkip = (jobId) => {
+  try {
+    localStorage.setItem(SKIP_KEY, JSON.stringify({ ...readSkips(), [jobId]: todayStr() }));
+  } catch { /* no storage — skip stays session-only, which is the old behaviour */ }
+};
+
 const dayName = (iso) => {
   const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -118,9 +145,12 @@ export default function DidYouGo({ userEmail, userName, onDone }) {
       .filter(e => e.customer_id && e.event_start)
       .map(e => `${e.customer_id}|${String(e.event_start).slice(0, 10)}`));
 
+    const skipped = readSkips();
+
     setQueue(jobs.filter(j =>
       !byJob.has(j.id) &&
-      !byDay.has(`${j.customer_id}|${j.scheduled_date}`)
+      !byDay.has(`${j.customer_id}|${j.scheduled_date}`) &&
+      !skipped[j.id]
     ));
     setI(0);
   }, [mine]);
@@ -198,10 +228,10 @@ export default function DidYouGo({ userEmail, userName, onDone }) {
               No
             </button>
           </div>
-          <button onClick={next}
+          <button onClick={() => { addSkip(job.id); next(); }}
             style={{ marginTop: 10, background: 'none', border: 'none', color: '#475569',
                      fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
-            Skip for now
+            Skip — ask me tomorrow
           </button>
         </>
       )}

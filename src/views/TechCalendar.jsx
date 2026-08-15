@@ -6,6 +6,7 @@
 // Preserves: GCal fetch, Supabase sync, orphan detection, search, tasks tab
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { assignmentsApi, jobsApi, queries, JOB_STATUS, techsApi, supabase } from '../services/supabase.js';
 import { scanForOrphans, ignoreOrphan, ignoreAllOrphans, syncIgnoredOrphansFromSupabase } from '../services/calendarSync.js';
 import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
@@ -18,6 +19,7 @@ import NewJobModal from '../components/NewJobModal.jsx';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { APP_BASE } from '../config/appBase.js';
 import InboxBar from '../components/InboxBar.jsx';
+import CalendarTechDay from '../components/CalendarTechDay.jsx';
 import { assigneeOf } from '../utils/ownership.js';
 
 const CALENDAR_COLORS = {
@@ -49,6 +51,7 @@ function formatHour(h) {
 }
 
 export default function TechCalendar({ accessToken, userEmail, defaultCalendar, isRestricted, isOperator, userName, autoWorkToDo, defaultTab, autoNewJob, onJobCreated }) {
+  const navigate = useNavigate();
   const [mainTab, setMainTab] = useState(
     defaultTab || (autoWorkToDo ? 'tasks' : isOperator ? 'calendar' : isRestricted ? 'calendar' : 'tasks')
   );
@@ -85,7 +88,9 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
     }
     return new Set();
   });
-  const [calViewMode, setCalViewMode] = useState('week');
+  // LANDS ON TECHS. One column per person is the only layout where utilisation
+  // is legible without being computed — a half-empty column IS spare capacity.
+  const [calViewMode, setCalViewMode] = useState('techs');
   const todayRef = new Date();
   todayRef.setHours(0, 0, 0, 0);
   const [selectedDay, setSelectedDay] = useState(todayRef.getDay() === 0 ? 6 : todayRef.getDay() - 1);
@@ -557,6 +562,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   // ========== VIEW TOGGLE ==========
   const renderViewToggle = () => (
     <div style={{ display: 'flex', gap: 0, background: '#1e293b', borderRadius: 20, overflow: 'hidden' }}>
+      <button onClick={() => setCalViewMode('techs')} style={{
+        background: calViewMode === 'techs' ? '#3b82f6' : 'transparent',
+        color: calViewMode === 'techs' ? '#fff' : '#64748b',
+        border: 'none', padding: '7px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600, borderRadius: 20
+      }}>Techs</button>
       <button onClick={() => setCalViewMode('week')} style={{
         background: calViewMode === 'week' ? '#3b82f6' : 'transparent',
         color: calViewMode === 'week' ? '#fff' : '#64748b',
@@ -916,7 +926,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             </div>
           ) : (
             <>
-              {calViewMode === 'day' ? (
+              {(calViewMode === 'day' || calViewMode === 'techs') ? (
                 <>
                   {/* Day view header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: '4px 0' }}>
@@ -970,7 +980,16 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               {calLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#cbd5e1', fontSize: 13 }}>Loading calendars...</div>
               ) : (
-                calViewMode === 'week' ? renderWeekView() : renderDayView()
+                calViewMode === 'techs'
+                  ? <CalendarTechDay
+                      date={weekDates[selectedDay]}
+                      events={visibleEvents}
+                      calendars={USER_CALENDARS.filter(c => !hiddenCalendars.has(c.name))}
+                      colors={CALENDAR_COLORS}
+                      onOpenEvent={openEvent}
+                      onNavigate={(to) => navigate(to)}
+                    />
+                  : calViewMode === 'week' ? renderWeekView() : renderDayView()
               )}
             </>
           )}

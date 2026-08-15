@@ -904,9 +904,14 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     try {
       // changeStatus writes the history row too, so the "why" typed into the
       // ticket sheet actually travels with the card instead of being dropped.
-      await jobsApi.changeStatus(jobId, newStatus, userEmail || 'info@drhsecurityservices.com', note, archiveReason);
-      setJobs(prev => prev.map(j => j.id===jobId ? {...j, status:newStatus} : j));
-      setSelectedJob(prev => prev?.id===jobId ? {...prev, status:newStatus} : prev);
+      // Merge the ROW THAT CAME BACK, not just the status we asked for.
+      // changeStatus can also promote job_type (note -> service). Patching
+      // only `status` locally left the open drawer still believing it was a
+      // note, so the card kept its note layout until a manual refresh.
+      const saved = await jobsApi.changeStatus(jobId, newStatus, userEmail || 'info@drhsecurityservices.com', note, archiveReason);
+      const patch = saved && saved.id ? saved : { status: newStatus };
+      setJobs(prev => prev.map(j => j.id===jobId ? {...j, ...patch} : j));
+      setSelectedJob(prev => prev?.id===jobId ? {...prev, ...patch} : prev);
       showToast(`→ ${STATUS_INFO[newStatus]?.label||newStatus}`);
     } catch(e) { showToast(`Error: ${e.message}`); }
     setMoving(false);

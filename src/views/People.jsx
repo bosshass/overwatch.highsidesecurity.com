@@ -112,9 +112,26 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
     if ((who || '').toLowerCase() !== slug) navigate(`/people/${slug}`, { replace: true });
   }, [person, who, navigate]);
 
-  const jobsFor = useCallback(
-    (name) => name === 'all' ? jobs : jobs.filter(j => assigneeOf(j) === name),
-    [jobs]);
+  // OWNERSHIP ON THIS SCREEN IS ASSIGNMENT, NOT DISPATCH.
+  // assigneeOf() answers "who is standing at the door" — for a scheduled job
+  // it returns tech_name and ignores assigned_to entirely, and with no
+  // assignee at all it still falls back to tech_name. That is right for the
+  // board and for KPIs, and wrong here: it put 11 jobs in JR's lane that
+  // nobody handed him, purely because his name was on the calendar event.
+  // He read 19 when 8 were his.
+  //
+  // A booked job lives on the board as scheduled and in the calendar view.
+  // It is not a task and it does not belong in anybody's lane here, so
+  // scheduled work is dropped even when assigned_to still points at someone
+  // (older rows predate book() clearing that field).
+  const jobsFor = useCallback((name) => {
+    const open = jobs.filter(j => j.status !== 'scheduled');
+    if (name === 'all') return open;
+    const hit = ASSIGNEES.find(a => a.name === name);
+    if (!hit) return [];
+    const mine = new Set(emailsFor(hit.email));
+    return open.filter(j => mine.has((j.assigned_to || '').toLowerCase()));
+  }, [jobs]);
 
   const notesFor = useCallback((name) => {
     if (name === 'all') return notes;
@@ -154,7 +171,12 @@ export default function People({ userEmail, userName, accessToken, onBack }) {
       ? prev.filter(n => n.id !== id)
       : prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
   };
-  const unowned = useMemo(() => jobs.filter(j => !assigneeOf(j)), [jobs]);
+  // Unassigned = nobody was HANDED it. Scheduled work is excluded for the same
+  // reason as above — it is on the board and the calendar, and listing it as
+  // unowned would make booked jobs look like they had fallen through.
+  const unowned = useMemo(
+    () => jobs.filter(j => j.status !== 'scheduled' && !j.assigned_to),
+    [jobs]);
 
   // Their work, in the SAME five lanes the board uses.
   const byLane = useMemo(() => {

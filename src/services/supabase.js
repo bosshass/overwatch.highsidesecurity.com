@@ -309,10 +309,29 @@ export const jobsApi = {
     // A move with no destination is a programming error — throw.
     if (!newStatus) throw new Error('changeStatus called with no status — the move button is missing its target.');
 
-    const { data: current } = await supabase.from('jobs').select('status').eq('id', id).single();
+    const { data: current } = await supabase.from('jobs').select('status, job_type').eq('id', id).single();
     const oldStatus = current?.status;
 
     const updates = { status: newStatus, updated_by: changedBy };
+
+    // ── PROMOTING A NOTE INTO A JOB ──────────────────────────────────────
+    // "Make it a job" carried target:'ready_to_schedule' — a STATUS — and
+    // nothing ever wrote job_type. So the row moved lanes and stayed a note:
+    // movesFor() re-checks job_type on every render, so the card came back as
+    // a note card still offering "Make it a job", forever. Jeff Goodell read
+    // "Ready to Schedule" and was still type note.
+    //
+    // The note lane offers exactly two destinations — make it a job, or done.
+    // So any move off a note that is not a close IS the promotion, and this is
+    // the one place every caller already funnels through.
+    const NOTEY = ['note', 'task'];
+    const CLOSERS = ['archived', 'dead', 'lost', 'billed'];
+    if (NOTEY.includes(current?.job_type) && !CLOSERS.includes(newStatus)) {
+      // 'service' is the neutral work type. Residential vs project is a
+      // judgement the person scoping it makes on the card — guessing here
+      // would quietly mistype every promoted note.
+      updates.job_type = 'service';
+    }
     if (archiveReason) updates.return_reason = archiveReason;
     // A hold is a pencil mark, and ANY deliberate status move supersedes it.
     // Nothing cleared this before, so a job that was held and then moved on

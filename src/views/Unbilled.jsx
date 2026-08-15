@@ -20,6 +20,7 @@
 //   the queue. The `billed` flag already existed; nothing was ever using it.
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
@@ -68,6 +69,20 @@ const fmtH = (h) => `${(Math.round(h * 10) / 10).toFixed(1)}h`;
 const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
 
 export default function Unbilled({ onBack, userEmail }) {
+  // ── TECH FILTER ─────────────────────────────────────────────────────
+  // Driven by ?tech= so the calendar can hand off directly: tapping a tech's
+  // utilisation column lands here already scoped to their unbilled work,
+  // still grouped by customer and still in the same buckets. Billing by
+  // customer is the right unit — Nordic's three visits belong on one invoice
+  // — so the tech is a filter over that grouping, never a regrouping.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const techFilter = searchParams.get('tech') || '';
+  const clearTech = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('tech');
+    setSearchParams(next, { replace: true });
+  };
+
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [groups, setGroups] = useState([]);
@@ -123,8 +138,14 @@ export default function Unbilled({ onBack, userEmail }) {
         (cs || []).forEach(c => { cust[c.id] = c; });
       }
 
+      // Filter BEFORE grouping so the customer totals on screen are the totals
+      // for this tech, not a whole-shop number with some rows hidden under it.
+      const scoped = techFilter
+        ? (entries || []).filter(e => (e.tech_name || '').toLowerCase() === techFilter.toLowerCase())
+        : (entries || []);
+
       const byCustomer = {};
-      (entries || []).forEach(e0 => {
+      scoped.forEach(e0 => {
         const job = jobFor(e0);
         // Zero clocked minutes is its own problem, not a 'ready to bill'.
         const b0 = bucketOf(job, e0);
@@ -170,7 +191,11 @@ export default function Unbilled({ onBack, userEmail }) {
 
       const seenJobIds = new Set((entries || []).map(e => e.job_id).filter(Boolean));
       (entries || []).forEach(e => { const j = jobFor(e); if (j) seenJobIds.add(j.id); });
-      (jobRows || [])
+      // A job with NO time entry has no tech on it, so it cannot belong to any
+      // one person's column. Under a tech filter it would be noise attributed
+      // to someone who may never have been there — leave it to the unfiltered
+      // view, which is where it gets chased.
+      (techFilter ? [] : (jobRows || []))
         .filter(j => ['complete', 'to_bill'].includes(j.status)
                   && !seenJobIds.has(j.id) && !hasAnyTime.has(j.id))
         .forEach(j => {
@@ -196,7 +221,7 @@ export default function Unbilled({ onBack, userEmail }) {
       setErr(e.message || String(e));
     }
     setLoading(false);
-  }, []);
+  }, [techFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -457,6 +482,24 @@ export default function Unbilled({ onBack, userEmail }) {
           <span style={{ fontWeight: 700, fontSize: 16 }}>💵 Billing</span>
           <button onClick={load} style={{ marginLeft: 'auto', background: '#1e293b', border: 'none', color: '#94a3b8', padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>↻</button>
         </div>
+        {/* Scoped from the calendar. Says whose work this is and gets out of
+            the way — the buckets underneath are untouched, so an hour still
+            only appears as billable when it actually is. */}
+        {techFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9,
+                        background: '#132033', border: '1px solid #2b3f5c',
+                        borderRadius: 9, padding: '7px 11px' }}>
+            <span style={{ fontSize: 13, color: '#e2e8f0' }}>
+              Showing <b>{techFilter}</b> only
+            </span>
+            <button onClick={clearTech}
+              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #334155',
+                       borderRadius: 7, color: '#94a3b8', fontSize: 12, fontWeight: 700,
+                       padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              Show everyone
+            </button>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
           {BUCKETS.map(b => {
             const d = byBucket[b.key] || { hours: 0, visits: 0 };

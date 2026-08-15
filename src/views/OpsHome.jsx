@@ -293,7 +293,7 @@ export default function OpsHome({
             people's work is something to go and look at deliberately, not
             something to wade through on the way to your own. */}
         <div style={{ padding: '8px 16px 0' }}>
-          <TaskStack userEmail={userEmail} userName={userName}
+          <TaskStack userEmail={userEmail} userName={userName} accessToken={accessToken}
             onNavigate={onNavigate} embedded />
         </div>
 

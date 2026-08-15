@@ -919,7 +919,7 @@ export default function App() {
         {/* /tasks — one card at a time, To Do / Doing / Done. Replaces
             sending people to People, which opens on a jobs list. */}
         <Route path="/tasks" element={
-          <ViewShell><TaskStack userEmail={userEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} /></ViewShell>
+          <ViewShell><TaskStack userEmail={userEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />

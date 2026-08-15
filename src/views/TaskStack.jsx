@@ -32,6 +32,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, STATUS_INFO } from '../services/supabase.js';
+import { sendGmail } from '../services/gmailSend.js';
+import { APP_BASE } from '../config/appBase.js';
 import { ASSIGNEES, emailsFor, canonicalEmail, NAME_BY_EMAIL } from '../utils/ownership.js';
 
 const C = {
@@ -48,7 +50,7 @@ const TABS = [
 
 const ageDays = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null;
 
-export default function TaskStack({ userEmail, userName, onNavigate, embedded = false, isOperator = false }) {
+export default function TaskStack({ userEmail, userName, onNavigate, embedded = false, isOperator = false, accessToken = null }) {
   const [rows, setRows]   = useState(null);
   const [loose, setLoose] = useState(0);   // notes nobody owns
   const [q, setQ]         = useState('');   // client filter
@@ -130,15 +132,22 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
   const isMine    = n => viewing.includes((n.assigned_to || '').toLowerCase());
   const iAssigned = n => viewing.includes((n.assigned_by || n.author_email || '').toLowerCase());
+  const iFinished = n => viewing.includes((n.done_by || '').toLowerCase());
 
   const buckets = useMemo(() => {
     const all = rows || [];
     return {
       todo:  all.filter(n => isMine(n) && n.lane !== 'doing' && n.lane !== 'done'),
       doing: all.filter(n => isMine(n) && n.lane === 'doing'),
-      // Done = finished work waiting on ME as the assigner. A task I finished
-      // myself sits with whoever asked, not here.
-      done:  all.filter(n => n.lane === 'done' && iAssigned(n) && !isMine(n)),
+      // DONE IS BOTH THINGS, and it was only ever one.
+      //   1. work you asked for that somebody finished — waiting on you to
+      //      confirm. This was the only case, which meant the person who
+      //      actually DID the work marked three things done and watched them
+      //      vanish with nothing to show for it.
+      //   2. work you finished yourself. It sits with the assigner for review,
+      //      but you should still be able to see that you did it.
+      done:  all.filter(n => n.lane === 'done'
+                && ((iAssigned(n) && !isMine(n)) || iFinished(n))),
     };
   }, [rows, mine, who]);
 
@@ -193,6 +202,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     const stamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const meName = NAME_BY_EMAIL[me] || userName || me;
     if (n.handoff_to) {
+      // A handoff nobody is told about is just a row changing owner quietly.
+      if (accessToken) {
+        sendGmail(accessToken, {
+          to: n.handoff_to,
+          subject: `[Overwatch] Your turn: ${n._customer || 'a task'}`,
+          body: [`${meName} finished their part.`, '', n.body || '', '',
+                 'Open your tasks:', `${APP_BASE}/tasks`].filter(Boolean).join('\n'),
+        }).catch(() => {});
+      }
       return patch(n, {
         assigned_to: n.handoff_to,
         assigned_by: me,
@@ -315,14 +333,19 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
       <div style={{ padding: embedded ? '10px 0 0' : '10px 16px 0' }}>
         {!embedded && rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
-            {tab === 'done' ? 'Nothing waiting on you.' : 'Nothing here.'}
+            {tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
           </div>
         )}
 
         {(embedded ? list.slice(0, 1) : list).map(n => {
           const age  = ageDays(n.created_at);
           const open = panel?.id === n.id;
-          const back = tab === 'done';
+          // `back` means "this is waiting on YOU to confirm". It is not simply
+          // "the Done tab" any more — your own finished work lives there too,
+          // and offering yourself Confirm complete on work you just did would
+          // hand the doer both sides of the check the round trip exists for.
+          const back = tab === 'done' && iAssigned(n) && !iFinished(n);
+          const mineFinished = tab === 'done' && iFinished(n);
           return (
             <div key={n.id}
               style={{ background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
@@ -356,6 +379,13 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                   <span style={{ fontSize: 11, fontWeight: 900, color: C.purple,
                                  border: `1px solid ${C.purple}55`, borderRadius: 6, padding: '4px 9px' }}>
                     {NAME_BY_EMAIL[canonicalEmail(n.done_by || '')] || 'They'} SAYS DONE
+                  </span>
+                )}
+                {mineFinished && (
+                  <span style={{ fontSize: 11, fontWeight: 900, color: C.green,
+                                 border: `1px solid ${C.green}55`, borderRadius: 6, padding: '4px 9px' }}>
+                    YOU FINISHED THIS
+                    {n.assigned_by ? ` · with ${NAME_BY_EMAIL[canonicalEmail(n.assigned_by)] || 'them'}` : ''}
                   </span>
                 )}
                 {n.lane === 'doing' && !back && (
@@ -416,7 +446,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                 </div>
               )}
 
-              {!open && !back && (
+              {!open && !back && !mineFinished && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                   <Btn tone="go" flex={2} disabled={busy === n.id}
                     onClick={() => markDone(n)}>

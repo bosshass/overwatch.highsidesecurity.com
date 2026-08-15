@@ -26,7 +26,7 @@ export default function MyDay({ userEmail, userName, accessToken, onNavigate, is
       </div>
 
       <div style={{ padding: '6px 16px 0' }}>
-        <TaskStack userEmail={userEmail} userName={userName}
+        <TaskStack userEmail={userEmail} userName={userName} accessToken={accessToken}
           onNavigate={onNavigate} isOperator={isOperator} embedded />
       </div>
 

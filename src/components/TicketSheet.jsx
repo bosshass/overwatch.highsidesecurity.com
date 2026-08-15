@@ -22,9 +22,9 @@ import { reasonLabel } from '../config/archiveReasons.js';
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
-import { assignmentMessage } from '../config/appBase.js';
+import { assignmentMessage, APP_BASE } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
-import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME, canonicalEmail } from '../utils/ownership.js';
+import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME, canonicalEmail, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/lanes.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
@@ -184,6 +184,31 @@ export default function TicketSheet({
       // obvious read was that the button had done nothing.
       setTaskBody(''); setTaskWho(''); setTaskNext(''); setTaskOpen(false);
       const name = ASSIGNEES.find(a => a.email === who)?.name || who;
+
+      // TELL THEM. Assigning a JOB has emailed the assignee since 9.x; creating
+      // a TASK wrote the row and told nobody, so the only way to discover work
+      // had landed on you was to go looking for it. Same channel, same OAuth
+      // token already in scope — no Twilio, no server, nothing to configure.
+      if (accessToken && who) {
+        const fromName = NAME_BY_EMAIL[canonicalEmail(userEmail)] || 'Overwatch';
+        const nextName = taskNext
+          ? (ASSIGNEES.find(a => a.email === taskNext)?.name || taskNext) : null;
+        sendGmail(accessToken, {
+          to: who,
+          subject: `[Overwatch] ${fromName} needs something: ${job.customer_name || 'a job'}`,
+          body: [
+            body,
+            '',
+            `Customer: ${job.customer_name || '—'}`,
+            job.customer_address ? `Address: ${job.customer_address}` : null,
+            nextName ? `When you finish, it goes to ${nextName}.` : null,
+            '',
+            'Open your tasks in Overwatch:',
+            `${APP_BASE}/tasks`,
+          ].filter(Boolean).join('\n'),
+        }).catch(() => {});   // never block the write on a notification
+      }
+
       setTaskMsg(`Task sent to ${name}.`);
       setTimeout(() => { try { onClose?.(); } catch (_) {} }, 650);
     } catch (e) { setTaskMsg(e.message || String(e)); }

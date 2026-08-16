@@ -373,7 +373,11 @@ export default function OpsHome({
         )}
 
         {/* ══ 0. FOUR DOORS ══ */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:11, margin:'16px 16px 0' }}>
+        {/* Two up on a phone, three on anything wider — six tiles in a 2-wide
+            column is a long scroll on a tablet, and six in one row on a desktop
+            makes each one a stripe. */}
+        <div style={{ display:'grid', gap:11, margin:'16px 16px 0',
+                      gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))' }}>
           {[
             { key:'visits', icon:'📍', label:'Close out visits',
               sub: tileCounts.visits == null ? 'Checking…'
@@ -385,6 +389,12 @@ export default function OpsHome({
               sheet:'tasks' },
             { path:'/calendar',  icon:'📅', label:'Calendar', sub:"Who's booked, and how full" },
             { path:'/customers', icon:'🏠', label:'Clients',  sub:'History and open work' },
+            // Billing and the recap were rows in an Admin list most people
+            // never scrolled to. Billing is where the money is and the recap is
+            // the only screen that says whether the week produced anything —
+            // neither belongs behind "Admin tools".
+            { path:'/unbilled', icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
+            { path:'/recap',    icon:'📊', label:'This week', sub:'What actually got done' },
           ].map(t => (
             <button key={t.key || t.path}
               onClick={() => t.sheet ? setSheet(t.sheet) : go(t.path)}
@@ -421,8 +431,12 @@ export default function OpsHome({
                 ?lane= — see BoardView's expandedCol. Tapping "Scheduled · 31"
                 used to land on the top of the board with Triage open and those
                 31 cards somewhere below the fold. */}
+            {/* auto-FILL held 132px tracks open across the whole width, so on a
+                tablet the tiles stranded mid-row and on a desktop they sat in a
+                thin line with dead space beside them. auto-FIT collapses the
+                empty tracks and lets the six stretch to share the row. */}
             <div style={{ display:'grid', gap:9,
-                          gridTemplateColumns:'repeat(auto-fill, minmax(132px, 1fr))' }}>
+                          gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))' }}>
               {BOARD_TILES.map(t => {
                 const n = board[t.key] || 0;
                 return (
@@ -463,10 +477,11 @@ export default function OpsHome({
 
         {/* ══ 4. ADMIN TOOLS ══ */}
         {/* The screens you go to on purpose, not the ones that should be
-            shouting at you. Kept off the main flow deliberately — Event Audit
-            and Billing are where you go to FIX things, and the warning banner
-            above already tells you when that's needed. */}
-        {isOperator && (
+            shouting at you. NOW SUPER-ADMIN ONLY: Billing and the recap were
+            promoted to tiles above, so what is left here is repair tooling —
+            Event Audit, the tour, bulk operations. Shana and JR are operators
+            and have no reason to see any of it. */}
+        {isSuperAdmin && (
           <div data-tour="home-admin" style={{ padding:'22px 16px 0' }}>
             <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
               <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
@@ -483,10 +498,6 @@ export default function OpsHome({
                 // Clients moved to a primary button at the top of this screen
                 // and into the footer. Listing it here as well was the same
                 // duplication the board rollup had.
-                { path:'/unbilled', icon:'💵', label:'Billing',
-                  sub:'Every unbilled hour and material, by customer' },
-                { path:'/recap', icon:'📊', label:'Weekly Recap',
-                  sub:'Completed jobs, locations visited, who scheduled what' },
                 { action:'tour', icon:'🎓', label:'How this works',
                   sub:'Tasks, dispositions, Tent calendar, scheduling' },
                 // Backfill from calendar REMOVED. The bulk import it ran is

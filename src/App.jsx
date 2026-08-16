@@ -5,6 +5,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { CALENDARS, TECH_COLORS } from './config/calendars.js';
+import { supabase } from './services/supabase.js';
+import { emailsFor } from './utils/ownership.js';
 import TechCalendar from './views/TechCalendar.jsx';
 import OpsHome from './views/OpsHome.jsx';
 import MyDay from './views/MyDay.jsx';
@@ -595,6 +597,28 @@ export default function App() {
 
   // Super admin + the lens they're currently looking through.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
+
+  // Open tasks assigned to me, for the nav badge. Email told people a task had
+  // landed; nothing in the app itself did, so anyone who does not live in that
+  // mailbox found out whenever they next happened to look.
+  const [taskCount, setTaskCount] = useState(0);
+  useEffect(() => {
+    if (!isSignedIn || !userEmail) return;
+    let dead = false;
+    const tick = async () => {
+      try {
+        const mine = emailsFor(userEmail);
+        const { count } = await supabase.from('notes')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'open').neq('lane', 'done')
+          .in('assigned_to', mine.length ? mine : ['__none__']);
+        if (!dead) setTaskCount(count || 0);
+      } catch { /* a badge is not worth an error */ }
+    };
+    tick();
+    const t = setInterval(tick, 90000);   // cheap head-count, not a subscription
+    return () => { dead = true; clearInterval(t); };
+  }, [isSignedIn, userEmail, location.pathname]);
   const viewAsConfig = viewAs ? getUserConfig(viewAs) : null;
   // effectiveName drives which VIEW renders. userEmail (unchanged) drives every write.
   const effectiveName = viewAsConfig?.name || userName;
@@ -1026,8 +1050,23 @@ export default function App() {
             return (
               <button key={t.path} onClick={() => navigate(t.path)}
                 style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: active ? '#00c8e8' : '#8ea0b8', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                <span style={{ fontSize:20 }}>{t.icon}</span>
-                <span style={{ fontSize:9.5, fontWeight:700, whiteSpace:'nowrap' }}>{t.label}</span>
+                {/* TASKS CARRIES A COUNT AND SITS LARGER. It is the one tab
+                    that has a number attached — everything else is a place, but
+                    this is a pile that grows if nobody looks at it. */}
+                <span style={{ fontSize: t.path === '/tasks' ? 25 : 20, position:'relative' }}>
+                  {t.icon}
+                  {t.path === '/tasks' && taskCount > 0 && (
+                    <span style={{ position:'absolute', top:-3, right:-11, minWidth:16, height:16,
+                                   borderRadius:9, background:'#ff4f5e', color:'#fff',
+                                   fontSize:10, fontWeight:900, display:'flex',
+                                   alignItems:'center', justifyContent:'center', padding:'0 4px' }}>
+                      {taskCount > 9 ? '9+' : taskCount}
+                    </span>
+                  )}
+                </span>
+                <span style={{ fontSize: t.path === '/tasks' ? 10.5 : 9.5,
+                               fontWeight: t.path === '/tasks' ? 900 : 700,
+                               whiteSpace:'nowrap' }}>{t.label}</span>
               </button>
             );
           })}

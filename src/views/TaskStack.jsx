@@ -54,6 +54,26 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
   const [rows, setRows]   = useState(null);
   const [loose, setLoose] = useState(0);   // notes nobody owns
   const [q, setQ]         = useState('');   // client filter
+  // SKIP, SAME AS THE VISIT PROMPT. On the home screen you get ONE card, so a
+  // task you cannot act on right now blocks the two behind it. Skipping is not
+  // a status — nothing is written — it just moves this one to the back until
+  // tomorrow. Day-scoped in localStorage, dropped on read like DidYouGo's.
+  const [skips, setSkips] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('task_skips') || '{}');
+      const today = new Date().toLocaleDateString('en-CA');
+      return Object.fromEntries(Object.entries(raw).filter(([, d]) => d === today));
+    } catch { return {}; }
+  });
+  const skipTask = (id) => {
+    const next = { ...skips, [id]: new Date().toLocaleDateString('en-CA') };
+    setSkips(next);
+    try { localStorage.setItem('task_skips', JSON.stringify(next)); } catch {}
+  };
+  const clearSkips = () => {
+    setSkips({});
+    try { localStorage.removeItem('task_skips'); } catch {}
+  };
   // WHOSE STACK. People was the only screen that could answer "what does Shana
   // owe" and it is being retired, so that question moves here. Operators only —
   // a tech has no business reading somebody else's list, and for them this
@@ -167,14 +187,19 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     // screen — there is only "the next thing", so take To Do first and fall
     // through to Doing.
     const all = embedded
-      ? (buckets.todo.length ? buckets.todo : buckets.doing)
-      : (buckets[tab] || []);
+      ? (() => {
+          const live = n => !skips[n.id];
+          const todo = buckets.todo.filter(live);
+          const doing = buckets.doing.filter(live);
+          return todo.length ? todo : doing;
+        })()
+      : (buckets[tab] || []);   // the full list never hides anything
     const needle = q.trim().toLowerCase();
     if (!needle) return all;
     return all.filter(n =>
       (n._customer || '').toLowerCase().includes(needle) ||
       (n.body || '').toLowerCase().includes(needle));
-  }, [buckets, tab, q, embedded]);
+  }, [buckets, tab, q, embedded, skips]);
 
   const patch = async (n, fields, remove = true) => {
     setBusy(n.id);
@@ -331,6 +356,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
       </div>
 
       <div style={{ padding: embedded ? '10px 0 0' : '10px 16px 0' }}>
+        {embedded && rows != null && list.length === 0 && Object.keys(skips).length > 0 && (
+          <button onClick={clearSkips}
+            style={{ width: '100%', padding: '13px 0', borderRadius: 12, cursor: 'pointer',
+                     background: 'transparent', border: `1px solid ${C.line2}`, color: C.blue,
+                     fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+            {Object.keys(skips).length} skipped today · bring them back
+          </button>
+        )}
+
         {!embedded && rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
             {tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
@@ -460,6 +494,9 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                       onClick={() => markDoing(n)}>On it</Btn>
                   )}
                   <Btn onClick={() => setPanel({ id: n.id, mode: 'answer' })}>Answer</Btn>
+                  {embedded && (
+                    <Btn onClick={() => skipTask(n.id)}>Skip</Btn>
+                  )}
                 </div>
               )}
 

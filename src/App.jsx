@@ -617,12 +617,22 @@ export default function App() {
 
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
   const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
-  const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
+  // THE ADDRESS EVERY SCREEN READS AS.
+  // Declared HERE, above the role flags, because they use it. In 9.67.0 this
+  // lived 85 lines further down: legal JavaScript, compiles clean, and dies the
+  // moment the component runs — "Cannot access 'he' before initialization",
+  // where 'he' is this after minification. A white screen, not a build error.
+  //
+  // Reads use this. WRITES keep using userEmail, which is what the amber banner
+  // promises: "anything you save is recorded under your own name."
+  const readAsEmail = viewAs || userEmail;
+
+  const isRestricted = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
   useEffect(() => {
     if (userEmail && shouldShowTour(userEmail)) setShowTour(true);
   }, [userEmail]);
 
-  const isOperator = getUserConfig(userEmail).role === 'operator';
+  const isOperator = getUserConfig(readAsEmail).role === 'operator';
 
   // Super admin + the lens they're currently looking through.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
@@ -702,7 +712,7 @@ export default function App() {
   // Reads use this. WRITES keep using userEmail, which is what the amber
   // banner already promises: "anything you save is recorded under your own
   // name." Impersonation must never author on somebody else's behalf.
-  const readAsEmail = viewAs || userEmail;
+  // readAsEmail is declared ABOVE the role flags — see there.
   // effectiveName drives which VIEW renders. userEmail (unchanged) drives every write.
   const effectiveName = viewAsConfig?.name || userName;
 

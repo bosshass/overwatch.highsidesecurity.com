@@ -12,7 +12,7 @@
 import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { supabase, jobsApi, assignmentsApi, techsApi, JOB_STATUS } from '../services/supabase.js';
+import { supabase, jobsApi, assignmentsApi, techsApi, customersApi, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 // ── helpers ──────────────────────────────────────────────────
@@ -88,6 +88,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
 
   const [registry, setRegistry]   = useState([]);
   const [query, setQuery]         = useState('');
+  const [creating, setCreating]   = useState(false);
   const [selected, setSelected]   = useState(null);
   const [tagged, setTagged]       = useState([]);
   const [suggested, setSuggested] = useState([]);
@@ -233,6 +234,26 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     loadOpenWork(customer);
     loadNotes(customer);
   };
+
+  // Create the client, then OPEN it — so the next step (address, phone, CS
+  // number, QuickBooks id) is right there instead of a second search.
+  // createLoose returns an EXISTING row when the name, phone or street already
+  // matches, so this cannot mint a duplicate; you just land on the real one.
+  const createFromQuery = async () => {
+    const name = query.trim();
+    if (!name || creating) return;
+    setCreating(true);
+    try {
+      const created = await customersApi.createLoose({ name });
+      setQuery('');
+      pick(created);
+    } catch (e) {
+      alert(`Could not add the client: ${e.message}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
 
   const startEditDetails = () => {
     setEditForm({
@@ -530,9 +551,29 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               placeholder="Search a customer — name, code, CS#, address…"
               style={input}
             />
+            {/* YOU COULD NOT CREATE A CUSTOMER FROM THE CLIENTS SCREEN.
+                CustomerLookup has a working create form; this screen — the one
+                the Clients tab actually opens — had none. Searching a customer
+                who was not on file was a dead end: no result, no way forward.
+                The only route in was the New Job modal, which forces you to
+                invent a job you may not have. */}
             {query.trim() && matches.length === 0 && (
-              <div style={{ color: '#cbd5e1', fontSize: 13, marginTop: 14 }}>
-                No customer matches “{query.trim()}”. (Customer lookup searches all customers.)
+              <div style={{ marginTop: 14 }}>
+                <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 12 }}>
+                  No customer matches “{query.trim()}”.
+                </div>
+                <button onClick={createFromQuery} disabled={creating}
+                  style={{ width: '100%', padding: '13px 16px', borderRadius: 11,
+                           background: creating ? '#334155' : '#22c55e', border: 'none',
+                           color: creating ? '#94a3b8' : '#052e16', fontSize: 14.5,
+                           fontWeight: 900, cursor: creating ? 'default' : 'pointer',
+                           fontFamily: 'inherit' }}>
+                  {creating ? 'Creating…' : `+ Add “${query.trim()}” as a new client`}
+                </button>
+                <div style={{ color: '#64748b', fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
+                  Adds the name only. Open it afterwards to fill in address, phone,
+                  CS number and the QuickBooks id.
+                </div>
               </div>
             )}
             <div style={{ marginTop: 14 }}>

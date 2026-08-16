@@ -46,7 +46,7 @@ function parseIssueNotes(issue) {
 const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const FIELDS =
-  'id, event_title, event_start, tech_name, total_minutes, disposition, materials, notes, photos, customer_name_raw, calendar_event_id, customer_id, created_at, archived, archived_at, archived_by, archive_reason';
+  'id, event_title, event_start, tech_name, total_minutes, disposition, billed, billed_at, materials, notes, photos, customer_name_raw, calendar_event_id, customer_id, created_at, archived, archived_at, archived_by, archive_reason';
 
 // ONE VISIT, NOT THREE. Each card carries a disposition chip, tech, date,
 // hours, materials and the note body, so three of them is most of a phone
@@ -117,7 +117,16 @@ export default function FieldVisits({ job }) {
 
       {/* notes captured on Work Today (time_entries) */}
       {shownVisits.map(e => {
-        const d = dispo(e.disposition);
+        // A DISPOSITION IS WHAT THE TECH DECIDED. IT IS NOT THE CURRENT STATE.
+        // "Bill it" means "this should be invoiced" — and 169 of the 186
+        // bill_it entries HAVE been invoiced. Showing the disposition forever
+        // meant finished, paid work still shouted Bill it, which is exactly
+        // the stale-tag noise the calendar titles used to carry.
+        //
+        // Once it is billed, that is the fact worth showing.
+        const d = e.billed
+          ? { label: 'Billed', color: '#64748b', icon: '✓' }
+          : dispo(e.disposition);
         return (
           <div key={e.id} style={{ ...card, opacity: e.archived ? 0.78 : 1, borderColor: e.archived ? (isRealCost(e.archive_reason) ? '#f59e0b55' : '#47556955') : '#1e293b' }}>
             {e.archived && (

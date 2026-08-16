@@ -1018,7 +1018,7 @@ customersApi.createLoose = async function(partial, opts = {}) {
     // if it were the customer.
     const { data: existing } = await supabase
       .from('customers')
-      .select('id, name, short_code, address, cs_number')
+      .select('id, name, short_code, address, phone, cs_number')
       .is('merged_into', null)
       .limit(1000);
 
@@ -1027,6 +1027,26 @@ customersApi.createLoose = async function(partial, opts = {}) {
 
     const exact = (existing || []).find(c => norm(c.name) === target);
     if (exact) return exact;                       // same customer, already here
+
+    // SAME PHONE OR SAME STREET IS THE SAME CUSTOMER.
+    // The name check alone let Rick Ferreri exist THREE times — "Rick Ferreri",
+    // "FERRERI, RICK" and "Sales Rick Ferrari" share no normalised name, so
+    // nothing matched. All three carried 3021 Morab Ct. Five duplicate pairs
+    // found on 2026-08-16 were all caught by phone or street, none by name.
+    const digits = s => (s || '').replace(/\D/g, '').slice(-10);
+    const street = s => (s || '').split(',')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const wantPhone = digits(partial.phone);
+    if (wantPhone.length === 10) {
+      const byPhone = (existing || []).find(c => digits(c.phone) === wantPhone);
+      if (byPhone) return byPhone;
+    }
+
+    const wantStreet = street(partial.address);
+    if (wantStreet.length > 6) {
+      const byStreet = (existing || []).find(c => street(c.address) === wantStreet);
+      if (byStreet) return byStreet;
+    }
 
     // Deliberately NOT importing utils/fuzzyMatch.js: that module imports THIS
     // one, and a circular import can leave the function undefined at init.

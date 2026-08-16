@@ -1065,6 +1065,15 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                 onOpenEvent={openEvent}
                 onNavigate={(to) => navigate(to)}
                 showUtilization
+                onStepWeek={(d) => setWeekOffset(d === 0 ? 0 : w => w + d)}
+                onStepDay={(d) => {
+                  setSelectedDay(prev => {
+                    const next = prev + d;
+                    if (next < 0) { setWeekOffset(w => w - 1); return 6; }
+                    if (next > 6) { setWeekOffset(w => w + 1); return 0; }
+                    return next;
+                  });
+                }}
               />
             </div>
           )}

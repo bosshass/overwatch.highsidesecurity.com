@@ -186,6 +186,8 @@ export default function CalendarTechDay({
   weekDates = null,        // when present, the Week toggle is available
   showUtilization = false, // utilisation lives in the Tasks tab, not on the calendar
   onRangeChange,           // so the header arrows know whether to step a day or a week
+  onStepWeek,              // utilisation has no header of its own — see below
+  onStepDay,               // ditto for the day view
 }) {
   // DAY vs WEEK are two different questions and they want two different
   // pictures. Day answers WHERE things sit — a grid you place work on. Week
@@ -326,7 +328,8 @@ export default function CalendarTechDay({
           else if (new Date(e.end) < now) acc.missing += hoursOf(e);
           return acc;
         }, { hrs: 0, missing: 0 });
-        return { date: d, booked, ...log };
+        return { date: d, booked, ...log,
+                 titles: mine.map(e => (e.summary || '').split('—')[0].trim()).filter(Boolean) };
       });
       // CAPACITY IS ONLY THE DAYS THAT HAVE HAPPENED.
       // This was daily x 5 flat, so on a Wednesday three days of booked hours
@@ -377,6 +380,51 @@ export default function CalendarTechDay({
       {/* ── UTILISATION ROW ─────────────────────────────────────────────── */}
       {/* WHICH WEEK. The panel showed percentages with no dates on them, so
           there was no way to tell this week from next. */}
+      {/* WEEK NAV LIVES HERE. The arrows are in the Calendar tab's header, which
+          does not render on the Utilization tab — so you could read a week and
+          never leave it. Last week is the one that matters: this week is half
+          unhappened, and you cannot judge anybody on it. */}
+      {/* DAY NAV. The week buttons only moved weeks, so in Day mode you were
+          stuck on whatever day the calendar tab happened to be on. */}
+      {showUtilization && range === 'day' && onStepDay && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 9, alignItems: 'center' }}>
+          <button onClick={() => onStepDay(-1)}
+            style={{ padding: '9px 15px', borderRadius: 9, cursor: 'pointer',
+                     background: 'transparent', border: '1px solid #263a55',
+                     color: '#8ea0b8', fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>‹</button>
+          <div style={{ flex: 1, textAlign: 'center', fontSize: 13.5, fontWeight: 800 }}>
+            {date?.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+          <button onClick={() => onStepDay(1)}
+            style={{ padding: '9px 15px', borderRadius: 9, cursor: 'pointer',
+                     background: 'transparent', border: '1px solid #263a55',
+                     color: '#8ea0b8', fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>›</button>
+        </div>
+      )}
+
+      {showUtilization && range === 'week' && weekDates?.length > 0 && onStepWeek && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 9 }}>
+          <button onClick={() => onStepWeek(-1)}
+            style={{ flex: 1, padding: '9px 0', borderRadius: 9, cursor: 'pointer',
+                     background: 'transparent', border: '1px solid #263a55',
+                     color: '#8ea0b8', fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+            ‹ Last week
+          </button>
+          <button onClick={() => onStepWeek(0)}
+            style={{ flex: 1, padding: '9px 0', borderRadius: 9, cursor: 'pointer',
+                     background: 'transparent', border: '1px solid #263a55',
+                     color: '#8ea0b8', fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+            This week
+          </button>
+          <button onClick={() => onStepWeek(1)}
+            style={{ flex: 1, padding: '9px 0', borderRadius: 9, cursor: 'pointer',
+                     background: 'transparent', border: '1px solid #263a55',
+                     color: '#8ea0b8', fontSize: 13, fontWeight: 800, fontFamily: 'inherit' }}>
+            Next ›
+          </button>
+        </div>
+      )}
+
       {showUtilization && weekDates?.length > 0 && (
         <div style={{ fontSize: 12.5, fontWeight: 800, color: '#8ea0b8', marginBottom: 7 }}>
           {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -462,8 +510,30 @@ export default function CalendarTechDay({
                   </span>
                   <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800,
                                  color: missing > 0.25 ? '#ff4f5e' : '#64748b' }}>
-                    {missing > 0.25 ? `${missing.toFixed(1)}h never logged` : `${hrs.toFixed(1)}h logged`}
+                    {missing > 0.25
+                      ? `${missing.toFixed(1)}h never logged`
+                      : hrs > 0 && !weekHasToday && weekDates[0] > new Date()
+                        // Nothing stops the finish sheet writing hours against a
+                        // FUTURE event, so a week that has not happened can carry
+                        // logged time. Say so rather than letting it read as work
+                        // already done.
+                        ? `${hrs.toFixed(1)}h logged early`
+                        : `${hrs.toFixed(1)}h logged`}
                   </span>
+                </div>
+
+                {/* WHAT THE HOURS ARE. "40 of 40" told you a number and nothing
+                    about what filled it, so a week that looks full on this
+                    screen and empty on the calendar had no explanation. */}
+                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(() => {
+                    const names = perDay.flatMap(d => d.titles || []);
+                    return names.length ? names.slice(0, 4).join(' · ') + (names.length > 4 ? ` +${names.length - 4}` : '')
+                                        : 'nothing booked';
+                  })()}
+                </div>
+                <div style={{ display: 'none' }}>
                 </div>
                 <div style={{ height: 5, borderRadius: 3, background: '#1e293b', overflow: 'hidden' }}>
                   <div style={{ width: `${pct * 100}%`, height: '100%', background: tone }} />

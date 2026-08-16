@@ -49,7 +49,7 @@ function ResultCard({ onClick, children }) {
 
 export default function GlobalSearch({ onClose, onNavigate }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState({ jobs: [], entries: [], todos: [] });
+  const [results, setResults] = useState({ customers: [], jobs: [], entries: [], todos: [] });
   const [loading, setLoading] = useState(false);
   const inputRef = useRef(null);
 
@@ -57,7 +57,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults({ jobs: [], entries: [], todos: [] }); return; }
+    if (q.length < 2) { setResults({ customers: [], jobs: [], entries: [], todos: [] }); return; }
     const timer = setTimeout(() => doSearch(q), 280);
     return () => clearTimeout(timer);
   }, [query]);
@@ -71,7 +71,7 @@ export default function GlobalSearch({ onClose, onNavigate }) {
     // NOTE: the Supabase query builder is a thenable, NOT a Promise — it has no
     // .catch(). Await each query inside try/catch instead, or one bad query kills
     // the whole search (this was the "search totally broke" bug).
-    let jobs = [], entries = [];
+    let jobs = [], entries = [], customers = [];
     if (safe.length >= 2) {
       try {
         // Search the CUSTOMERS table and fold its ids into the job query.
@@ -81,11 +81,19 @@ export default function GlobalSearch({ onClose, onNavigate }) {
         // either, so a job could not be found by what it actually says.
         let custIds = [];
         try {
+          // A CUSTOMER IS A RESULT, NOT JUST A JOB FILTER.
+          // This fetched customers only to narrow the JOB query, then threw
+          // them away — so a customer with no OPEN job was invisible to search
+          // even though the section is labelled "Customers / Jobs". Searching
+          // "Fox" returned nothing while Clients found both records instantly,
+          // because neither has an open job.
           const { data: cust } = await supabase.from('customers')
-            .select('id').is('merged_into', null)
+            .select('id, name, short_code, address, phone, cs_number')
+            .is('merged_into', null)
             .or(`name.ilike.%${safe}%,short_code.ilike.%${safe}%,address.ilike.%${safe}%,phone.ilike.%${safe}%`)
             .limit(40);
           custIds = (cust || []).map(c => c.id);
+          customers = (cust || []).slice(0, 8);
         } catch (e) { console.warn('Customer search failed:', e); }
 
         const ors = [`p_number.ilike.%${safe}%,customer_name.ilike.%${safe}%,customer_phone.ilike.%${safe}%,customer_address.ilike.%${safe}%`, `issue.ilike.%${safe}%`];
@@ -124,11 +132,11 @@ export default function GlobalSearch({ onClose, onNavigate }) {
       ).slice(0, 5);
     } catch { /**/ }
 
-    setResults({ jobs, entries, todos });
+    setResults({ customers, jobs, entries, todos });
     setLoading(false);
   };
 
-  const total = results.jobs.length + results.entries.length + results.todos.length;
+  const total = results.customers.length + results.jobs.length + results.entries.length + results.todos.length;
   const hasQuery = query.trim().length >= 2;
 
   return (
@@ -179,8 +187,31 @@ export default function GlobalSearch({ onClose, onNavigate }) {
           </div>
         )}
 
+        {/* CUSTOMERS FIRST. Searching for a person should find the PERSON,
+            whether or not they have work open right now. Two records with the
+            same name and different cs_numbers are two real locations, so the
+            address and CS number are shown to tell them apart. */}
+        {results.customers.length > 0 && (
+          <Section label={`Clients (${results.customers.length})`}>
+            {results.customers.map(c => (
+              <ResultCard key={c.id} onClick={() => { onNavigate(`/customers?name=${encodeURIComponent(c.name || '')}`); onClose(); }}>
+                <div style={{ display:'flex', alignItems:'baseline', gap:8 }}>
+                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14, flex:1 }}>{c.name}</div>
+                  {c.short_code && <Chip color="#38bdf8">{c.short_code}</Chip>}
+                </div>
+                {c.address && (
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>📍 {c.address}</div>
+                )}
+                {c.cs_number && (
+                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>CS {c.cs_number}</div>
+                )}
+              </ResultCard>
+            ))}
+          </Section>
+        )}
+
         {results.jobs.length > 0 && (
-          <Section label={`Customers / Jobs (${results.jobs.length})`}>
+          <Section label={`Open work (${results.jobs.length})`}>
             {results.jobs.map(j => (
               <ResultCard key={j.id} onClick={() => { onNavigate(`/customers?name=${encodeURIComponent(j.customer_name || '')}`); onClose(); }}>
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{j.customer_name}</div>

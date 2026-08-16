@@ -265,8 +265,24 @@ Scope of Work: `;
         }
       }
       const willSchedule = assignedTo && scheduleDate && scheduleTime;
+
+      // ONE SOURCE FOR WHO THIS IS.
+      // customer_id came from the PICKED customer while customer_name came from
+      // the free-text search box — and typing in that box after selecting
+      // overwrites the name without clearing the id. Pick "Jeanneret", then
+      // edit the text to "LAIRD HEIKENS", and you get a Heikens job filed
+      // against Jeanneret's record: it shows on HER customer page, in HER
+      // history, and it invoices under HER name. Three live rows in the
+      // database got here that way, one of them already billed.
+      //
+      // If an id was resolved, the NAME COMES FROM THE ID. The typed text is
+      // only trusted when there is no id — i.e. a genuinely new customer.
+      const resolvedName = (selectedCustomer && selectedCustomer.id === customerId)
+        ? selectedCustomer.name
+        : form.customer_name.trim();
+
       const job = await jobsApi.create({
-        customer_id: customerId, customer_name: form.customer_name.trim(), customer_address: form.customer_address,
+        customer_id: customerId, customer_name: resolvedName, customer_address: form.customer_address,
         customer_phone: form.customer_phone, job_type: form.job_type, priority: form.priority,
         issue: [form.issue, form.photoLink.trim() ? `📎 Photos: ${form.photoLink.trim()}` : ''].filter(Boolean).join('\n\n'),
         gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id,
@@ -685,7 +701,14 @@ Scope of Work: `;
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Customer *</label>
           <input value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setShowCustomerSearch(true); setSelectedCustomer(null); setForm(f => ({ ...f, customer_name: e.target.value })); }}
+            onChange={e => {
+              // Editing the text after picking somebody DISCARDS the pick. It
+              // already cleared selectedCustomer but left customerId set, which
+              // is what let the two disagree.
+              setSearchQuery(e.target.value); setShowCustomerSearch(true);
+              setSelectedCustomer(null);   // customerId derives from this
+              setForm(f => ({ ...f, customer_name: e.target.value }));
+            }}
             placeholder="Search or type new customer name..." autoFocus style={fieldStyle} />
           {showCustomerSearch && customers.length > 0 && (
             <div style={{ background: '#1e293b', borderRadius: '8px', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', border: '1px solid #334155' }}>

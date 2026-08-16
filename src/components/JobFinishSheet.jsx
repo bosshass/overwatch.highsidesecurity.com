@@ -312,7 +312,20 @@ export default function JobFinishSheet({
   const effectiveDispo = mode === 'full' ? selectedDispo : 'bill_it';
   const needsReason    = effectiveDispo === 'return';
   const reasonOk       = !needsReason || returnReason.trim().length > 0;
-  const readyToFinish  = canFinish && !!effectiveDispo && reasonOk;
+  // YOU CANNOT SAY WHAT HAPPENED AT A VISIT THAT HAS NOT HAPPENED.
+  // Nothing checked the date, so an event on next Monday could be dispositioned
+  // "Bill it" today — which writes billable hours against work nobody has done
+  // and puts them in front of accounting as ready to invoice. That is how
+  // KING TECH TEST ended up with 6 hours logged on a future Monday and another
+  // row at 0.0h marked bill_it.
+  //
+  // A WARNING, NOT A BLOCK. Somebody finishing a job at 11pm whose event was
+  // logged for tomorrow morning is a real case, and so is testing. It just has
+  // to be deliberate.
+  const eventInFuture = event?.start && new Date(event.start) > new Date();
+  const [futureOk, setFutureOk] = useState(false);
+  const readyToFinish  = canFinish && !!effectiveDispo && reasonOk
+                         && (!eventInFuture || futureOk);
 
   const handleFinish = () => {
     if (!effectiveDispo) { setError('Pick how the job ended first.'); return; }
@@ -517,6 +530,26 @@ export default function JobFinishSheet({
         onChange={setLinkedCust}
       />
 
+      {eventInFuture && !futureOk && (
+        <div style={{ background:'#2a1f08', border:'1px solid #f59e0b', borderRadius:10,
+                      padding:'12px 14px', marginBottom:10 }}>
+          <div style={{ color:'#fbbf24', fontSize:13.5, fontWeight:800, marginBottom:5 }}>
+            This visit hasn't happened yet
+          </div>
+          <div style={{ color:'#fcd9a0', fontSize:12.5, lineHeight:1.45, marginBottom:10 }}>
+            It's scheduled for {new Date(event.start).toLocaleDateString('en-US',
+              { weekday:'long', month:'short', day:'numeric' })}. Closing it out now writes
+            hours against work nobody has done yet.
+          </div>
+          <button onClick={() => setFutureOk(true)}
+            style={{ background:'transparent', border:'1px solid #f59e0b', borderRadius:8,
+                     color:'#fbbf24', fontSize:12.5, fontWeight:800, padding:'8px 14px',
+                     cursor:'pointer', fontFamily:'inherit' }}>
+            I know — let me close it anyway
+          </button>
+        </div>
+      )}
+
       {error && <div style={errorBox}>{error}</div>}
 
       {/* Single commit button */}
@@ -524,6 +557,7 @@ export default function JobFinishSheet({
         <button onClick={handleFinish} disabled={!readyToFinish} style={btnFinish(readyToFinish)}>
           {acting ? 'Saving…'
             : !effectiveDispo ? 'Pick an outcome above'
+            : eventInFuture && !futureOk ? "This visit hasn't happened yet"
             : !notesValid ? 'Add notes to finish'
             : needsReason && !reasonOk ? 'Add a return reason'
             : 'Finish job'}

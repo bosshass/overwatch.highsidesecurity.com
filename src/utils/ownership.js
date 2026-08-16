@@ -52,6 +52,11 @@ export const PHONE_BY_EMAIL = Object.fromEntries(
 export const LOGIN_ALIASES = {
   'accounting@drhsecurityservices.com': 'admin@jnbservice.com',
   'sara@jnbservice.com':                'admin@jnbservice.com',
+  // Sara's DRH login resolves to the SAME person, not a new one. Aliasing
+  // instead of adding a second ASSIGNEES row is what stops a second "Sara"
+  // appearing in every picker and splitting her work across two identities —
+  // exactly how Rick Ferreri ended up with three records.
+  'sara@drhsecurityservices.com':       'admin@jnbservice.com',
   'sara@jnbllc.com':                    'admin@jnbservice.com',
   'drhservicetech1@gmail.com':          'austin@drhsecurityservices.com',
 };

@@ -54,6 +54,7 @@ export const ASKS = [
   // field hours occasionally, so this is not purely a test affordance.
   'admin@jnbservice.com',
   'sara@jnbllc.com',
+  'sara@drhsecurityservices.com',
 ];
 
 // Hours a service call actually takes, so the common case is one tap.

@@ -60,6 +60,7 @@ const AUSTIN_EMAILS  = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices
 const JR_EMAILS      = ['jr@drhsecurityservices.com'];
 const BRIAN_EMAILS   = ['brian@drhsecurityservices.com'];
 const SHANA_EMAILS   = ['shanaparks@drhsecurityservices.com'];
+const SARA_EMAILS    = ['sara@drhsecurityservices.com'];
 const TREVOR_EMAILS  = ['trevor@drhsecurityservices.com'];
 const SUBS_EMAILS    = ['subs@drhsecurityservices.com'];
 
@@ -126,7 +127,10 @@ export const SYNC_CALENDARS = [
     id: CALENDARS.SALES_ACCOUNTING,
     name: 'Sales & Accounting',
     type: 'sales',
-    visibleTo: null, // operators only
+    // visibleTo null means OPERATORS ONLY. Sara's DRH login is a TECH profile,
+    // so without naming her here she would sign in and see nothing at all —
+    // the same empty-calendar failure accounting@ and Shana both hit.
+    visibleTo: SARA_EMAILS,
   },
   {
     id: CALENDARS.COMPLETED,
@@ -212,6 +216,7 @@ export const TECH_CALENDAR_MAP = {
   'info@drhsecurityservices.com':       CALENDARS.SALES_ACCOUNTING,
   'sara@jnbllc.com':                    CALENDARS.SALES_ACCOUNTING,
   'admin@jnbservice.com':               CALENDARS.SALES_ACCOUNTING,
+  'sara@drhsecurityservices.com':       CALENDARS.SALES_ACCOUNTING,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
   'trevor@drhsecurityservices.com':     CALENDARS.INSTALLATIONS,
   'subs@drhsecurityservices.com':       CALENDARS.SUBS,

@@ -83,6 +83,12 @@ const USER_CONFIG = {
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: 'work' },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
   'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'board', superAdmin: true },
+  // Sara on the DRH domain, as a TECH profile: her own calendar, My Day as the
+  // landing, no board. She keeps admin@jnbservice.com and accounting@ for ops.
+  // NOTE: an unknown email silently defaults to role 'tech' with no calendars
+  // and no task ownership, so adding a login here is only ONE of the six lists
+  // that have to agree — see the others changed alongside this.
+  'sara@drhsecurityservices.com':     { name: 'Sara',   role: 'tech',     defaultCalendar: 'Sara', defaultView: 'my' },
 };
 
 // Identity options for shared logins like info@
@@ -616,7 +622,10 @@ export default function App() {
   }, [isSignedIn, silentRefresh, handleSignOut]);
 
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
-  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
+  // RESTRICTED = a field tech. No board, no billing, no roll-ups, no calendar
+  // filter row — just their own calendar and their own work. This is the list
+  // that actually locks the app down; USER_CONFIG role 'tech' alone does not.
+  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com', 'sara@drhsecurityservices.com'];
   // THE ADDRESS EVERY SCREEN READS AS.
   // Declared HERE, above the role flags, because they use it. In 9.67.0 this
   // lived 85 lines further down: legal JavaScript, compiles clean, and dies the

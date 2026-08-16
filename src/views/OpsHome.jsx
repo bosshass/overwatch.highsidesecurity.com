@@ -308,7 +308,11 @@ export default function OpsHome({
               style={{ width:38, height:38, borderRadius:13, background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', fontWeight:900, fontSize:15, cursor:'pointer' }}>▶</button>
             <button onClick={() => { loadPeople(); }}
               style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.text, fontWeight:900, fontSize:16, cursor:'pointer' }}>↻</button>
-            {isOperator && (
+            {/* NEVER role-gated. isOperator follows the IMPERSONATED user, so
+                viewing as a tech removed sign-out entirely — and the person
+                switcher lives on the board, which a tech cannot open. That is
+                a locked door with the key on the other side. */}
+            {(
               <button onClick={onSignOut}
                 style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.muted, fontWeight:900, fontSize:13, cursor:'pointer' }}>⏻</button>
             )}
@@ -566,7 +570,7 @@ export default function OpsHome({
           </div>
         )}
 
-        {isOperator && (
+        {(
           <div style={{ padding:'26px 16px 0', textAlign:'center' }}>
             <button onClick={onSignOut} style={{ background:'none', border:'none', color:C.muted, fontSize:12, cursor:'pointer' }}>sign out</button>
           </div>

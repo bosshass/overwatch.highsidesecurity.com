@@ -415,8 +415,13 @@ export default function OpsHome({
             // never scrolled to. Billing is where the money is and the recap is
             // the only screen that says whether the week produced anything —
             // neither belongs behind "Admin tools".
-            { path:'/unbilled', icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
-            { path:'/recap',    icon:'📊', label:'This week', sub:'What actually got done' },
+            // Money and the weekly recap are operator work. A field tech has no
+            // reason to see unbilled totals for the whole shop, and every tile
+            // here was rendering for everybody.
+            ...(isOperator ? [
+              { path:'/unbilled', icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
+              { path:'/recap',    icon:'📊', label:'This week', sub:'What actually got done' },
+            ] : []),
           ].map(t => (
             <button key={t.key || t.path}
               onClick={() => t.sheet ? setSheet(t.sheet) : go(t.path)}
@@ -437,7 +442,12 @@ export default function OpsHome({
         {/* Was a red "Not in Overwatch — will not bill" panel driven by a live
             Google scan. It counted upcoming schedule as lost revenue and could
             not be right. What matters on open is the shape of the board. */}
-        {board && (
+        {/* OPERATOR ONLY. This whole block is shop-wide: every open job, the
+            oldest untouched item, and a tile per column that deep-links into
+            the board — which a tech cannot open anyway. It was ungated, so
+            Austin's home showed him 21 scheduled and 13 to bill across the
+            whole company. */}
+        {board && isOperator && (
           <div style={{ margin:'16px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:11 }}>
               <span style={{ fontSize:12, fontWeight:900, letterSpacing:'0.1em',
@@ -503,7 +513,13 @@ export default function OpsHome({
             promoted to tiles above, so what is left here is repair tooling —
             Event Audit, the tour, bulk operations. Shana and JR are operators
             and have no reason to see any of it. */}
-        {isSuperAdmin && (
+        {/* isSuperAdmin deliberately follows the SIGNED-IN account, not the
+            impersonated one — it gates the person-swapper itself, so tying it
+            to viewAs would strip your way back. The consequence is that Admin
+            tools stays visible while you view as Austin. He does NOT see it on
+            his own phone. Hiding it during impersonation too, so the preview is
+            honest. */}
+        {isSuperAdmin && isOperator && (
           <div data-tour="home-admin" style={{ padding:'22px 16px 0' }}>
             <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
               <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>

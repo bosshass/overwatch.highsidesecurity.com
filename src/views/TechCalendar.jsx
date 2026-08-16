@@ -125,7 +125,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   });
   // LANDS ON TECHS. One column per person is the only layout where utilisation
   // is legible without being computed — a half-empty column IS spare capacity.
-  const [calViewMode, setCalViewMode] = useState('techs');
+  const [calViewMode, setCalViewMode] = useState('week');
   const todayRef = new Date();
   todayRef.setHours(0, 0, 0, 0);
   const [selectedDay, setSelectedDay] = useState(todayRef.getDay() === 0 ? 6 : todayRef.getDay() - 1);
@@ -580,6 +580,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
 
   // ========== TECH FILTER PILLS (shared) ==========
   const renderTechFilters = () => {
+    // A TECH DOES NOT FILTER CALENDARS. Austin sees his own work; toggling
+    // other people's on and off is an ops concern, and every one of tonight's
+    // blank-calendar bugs came from a saved filter hiding everything. Give him
+    // nothing to switch off.
+    if (isRestricted) return null;
     const allCals = USER_CALENDARS.filter(c => c.type !== 'completed');
     return (
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, marginBottom: 16 }}>
@@ -609,11 +614,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   // ========== VIEW TOGGLE ==========
   const renderViewToggle = () => (
     <div style={{ display: 'flex', gap: 0, background: '#1e293b', borderRadius: 20, overflow: 'hidden' }}>
-      <button onClick={() => setCalViewMode('techs')} style={{
-        background: calViewMode === 'techs' ? '#3b82f6' : 'transparent',
-        color: calViewMode === 'techs' ? '#fff' : '#64748b',
-        border: 'none', padding: '7px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600, borderRadius: 20
-      }}>Techs</button>
+      {/* "TECHS" IS GONE. It rendered the same week grid as Week, colour-coded
+          the same way, off the same data — three buttons where two do the job,
+          and nobody could say what the difference was. The mode still exists
+          internally so old saved state does not break; it just falls through
+          to the week grid. */}
       <button onClick={() => setCalViewMode('week')} style={{
         background: calViewMode === 'week' ? '#3b82f6' : 'transparent',
         color: calViewMode === 'week' ? '#fff' : '#64748b',

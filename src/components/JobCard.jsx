@@ -116,6 +116,25 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
           {job.customer_name || 'Unknown Customer'}
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+          {/* THE DATE THE COLUMN IS SORTED BY. Scheduled now orders by when the
+              work happens, but the card never showed that date — so a correctly
+              sorted column still looked arbitrary. Overdue in red: a booked day
+              that came and went is the thing that needs somebody. */}
+          {job.scheduled_date && (() => {
+            const d = new Date(job.scheduled_date + 'T12:00:00');
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const past = d < today;
+            const isToday = d.toDateString() === new Date().toDateString();
+            return (
+              <span style={{ fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap',
+                             color: past ? '#ff4f5e' : isToday ? '#22d16f' : '#93c5fd',
+                             background: past ? '#ff4f5e15' : isToday ? '#22d16f15' : '#93c5fd12',
+                             padding: '1px 6px', borderRadius: '4px' }}>
+                {isToday ? 'today'
+                  : d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}
+              </span>
+            );
+          })()}
           {taskOwners.length > 0 && (
             <span title={`Task with ${taskOwners.join(', ')}`}
               style={{ color: '#c4a6ff', fontSize: '11px', fontWeight: 900,

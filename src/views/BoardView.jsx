@@ -1013,7 +1013,38 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   // that somebody left a comment on yesterday is still a stale job; letting a
   // note push it down the column is exactly how it gets lost again. The
   // staleness pulse already flags neglect separately.
+  // EACH COLUMN SORTS BY THE THING THAT COLUMN IS ABOUT.
+  // Everything except Tentative sorted by created_at — the date the ROW was
+  // typed, which has nothing to do with when the work happens. So Scheduled
+  // put a job booked for next Friday above one booked last Tuesday, purely
+  // because somebody entered it first, and the column read as random.
+  //
+  //   Scheduled     -> the DATE IT HAPPENS, soonest first. Overdue at the top,
+  //                    because a booked day that came and went is the thing
+  //                    that needs a person, not next week's work.
+  //   Returns       -> oldest waiting first. The customer has been waiting
+  //                    since the first visit, not since the row was made.
+  //   Estimates     -> oldest first. Age IS the problem there; they average
+  //                    100 days.
+  //   Everything    -> oldest first, unchanged. In a queue nobody has picked
+  //     else           up, the longest wait genuinely does come first.
   const byOldest = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0);
+
+  const byWhenItHappens = (a, b) => {
+    const da = a.scheduled_date ? new Date(a.scheduled_date) : null;
+    const db = b.scheduled_date ? new Date(b.scheduled_date) : null;
+    // A scheduled job with no date is broken and belongs at the top where
+    // somebody will see it, not sorted silently to the bottom.
+    if (!da && !db) return byOldest(a, b);
+    if (!da) return -1;
+    if (!db) return 1;
+    return da - db;
+  };
+
+  const byLongestWaiting = (a, b) => {
+    const key = j => new Date(j.scheduled_date || j.updated_at || j.created_at || 0);
+    return key(a) - key(b);
+  };
 
   const buckets = COLUMNS.reduce((acc, col) => {
     if (col.virtual === 'tentative') {
@@ -1029,7 +1060,9 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     acc[col.key] = filtered
       .filter(j => col.statuses.includes(j.status))
       .filter(j => !isHeld(j))
-      .sort(byOldest);
+      .sort(col.statuses.includes('scheduled') ? byWhenItHappens
+          : col.statuses.includes('return_pending') ? byLongestWaiting
+          : byOldest);
     return acc;
   }, {});
 

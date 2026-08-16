@@ -10,4 +10,4 @@
 //
 // version.json is now GENERATED from this file by scripts/sync-version.mjs,
 // which runs on every build. Bump it here and nowhere else.
-export const APP_VERSION = '9.57.1';
+export const APP_VERSION = '9.58.0';

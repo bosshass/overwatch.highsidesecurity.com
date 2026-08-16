@@ -69,10 +69,12 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     const next = { ...skips, [id]: new Date().toLocaleDateString('en-CA') };
     setSkips(next);
     try { localStorage.setItem('task_skips', JSON.stringify(next)); } catch {}
+    window.dispatchEvent(new Event('task-skips-changed'));   // badge, now
   };
   const clearSkips = () => {
     setSkips({});
     try { localStorage.removeItem('task_skips'); } catch {}
+    window.dispatchEvent(new Event('task-skips-changed'));
   };
   // WHOSE STACK. People was the only screen that could answer "what does Shana
   // owe" and it is being retired, so that question moves here. Operators only —
@@ -193,7 +195,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
           const doing = buckets.doing.filter(live);
           return todo.length ? todo : doing;
         })()
-      : (buckets[tab] || []);   // the full list never hides anything
+      : (buckets[tab] || []);   // the full list never hides anything — see below
     const needle = q.trim().toLowerCase();
     if (!needle) return all;
     return all.filter(n =>
@@ -365,6 +367,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
           </button>
         )}
 
+        {!embedded && Object.keys(skips).length > 0 && (
+          <button onClick={clearSkips}
+            style={{ width: '100%', padding: '11px 0', borderRadius: 10, cursor: 'pointer',
+                     background: 'transparent', border: `1px solid ${C.line2}`, color: C.blue,
+                     fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit', marginBottom: 10 }}>
+            {Object.keys(skips).length} skipped today · un-skip them
+          </button>
+        )}
+
         {!embedded && rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
             {tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
@@ -494,9 +505,10 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                       onClick={() => markDoing(n)}>On it</Btn>
                   )}
                   <Btn onClick={() => setPanel({ id: n.id, mode: 'answer' })}>Answer</Btn>
-                  {embedded && (
-                    <Btn onClick={() => skipTask(n.id)}>Skip</Btn>
-                  )}
+                  {/* Skip is on the FULL LIST too now. It was embedded-only,
+                      so the only way to clear the badge was through the
+                      one-at-a-time home card. */}
+                  <Btn onClick={() => skipTask(n.id)}>Skip</Btn>
                 </div>
               )}
 

@@ -304,7 +304,11 @@ export default function CalendarTechDay({
     // Hard-filtered here rather than relying on the calendar checkboxes: those
     // are remembered per user in localStorage, so an old selection kept ten
     // rows on screen long after the default changed.
-    const field = calendars.filter(c => FIELD_TECHS.includes(c.name));
+    // Same trap as the calendar filter: a one-calendar user has none of the
+    // four field names, so this emptied and the panel drew nothing.
+    const field = calendars.length <= 2
+      ? calendars
+      : calendars.filter(c => FIELD_TECHS.includes(c.name));
     // If none of the four are present — a tech looking at their own calendar —
     // measure whoever IS here rather than rendering an empty panel.
     return (field.length ? field : calendars).map(cal => {

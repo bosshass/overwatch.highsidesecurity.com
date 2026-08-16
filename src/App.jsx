@@ -598,6 +598,27 @@ export default function App() {
   // Super admin + the lens they're currently looking through.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
 
+  // FORCE THE GATE. Set this key and every shared-login device drops its saved
+  // identity on next load, so JR and Shana get asked who they are — and told
+  // to stop using the shared login — instead of silently continuing as the
+  // mailbox. Bumped by accounting from Admin tools after the test pass.
+  useEffect(() => {
+    if (!isSignedIn || !userEmail) return;
+    (async () => {
+      try {
+        const { data } = await supabase.from('settings')
+          .select('value').eq('key', 'force_identity_after').maybeSingle();
+        const stamp = data?.value?.at || data?.value;
+        if (!stamp) return;
+        const seen = localStorage.getItem('ow_identity_forced_at');
+        if (seen === String(stamp)) return;
+        localStorage.removeItem(`juce_identity_${userEmail}`);
+        localStorage.setItem('ow_identity_forced_at', String(stamp));
+        window.location.reload();
+      } catch { /* never block the app on this */ }
+    })();
+  }, [isSignedIn, userEmail]);
+
   // Open tasks assigned to me, for the nav badge. Email told people a task had
   // landed; nothing in the app itself did, so anyone who does not live in that
   // mailbox found out whenever they next happened to look.
@@ -608,18 +629,51 @@ export default function App() {
     const tick = async () => {
       try {
         const mine = emailsFor(userEmail);
-        const { count } = await supabase.from('notes')
-          .select('id', { count: 'exact', head: true })
+        // Fetch the IDS, not a count, so today's skips can be subtracted.
+        // The badge read straight from the database and skips live in
+        // localStorage, so the two never talked: you could skip everything and
+        // the 7 sat there all day telling you to look at work you had already
+        // said "not now" to. That is how a badge gets ignored permanently —
+        // and JR and Shana would have been the first to say so.
+        const { data } = await supabase.from('notes')
+          .select('id')
           .eq('status', 'open').neq('lane', 'done')
           .in('assigned_to', mine.length ? mine : ['__none__']);
-        if (!dead) setTaskCount(count || 0);
+
+        let skipped = {};
+        try {
+          const raw = JSON.parse(localStorage.getItem('task_skips') || '{}');
+          const today = new Date().toLocaleDateString('en-CA');
+          // Day-scoped: yesterday's skips are dropped on read, so anything
+          // still open comes back tomorrow morning. Skipping is "not now",
+          // never "done".
+          skipped = Object.fromEntries(Object.entries(raw).filter(([, d]) => d === today));
+        } catch {}
+
+        if (!dead) setTaskCount((data || []).filter(n => !skipped[n.id]).length);
       } catch { /* a badge is not worth an error */ }
     };
     tick();
     const t = setInterval(tick, 90000);   // cheap head-count, not a subscription
-    return () => { dead = true; clearInterval(t); };
+    // Skipping updates the badge immediately instead of up to 90s later.
+    window.addEventListener('task-skips-changed', tick);
+    return () => {
+      dead = true;
+      clearInterval(t);
+      window.removeEventListener('task-skips-changed', tick);
+    };
   }, [isSignedIn, userEmail, location.pathname]);
   const viewAsConfig = viewAs ? getUserConfig(viewAs) : null;
+
+  // THE ADDRESS EVERY SCREEN SHOULD READ AS.
+  // View-as swapped the NAME only, so /tasks, /board, /my and home all still
+  // resolved from the signed-in address — which is why viewing as Shana and
+  // viewing as JR looked identical. They were both just showing accounting@.
+  //
+  // Reads use this. WRITES keep using userEmail, which is what the amber
+  // banner already promises: "anything you save is recorded under your own
+  // name." Impersonation must never author on somebody else's behalf.
+  const readAsEmail = viewAs || userEmail;
   // effectiveName drives which VIEW renders. userEmail (unchanged) drives every write.
   const effectiveName = viewAsConfig?.name || userName;
 
@@ -857,7 +911,9 @@ export default function App() {
         <div style={{ background: '#f59e0b', color: '#0f1729', padding: '7px 16px', fontSize: 12,
                       fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <span>
-            Viewing as {viewAsConfig?.name} — you are still signed in as {userEmail}. Anything you save is recorded under your own name.
+            Viewing as <b>{viewAsConfig?.name}</b> — their tasks, their board, their calendar.
+            You are still signed in as {userEmail}, and anything you SAVE is recorded under
+            your own name.
           </span>
           <button onClick={() => applyViewAs(null)}
             style={{ background: '#0f1729', color: '#f59e0b', border: 'none', borderRadius: 6,
@@ -930,23 +986,23 @@ export default function App() {
       )}
       <Routes>
         <Route path="/" element={
-          <OpsHome userName={userName} isOperator={isOperator} isSuperAdmin={isSuperAdmin} isRestricted={isRestricted} accessToken={accessToken} userEmail={userEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
+          <OpsHome userName={effectiveName} isOperator={isOperator} isSuperAdmin={isSuperAdmin} isRestricted={isRestricted} accessToken={accessToken} userEmail={readAsEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
         } />
 
         {/* /my — JR's landing. The visit prompt plus his assigned notes.
             Not operator-gated: everyone has assigned work, and the screen
             only ever shows what belongs to whoever is signed in. */}
         <Route path="/my" element={
-          <ViewShell><MyDay userEmail={userEmail} userName={effectiveName} accessToken={accessToken} onNavigate={navigate} isOperator={isOperator} /></ViewShell>
+          <ViewShell><MyDay userEmail={readAsEmail} userName={effectiveName} accessToken={accessToken} onNavigate={navigate} isOperator={isOperator} /></ViewShell>
         } />
 
         {/* /tasks — one card at a time, To Do / Doing / Done. Replaces
             sending people to People, which opens on a jobs list. */}
         <Route path="/tasks" element={
-          <ViewShell><TaskStack userEmail={userEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
+          <ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
         } />
 
-        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={userEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={getUserConfig(userEmail).name} /></ViewShell>} />
+        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} /></ViewShell>} />
 
         <Route path="/work" element={
           <TechWorkToday 
@@ -995,7 +1051,7 @@ export default function App() {
         <Route path="/office" element={<Navigate to="/tasks" replace />} />
         <Route path="/clients" element={<Navigate to="/customers" replace />} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
-        <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={userEmail} userName={userName} onBack={() => navigate('/')} /></ViewShell>} />
+        <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} /></ViewShell>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}
@@ -1091,9 +1147,32 @@ export default function App() {
       {showIdentityPicker && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: '#1e293b', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%' }}>
+            {/* This gate decided whether JR could see his own tasks and said
+                "Select your identity for this session", which reads as optional
+                and explains nothing. He had four tasks he never saw. Now it
+                says what it is for, and says the shared login is the problem
+                rather than quietly working around it. */}
             <div style={{ fontSize: '32px', textAlign: 'center', marginBottom: '12px' }}>👋</div>
-            <h2 style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: '700', textAlign: 'center', margin: '0 0 4px 0' }}>Who are you?</h2>
-            <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 20px 0' }}>Select your identity for this session</p>
+            <h2 style={{ color: '#e2e8f0', fontSize: '19px', fontWeight: 800, textAlign: 'center', margin: '0 0 6px 0' }}>
+              Who are you?
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: '0 0 16px 0', lineHeight: 1.5 }}>
+              You're signed in on <b style={{ color: '#cbd5e1' }}>{userEmail}</b> — a shared
+              mailbox, so Overwatch can't tell who's holding the phone. Tap your name or
+              your work won't show up.
+            </p>
+
+            <div style={{ background: '#2a1f08', border: '1px solid #f59e0b', borderRadius: 10,
+                          padding: '11px 13px', marginBottom: 18 }}>
+              <div style={{ color: '#fbbf24', fontSize: 12.5, fontWeight: 800, marginBottom: 4 }}>
+                Please stop signing in this way
+              </div>
+              <div style={{ color: '#fcd9a0', fontSize: 12, lineHeight: 1.5 }}>
+                Use your own <b>@drhsecurityservices.com</b> Google account. On the shared
+                login your tasks, your jobs and your hours all get filed under the mailbox
+                instead of under you — and this screen has to guess, on every device.
+              </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {IDENTITY_OPTIONS.map(opt => (
                 <button

@@ -48,6 +48,12 @@ const OPERATOR_EMAILS = [
   'info@drhsecurityservices.com',
   'sara@jnbllc.com',
   'admin@jnbservice.com',
+  // accounting@ was missing, so the account that runs Billing, Event Audit and
+  // every admin tool resolved to ZERO calendars — getVisibleCalendars returned
+  // [] and the calendar screen sat empty with "every calendar is filtered out",
+  // which was not true and which "Show them all" could not fix because there
+  // was nothing to unhide.
+  'accounting@drhsecurityservices.com',
 ];
 
 const AUSTIN_EMAILS  = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com'];
@@ -133,8 +139,19 @@ export const SYNC_CALENDARS = [
 
 // ── Visibility helper ────────────────────────────────────────────────────────
 // Returns the subset of SYNC_CALENDARS a given user is allowed to see.
-export function getVisibleCalendars(email) {
+export function getVisibleCalendars(email, viewingAs) {
   if (!email) return [];
+  // VIEW-AS previously changed only the display NAME, so "Viewing as Shana"
+  // still resolved calendars for the signed-in address. You could not actually
+  // see what she sees, which is the entire point of the feature.
+  if (viewingAs) {
+    const asEmail = String(viewingAs).toLowerCase();
+    const hit = SYNC_CALENDARS.filter(cal =>
+      cal.visibleTo && cal.visibleTo.map(x => x.toLowerCase()).includes(asEmail));
+    // Fall through to the real account if that person has none configured,
+    // rather than handing back an empty screen with no explanation.
+    if (hit.length) return hit;
+  }
   const e = email.toLowerCase();
   const isOperator = OPERATOR_EMAILS.includes(e);
   if (isOperator) return SYNC_CALENDARS; // operators see everything

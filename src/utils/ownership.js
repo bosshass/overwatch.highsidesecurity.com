@@ -87,6 +87,25 @@ export function emailsFor(email) {
   // Anyone who works the shared mailbox also sees what was filed under it —
   // including everything written before this fix, when info@ was aliased to JR.
   const shared = SHARED_LOGINS.filter(sl => sl !== canon);
+
+  // ── READING FROM THE SHARED MAILBOX ──────────────────────────────────────
+  // canonicalEmail depends on an identity PICKED IN localStorage ON THIS
+  // DEVICE. If JR signs in at info@ and has never tapped his name on that
+  // browser, canon is 'info@' and this returned ['info@'] alone — so a task
+  // correctly filed under jr@ was invisible to him. Real row, right lane,
+  // right status, and nothing on screen. Clearing his browser data did it too.
+  //
+  // WRITES must stay strict — filing something under the wrong colleague is
+  // worse than filing it under the mailbox. But a READ can safely be generous:
+  // the cost of showing JR a task addressed to the shared mailbox is nothing,
+  // and the cost of hiding one addressed to him is a job nobody does.
+  if (SHARED_LOGINS.includes(canon)) {
+    const alsoMine = Object.entries(LOGIN_ALIASES)
+      .filter(([alias]) => SHARED_LOGINS.includes(alias))
+      .map(([, target]) => target);
+    return [...new Set([canon, ...aliases, ...alsoMine, 'jr@drhsecurityservices.com'])];
+  }
+
   return [...new Set([canon, ...aliases, ...shared])];
 }
 

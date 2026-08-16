@@ -50,7 +50,7 @@ function formatHour(h) {
   return h < 12 ? `${h}am` : `${h - 12}pm`;
 }
 
-export default function TechCalendar({ accessToken, userEmail, defaultCalendar, isRestricted, isOperator, userName, autoWorkToDo, defaultTab, autoNewJob, onJobCreated }) {
+export default function TechCalendar({ accessToken, userEmail, defaultCalendar, isRestricted, isOperator, userName, autoWorkToDo, defaultTab, autoNewJob, onJobCreated , viewAs }) {
   const navigate = useNavigate();
   // The Day/Week toggle lives inside CalendarTechDay, but the header arrows
   // live out here — so stepping "next" moved one DAY while the screen was
@@ -61,17 +61,29 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   );
 
   // Calendars this user is allowed to see — computed once from email
-  const USER_CALENDARS = getVisibleCalendars(userEmail);
+  // viewAs carries the EMAIL of the person being impersonated, so the calendar
+  // set resolves to theirs rather than to the signed-in account's.
+  const USER_CALENDARS = getVisibleCalendars(userEmail, viewAs);
 
   // ===== CALENDAR STATE =====
   const [calEvents, setCalEvents] = useState([]);
   const [weekOffset, setWeekOffset] = useState(0);
   const [calLoading, setCalLoading] = useState(true);
+  // A saved filter from an earlier build can still hide everything, and it
+  // survives every code fix because it lives in localStorage. If the stored set
+  // would blank the screen, drop it rather than honouring it.
   const [hiddenCalendars, setHiddenCalendars] = useState(() => {
     try {
       const saved = localStorage.getItem(`juce-cal-hidden-${userEmail}`);
       if (saved) {
         const parsed = new Set(JSON.parse(saved));
+        // HARD FLOOR: if the saved set hides EVERY calendar this person can
+        // see, it is not a preference, it is a blank screen. Drop it. This
+        // is the one that survives code fixes, because localStorage does.
+        if (USER_CALENDARS.length && USER_CALENDARS.every(c => parsed.has(c.name))) {
+          localStorage.removeItem(`juce-cal-hidden-${userEmail}`);
+          return new Set();
+        }
         // Safety: if saved state hides the user's own tech calendar, reset it
         const techCals = USER_CALENDARS.filter(c => c.type === 'tech').map(c => c.name);
         const allTechHidden = techCals.length > 0 && techCals.every(n => parsed.has(n));
@@ -98,6 +110,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
     // on the filter row and the choice is remembered per user.
     const FIELD = new Set(['JR', 'Austin', 'Trevor', 'Subs']);
     const keep = USER_CALENDARS.filter(c => FIELD.has(c.name));
+    // NEVER hide the only calendar somebody has. Shana's visibleTo is her own
+    // address alone, so viewing as her leaves USER_CALENDARS with ONE entry —
+    // named 'Shana', not one of the four field names — and the default hid it,
+    // leaving a blank grid. Anyone with a small calendar set sees all of it.
+    if (USER_CALENDARS.length <= 2) return new Set();
     // NEVER HIDE EVERYTHING. This matched calendar names exactly, so any user
     // whose visible set does not contain one of those four names had ALL of
     // them hidden and got a blank calendar that looked like a failure to load.
@@ -1009,7 +1026,23 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               {calLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#cbd5e1', fontSize: 13 }}>Loading calendars...</div>
               ) : (
-                USER_CALENDARS.every(c => hiddenCalendars.has(c.name))
+                // .every() on an EMPTY array returns true, so a user with no
+                // calendars at all was told they had filtered them out — and
+                // "Show them all" could not help, because there was nothing to
+                // show. Those are different problems and need different words.
+                USER_CALENDARS.length === 0
+                  ? (
+                    <div style={{ textAlign:'center', padding:'40px 20px', color:'#94a3b8' }}>
+                      <div style={{ fontSize:15, fontWeight:800, color:'#e2e8f0', marginBottom:8 }}>
+                        No calendars are shared with this person
+                      </div>
+                      <div style={{ fontSize:13, lineHeight:1.5 }}>
+                        Their account has no calendar visibility configured, so there is
+                        nothing to draw. This is a setup gap, not a filter.
+                      </div>
+                    </div>
+                  )
+                : USER_CALENDARS.every(c => hiddenCalendars.has(c.name))
                   ? (
                     <div style={{ textAlign:'center', padding:'40px 20px', color:'#94a3b8' }}>
                       <div style={{ fontSize:15, fontWeight:800, color:'#e2e8f0', marginBottom:8 }}>

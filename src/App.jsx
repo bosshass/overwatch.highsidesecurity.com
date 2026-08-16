@@ -617,14 +617,26 @@ export default function App() {
 
   // ── ROLE CHECKS ─────────────────────────────────────────────────────────
   const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com'];
-  const isRestricted = RESTRICTED_EMAILS.includes(userEmail?.toLowerCase());
+  // ROLES FOLLOW THE PERSON YOU ARE VIEWING AS, NOT THE ONE SIGNED IN.
+  // readAsEmail switched the DATA every screen loads, but these three flags
+  // still read userEmail — so viewing as Austin showed his data with YOUR
+  // permissions: the whole board, everybody's tasks, the Utilization tab.
+  // You were not seeing what he sees, which is the only reason to have this.
+  //
+  // Deliberately one-way: impersonation can only ever REMOVE permissions.
+  // A restricted tech looking at an operator cannot gain the board, because
+  // viewAs is only offered to super admins in the first place.
+  const isRestricted = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
   useEffect(() => {
     if (userEmail && shouldShowTour(userEmail)) setShowTour(true);
   }, [userEmail]);
 
-  const isOperator = getUserConfig(userEmail).role === 'operator';
+  const isOperator = getUserConfig(readAsEmail).role === 'operator';
 
   // Super admin + the lens they're currently looking through.
+  // STAYS ON userEmail ON PURPOSE. This gates the person-swapper itself and
+  // Admin tools — if it followed the impersonated user, viewing as Austin would
+  // strip your ability to switch back and you would be stuck as him.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
 
   // FORCE THE GATE. Set this key and every shared-login device drops its saved

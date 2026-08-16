@@ -26,16 +26,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase.js';
 import { DISPOSITIONS } from '../utils/billing.js';
+import { NAME_BY_EMAIL, canonicalEmail } from '../utils/ownership.js';
 
 // The people this is for. Austin is deliberately absent.
 // Exported so callers can tell "you have nothing to close out" apart from
 // "this prompt does not ask you at all" — the component renders null for both
 // and an empty sheet reads as broken either way.
+// WHO GETS ASKED WHETHER THEY WENT.
+// This was info@ and jr@ ONLY, which meant the prompt built to catch visits
+// that never became hours had never once asked AUSTIN — 160 time entries and
+// 324 logged hours, the tech doing most of the field work. Trevor was missing
+// too.
+//
+// That also reframes what the data was saying: the nine undispositioned past
+// visits that all looked like JR's were all JR's BECAUSE HE WAS THE ONLY TECH
+// BEING ASKED. Austin's would never have surfaced through this path at all.
+//
+// Subs deliberately left off — sub hours are somebody else's invoice and that
+// flow has not been worked out yet.
 export const ASKS = [
   'info@drhsecurityservices.com',
   'jr@drhsecurityservices.com',
-  // Sara added so the prompt can be walked end to end as herself. She does
-  // carry field hours occasionally, so this is not purely a test affordance.
+  'austin@drhsecurityservices.com',
+  'drhservicetech1@gmail.com',        // Austin's actual sign-in
+  'trevor@drhsecurityservices.com',
+  // Sara, so the prompt can be walked end to end as herself. She does carry
+  // field hours occasionally, so this is not purely a test affordance.
   'admin@jnbservice.com',
   'sara@jnbllc.com',
 ];
@@ -129,18 +145,40 @@ export default function DidYouGo({ userEmail, userName, onDone }) {
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 1);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-    const { data: jobs } = await supabase
+    const { data: allJobs } = await supabase
       .from('jobs')
-      .select('id, customer_id, customer_name, scheduled_date, tech_name, issue, calendar_event_id, calendar_id')
+      .select('id, customer_id, customer_name, scheduled_date, tech_name, issue, calendar_event_id, calendar_id, scheduled_event_id, scheduled_calendar_id')
       .gte('scheduled_date', sinceStr)
       .lte('scheduled_date', cutoffStr)
       .not('customer_id', 'is', null)
-      .not('calendar_event_id', 'is', null)
       .in('status', ['scheduled', 'ready_to_schedule', 'return_pending', 'new'])
       .order('scheduled_date', { ascending: true })
-      .limit(40);
+      .limit(60);
 
-    if (!jobs?.length) { setQueue([]); return; }
+    // ── ASK ME ABOUT MY OWN VISITS ────────────────────────────────────────
+    // There was no tech filter. With only JR being asked that was invisible;
+    // the moment Austin and Trevor were added it would have asked each of them
+    // about everybody's visits — and every "Yes, 3 hours" writes a time entry
+    // against work they never did.
+    //
+    // Matched on tech_name because that is who was ON SITE. assigned_to is a
+    // pre-scheduling idea and book() clears it, so it is empty on exactly the
+    // rows this prompt cares about.
+    const me = (userEmail || '').toLowerCase();
+    const myName = (NAME_BY_EMAIL[canonicalEmail(me)] || '').toLowerCase();
+    // info@ is the shared mailbox — JR signs in there, so it keeps his queue.
+    const asksAs = me === 'info@drhsecurityservices.com' ? 'jr' : myName;
+
+    const jobs = (allJobs || []).filter(j => {
+      // ON A CALENDAR AT ALL — either link. It required calendar_event_id, the
+      // INTAKE link, so a job booked through the scheduler (which writes
+      // scheduled_event_id) was invisible to the prompt entirely.
+      if (!j.calendar_event_id && !j.scheduled_event_id) return false;
+      if (!asksAs) return false;
+      return (j.tech_name || '').toLowerCase().includes(asksAs);
+    });
+
+    if (!jobs.length) { setQueue([]); return; }
 
     // Drop anything that already has hours against it — by job, and by
     // customer-and-day, because 171 entries have no job_id and asking about a

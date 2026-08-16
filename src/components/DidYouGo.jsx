@@ -31,7 +31,14 @@ import { DISPOSITIONS } from '../utils/billing.js';
 // Exported so callers can tell "you have nothing to close out" apart from
 // "this prompt does not ask you at all" — the component renders null for both
 // and an empty sheet reads as broken either way.
-export const ASKS = ['info@drhsecurityservices.com', 'jr@drhsecurityservices.com'];
+export const ASKS = [
+  'info@drhsecurityservices.com',
+  'jr@drhsecurityservices.com',
+  // Sara added so the prompt can be walked end to end as herself. She does
+  // carry field hours occasionally, so this is not purely a test affordance.
+  'admin@jnbservice.com',
+  'sara@jnbllc.com',
+];
 
 // Hours a service call actually takes, so the common case is one tap.
 const QUICK_HOURS = [0.5, 1, 1.5, 2, 3, 4, 6, 8];

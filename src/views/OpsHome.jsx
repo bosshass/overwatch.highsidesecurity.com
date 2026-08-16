@@ -16,7 +16,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import DidYouGo from '../components/DidYouGo.jsx';
+import DidYouGo, { ASKS as DIDYOUGO_ASKS } from '../components/DidYouGo.jsx';
 import TaskStack from './TaskStack.jsx';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
@@ -350,7 +350,29 @@ export default function OpsHome({
                       close — including accounts it never asks at all, like
                       accounting@. An empty sheet reads as broken, so say which
                       of the two it is. */}
-                  {!tileCounts.visits && (
+                  {/* THE PROMPT IS PER-PERSON. It asks whoever was actually
+                      there, because only they can say what happened — so on
+                      accounting@ it renders nothing even when four visits are
+                      outstanding shop-wide. The tile counts the shop; the
+                      prompt answers for you. Say which you are looking at
+                      instead of showing an empty sheet. */}
+                  {!DIDYOUGO_ASKS.includes(String(userEmail || '').toLowerCase()) ? (
+                    <div style={{ color:C.muted, fontSize:13.5, padding:'20px 4px', lineHeight:1.55 }}>
+                      <b style={{ color:C.text }}>
+                        {tileCounts.visits || 0} visit{tileCounts.visits === 1 ? '' : 's'} still need hours
+                      </b>
+                      <div style={{ marginTop:6 }}>
+                        This prompt only asks the person who was on site — it is not
+                        asking you. Chase them from Billing, or open the job on the board.
+                      </div>
+                      <button onClick={() => { setSheet(null); onNavigate?.('/unbilled'); }}
+                        style={{ marginTop:13, background:'transparent', border:`1px solid ${C.line2}`,
+                                 borderRadius:9, color:'#93c5fd', fontSize:13, fontWeight:800,
+                                 padding:'9px 15px', cursor:'pointer', fontFamily:'inherit' }}>
+                        Open Billing &rsaquo;
+                      </button>
+                    </div>
+                  ) : !tileCounts.visits && (
                     <div style={{ textAlign:'center', color:C.muted, fontSize:13.5,
                                   padding:'26px 10px', lineHeight:1.5 }}>
                       Nothing to close out. Visits land here once the day has passed

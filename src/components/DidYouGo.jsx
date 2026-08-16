@@ -28,7 +28,10 @@ import { supabase } from '../services/supabase.js';
 import { DISPOSITIONS } from '../utils/billing.js';
 
 // The people this is for. Austin is deliberately absent.
-const ASKS = ['info@drhsecurityservices.com', 'jr@drhsecurityservices.com'];
+// Exported so callers can tell "you have nothing to close out" apart from
+// "this prompt does not ask you at all" — the component renders null for both
+// and an empty sheet reads as broken either way.
+export const ASKS = ['info@drhsecurityservices.com', 'jr@drhsecurityservices.com'];
 
 // Hours a service call actually takes, so the common case is one tap.
 const QUICK_HOURS = [0.5, 1, 1.5, 2, 3, 4, 6, 8];

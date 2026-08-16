@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import { CALENDARS } from '../config/calendars.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
+import { ASSIGNEES } from '../utils/ownership.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -93,6 +94,27 @@ export default function Notes({ userEmail, onBack, accessToken }) {
   const [draft, setDraft] = useState('');
   const [draftCustomer, setDraftCustomer] = useState(null);
   const [donePrompt, setDonePrompt] = useState(null);
+  const [assigning, setAssigning]     = useState(null);   // note id being assigned
+  const [savingAssign, setSavingAssign] = useState(false);
+
+  // Putting a person on a note makes it a TASK — it leaves this list and lands
+  // in their My Tasks. Lane 'todo' is what the task views read; leaving it as
+  // 'note' with an assignee would show it in neither place.
+  const assignTo = async (note, email) => {
+    setSavingAssign(true);
+    try {
+      const { error } = await supabase.from('notes')
+        .update({ assigned_to: email, assigned_by: userEmail, lane: 'todo' })
+        .eq('id', note.id);
+      if (error) throw error;
+      setNotes(prev => prev.filter(r => r.id !== note.id));   // gone from "nobody owns"
+      setAssigning(null);
+    } catch (e) {
+      alert(`Could not assign: ${e.message}`);
+    } finally {
+      setSavingAssign(false);
+    }
+  };
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState('');
   const [importable, setImportable] = useState(null); // null = not looked yet
@@ -406,12 +428,46 @@ export default function Notes({ userEmail, onBack, accessToken }) {
                 {fmtDate(n.status === 'archived' ? n.archived_at : n.created_at)}
               </span>
               {n.status === 'open' && (
-                <button onClick={() => setDonePrompt(n)}
-                  style={{ marginLeft: 'auto', background: 'transparent', color: '#22c55e',
-                           border: '1px solid #22c55e55', borderRadius: 8, padding: '5px 12px',
-                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                  ✓ Done
-                </button>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {/* ASSIGNING IS THE OTHER EXIT. Done was the only one, so a
+                      note that needed a person had nowhere to go but archived —
+                      which is how work quietly disappears. A note with a person
+                      on it IS a task; that is the whole rule. */}
+                  {assigning === n.id ? (
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {ASSIGNEES.map(a => (
+                        <button key={a.email} onClick={() => assignTo(n, a.email)}
+                          disabled={savingAssign}
+                          style={{ background: '#1e2d4a', color: '#93c5fd',
+                                   border: '1px solid #3b82f655', borderRadius: 7,
+                                   padding: '5px 9px', fontSize: 11, fontWeight: 800,
+                                   cursor: 'pointer', fontFamily: 'inherit' }}>
+                          {a.name}
+                        </button>
+                      ))}
+                      <button onClick={() => setAssigning(null)}
+                        style={{ background: 'transparent', color: MUTED,
+                                 border: '1px solid #33415555', borderRadius: 7,
+                                 padding: '5px 9px', fontSize: 11, fontWeight: 700,
+                                 cursor: 'pointer', fontFamily: 'inherit' }}>
+                        cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAssigning(n.id)}
+                      style={{ background: 'transparent', color: '#93c5fd',
+                               border: '1px solid #3b82f655', borderRadius: 8, padding: '5px 12px',
+                               fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                      Assign
+                    </button>
+                  )}
+                  <button onClick={() => setDonePrompt(n)}
+                    style={{ background: 'transparent', color: '#22c55e',
+                             border: '1px solid #22c55e55', borderRadius: 8, padding: '5px 12px',
+                             fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    ✓ Done
+                  </button>
+                </div>
               )}
             </div>
           </div>

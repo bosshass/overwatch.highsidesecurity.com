@@ -553,6 +553,35 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isSignedIn, handleSignOut]);
 
+  // ── IS THE SESSION ALREADY DEAD ON ARRIVAL? ─────────────────────────────
+  // The 401 interceptor only fires once something FAILS, so a user returning to
+  // a tab left open overnight got a fully rendered, fully dead app and found
+  // out by losing a write. Check the stored expiry on load and every minute
+  // after, and try a silent refresh before bothering anybody.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let dead = false;
+    const check = async () => {
+      const exp = localStorage.getItem('juce_v4_token_expiry');
+      if (!exp) return;
+      // 60s of slack so we act just before it lapses, not just after.
+      if (new Date(exp).getTime() - Date.now() > 60000) return;
+      const ok = await silentRefresh();
+      if (!ok && !dead) setNeedsReconnect(true);
+    };
+    check();
+    const t = setInterval(check, 60000);
+    const onFocus = () => check();          // catches the overnight tab
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      dead = true;
+      clearInterval(t);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [isSignedIn, silentRefresh]);
+
   // ── AUTH: 401 interceptor — try silent refresh before signing out ──────
   useEffect(() => {
     if (!isSignedIn) return;
@@ -958,24 +987,49 @@ export default function App() {
         </div>
       )}
 
+      {/* A DEAD SESSION MUST STOP THE APP, NOT ANNOUNCE ITSELF AND STEP ASIDE.
+          This used to be a thin strip at the top of the page. Everything
+          underneath stayed live, so you carried on tapping, every write failed
+          silently, and the app looked broken rather than logged out. The strip
+          also scrolls out of view on a phone the moment you touch anything.
+          Now it blocks: nothing behind it is reachable until the session is
+          back. Reads already on screen stay visible behind the scrim — the
+          work is not lost, it just cannot be added to. */}
       {needsReconnect && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 4000,
-                      background: '#78350f', borderBottom: '1px solid #f59e0b',
-                      padding: '10px 14px', display: 'flex', alignItems: 'center',
-                      gap: 12, fontFamily: 'Inter, system-ui, sans-serif' }}>
-          <span style={{ color: '#fcd34d', fontSize: 13, fontWeight: 700, flex: 1 }}>
-            Google session expired — your work is still here.
-          </span>
-          <button onClick={async () => {
-                    const ok = await silentRefresh();
-                    if (ok) setNeedsReconnect(false);
-                    else handleSignIn();   // full flow, returns to this page
-                  }}
-            style={{ background: '#f59e0b', border: 'none', borderRadius: 8,
-                     color: '#08121f', fontWeight: 800, fontSize: 13,
-                     padding: '8px 16px', cursor: 'pointer', flexShrink: 0 }}>
-            Reconnect
-          </button>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 5000,
+                      background: 'rgba(3,7,18,0.86)', backdropFilter: 'blur(3px)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 20, fontFamily: 'Inter, system-ui, sans-serif' }}>
+          <div style={{ background: '#0f1b2e', border: '1px solid #f59e0b',
+                        borderRadius: 16, padding: '26px 22px', maxWidth: 380,
+                        width: '100%', textAlign: 'center' }}>
+            <div style={{ fontSize: 34, marginBottom: 10 }}>🔒</div>
+            <div style={{ color: '#fbbf24', fontSize: 18, fontWeight: 900, marginBottom: 8 }}>
+              Your session expired
+            </div>
+            <div style={{ color: '#cbd5e1', fontSize: 13.5, lineHeight: 1.55, marginBottom: 18 }}>
+              Google signed you out, so Overwatch can't save anything right now.
+              Nothing you've already done is lost — but don't keep working until
+              you're back in, or it won't stick.
+            </div>
+            <button onClick={async () => {
+                      const ok = await silentRefresh();
+                      if (ok) setNeedsReconnect(false);
+                      else handleSignIn();   // full flow, returns to this page
+                    }}
+              style={{ width: '100%', background: '#f59e0b', border: 'none', borderRadius: 10,
+                       color: '#08121f', fontWeight: 900, fontSize: 15,
+                       padding: '13px 16px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              Sign back in
+            </button>
+            <button onClick={handleSignOut}
+              style={{ width: '100%', marginTop: 9, background: 'transparent',
+                       border: '1px solid #334155', borderRadius: 10, color: '#94a3b8',
+                       fontWeight: 700, fontSize: 13, padding: '10px 16px',
+                       cursor: 'pointer', fontFamily: 'inherit' }}>
+              Sign out instead
+            </button>
+          </div>
         </div>
       )}
       {/* Tour sits ABOVE Routes on purpose. Rendering it inside ViewShell meant

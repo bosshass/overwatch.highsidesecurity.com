@@ -43,6 +43,12 @@ const DEFAULT_CAP = 8;
 // Brian is is_active=false and Shana does not carry billable field hours.
 const FIELD_TECHS = ['JR', 'Austin', 'Trevor', 'Subs'];
 
+// SUBS ARE NOT SALARIED. There is no fixed number of hours you are paying for,
+// so a default capacity of 8/day invented 40h of shop capacity every week and
+// inflated the header total — "40 of 70" was Austin's real 30 plus Subs'
+// imaginary 40. Their booked hours still show; only the denominator goes.
+const NO_CAPACITY = new Set(['Subs']);
+
 const WORKDAYS = 5;   // weekly capacity = daily x this. A holiday week is wrong
                       // by one day and nobody has been misled about anything
                       // important; making it a second setting to maintain is a
@@ -229,7 +235,8 @@ export default function CalendarTechDay({
     if (error) console.warn('capacity save failed:', error.message);
   }, []);
 
-  const capFor = name => Number(caps?.[name] ?? caps?.default ?? DEFAULT_CAP);
+  const capFor = name =>
+    NO_CAPACITY.has(name) ? 0 : Number(caps?.[name] ?? caps?.default ?? DEFAULT_CAP);
 
   // What actually got logged against the events on screen. Joined on
   // calendar_event_id — exact, and it survives a tech being renamed.
@@ -502,7 +509,11 @@ export default function CalendarTechDay({
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 9 }}>
                   <span style={{ fontSize: 15, fontWeight: 900 }}>{cal.name}</span>
                   <span style={{ fontSize: 13, fontWeight: 800, color: tone }}>
-                    {booked.toFixed(1)} / {cap}h booked
+                    {/* No denominator for people you do not pay by the week —
+                        "0.0 / 40h" implied Subs owed you 40 hours. */}
+                    {cap > 0
+                      ? `${booked.toFixed(1)} / ${cap}h booked`
+                      : `${booked.toFixed(1)}h booked · no set capacity`}
                   </span>
                   {/* Say what the denominator IS. "21 of 30" and "21 of 18"
                       are different stories and the number alone cannot tell
@@ -580,7 +591,12 @@ export default function CalendarTechDay({
           <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 9 }}>
             Billable hours available per day{savingCap ? ' · saving…' : ''}
           </div>
-          {calendars.map(cal => (
+          {/* PEOPLE, NOT CALENDARS. This iterated the calendar list, so it
+              offered a billable-hours figure for "Tentatively Scheduled" and
+              "Completed" — status buckets nobody works — while omitting JR and
+              Trevor, who are the two that matter. A capacity belongs to a
+              person you pay, not to a lane on a calendar. */}
+          {FIELD_TECHS.filter(n => !NO_CAPACITY.has(n)).map(n => ({ name: n })).map(cal => (
             <div key={cal.name}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
               <span style={{ fontSize: 13.5, color: '#e2e8f0' }}>{cal.name}</span>

@@ -1115,7 +1115,13 @@ export default function App() {
         <Route path="/office" element={<Navigate to="/tasks" replace />} />
         <Route path="/clients" element={<Navigate to="/customers" replace />} />
         <Route path="/dashboard" element={<OperatorOnly><ViewShell><OwnerDashboard accessToken={accessToken} userEmail={userEmail} userRole="operator" /></ViewShell></OperatorOnly>} />
-        <Route path="/board" element={<ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} /></ViewShell>} />
+        {/* THE BOARD IS OPERATORS ONLY. It was never gated — BoardView does not
+            even receive isRestricted. Techs simply had no LINK to it, which is
+            not the same as not being allowed in: anyone typing /board got the
+            whole shop, every customer, every dollar figure. View-as Austin made
+            that visible, but a tech on his own phone had the same access.
+            OperatorOnly already existed and guards four other routes. */}
+        <Route path="/board" element={<OperatorOnly><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}
@@ -1155,7 +1161,10 @@ export default function App() {
           {[
             { icon:'⌂', label:'Home',  path:'/' },
             { icon:'✓', label:'Today', path:'/work' },
-            { icon:'▤', label:'Board', path:'/board' },
+            // Hidden from techs. The route is gated now, so leaving the tab
+            // there would just navigate them into a redirect — a door that
+            // opens onto a wall is worse than no door.
+            ...(isOperator ? [{ icon:'▤', label:'Board', path:'/board' }] : []),
             // TASKS, NOT PEOPLE. People opens on its Work tab — every job
             // assigned to you rendered as full paragraphs, with an Estimates
             // section. That is a roster for whoever is running the day, and it

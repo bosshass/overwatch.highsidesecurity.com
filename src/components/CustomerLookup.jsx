@@ -126,7 +126,7 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [event?.id]);
 
   // ── 2. Load history when a customer gets linked ─────────────

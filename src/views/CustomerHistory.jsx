@@ -149,7 +149,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
         .maybeSingle();
       if (!error && data) pick(data);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [initialCustomerId]);
 
   const matches = useMemo(() => {

@@ -266,7 +266,7 @@ export default function CalendarTechDay({
       setLogged(map);
     })();
     return () => { cancelled = true; };
-  }, [dayEventIds.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dayEventIds.join(',')]);    
 
   const sameDay = useCallback((d) => {
     const a = new Date(d);

@@ -138,7 +138,7 @@ export default function CustomerAudit({ onBack, accessToken }) {
     if (!accessToken) return;
     const wants = new URLSearchParams(window.location.search).get('scan');
     if (wants && !scanned) { setScanned(true); scanManual(); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [accessToken]);
   const [archiveTarget, setArchiveTarget] = useState(null);   // the entry being archived
 

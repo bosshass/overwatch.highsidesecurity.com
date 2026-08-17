@@ -119,7 +119,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
       }
     } catch (e) { console.error('recap load', e); }
     setLoading(false);
-  }, [weekStart]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [weekStart]);  
 
   useEffect(() => { load(); }, [load]);
 

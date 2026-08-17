@@ -734,6 +734,39 @@ Scope of Work: `;
         </div>
 
 
+        {/* 4. WHO'S GOING — the control that was missing ── */}
+        {/* The visual scheduler below is gated on `assignedTo`, and until now
+            nothing on this form could set it. Everything past this point —
+            the day view, the busy slots, the suggested time, the
+            "Create & Schedule" button — was already built and unreachable.
+            Optional on purpose: tapping the selected tech again clears it, and
+            a job created with nobody on it is a normal thing to do. */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Who's going? <span style={{ color: '#64748b', fontWeight: 400 }}>— pick a tech to schedule it now</span></label>
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+            {techs.map(t => {
+              const on = assignedTo === t.id;
+              const col = TECH_PILL_COLORS[t.name] || '#3b82f6';
+              return (
+                <button key={t.id} type="button"
+                  onClick={() => setAssignedTo(on ? '' : t.id)}
+                  style={{ background: on ? col : 'transparent',
+                           border: `1px solid ${on ? col : '#334155'}`,
+                           color: on ? '#04121f' : '#94a3b8',
+                           borderRadius: 999, padding: '8px 16px', fontSize: 13,
+                           fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
+          {!assignedTo && (
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 7 }}>
+              Leave it blank and the job lands unassigned — you can book it from the board later.
+            </div>
+          )}
+        </div>
+
         {/* 5. VISUAL SCHEDULER */}
         {assignedTo && (
           <div style={{

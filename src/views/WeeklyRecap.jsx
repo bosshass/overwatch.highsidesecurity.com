@@ -237,56 +237,10 @@ export default function WeeklyRecap({ userEmail, onBack }) {
               )}
             </div>
 
-            {/* ── Fixed fee — sold, delivered, left ── */}
-            {contractRows.length > 0 && (
-              <div style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
-                  Fixed fee ({contractRows.length})
-                </div>
-                {contractRows.map(c => {
-                  const over = c.soldHrs > 0 && c.usedHrs > c.soldHrs;
-                  const money = n => '$' + Math.round(n).toLocaleString();
-                  return (
-                    <div key={c.id}
-                      style={{ background: C.raised, border: `1px solid ${C.line}`,
-                               borderLeft: `3px solid ${over ? '#ef4444' : '#a78bfa'}`,
-                               borderRadius: 10, padding: '11px 13px', marginBottom: 7 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 14, fontWeight: 700 }}>{c.name}</span>
-                        {c.ref && <span style={{ fontSize: 11, color: C.muted }}>est {c.ref}</span>}
-                        <span style={{ marginLeft: 'auto', fontSize: 15, fontWeight: 800 }}>{money(c.amount)}</span>
-                      </div>
-
-                      <div style={{ height: 6, borderRadius: 3, background: C.line,
-                                    margin: '9px 0 7px', overflow: 'hidden' }}>
-                        <div style={{ width: `${Math.min(100, c.pct)}%`, height: '100%',
-                                      background: over ? '#ef4444' : '#a78bfa' }} />
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: C.muted }}>
-                        <span>
-                          <b style={{ color: over ? '#ef4444' : C.text }}>{c.usedHrs.toFixed(1)}</b>
-                          {' of '}{c.soldHrs || '?'} hrs{c.soldHrs > 0 ? ` \u00b7 ${c.pct}%` : ''}
-                        </span>
-                        {c.soldHrs > 0 && !over && (
-                          <span><b style={{ color: C.text }}>{c.remainingHrs.toFixed(1)}</b> hrs left</span>
-                        )}
-                        {over && (
-                          <span style={{ color: '#ef4444', fontWeight: 700 }}>
-                            over by {(c.usedHrs - c.soldHrs).toFixed(1)} hrs
-                          </span>
-                        )}
-                        {c.rate > 0 && <span>{money(c.rate)}/hr</span>}
-                        <span>
-                          invoiced <b style={{ color: C.text }}>{money(c.invoiced)}</b>
-                          {' \u00b7 '}<b style={{ color: C.text }}>{money(c.remainingAmt)}</b> left
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {/* Fixed fee moved to Billing (9.78.0). This is a look-back
+                screen; a project you are still entering numbers against and
+                still deciding how to invoice belongs where the billing
+                happens. ── */}
 
             {/* ── Completed jobs — pick some to add the human story to ── */}
             <div style={{ marginBottom: 16 }}>

@@ -26,7 +26,11 @@ export default [
                  caches: "readonly", Notification: "readonly", btoa: "readonly",
                  atob: "readonly", TextEncoder: "readonly", TextDecoder: "readonly",
                  AbortController: "readonly", IntersectionObserver: "readonly",
-                 Image: "readonly", self: "readonly" },
+                 Image: "readonly", self: "readonly",
+                 // added when photos.js and TaskStack.jsx arrived: the gate had
+                 // been failing on these four for weeks, which meant verify
+                 // never reached the build and a real error looked the same.
+                 createImageBitmap: "readonly", File: "readonly", Event: "readonly" },
     },
     // Source carries `eslint-disable-next-line react-hooks/exhaustive-deps`
     // comments. This gate doesn't load that plugin, and an unknown rule in a

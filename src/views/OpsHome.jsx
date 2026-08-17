@@ -183,7 +183,9 @@ export default function OpsHome({
       // `neu` and `oldest` feed the roll-up tile that replaced the old red
       // "Not in Overwatch" panel. Same query, two more derived numbers — no
       // second loader and no second state object.
-      const NEW_STATUSES = ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision', 'blocked'];
+      // 'blocked' was here until 9.77.1 and it is its own lane on the board now,
+      // so home said 5 New where the board said 4. One list, one meaning.
+      const NEW_STATUSES = ['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision'];
       const waiting = (jobs || []).filter(j =>
         NEW_STATUSES.includes(j.status) || ['ready_to_schedule', 'return_pending'].includes(j.status));
       setBoard({

@@ -531,7 +531,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
-function JobCard({ job, onSelect, onQuickMove, moving }) {
+function JobCard({ job, onSelect, onQuickMove, moving, hasEntry }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
@@ -610,7 +610,10 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
           // Still `scheduled` past the deadline = nobody said what happened.
           // See needsDisposition() in utils/staleness.js for the 6pm + 14h
           // rule and the weekend roll.
-          const noDispo = needsDisposition(job);
+          // Hours logged = somebody DID say what happened, even if the card
+          // never moved off 'scheduled'. That is a stale status, not a missing
+          // disposition, and it must not wear the same red badge.
+          const noDispo = needsDisposition(job) && !hasEntry;
           return (
             <>
             {noDispo && (
@@ -657,7 +660,7 @@ function JobCard({ job, onSelect, onQuickMove, moving }) {
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
-function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving }) {
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, loggedJobs }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ borderBottom: '1px solid #1e293b' }}>
@@ -680,7 +683,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
             ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
-            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} />)
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} />)
           }
         </div>
       )}
@@ -688,7 +691,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
   );
 }
 
-function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol }) {
+function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, loggedJobs }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ flex:1, minWidth:260, maxWidth:340, display:'flex', flexDirection:'column' }}>
@@ -703,7 +706,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
           ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
-          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} />)
+          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} />)
         }
       </div>
     </div>
@@ -760,6 +763,9 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     try { localStorage.setItem(spotlightKey(userEmail), new Date().toISOString()); } catch {}
   };
   const [jobs, setJobs] = useState([]);
+  // Job ids that already have a time entry — see loadJobs(). Used to stop
+  // ⚠ NO DISPOSITION firing on work the tech actually wrote up.
+  const [loggedJobs, setLoggedJobs] = useState(new Set());
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [moving, setMoving] = useState(false);
@@ -822,6 +828,41 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       // What counts: a typed note, or a real transition where the status
       // actually changed. Re-stamping the same status with no note does not.
       const ids = (data || []).map(x => x.id);
+
+      // ── Which of these jobs already has field hours logged ────────────
+      // needsDisposition() in utils/staleness.js only ever looked at
+      // jobs.status + scheduled_date. It never checked time_entries. So a job
+      // the tech HAD written up still showed ⚠ NO DISPOSITION if nobody moved
+      // the card off 'scheduled' — Jeanneret 8/17 is the standing example:
+      // 2.0h logged with a full note ("Got 2 more glass breaks put up..."),
+      // badge screaming anyway.
+      //
+      // That is the worst kind of false alarm. The badge is meant to mean
+      // "nobody said what happened"; when it fires on work that WAS written
+      // up, people learn to ignore it, and then it stops catching the real
+      // ones. Same three-key match as visitsOwed.js — job_id OR either
+      // calendar column, because Jeanneret's two event ids differ.
+      const loggedJobIds = new Set();
+      if (ids.length) {
+        const evIds = [...new Set((data || [])
+          .flatMap(j => [j.calendar_event_id, j.scheduled_event_id])
+          .filter(Boolean))];
+        const ors = [`job_id.in.(${ids.join(',')})`];
+        if (evIds.length) ors.push(`calendar_event_id.in.(${evIds.join(',')})`);
+        const { data: entries } = await supabase
+          .from('time_entries')
+          .select('job_id, calendar_event_id')
+          .or(ors.join(','))
+          .eq('archived', false);
+        const byEvent = new Set((entries || []).map(e => e.calendar_event_id).filter(Boolean));
+        (data || []).forEach(j => {
+          if ((entries || []).some(e => e.job_id === j.id)) { loggedJobIds.add(j.id); return; }
+          if (j.calendar_event_id && byEvent.has(j.calendar_event_id)) { loggedJobIds.add(j.id); return; }
+          if (j.scheduled_event_id && byEvent.has(j.scheduled_event_id)) loggedJobIds.add(j.id);
+        });
+      }
+      setLoggedJobs(loggedJobIds);
+
       let lastNote = {};
       if (ids.length) {
         const { data: notes } = await supabase
@@ -1210,6 +1251,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                 expanded={expandedCol===col.key}
                 onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
                 onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
+                loggedJobs={loggedJobs}
               />
             </div>
           ))}
@@ -1218,7 +1260,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
             <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
-              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} />
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} loggedJobs={loggedJobs} />
             </div>
           ))}
         </div>

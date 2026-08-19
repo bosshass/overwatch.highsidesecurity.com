@@ -31,7 +31,8 @@
 // prompts for work finished months ago. See src/config/legacy.js.
 
 import { supabase } from '../services/supabase.js';
-import { LEGACY_HOURS_CUTOFF } from '../config/legacy.js';
+// LEGACY_HOURS_CUTOFF is deliberately NOT imported here any more — see the
+// window note on visitsOwed(). It governs frozen columns, not owed visits.
 import { JOB_STATUS } from '../services/supabase.js';
 
 // Statuses that can owe a disposition. A visit that happened but was left in
@@ -57,16 +58,30 @@ function todayISO() {
 /**
  * Visits that happened and still have no time entry against them.
  *
+ * WINDOW. Defaults to 30 days back, NOT the legacy cutoff. The cutoff
+ * (2026-08-12) governs which COLUMNS are frozen — it was never meant to
+ * govern which visits get chased, and using it here silently hid real gaps:
+ * JR had unlogged days on 8/6, 8/10 and 8/13 that the prompt would never have
+ * asked about, because they fell one side of a line drawn for a different
+ * reason. A visit nobody wrote up is owed regardless of which day it was.
+ *
+ * 30 days is deliberate: far enough back to catch a fortnight of drift, near
+ * enough that nobody gets handed a wall of prompts about work that has already
+ * been billed and closed.
+ *
  * @param {object}   opts
  * @param {string[]} [opts.techNames]  limit to these techs (the DidYouGo card
  *                                     shows a tech only his own work; the
  *                                     OpsHome tile passes nothing and counts all)
- * @param {string}   [opts.since]      ISO date floor; defaults to the cutoff
+ * @param {string}   [opts.since]      ISO date floor; defaults to 30 days back
  * @param {number}   [opts.limit]      max jobs to inspect, default 200
  * @returns {Promise<Array>} job rows, oldest first — each genuinely owed
  */
 export async function visitsOwed({ techNames = null, since = null, limit = 200 } = {}) {
-  const floor = since || LEGACY_HOURS_CUTOFF;
+  const floor = since || (() => {
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  })();
   const today = todayISO();
 
   let q = supabase

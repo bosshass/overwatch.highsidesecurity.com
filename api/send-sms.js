@@ -1,3 +1,27 @@
+import { createClient } from '@supabase/supabase-js';
+
+// Service-role client, server-side only. Used ONLY to validate the caller's
+// token — never to read or write on their behalf.
+const admin = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  : null;
+
+// Same shape as authorize() in api/welcome-draft.js. Either a valid Supabase
+// session (the browser path) or a shared secret for curl / server-side callers.
+// Do NOT ship SMS_SECRET to the client — anything in the Vite bundle is public.
+async function authorize(req) {
+  const secret = req.headers['x-sms-secret'];
+  if (secret && process.env.SMS_SECRET && secret === process.env.SMS_SECRET) {
+    return { ok: true, actor: 'service' };
+  }
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token || !admin) return { ok: false };
+  const { data, error } = await admin.auth.getUser(token);
+  if (error || !data?.user) return { ok: false };
+  return { ok: true, actor: data.user.email || data.user.id };
+}
+
 // ============================================
 // Overwatch — SMS send endpoint (Twilio)
 // ============================================
@@ -13,12 +37,24 @@
 // ============================================
 
 export default async function handler(req, res) {
-  // CORS (so the app can call it)
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS. Origin is NO LONGER '*'. This endpoint spends money — an open relay
+  // on a Twilio number risks the A2P registration, not just the balance.
+  const ALLOWED = (process.env.SMS_ALLOWED_ORIGINS || '')
+    .split(',').map(o => o.trim()).filter(Boolean);
+  const origin = req.headers.origin || '';
+  if (ALLOWED.length && ALLOWED.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-sms-secret');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // AUTH — was entirely absent. Anyone on the internet could POST {to, message}
+  // and send a text billed to DRH from your number.
+  const auth = await authorize(req);
+  if (!auth.ok) return res.status(401).json({ error: 'unauthorized' });
 
   const SID = process.env.TWILIO_ACCOUNT_SID;
   const TOKEN = process.env.TWILIO_AUTH_TOKEN;

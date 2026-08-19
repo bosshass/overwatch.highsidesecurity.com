@@ -659,9 +659,55 @@ export const notesApi = {
         }
       });
     }
-    const { data: job, error: jErr } = await supabase.from('jobs').select('completion_notes, updated_by, updated_at').eq('id', jobId).single();
+    const { data: job, error: jErr } = await supabase.from('jobs').select('completion_notes, updated_by, updated_at, calendar_event_id, scheduled_event_id').eq('id', jobId).single();
     if (!jErr && job?.completion_notes?.trim()) {
       notes.push({ id: `job-completion-${jobId}`, source: 'completion', text: job.completion_notes, created_at: job.updated_at, created_by: job.updated_by, from_status: null, to_status: null, editable: true });
+    }
+
+    // ── FIELD NOTES from time_entries ────────────────────────────────
+    // This source was MISSING. getAllForJob read job_history + completion_notes
+    // only, so the note a tech actually types when closing out a visit — which
+    // lives in time_entries.notes — never appeared in NotesPanel, the client
+    // record, CustomerAudit, or the board. It showed on the Calendar and
+    // nowhere else, because CalendarTechDay was the only screen querying
+    // time_entries directly.
+    //
+    // Every consumer of this function gets them now: NotesPanel (job detail),
+    // BoardView (merge carry-over), CustomerAudit, calendarSync. One fix, five
+    // screens, because they all come through here.
+    //
+    // Matched on job_id OR either calendar event column — the same three-key
+    // rule as visitsOwed.js. Jeanneret is why: its calendar_event_id and
+    // scheduled_event_id are different values, so a single-key match drops it.
+    try {
+      const eventIds = [job?.calendar_event_id, job?.scheduled_event_id].filter(Boolean);
+      const or = [`job_id.eq.${jobId}`];
+      if (eventIds.length) or.push(`calendar_event_id.in.(${eventIds.join(',')})`);
+      const { data: visits } = await supabase
+        .from('time_entries')
+        .select('id, notes, event_start, created_at, tech_name, tech_email, disposition, total_minutes, archived')
+        .or(or.join(','));
+      (visits || []).forEach(v => {
+        if (!v.notes?.trim() || v.archived) return;
+        const hrs = v.total_minutes ? ` · ${(v.total_minutes / 60).toFixed(2)}h` : '';
+        notes.push({
+          id: `time-entry-${v.id}`,
+          source: 'field',
+          text: v.notes,
+          created_at: v.event_start || v.created_at,
+          created_by: v.tech_name || v.tech_email || 'Tech',
+          from_status: null,
+          // Surface the disposition + hours so the field note reads as what it
+          // is — a closed-out visit — rather than an anonymous comment.
+          to_status: v.disposition ? `${v.disposition}${hrs}` : null,
+          // NOT editable here. time_entries is the source of truth for field
+          // work; editing it from a notes panel would put a second write path
+          // on the one table that finally has only one.
+          editable: false,
+        });
+      });
+    } catch (e) {
+      console.warn('field notes lookup failed:', e?.message || e);
     }
     notes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return notes;
@@ -851,6 +897,17 @@ export const timeEntriesApi = {
       // default is '{}', so every row read as an empty array and the files sat
       // in the bucket with nothing pointing at them.
       photos: entry.photos && entry.photos.length ? entry.photos : null,
+      // JOB_ID WAS BEING DROPPED HERE, exactly like photos above. This payload
+      // is an explicit whitelist and `job_id` was never on it, so every caller
+      // that passed one had it silently discarded at the API boundary. That is
+      // why 161 of 259 unarchived entries (62%) have a null job_id — not
+      // because the link was unknown, but because create() threw it away.
+      //
+      // Downstream, that missing link is what forced "have we logged this
+      // visit?" to be answered three different ways in three different files,
+      // including a customer_id + calendar-day heuristic that silently
+      // suppressed second visits to the same customer on one day.
+      job_id: entry.job_id || null,
       project_ref: entry.project_ref || extractProjectRef(entry.event_title) || null,
     };
     const { data, error } = await supabase.from('time_entries').insert([payload]).select().single();

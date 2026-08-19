@@ -23,6 +23,7 @@ import NewJobModal from '../components/NewJobModal.jsx';
 import Spotlight from '../components/Spotlight.jsx';
 import { ASSIGNEES, assigneeOf, CLOSED_STATUSES, emailsFor } from '../utils/ownership.js';
 import { shortCode } from '../config/appBase.js';
+import { visitsOwedCount } from '../utils/visitsOwed.js';
 
 const C = {
   bg:     '#07111f',
@@ -222,24 +223,18 @@ export default function OpsHome({
         .eq('status', 'open').neq('lane', 'done')
         .in('assigned_to', mine.length ? mine : ['__none__']);
 
-      // Visits owed a disposition: scheduled, the day has passed, no hours.
-      const { data: past } = await supabase.from('jobs')
-        .select('id, scheduled_event_id, calendar_event_id')
-        .eq('status', 'scheduled')
-        .lt('scheduled_date', new Date().toISOString().slice(0, 10))
-        .limit(200);
-
-      let visits = 0;
-      if (past?.length) {
-        const ids = past.flatMap(j => [j.scheduled_event_id, j.calendar_event_id].filter(Boolean));
-        const { data: te } = ids.length
-          ? await supabase.from('time_entries').select('calendar_event_id').in('calendar_event_id', ids)
-          : { data: [] };
-        const seen = new Set((te || []).map(t => t.calendar_event_id));
-        visits = past.filter(j =>
-          !(j.scheduled_event_id && seen.has(j.scheduled_event_id)) &&
-          !(j.calendar_event_id && seen.has(j.calendar_event_id))).length;
-      }
+      // Visits owed a disposition. This used to be its own query right here —
+      // status 'scheduled' only, matched on calendar_event_id / scheduled_event_id
+      // only — while DidYouGo asked a DIFFERENT question (job_id OR customer+day)
+      // three feet away. So the tile could read "5 owed" while the card showed a
+      // different set, and a tech who had already written his notes still got
+      // nagged because his entry carried a synthetic event id that matched
+      // nothing. The status filter also hid every return_pending visit outright.
+      //
+      // One rule now, in src/utils/visitsOwed.js. If this number and the
+      // DidYouGo card ever disagree again, they are running the same code, so
+      // the bug is in that file and not in two places at once.
+      const visits = await visitsOwedCount();
       if (!dead) setTileCounts({ visits, tasks: tasks || 0 });
     })().catch(e => {
       console.warn('tile counts failed:', e?.message || e);
@@ -351,7 +346,28 @@ export default function OpsHome({
 
               {sheet === 'visits' && (
                 <>
-                  <DidYouGo userEmail={userEmail} userName={userName} />
+                  <DidYouGo
+                    userEmail={userEmail}
+                    userName={userName}
+                    // Hand the job to the SAME sheet the tech gets from the
+                    // calendar, via the deep link App.jsx already handles
+                    // (?cal=X&job=Y fetches the real Google event and mounts
+                    // JobFinishSheet). Building an event object here instead
+                    // is what produced the synthetic `didyougo-` ids that
+                    // matched nothing — so this path does not construct one.
+                    onOpenSheet={(job) => {
+                      const cal = job.scheduled_calendar_id || job.calendar_id;
+                      const ev  = job.scheduled_event_id  || job.calendar_event_id;
+                      if (!cal || !ev) {
+                        // No calendar event to disposition against. That is the
+                        // orphan case — a ticket that never made it onto a
+                        // calendar — and it needs Reconcile, not this sheet.
+                        alert('This job has no calendar event linked. Open it on the board to fix the link first.');
+                        return;
+                      }
+                      window.location.assign(`/?cal=${encodeURIComponent(cal)}&job=${encodeURIComponent(ev)}`);
+                    }}
+                  />
                   {/* DidYouGo renders NOTHING when this account has nothing to
                       close — including accounts it never asks at all, like
                       accounting@. An empty sheet reads as broken, so say which

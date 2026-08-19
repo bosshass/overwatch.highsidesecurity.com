@@ -27,6 +27,7 @@ import Scheduler from './views/Scheduler.jsx';
 import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
 import JobFinishSheet from './components/JobFinishSheet.jsx';
+import LinkAudit from './views/LinkAudit.jsx';
 import NotificationBell from './components/NotificationBell.jsx';
 import GlobalSearch from './components/GlobalSearch.jsx';
 import CustomerHistory from './views/CustomerHistory.jsx';
@@ -1157,6 +1158,11 @@ export default function App() {
             status='scheduled' by hand — inventing exactly the ghost bookings
             the rest of this build exists to kill. */}
         <Route path="/admin/reconcile" element={<OperatorOnly><ReconcileView accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} onOpenFinish={(calId, jobId) => navigate(`/?cal=${encodeURIComponent(calId)}&job=${encodeURIComponent(jobId)}`)} onOpenPreview={() => navigate('/admin/preview')} /></OperatorOnly>} />
+        {/* LINK AUDIT — standing, both directions. ReconcileView was a one-time
+            historical sweep and only looked calendar -> board. This runs on a
+            rolling window and also catches live tickets with no calendar event
+            at all (9 of 38 when this was written). */}
+        <Route path="/admin/links" element={<OperatorOnly><LinkAudit accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} onOpenJob={(a) => { if (a?.mode === 'open' && a.jobId) navigate(`/board?job=${a.jobId}`); }} /></OperatorOnly>} />
         <Route path="/admin/preview" element={<OperatorOnly><PreviewChanges accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/admin/reconcile')} /></OperatorOnly>} />
 
         {/* Catch-all */}

@@ -18,13 +18,26 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { jobsApi, assignmentsApi, techsApi, notesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
+import { jobsApi, assignmentsApi, techsApi, notesApi, timeEntriesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate, parsePhoneNumbers } from '../utils/statusMachine.js';
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
 import MoveStatus from './MoveStatus.jsx';
 import FieldVisits from './FieldVisits.jsx';
+
+// Board status -> field disposition, so a job closed from JobDetail produces
+// the same shaped time_entries row as one closed from JobFinishSheet. Without
+// this the two screens wrote different disposition vocabularies for identical
+// outcomes and the billing filters disagreed about what was billable.
+const DISPOSITION_FOR_STATUS = {
+  [JOB_STATUS.TO_BILL]:        'bill_it',
+  [JOB_STATUS.RETURN_PENDING]: 'return',
+  completed:                   'bill_it',
+  archived:                    'bill_it',
+  needs_parts:                 'in_progress',
+  pending_materials:           'in_progress',
+};
 // ScheduleModal DELETED 9.10.7. It was a fifth scheduler with its own
 // "tentative" mode that wrote a 📌 note and nothing else — no tentative_date,
 // no Tent event, no board column — and could set status=SCHEDULED through
@@ -329,19 +342,51 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         ? (new Date(timeOut) - new Date(timeIn)) / (1000 * 60 * 60)
         : null;
       const activeAssignment = assignments.find(a => !a.is_complete);
-      // Keep the assignment record in sync IF one exists (scheduling history)
-      if (activeAssignment) {
-        await assignmentsApi.markComplete(
-          activeAssignment.id, timeIn, timeOut, notes || null, null, null
-        );
+
+      // ─────────────────────────────────────────────────────────────────
+      // SOURCE OF TRUTH IS time_entries. This block used to write hours to
+      // jobs.{time_in,time_out,actual_hours} and job_assignments via
+      // markComplete(), and NEVER to time_entries — while rendering a
+      // FieldVisits panel a few hundred lines below that reads time_entries.
+      // So closing a job here produced hours the panel directly above the
+      // button could not see, and the Today tile could not see either.
+      //
+      // Four screens recorded "a tech finished a visit" and this was the only
+      // one writing somewhere else. Those legacy columns are frozen as of
+      // LEGACY_HOURS_CUTOFF (see src/config/legacy.js and migration 038) —
+      // they still hold real pre-cutover data, they are never written again.
+      // ─────────────────────────────────────────────────────────────────
+      const totalMinutes = actualHours != null ? Math.round(actualHours * 60) : 0;
+      const eventId = job.calendar_event_id || job.scheduled_event_id || null;
+      const calId   = job.calendar_id || job.scheduled_calendar_id || null;
+
+      if (eventId && calId) {
+        await timeEntriesApi.create({
+          job_id:            job.id,
+          customer_id:       job.customer_id || null,
+          customer_name_raw: job.customer_name || null,
+          calendar_event_id: eventId,
+          calendar_id:       calId,
+          event_title:       job.customer_name || 'Visit',
+          event_start:       timeIn || `${today}T09:00:00`,
+          tech_email:        userEmail || null,
+          tech_name:         activeAssignment?.tech?.name || job.tech_name || null,
+          time_in:           timeIn,
+          time_out:          timeOut,
+          total_minutes:     totalMinutes,
+          entry_method:      'inout',
+          disposition:       DISPOSITION_FOR_STATUS[pendingAction.toStatus] || 'bill_it',
+          notes:             notes || null,
+        });
+      } else {
+        // No calendar event to hang the entry on. Rather than invent a
+        // synthetic id — the exact mistake DidYouGo made with `didyougo-${id}`,
+        // which produced rows no join could ever match — refuse and say so.
+        // A job with no calendar event is the orphan case and belongs in
+        // Reconcile, not in a silently-unmatchable time entry.
+        throw new Error('This job has no calendar event linked. Fix the link on the board before closing it out.');
       }
-      // SOURCE OF TRUTH: always write time to the JOB row, assignment or not.
-      // (changeStatus below writes completion_notes; this writes the time.)
-      await jobsApi.update(job.id, {
-        time_in: timeIn,
-        time_out: timeOut,
-        actual_hours: actualHours
-      }, userEmail);
+
       await jobsApi.changeStatus(job.id, pendingAction.toStatus, userEmail, notes || null);
       if (pendingAction.toStatus === JOB_STATUS.COMPLETED || pendingAction.toStatus === JOB_STATUS.ARCHIVED) {
         const techName = activeAssignment?.tech?.name || 'Tech';

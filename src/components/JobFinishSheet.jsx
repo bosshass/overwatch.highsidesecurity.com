@@ -232,7 +232,20 @@ export default function JobFinishSheet({
   // ── Supabase write — every disposition routes through this ────────
   const writeTimeEntry = async (disposition) => {
     const payload = timeEntryToPayload(timeEntry, eventDate);
+    // Resolve the job for THIS event and stamp it on the entry. Without this
+    // the row lands with a null job_id and nothing on the board can find it —
+    // which is how 62% of entries ended up unlinked. resolveJobForEvent checks
+    // calendar_event_id, scheduled_event_id AND job_assignments, so it catches
+    // the Jeanneret case where the two event ids differ.
+    let jobId = null;
+    try {
+      const linked = await resolveJobForEvent(event.id);
+      jobId = linked?.id || linked?.job_id || null;
+    } catch (e) {
+      console.warn('job resolve failed, writing entry unlinked:', e?.message || e);
+    }
     return timeEntriesApi.create({
+      job_id:             jobId,
       customer_id:        linkedCustomer?.id || null,
       customer_name_raw:  linkedCustomer?.name || cleanTitle(event.title) || null,
       calendar_event_id:  event.id,

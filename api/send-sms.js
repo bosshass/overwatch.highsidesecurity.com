@@ -2,8 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 
 // Service-role client, server-side only. Used ONLY to validate the caller's
 // token — never to read or write on their behalf.
-const admin = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+// URL falls back the same way welcome-draft.js does: this project stores it as
+// VITE_SUPABASE_URL, not SUPABASE_URL. Requiring the bare name left admin null
+// and the Bearer path silently dead — every browser token rejected, only the
+// x-sms-secret header working. Shipped broken in 9.79.0, fixed in 9.79.1.
+const SB_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const admin = (SB_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(SB_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
   : null;
 
 // Same shape as authorize() in api/welcome-draft.js. Either a valid Supabase

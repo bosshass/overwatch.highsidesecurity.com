@@ -489,9 +489,17 @@ export default function JobFinishSheet({
         style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
-      {/* Photos — capture="environment" opens the rear camera straight away on
-          a phone rather than a file browser. The pictures go with the visit,
-          so they are still findable when the invoice is queried in November. */}
+      {/* Photos — TWO doors, because there are two real cases.
+          A single input with capture="environment" jumped straight to the rear
+          camera and gave no way to attach a picture already on the phone: a
+          shot taken before the sheet was open, something the customer sent, a
+          screenshot of a panel code. That is a common case and it was
+          unreachable.
+          Dropping `capture` entirely would fix it and break the other one — a
+          tech standing in front of the panel would get a file browser instead
+          of a camera. So: two buttons, one input each, same handler.
+          The pictures go with the visit, so they are still findable when the
+          invoice is queried in November. */}
       <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px' }}>
         📷 Photos {photos.length ? `(${photos.length})` : ''}
       </div>
@@ -512,16 +520,33 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      <label
-        style={{ display: 'block', textAlign: 'center', padding: '12px 0', borderRadius: 10,
-                 border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
-                 fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer', marginBottom: 14 }}>
-        {uploading ? 'Uploading…' : '📷 Add photos'}
-        <input type="file" accept="image/*" capture="environment" multiple
-          disabled={uploading}
-          onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
-          style={{ display: 'none' }} />
-      </label>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <label
+          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+          {uploading ? 'Uploading…' : '📷 Take photo'}
+          {/* capture= keeps the one-tap path to the rear camera for a tech
+              standing in front of the work. */}
+          <input type="file" accept="image/*" capture="environment" multiple
+            disabled={uploading}
+            onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+            style={{ display: 'none' }} />
+        </label>
+
+        <label
+          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+          {uploading ? 'Uploading…' : '🖼 Choose photo'}
+          {/* NO capture attribute — this is what opens the phone's library and
+              file browser, for a picture that already exists. */}
+          <input type="file" accept="image/*" multiple
+            disabled={uploading}
+            onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+            style={{ display: 'none' }} />
+        </label>
+      </div>
 
       {photoErr && (
         <div style={{ fontSize: 12, color: '#dc2626', marginTop: -8, marginBottom: 12 }}>{photoErr}</div>

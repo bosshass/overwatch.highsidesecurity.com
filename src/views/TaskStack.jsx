@@ -34,7 +34,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, STATUS_INFO } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
 import { APP_BASE } from '../config/appBase.js';
-import { ASSIGNEES, emailsFor, canonicalEmail, NAME_BY_EMAIL } from '../utils/ownership.js';
+import { ASSIGNEES, emailsFor, canonicalEmail, NAME_BY_EMAIL, PHONE_BY_EMAIL } from '../utils/ownership.js';
+import TextButton, { clientTemplates } from '../components/TextButton.jsx';
 
 const C = {
   bg: '#07111f', card: '#111f34', line: '#1d2f48', line2: '#263a55',
@@ -121,8 +122,8 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     const custIds = [...new Set(list.map(n => n.customer_id).filter(Boolean))];
     const jobIds  = [...new Set(list.map(n => n.job_id).filter(Boolean))];
     const [cRes, jRes] = await Promise.all([
-      custIds.length ? supabase.from('customers').select('id, name').in('id', custIds) : { data: [] },
-      jobIds.length  ? supabase.from('jobs').select('id, customer_name, status').in('id', jobIds) : { data: [] },
+      custIds.length ? supabase.from('customers').select('id, name, phone').in('id', custIds) : { data: [] },
+      jobIds.length  ? supabase.from('jobs').select('id, customer_name, status, customer_phone, scheduled_date').in('id', jobIds) : { data: [] },
     ]);
     const cById = Object.fromEntries((cRes.data || []).map(c => [c.id, c]));
     const jById = Object.fromEntries((jRes.data || []).map(j => [j.id, j]));
@@ -141,6 +142,10 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
       return {
         ...n,
         _customer: cById[n.customer_id]?.name || j?.customer_name || null,
+        // The client's number, from whichever record has one. Without this the
+        // Tasks screen knows who a task is about and has no way to reach them.
+        _customerPhone: cById[n.customer_id]?.phone || j?.customer_phone || null,
+        _scheduledDate: j?.scheduled_date || null,
         _jobStatus: j?.status || null,
       };
     }));
@@ -484,6 +489,31 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                   operator (the /board route is operator-only, so linking a
                   tech there would bounce them to the home screen).
                   Rendered only when there is somewhere real to go. */}
+              {/* TEXT, FROM THE TASK LIST ITSELF. Two people are reachable from
+                  any task — whoever owns it, and the client it is about — and
+                  until now reaching either meant opening the job card and
+                  finding a button buried in it. */}
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
+                <TextButton
+                  to={PHONE_BY_EMAIL[canonicalEmail(n.assigned_to || '')]}
+                  name={NAME_BY_EMAIL[canonicalEmail(n.assigned_to || '')] || 'them'}
+                  accessToken={accessToken}
+                  internal
+                  draft={`${n._customer || 'A task'} — ${String(n.body || '').split(/\n\s*\n/).pop().trim().slice(0, 200)}`}
+                  logTo={{ jobId: n.job_id, customerId: n.customer_id, userEmail }}
+                  size="sm"
+                />
+                <TextButton
+                  to={n._customerPhone}
+                  name={n._customer}
+                  accessToken={accessToken}
+                  templates={clientTemplates({ scheduledDate: n._scheduledDate })}
+                  logTo={{ jobId: n.job_id, customerId: n.customer_id, userEmail }}
+                  label={`📱 Text ${n._customer || 'the client'}`}
+                  size="sm"
+                />
+              </div>
+
               {(n.job_id || n.customer_id) && (
                 <button
                   onClick={() => {

@@ -23,6 +23,7 @@ import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
+import TextButton, { clientTemplates } from '../components/TextButton.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -531,7 +532,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
-function JobCard({ job, onSelect, onQuickMove, moving, hasEntry }) {
+function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, userEmail }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
@@ -558,6 +559,18 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry }) {
           {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>URGENT</span>}
           {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>HIGH</span>}
           {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:800, padding:'2px 6px', borderRadius:4 }}>⚠️ NO CLIENT</span>}
+          {/* TEXT WITHOUT OPENING ANYTHING. The board is where the day gets
+              scanned, and "tell them we're running late" should not require
+              opening a card and hunting for a control inside it. stopPropagation
+              lives in TextButton so tapping it never also opens the card. */}
+          <TextButton
+            to={job.customer_phone}
+            name={job.customer_name}
+            accessToken={accessToken}
+            templates={clientTemplates({ scheduledDate: job.scheduled_date })}
+            logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+            size="sm"
+          />
         </div>
       </div>
 
@@ -660,7 +673,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry }) {
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
-function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, loggedJobs }) {
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, loggedJobs, accessToken, userEmail }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ borderBottom: '1px solid #1e293b' }}>
@@ -683,7 +696,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
             ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
-            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} />)
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} accessToken={accessToken} userEmail={userEmail} />)
           }
         </div>
       )}
@@ -691,7 +704,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
   );
 }
 
-function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, loggedJobs }) {
+function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, loggedJobs, accessToken, userEmail }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ flex:1, minWidth:260, maxWidth:340, display:'flex', flexDirection:'column' }}>
@@ -706,7 +719,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
           ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
-          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} />)
+          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} accessToken={accessToken} userEmail={userEmail} />)
         }
       </div>
     </div>
@@ -1210,6 +1223,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                 onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
                 onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
                 loggedJobs={loggedJobs}
+                accessToken={accessToken} userEmail={userEmail}
               />
             </div>
           ))}
@@ -1218,7 +1232,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
             <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
-              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} loggedJobs={loggedJobs} />
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} loggedJobs={loggedJobs} accessToken={accessToken} userEmail={userEmail} />
             </div>
           ))}
         </div>

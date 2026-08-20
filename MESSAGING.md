@@ -153,6 +153,41 @@ Showing 160 when the real answer is 70 understates the bill by more than half.
 
 ## WHERE THE BUTTONS ARE
 
+Texting shipped **buried** — inside a job card, under a task, beside a Phone
+row. Sara's verdict was exact: *"no one is going to see what you have in
+there."* A capability nobody can find is a capability nobody has.
+
+`components/TextButton.jsx` is the whole feature as one drop-in control. Put it
+beside any phone number and texting exists there:
+
+```jsx
+<TextButton to={c.phone} name={c.name} accessToken={t}
+            templates={clientTemplates()} logTo={{ customerId: c.id, userEmail }} />
+```
+
+It renders nothing when there is no number, so it can be dropped in
+unconditionally rather than every caller writing the same guard. It opens a
+**sheet**, not an inline panel — inline is how this ended up invisible, existing
+only if you had already scrolled to the right row of the right card.
+
+### Every place it now appears
+
+| Screen | Texts | Mode |
+|---|---|---|
+| **Clients** — beside the phone number | the client | client |
+| **Tasks** — on every task card | the task's owner | staff |
+| **Tasks** — on every task card | the client it is about | client |
+| **Board** — on every card | the client | client |
+| Job card — on a task | the task's owner | staff |
+| Job card — beside Phone | the account holder | client |
+| Job card — beside On site | the on-site contact | client |
+
+`clientTemplates()` lives with the button rather than in each screen, so the
+wording — and the opt-out line A2P registration expects — is identical
+everywhere.
+
+## THE ORIGINAL BUTTONS
+
 All on the job card (`TicketSheet`):
 
 | Button | Goes to | Mode |

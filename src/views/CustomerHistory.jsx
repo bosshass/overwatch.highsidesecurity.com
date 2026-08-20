@@ -14,6 +14,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, customersApi, JOB_STATUS } from '../services/supabase.js';
 import { isNotReal } from '../config/archiveReasons.js';
+import TextButton, { clientTemplates } from '../components/TextButton.jsx';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 // ── helpers ──────────────────────────────────────────────────
@@ -513,9 +514,20 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                 </div>
               )}
               {selected.phone && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ flexShrink: 0 }}>📞</span>
                   <a href={`tel:${selected.phone}`} style={{ color: '#00c8e8', textDecoration: 'none' }}>{selected.phone}</a>
+                  {/* Right beside the number, on the screen the office spends
+                      the day in. Calling has always been one tap from here;
+                      texting now is too. */}
+                  <TextButton
+                    to={selected.phone}
+                    name={selected.name}
+                    accessToken={accessToken}
+                    templates={clientTemplates()}
+                    logTo={{ customerId: selected.id, userEmail: me }}
+                    size="sm"
+                  />
                 </div>
               )}
               {(selected.system_type || selected.monitoring_tier || selected.service_tier || selected.package) && (

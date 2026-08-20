@@ -228,6 +228,60 @@ anybody can see.
 
 ---
 
+## CHECKING THE SETUP
+
+`GET /api/sms-status` answers "which part is wrong" directly, instead of by
+elimination. **It never returns a secret** — not the auth token, not the
+service-role key, not the account SID. Only whether each is *present*, plus
+facts Twilio would tell anyone holding the number.
+
+Two levels:
+
+- **Open it in a phone browser, signed out.** Presence booleans for every
+  variable, a `blocking` list naming what is missing in plain words, and the
+  exact webhook string to paste. Setup happens in the Twilio console, not
+  inside the app, so this deliberately needs no sign-in.
+- **Called from Overwatch with a company Google account.** Additionally calls
+  Twilio to prove the SID and token are a *working pair* — the one check
+  presence booleans cannot do — and **reads back what the number's incoming
+  webhook is actually set to**, so a console that was never saved shows up as a
+  blocking item rather than as a text that never arrives.
+
+```
+https://overwatch.highsidesecurity.com/api/sms-status
+```
+
+`ready: true` means every variable is set, the credentials authenticate, a
+sender exists, and the webhook points here.
+
+## THE SIGNATURE IS TESTED
+
+`tests/twilio-signature.test.mjs` — run it with `node tests/twilio-signature.test.mjs`.
+
+Ten assertions against **Twilio's own published worked example** from
+`twilio.com/docs/usage/security`: auth token `12345`, that URL, those five
+parameters, expected `L/OH5YylLD5NRKLltdqwSvS0BnU=`. It checks the concatenated
+string matches the documented one character for character, that insertion order
+is irrelevant, and that a wrong URL, a trailing slash, a wrong token and a
+dropped parameter all fail to validate.
+
+This is the only part of the messaging layer that is verified rather than
+merely built, and it is the part where a mistake fails **closed** — a bad
+signature check rejects every genuine reply with a 403 and loses them exactly as
+silently as the demo endpoint did.
+
+### The trailing-slash trap
+
+Twilio signs the URL **it** called, character for character. Reconstructing that
+from request headers on Vercel is a guess: the request can arrive on the
+`.vercel.app` host rather than the custom domain, and a webhook saved with a
+trailing slash is a different string and therefore a different signature.
+
+So `candidateUrls()` tries the plausible forms — both hosts, with and without a
+trailing slash — and a rejection **logs every URL it tried**, because otherwise
+the only symptom is a 403 and the only fix is guesswork. `TWILIO_WEBHOOK_URL`
+settles it outright when it needs settling.
+
 ## WHAT IS NOT BUILT
 
 Stated plainly so it is not assumed:

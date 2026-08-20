@@ -50,16 +50,63 @@ function last10(raw) {
 
 // Twilio signs: the exact URL, then every POST field appended as key+value in
 // alphabetical order, HMAC-SHA1 with the auth token, base64.
-function verifyTwilio(req, url, params) {
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const sig = req.headers['x-twilio-signature'];
-  if (!token || !sig) return false;
+function signatureFor(token, url, params) {
   let data = url;
   for (const k of Object.keys(params).sort()) data += k + params[k];
-  const expected = crypto.createHmac('sha1', token).update(Buffer.from(data, 'utf-8')).digest('base64');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
-  } catch { return false; }
+  return crypto.createHmac('sha1', token).update(Buffer.from(data, 'utf-8')).digest('base64');
+}
+
+function sameSig(a, b) {
+  try { return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); }
+  catch { return false; }   // different lengths — not a match
+}
+
+// THE URL HAS TO BE THE ONE TWILIO USED, CHARACTER FOR CHARACTER.
+// This is the single most common way signature validation fails (Twilio error
+// 57012), and it fails CLOSED: a mismatch looks identical to a forged request,
+// so every genuine client reply would be rejected with 403 and vanish exactly
+// as silently as the demo endpoint used to lose them.
+//
+// Reconstructing from headers is a guess, and on Vercel there are several ways
+// for the guess to be wrong: the request may arrive on the .vercel.app host
+// rather than the custom domain, a proxy may rewrite the path, or the webhook
+// may be saved with a trailing slash. So try the plausible forms rather than
+// betting on one, and let TWILIO_WEBHOOK_URL settle it outright when someone
+// needs it settled.
+function candidateUrls(req) {
+  const out = [];
+  const explicit = process.env.TWILIO_WEBHOOK_URL;
+  if (explicit) out.push(explicit.trim());
+
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const path  = req.url || '/api/sms-inbound';
+  const hosts = [
+    req.headers['x-forwarded-host'],
+    req.headers.host,
+    'overwatch.highsidesecurity.com',
+  ].filter(Boolean);
+
+  for (const h of [...new Set(hosts)]) {
+    out.push(`${proto}://${h}${path}`);
+    // Saved with a trailing slash in the console — a different string, and so
+    // a different signature.
+    if (!path.endsWith('/')) out.push(`${proto}://${h}${path}/`);
+  }
+  return [...new Set(out)];
+}
+
+function verifyTwilio(req, params) {
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const sig = req.headers['x-twilio-signature'];
+  if (!token || !sig) return { ok: false, why: token ? 'no signature header' : 'TWILIO_AUTH_TOKEN not set' };
+
+  const tried = candidateUrls(req);
+  for (const url of tried) {
+    if (sameSig(sig, signatureFor(token, url, params))) return { ok: true, url };
+  }
+  // Say WHICH urls were tried. Without this the only symptom is a 403 and the
+  // only fix is guesswork.
+  return { ok: false, why: 'signature did not match', tried };
 }
 
 // Twilio wants TwiML back. An EMPTY response means "say nothing" — which is
@@ -80,15 +127,13 @@ export default async function handler(req, res) {
   if (typeof p === 'string') p = Object.fromEntries(new URLSearchParams(p));
   p = p || {};
 
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  const host  = req.headers['x-forwarded-host'] || req.headers.host;
-  const url   = `${proto}://${host}${req.url}`;
-
   // A public URL that writes to the database has to prove who is calling it.
   // Without this, anyone could POST a fabricated message from a client's
   // number and it would land on that client's record looking genuine.
-  if (!verifyTwilio(req, url, p)) {
-    return res.status(403).json({ error: 'bad signature' });
+  const check = verifyTwilio(req, p);
+  if (!check.ok) {
+    console.error('sms-inbound: REJECTED —', check.why, check.tried ? `tried: ${check.tried.join(' | ')}` : '');
+    return res.status(403).json({ error: 'bad signature', detail: check.why });
   }
 
   const from = String(p.From || '');

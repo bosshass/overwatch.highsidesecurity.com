@@ -260,6 +260,46 @@ Both directions were broken:
   the job at the exact moment it needed acting on. Now: each task, its text, who
   asked, its age, and one of *To do · On it · Says done — needs your OK*.
 
+### Why we went, then what came back — DONE
+> "The issue — the why we went — that is the top of the job disposition card.
+> When it gets updated with notes, materials, and given an action… the tech note
+> time entry should show at the top of the display."
+
+The card now reads top-down as one story: **Issue — what are we doing?** then
+**📝 What happened on site** — the tech's note, materials, hours, photos and the
+disposition they chose.
+
+That block used to render near the **bottom**, below the lane buttons and the
+task composer, so the newest and most decisive fact about a job was the last
+thing you reached and on a phone was usually off-screen.
+
+Two bugs came out with it:
+
+- It matched **one** event column, `calendar_event_id`. The scheduler writes
+  `scheduled_event_id`, and **30 live jobs have one and no `calendar_event_id`** —
+  so the match never fired for any of them.
+- Those 30 fell through to a customer-wide query, which returns the client's
+  entire history. The card showed **another job's visit as if it were this one's**.
+  Now: `job_id` or any of the three event ids; the client's other visits are
+  labelled as such and sit behind the toggle.
+
+### "I didn't get to go" — DONE
+`JobFinishSheet` has offered five dispositions since 9.4.0. The database
+accepted four:
+
+```
+CHECK (disposition = ANY (ARRAY['bill_it','return','estimate','in_progress']))
+```
+
+`blocked` was **rejected by Postgres**. The insert threw, the sheet failed, and
+the visit was recorded as nothing at all. Zero blocked rows in 307 entries — not
+a disposition nobody uses, a button that has never once worked. **Migration 049**
+widens the constraint to the five the UI already offers. `jobs.status` already
+allowed `blocked`; only `time_entries` was blocking.
+
+This also corrects the earlier note that `blocked` "produced zero rows and never
+succeeded" without saying *why*. The why is a constraint, and it was fixable.
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.

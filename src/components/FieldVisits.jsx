@@ -57,31 +57,58 @@ const PREVIEW = 1;
 
 export default function FieldVisits({ job }) {
   const [entries, setEntries] = useState([]);
+  // The client's OTHER visits — never mixed into this job's list.
+  const [others, setOthers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true); setShowAll(false);
+      setLoading(true); setShowAll(false); setOthers([]);
+      // THIS JOB'S OWN VISITS, kept strictly separate from the client's others.
+      //
+      // The old version matched ONE column — job.calendar_event_id — and then
+      // fell back to every entry for the customer. Both halves were wrong:
+      //
+      //   • A calendar event id lives in THREE columns (see utils/jobResolve.js),
+      //     and the scheduler writes `scheduled_event_id`. 30 live jobs have a
+      //     scheduled_event_id and NO calendar_event_id, so the match never
+      //     fired for any of them.
+      //   • Those 30 then fell through to the customer query, which returns the
+      //     client's ENTIRE history. The card showed somebody else's visit as
+      //     though it were this job's — and it is about to sit at the top of
+      //     the card, directly under the issue, where being wrong is worst.
+      //
+      // Primary = job_id or any of the three event ids. The client's other
+      // visits are still available, but labelled as such and behind the toggle.
       const byId = {};
+      const otherById = {};
       try {
-        if (job?.calendar_event_id) {
-          const r = await supabase.from('time_entries').select(FIELDS).eq('calendar_event_id', job.calendar_event_id);
+        const eventIds = [job?.calendar_event_id, job?.scheduled_event_id, job?.tentative_event_id]
+          .filter(Boolean);
+        if (job?.id) {
+          const r = await supabase.from('time_entries').select(FIELDS).eq('job_id', job.id);
+          if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
+        }
+        if (eventIds.length) {
+          const r = await supabase.from('time_entries').select(FIELDS).in('calendar_event_id', eventIds);
           if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
         }
         if (job?.customer_id) {
           const r = await supabase.from('time_entries').select(FIELDS).eq('customer_id', job.customer_id).limit(100);
-          if (!r.error) for (const row of (r.data || [])) byId[row.id] = row;
+          if (!r.error) for (const row of (r.data || [])) if (!byId[row.id]) otherById[row.id] = row;
         }
       } catch { /* leave what we have */ }
-      const rows = Object.values(byId).sort(
-        (a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at)
-      );
-      if (!cancelled) { setEntries(rows); setLoading(false); }
+      const bydate = (a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at);
+      if (!cancelled) {
+        setEntries(Object.values(byId).sort(bydate));
+        setOthers(Object.values(otherById).sort(bydate));
+        setLoading(false);
+      }
     })();
     return () => { cancelled = true; };
-  }, [job?.calendar_event_id, job?.customer_id]);
+  }, [job?.id, job?.calendar_event_id, job?.scheduled_event_id, job?.tentative_event_id, job?.customer_id]);
 
   // 📝 notes from the issue field, minus any that duplicate a visit's note text.
   const issueNotes = useMemo(() => {
@@ -98,11 +125,12 @@ export default function FieldVisits({ job }) {
     [entries]);
   const total = visitsWithNotes.length + issueNotes.length;
 
+  const otherWithNotes = others.filter(e => e.notes || e.materials || (e.photos && e.photos.length));
   const shownVisits = showAll ? visitsWithNotes : visitsWithNotes.slice(0, PREVIEW);
   const shownIssue  = showAll ? issueNotes : issueNotes.slice(0, Math.max(0, PREVIEW - shownVisits.length));
 
   if (loading) return null;
-  if (total === 0) return null;
+  if (total === 0 && otherWithNotes.length === 0) return null;
 
   const wrap   = { marginBottom: 16 };
   const header = { fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 8 };
@@ -110,8 +138,10 @@ export default function FieldVisits({ job }) {
 
   return (
     <div style={wrap}>
+      {/* Reads as the answer to the box directly above it: the issue asks what
+          we are doing, this says what happened. */}
       <div style={header}>
-        <span>📝 Field notes</span>
+        <span>📝 What happened on site</span>
         <span style={{ color: '#94a3b8', fontWeight: 600 }}>({total})</span>
       </div>
 
@@ -182,10 +212,48 @@ export default function FieldVisits({ job }) {
         </div>
       ))}
 
-      {total > PREVIEW && (
+      {/* The toggle also has to appear when this job has ONE note but the
+          client has others, or the section below is unreachable. */}
+      {(total > PREVIEW || otherWithNotes.length > 0) && (
         <button onClick={() => setShowAll(v => !v)} style={{ background: 'none', border: 'none', color: '#00c8e8', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '2px 0', textDecoration: 'underline' }}>
-          {showAll ? 'Show less' : `View all ${total} notes →`}
+          {showAll
+            ? 'Show less'
+            : total > PREVIEW
+              ? `View all ${total} notes →`
+              : `Show this client's other visits (${otherWithNotes.length}) →`}
         </button>
+      )}
+
+      {/* THE CLIENT'S OTHER VISITS — named as such, and never above this job's
+          own. These used to be merged straight into the list, so on a card
+          whose event id the old query missed, another job's visit appeared as
+          if it belonged here. Shown only when the reader asks for everything. */}
+      {showAll && otherWithNotes.length > 0 && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #1e293b' }}>
+          <div style={{ ...header, marginBottom: 8 }}>
+            <span>🗂 Other visits for this client</span>
+            <span style={{ color: '#94a3b8', fontWeight: 600 }}>({otherWithNotes.length})</span>
+          </div>
+          {otherWithNotes.slice(0, 10).map(e => (
+            <div key={`other-${e.id}`} style={{ ...card, opacity: 0.75 }}>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 5 }}>
+                {[e.tech_name, fmtDateTime(e.event_start || e.created_at), hoursFromMin(e.total_minutes)]
+                  .filter(Boolean).join(' · ')}
+              </div>
+              {e.event_title && (
+                <div style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 4 }}>{e.event_title}</div>
+              )}
+              {e.notes && (
+                <div style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{e.notes}</div>
+              )}
+            </div>
+          ))}
+          {otherWithNotes.length > 10 && (
+            <div style={{ fontSize: 12, color: '#64748b' }}>
+              …and {otherWithNotes.length - 10} more. The full history is on the client record.
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

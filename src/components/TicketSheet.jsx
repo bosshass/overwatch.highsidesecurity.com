@@ -518,6 +518,20 @@ export default function TicketSheet({
           )}
         </div>
 
+        {/* ── WHAT CAME BACK ───────────────────────────────────────────
+            The issue above is why we went. This is what happened: the tech's
+            note, their materials, their hours, and the disposition they chose.
+            Together those two blocks are the whole story of the card, so they
+            belong next to each other at the top.
+
+            This used to render near the BOTTOM, below the lane buttons and the
+            task composer — so the newest and most decisive fact about a job,
+            the one that explains why it is sitting where it is, was the last
+            thing you reached and on a phone was usually off-screen. Opening a
+            dispositioned card showed you the old scope and made you scroll
+            past everything to find out it had already been worked. ── */}
+        <FieldVisits job={job} />
+
         {/* ── Time — only where hours are captured ── */}
         {timeSection && (
           <div style={{ marginBottom: 14 }}>{timeSection}</div>
@@ -800,9 +814,6 @@ export default function TicketSheet({
 
           {err && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 9 }}>{err}</div>}
         </div>
-
-        {/* ── Field visits — the tech's actual logged time ── */}
-        <FieldVisits job={job} />
 
         {/* ── Notes — same component, same place, every surface ── */}
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />

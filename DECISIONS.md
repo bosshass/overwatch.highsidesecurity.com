@@ -369,7 +369,14 @@ The 15 split into two clean populations:
 | | What they are |
 |---|---|
 | **8** · lane `doing`, has `job_id`, Jul 27–28, several with a NULL author | Import residue. Every body is a **verbatim copy of its job's `issue`**, and **every one of those jobs is already terminal** (archived / lost / dead / billed). Two are exact duplicates of each other. They carry nothing the job does not. |
-| **7** · lane `note`, 6 with a `customer_id`, Aug 13–19, real authors | Genuine client notes. These need an owner, and now they can have one. |
+| **7** · lane `note`, 6 with a `customer_id`, Jul 27 – Aug 19, real authors | Genuine client notes. These need an owner, and now they can have one. |
+
+**Migration 051** closed the eight on Sara's instruction. The seven are left for
+her to route with the new button. Backup: `notes_backup_051`.
+
+The Bob/Wally note reads "Yesterday" correctly — `created_at` is Aug 19 at
+10:53 AM Denver, and its own body says *"Tomorrow, 8/20/2026 Bob and Wally are
+onsite."* Written on the 19th about the 20th. Not a timezone display bug.
 
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made

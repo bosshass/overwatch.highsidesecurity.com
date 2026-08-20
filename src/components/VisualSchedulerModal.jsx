@@ -296,6 +296,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
           const xStart = parseLocalDate(xd.date); xStart.setHours(sh, sm, 0, 0);
           const xEnd = parseLocalDate(xd.date); xEnd.setHours(eh, em, 0, 0);
           await bookExtraDay({ job, tech, start: xStart, end: xEnd, accessToken,
+            byEmail: userEmail,
             dayLabel: `Day ${i + 2} of ${extraDays.length + 1}` });
         } catch (e) { extraFailed++; console.warn('extra day booking failed', xd.date, e.message); }
       }

@@ -162,7 +162,9 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
   const latestNote = await getLatestNote(job.id);
   const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
     title: buildEventTitle(job),
-    description: buildEventDescription(job, latestNote),
+    // byEmail was already threaded here for the recap audit log; it now also
+    // reaches the calendar, so the event says who put it on the day.
+    description: buildEventDescription(job, latestNote, { scheduledBy: byEmail }),
     location: job.customer_address,
     startTime: start,
     endTime: end,
@@ -183,7 +185,7 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     try {
       await createEventOnCalendar(accessToken, h.calendar_id, {
         title: buildEventTitle(job),
-        description: buildEventDescription(job, latestNote) + `\n👥 Riding with ${tech.name}`,
+        description: buildEventDescription(job, latestNote, { scheduledBy: byEmail }) + `\n👥 Riding with ${tech.name}`,
         location: job.customer_address,
         startTime: start, endTime: end,
       });
@@ -234,12 +236,12 @@ export async function hold({ job, start, end, accessToken, byName, byEmail = nul
 // events on the tech's calendar; they are just not something Overwatch will
 // resolve back to this job later the way the primary booking is. If one needs
 // to move, that's a normal calendar edit — same as any other appointment.
-export async function bookExtraDay({ job, tech, start, end, accessToken, dayLabel }) {
+export async function bookExtraDay({ job, tech, start, end, accessToken, dayLabel, byEmail = null }) {
   if (!tech?.calendar_id) throw new Error('Pick a tech');
   const latestNote = await getLatestNote(job.id);
   const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
     title: buildEventTitle(job),
-    description: buildEventDescription(job, latestNote) +
+    description: buildEventDescription(job, latestNote, { scheduledBy: byEmail }) +
       (dayLabel ? `\n📆 ${dayLabel} of a multi-day job` : ''),
     location: job.customer_address,
     startTime: start,

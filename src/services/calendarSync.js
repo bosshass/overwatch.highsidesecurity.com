@@ -148,8 +148,14 @@ export function buildEventTitle(job) {
   return job.customer_name || 'Unknown';
 }
 
-// Build event description with just the latest note
-export function buildEventDescription(job, latestNote) {
+// Build event description with just the latest note.
+//
+// `scheduledBy` is stamped so anyone reading the calendar can see WHO put this
+// on the day. book() has always known it — it passes byEmail to the recap audit
+// log — but it never reached the description, so a Google calendar full of
+// events said what and when and never who. That is the first question asked
+// when a booking looks wrong.
+export function buildEventDescription(job, latestNote, { scheduledBy = null } = {}) {
   let desc = '';
   // The customer UUID is the anchor for everything downstream — billing,
   // Event Audit, customer history. Stamped FIRST so CustomerLookup finds it
@@ -172,6 +178,7 @@ export function buildEventDescription(job, latestNote) {
   if (job.gate_code) desc += `🚪 Gate: ${job.gate_code}\n`;
   if (job.panel_password) desc += `🔐 Panel: ${job.panel_password}\n`;
   if (job.issue) desc += `\nIssue: ${job.issue}\n`;
+  if (scheduledBy) desc += `\n🗓 Scheduled by: ${resolveAuthorName(scheduledBy)}\n`;
   if (latestNote) desc += `\n--- Latest Note ---\n${latestNote}\n`;
   // "Managed by Overwatch" from here on. Nothing READS these markers anymore —
   // the orphan scan resolves against the database (9.9.27) — so old events

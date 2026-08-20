@@ -254,6 +254,29 @@ https://overwatch.highsidesecurity.com/api/sms-status
 `ready: true` means every variable is set, the credentials authenticate, a
 sender exists, and the webhook points here.
 
+### A number inside a Messaging Service has TWO inbound webhooks
+
+The DRH number belongs to a Messaging Service named **Overwatch**, and that
+changes which webhook Twilio calls. A flag on the *Service* decides:
+
+| `use_inbound_webhook_on_number` | Twilio calls |
+|---|---|
+| `true` | the **number's** webhook |
+| `false` | the **Messaging Service's** `inbound_request_url` — the number's is ignored |
+
+The console warns that the Service "may override the number-specific
+configurations" but **does not show the flag** on the number's page. So setting
+the number's webhook and testing is a coin flip, and both outcomes fail
+identically: a reply that never arrives.
+
+`/api/sms-status` reads the flag and reports `twilio.inbound.decidedBy` in plain
+words, and raises a blocking item naming the Service and its current URL when
+that is the live path.
+
+**The safe move is to set the same URL in both places** — Messaging → Services →
+Overwatch → Integration, *and* on the number. Then it works whichever way the
+flag is set.
+
 ## THE SIGNATURE IS TESTED
 
 `tests/twilio-signature.test.mjs` — run it with `node tests/twilio-signature.test.mjs`.

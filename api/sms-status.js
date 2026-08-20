@@ -117,8 +117,44 @@ export default async function handler(req, res) {
           accountStatus: body?.status || null,   // active / suspended / closed
         };
 
-        // What will actually appear as the sender.
+        // ── WHICH INBOUND WEBHOOK ACTUALLY APPLIES ────────────────────
+        // A number inside a Messaging Service has TWO inbound webhooks, and a
+        // flag on the Service decides which one Twilio calls:
+        //
+        //   use_inbound_webhook_on_number = true   -> the NUMBER's sms_url
+        //   use_inbound_webhook_on_number = false  -> the SERVICE's
+        //                                             inbound_request_url
+        //
+        // The console warns that the Service "may override" the number, but
+        // does not show the flag on the number's page — so setting the number's
+        // webhook and testing is a coin flip, and the failure looks the same
+        // either way: a reply that never arrives. Read the flag and say which
+        // one is live.
         if (has(SERVICE)) {
+          const svc = await fetch(`https://messaging.twilio.com/v1/Services/${SERVICE}`,
+            { headers: { Authorization: basic } });
+          const sb = await svc.json().catch(() => null);
+          if (sb) {
+            const onNumber = sb.use_inbound_webhook_on_number === true;
+            out.twilio.inbound = {
+              decidedBy: onNumber ? "the NUMBER's webhook" : "the MESSAGING SERVICE's webhook",
+              useInboundWebhookOnNumber: sb.use_inbound_webhook_on_number,
+              serviceName: sb.friendly_name || null,
+              serviceInboundUrl: sb.inbound_request_url || null,
+              serviceInboundMethod: sb.inbound_method || null,
+            };
+            if (!onNumber) {
+              const want = out.webhook.setThisInTwilio;
+              if ((sb.inbound_request_url || '') !== want) {
+                out.blocking.push(
+                  `Inbound is handled by the Messaging Service "${sb.friendly_name || SERVICE}", whose webhook is "${sb.inbound_request_url || 'not set'}". Set the SERVICE's inbound URL to ${want} (Messaging → Services → Integration), or the number's webhook will be ignored.`);
+              }
+            }
+            if ((sb.inbound_method || 'POST').toUpperCase() !== 'POST' && !onNumber) {
+              out.blocking.push("The Messaging Service's inbound method is not POST.");
+            }
+          }
+
           const ms = await fetch(
             `https://messaging.twilio.com/v1/Services/${SERVICE}/PhoneNumbers`,
             { headers: { Authorization: basic } });
@@ -151,6 +187,20 @@ export default async function handler(req, res) {
               }
             : { via: 'from-number', number: FROM,
                 warning: 'TWILIO_FROM_NUMBER is not a number on this account.' };
+          // The number may still be inside a Messaging Service even though this
+          // app is configured to send from the bare number. If it is, the
+          // Service can be the one handling inbound.
+          if (hit?.sid) {
+            try {
+              const belongs = await fetch(
+                `https://api.twilio.com/2010-04-01/Accounts/${SID}/IncomingPhoneNumbers/${hit.sid}.json`,
+                { headers: { Authorization: basic } });
+              const bb = await belongs.json().catch(() => null);
+              if (bb?.sms_application_sid) {
+                out.blocking.push('This number routes inbound through a TwiML App, which overrides the webhook you set on the number.');
+              }
+            } catch { /* best effort */ }
+          }
           if (out.twilio.sender.smsUrl && !out.twilio.sender.webhookMatches) {
             out.blocking.push(
               `The number's incoming webhook is "${out.twilio.sender.smsUrl}" — replies will not reach Overwatch. Set it to ${out.webhook.setThisInTwilio}`);

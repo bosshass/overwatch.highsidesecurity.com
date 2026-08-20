@@ -106,22 +106,44 @@ export default function TextButton({
 
 // The four things anybody actually texts a customer, ready to drop into
 // `templates`. Kept here rather than in each screen so the wording — and the
-// opt-out line A2P registration expects — stays identical everywhere.
-export function clientTemplates({ scheduledDate = null } = {}) {
+// reply instructions the whole flow depends on — stay identical everywhere.
+//
+// `when` takes a Date or an ISO datetime and renders day AND time, because
+// "Tuesday" is not an appointment. jobs.scheduled_date is a DATE with no time
+// in it; the real time lives on the Google Calendar event, so callers that
+// have the event pass its start and callers that only have the job pass the
+// date and get a day-only message.
+export function clientTemplates({ when = null, scheduledDate = null } = {}) {
   const SIGN = 'DRH Security Services';
   const OPTOUT = 'Reply STOP to opt out.';
-  let when = '';
-  if (scheduledDate) {
-    const d = new Date(`${scheduledDate}T12:00:00`);
-    if (!isNaN(d)) when = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+  let slot = '';        // "Tuesday, August 25 at 9:00 AM"
+  let dayOnly = '';     // "Tuesday, August 25"
+  const raw = when || (scheduledDate ? `${scheduledDate}T12:00:00` : null);
+  if (raw) {
+    const d = raw instanceof Date ? raw : new Date(raw);
+    if (!isNaN(d)) {
+      dayOnly = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      // Only claim a time when one was actually given. A date-only value was
+      // parsed at noon to keep it on the right calendar day, and printing
+      // "at 12:00 PM" would invent an appointment nobody made.
+      slot = when ? `${dayOnly} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : dayOnly;
+    }
   }
+
+  // YES / NO, then STOP. A confirmation that only offers "reply STOP" gives the
+  // customer no way to say the one thing you need to hear — that the time does
+  // not work. NO does not reschedule anything automatically: it lands in the
+  // shared inbox and a person calls them. Saying so is what stops somebody
+  // texting NO and then waiting for a system that was never going to answer.
+  const confirmBody = slot
+    ? `${SIGN}: confirming your appointment ${slot}. Reply YES to confirm or NO if that time does not work and we will call you to reschedule. ${OPTOUT}`
+    : `${SIGN}: we are scheduling your visit and will confirm a day and time shortly. ${OPTOUT}`;
+
   return [
     { label: 'On the way',
       text: `${SIGN}: our technician is on the way to you now. ${OPTOUT}` },
-    { label: 'Confirm visit',
-      text: when
-        ? `${SIGN}: confirming your appointment on ${when}. Reply to let us know if that still works. ${OPTOUT}`
-        : `${SIGN}: we are getting your visit scheduled and will confirm a time shortly. ${OPTOUT}` },
+    { label: 'Confirm visit', text: confirmBody },
     { label: 'Running late',
       text: `${SIGN}: our technician is running behind and will be with you as soon as possible. Sorry for the wait. ${OPTOUT}` },
     { label: 'Blank', text: `${SIGN}: ` },

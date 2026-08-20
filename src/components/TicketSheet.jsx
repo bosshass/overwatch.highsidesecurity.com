@@ -32,6 +32,7 @@ import { releaseCalendar } from '../services/schedule.js';
 import { syncIssueToEvents } from '../services/calendarSync.js';
 import { formatPhone } from '../services/sms.js';
 import SmsComposer from './SmsComposer.jsx';
+import { clientTemplates } from './TextButton.jsx';
 import { shortJobLink } from '../config/appBase.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
@@ -297,43 +298,45 @@ export default function TicketSheet({
   };
 
   // ── TEXTING THE CLIENT ───────────────────────────────────────────────
-  // Different rules from a staff nudge, enforced in SmsComposer: no Overwatch
-  // link, ever. The templates below are the three things anybody actually
-  // texts a customer about a visit, and each ends with opt-out language
-  // because that is what A2P registration expects of business messaging.
-  const SIGN = 'DRH Security Services';
-  const OPTOUT = 'Reply STOP to opt out.';
-  const whenText = () => {
-    if (!job.scheduled_date) return '';
-    const d = new Date(`${job.scheduled_date}T12:00:00`);
-    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  };
-  const clientTemplates = () => {
-    const when = whenText();
-    return [
-      { label: 'On the way',
-        text: `${SIGN}: our technician is on the way to you now. ${OPTOUT}` },
-      { label: 'Confirm visit',
-        text: when
-          ? `${SIGN}: confirming your appointment on ${when}. Reply to let us know if that still works. ${OPTOUT}`
-          : `${SIGN}: we are getting your visit scheduled and will confirm a time shortly. ${OPTOUT}` },
-      { label: 'Running late',
-        text: `${SIGN}: our technician is running behind and will be with you as soon as possible. Sorry for the wait. ${OPTOUT}` },
-      { label: 'Blank', text: `${SIGN}: ` },
-    ];
+  // THE LOCAL COPY OF THESE TEMPLATES IS GONE. It had drifted already — it
+  // still said "reply to let us know if that still works" after the shared one
+  // learned to ask for YES or NO, and it could only ever print a day because
+  // jobs.scheduled_date has no time in it. Two copies of the words a customer
+  // reads is two chances for one of them to be wrong. See TextButton.jsx.
+
+  // THE APPOINTMENT'S REAL TIME IS ON THE CALENDAR EVENT, not the job.
+  // scheduled_date is a DATE. "Tuesday" is not an appointment, so when the job
+  // has an event the start is fetched once, when a client text is opened —
+  // never on render, because that would spend a Google call on every card
+  // anybody looks at.
+  const [eventStart, setEventStart] = useState(null);
+  const fetchEventStart = async () => {
+    const eventId = job.scheduled_event_id || job.calendar_event_id;
+    const calId   = job.scheduled_calendar_id;
+    if (!accessToken || !eventId || !calId) return null;
+    try {
+      const r = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(eventId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!r.ok) return null;
+      const ev = await r.json();
+      return ev?.start?.dateTime || null;   // all-day events have no time to quote
+    } catch { return null; }
   };
 
   // Two numbers can be on a card and they are different people: the account
   // holder, and whoever the tech actually meets on site (migration 047).
-  const textClient = (which) => {
+  const textClient = async (which) => {
     const isSite = which === 'site';
     const to   = isSite ? job.site_contact_phone : job.customer_phone;
     const name = isSite
       ? (job.site_contact_name || 'the on-site contact')
       : (job.customer_name || 'the client');
     if (sms?.key === `client:${which}`) { setSms(null); return; }
-    setSms({ key: `client:${which}`, to, name, internal: false,
-             draft: '', templates: clientTemplates() });
+    const when = eventStart ?? await fetchEventStart();
+    if (when && !eventStart) setEventStart(when);
+    setSms({ key: `client:${which}`, to, name, internal: false, draft: '',
+             templates: clientTemplates({ when, scheduledDate: job.scheduled_date }) });
   };
 
   // Save the issue, then mirror it to the calendar.

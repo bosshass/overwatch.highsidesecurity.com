@@ -155,7 +155,18 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
         // so it can be recognised and given its own card instead.
         _msg: (() => {
           const m = String(n.body || '').match(/^📲 Text from (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/);
-          return m ? { who: m[1].trim(), phone: m[2], text: m[3].trim() } : null;
+          if (!m) return null;
+          const text = m[3].trim();
+          // A CONFIRM REPLY IS NOT ORDINARY CORRESPONDENCE. The confirm
+          // template asks for YES or NO, so those two words carry a decision —
+          // and a NO is a visit that has to be moved, today, by a person.
+          // Reading it as just another message is how a customer ends up
+          // waiting at a door for a tech nobody redirected.
+          const bare = text.toLowerCase().replace(/[^a-z]/g, '');
+          const answer = ['yes','y','yep','yeah','confirm','confirmed','ok','okay'].includes(bare) ? 'yes'
+                       : ['no','n','nope','cant','cannot','reschedule'].includes(bare) ? 'no'
+                       : null;
+          return { who: m[1].trim(), phone: m[2], text, answer };
         })(),
         _customer: cById[n.customer_id]?.name || j?.customer_name || null,
         // The client's number, from whichever record has one. Without this the
@@ -466,7 +477,20 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                     <span style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2 }}>
                       {n._msg.who}
                     </span>
+                    {n._msg.answer && (
+                      <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '.06em',
+                                     color: '#08121f',
+                                     background: n._msg.answer === 'yes' ? C.green : C.amber,
+                                     borderRadius: 5, padding: '3px 8px' }}>
+                        {n._msg.answer === 'yes' ? '✅ CONFIRMED' : '⚠ NEEDS RESCHEDULE'}
+                      </span>
+                    )}
                   </div>
+                  {n._msg.answer === 'no' && (
+                    <div style={{ fontSize: 13, color: C.amber, fontWeight: 700, marginBottom: 7 }}>
+                      They cannot make the time. Call them — nothing reschedules on its own.
+                    </div>
+                  )}
                   <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 9 }}>
                     {n._msg.phone}
                     {n._customer ? ` · ${n._customer}` : ''}

@@ -199,6 +199,32 @@ All on the job card (`TicketSheet`):
 The account holder and the on-site contact are **different people**, so they get
 separate buttons rather than one that guesses.
 
+### The confirm template asks a question
+
+```
+DRH Security Services: confirming your appointment Tuesday, August 25 at
+9:00 AM. Reply YES to confirm or NO if that time does not work and we will
+call you to reschedule. Reply STOP to opt out.
+```
+
+**The time comes from the calendar event, not the job.** `jobs.scheduled_date`
+is a DATE with no time in it, and *"Tuesday"* is not an appointment. The finish
+sheet already has the event (it is opened from it); the job card fetches the
+event's start once, when a client text is opened — never on render, because
+that would spend a Google call on every card anybody looks at. When there is no
+time, the message says a day and time are coming rather than inventing one.
+
+**YES / NO, then STOP.** A confirmation offering only "reply STOP" gives the
+customer no way to say the one thing you need to hear — that the time does not
+work. **NO reschedules nothing automatically.** It lands in the shared inbox and
+a person calls them, and the message says so, because otherwise somebody texts
+NO and waits for a system that was never going to answer.
+
+Replies are read and flagged: a YES gets **✅ CONFIRMED**, a NO gets
+**⚠ NEEDS RESCHEDULE** plus *"They cannot make the time. Call them — nothing
+reschedules on its own."* A NO reading like ordinary correspondence is how a
+customer ends up waiting at a door for a tech nobody redirected.
+
 ### Client templates
 
 `On the way` · `Confirm visit` · `Running late` · `Blank`

@@ -523,14 +523,14 @@ export default function JobFinishSheet({
               to={linkedJob.site_contact_phone}
               name={linkedJob.site_contact_name || 'on-site contact'}
               accessToken={accessToken}
-              templates={clientTemplates({ scheduledDate: linkedJob.scheduled_date })}
+              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
               logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
             />
             <TextButton
               to={linkedJob.customer_phone}
               name={linkedJob.customer_name || 'the client'}
               accessToken={accessToken}
-              templates={clientTemplates({ scheduledDate: linkedJob.scheduled_date })}
+              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
               logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
             />
           </div>
@@ -555,7 +555,7 @@ export default function JobFinishSheet({
             to={linkedJob.customer_phone}
             name={linkedJob.customer_name || 'the client'}
             accessToken={accessToken}
-            templates={clientTemplates({ scheduledDate: linkedJob.scheduled_date })}
+            templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
             logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
             style={{ marginLeft: 'auto' }}
           />

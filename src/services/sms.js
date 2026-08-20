@@ -29,11 +29,18 @@ export function isSendable(raw) {
 
 // Returns whatever the endpoint returns. Never throws on a Twilio refusal —
 // a rejected message is data the operator needs to see, not a crash.
-export async function sendSms({ to, message }) {
+// `accessToken` is the GOOGLE token the app already holds. The endpoint used
+// to accept only a Supabase session token, which Overwatch has never had — it
+// signs in with Google and uses the anon key — so this call went out with no
+// Authorization header at all and would have come back 401 every time. That is
+// the real reason nothing ever called sendSms.
+export async function sendSms({ to, message, accessToken = null }) {
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
     const r = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ to: formatPhone(to), message }),
     });
     const data = await r.json().catch(() => null);

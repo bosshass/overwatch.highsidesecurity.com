@@ -30,6 +30,8 @@ import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import { releaseCalendar } from '../services/schedule.js';
 import { syncIssueToEvents } from '../services/calendarSync.js';
+import { sendSms, formatPhone, isSendable } from '../services/sms.js';
+import { shortJobLink } from '../config/appBase.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
 
@@ -110,6 +112,15 @@ export default function TicketSheet({
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
   const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
+
+  // ── Texting the person who owns a task ───────────────────────────────
+  // api/send-sms.js (Twilio) and services/sms.js have both been complete and
+  // UNREACHABLE — sendSms had zero callers anywhere in the app. Same shape as
+  // the assign picker in Notes: the plumbing was built, the button never was.
+  const [smsFor, setSmsFor]       = useState(null);   // task id being texted
+  const [smsBody, setSmsBody]     = useState('');
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsMsg, setSmsMsg]       = useState('');
 
   // ── Editing the issue ────────────────────────────────────────────────
   const [issueEdit, setIssueEdit]     = useState(false);
@@ -257,6 +268,62 @@ export default function TicketSheet({
       }
     } catch (e) { setErr(e.message || 'Could not assign'); }
     finally { setSaving(false); }
+  };
+
+  // What the text says before she edits it.
+  //
+  // NOT the raw task body. These bodies are machine-composed and several of
+  // them still carry the old intake template inline ("Name: ... Phone: ...
+  // On-Site Contact:"), which is not something to send a person. The LAST
+  // paragraph is the most recent thing anybody added — a reply, a question,
+  // the actual ask — so that is what leads, under the customer's name, with a
+  // short link so the recipient can open the card instead of texting back to
+  // ask what it is about.
+  const draftSmsFor = (t) => {
+    const paras = String(t.body || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+    let ask = paras.length ? paras[paras.length - 1] : '';
+    ask = ask.replace(/^—\s*/, '');
+    if (ask.length > 220) ask = ask.slice(0, 218).trimEnd() + '…';
+    const who = job.customer_name || 'this job';
+    return [`${who} — ${ask}`.trim(), '', shortJobLink(job.id)].join('\n');
+  };
+
+  const openSms = (t) => {
+    if (smsFor === t.id) { setSmsFor(null); return; }
+    setSmsFor(t.id);
+    setSmsBody(draftSmsFor(t));
+    setSmsMsg('');
+  };
+
+  const doSendSms = async (t) => {
+    const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
+    if (!phone) { setSmsMsg('⚠ No phone number on file for them.'); return; }
+    setSmsSending(true);
+    setSmsMsg('');
+    const r = await sendSms({ to: phone, message: smsBody, accessToken });
+    setSmsSending(false);
+    if (r.ok) {
+      setSmsMsg('Sent ✓');
+      // Log it on the job so the text is part of the record rather than
+      // something that happened only on somebody's phone.
+      try {
+        await supabase.from('notes').insert({
+          body: `📱 Texted ${ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to}: ${smsBody.split('\n')[0]}`,
+          job_id: job.id,
+          customer_id: job.customer_id || null,
+          author_email: userEmail,
+          lane: 'note',
+          status: 'archived',
+          on_customer_record: false,
+          archived_at: new Date().toISOString(),
+          archived_by: userEmail,
+        });
+      } catch (e) { console.warn('SMS log failed (non-fatal):', e?.message || e); }
+      setTimeout(() => { setSmsFor(null); setSmsMsg(''); }, 1400);
+    } else {
+      // A Twilio refusal is information, not a crash. Say what it said.
+      setSmsMsg(`⚠ ${r.error || 'Could not send'}${r.detail ? ` — ${r.detail}` : ''}`);
+    }
   };
 
   // Save the issue, then mirror it to the calendar.
@@ -622,6 +689,77 @@ export default function TicketSheet({
                     {t.handoff_to ? ` · then → ${ASSIGNEES.find(a => a.email === t.handoff_to)?.name || t.handoff_to}` : ''}
                   </div>
                 )}
+
+                {/* THE TASK IS NOW SOMETHING YOU CAN ACT ON, not a read-only
+                    label. The person who created a task has exactly one thing
+                    they want from this card — to chase whoever owns it — and
+                    there was no control for it anywhere. */}
+                {(() => {
+                  const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
+                  const open  = smsFor === t.id;
+                  return (
+                    <>
+                      <div style={{ display: 'flex', gap: 7, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button onClick={() => openSms(t)}
+                          disabled={!phone}
+                          title={phone ? formatPhone(phone) : 'No phone number on file'}
+                          style={{ background: open ? '#9b6cff' : 'transparent',
+                                   border: '1px solid #9b6cff66', borderRadius: 8,
+                                   color: open ? '#08121f' : (phone ? '#c4a6ff' : C.muted),
+                                   fontSize: 12, fontWeight: 800, padding: '6px 12px',
+                                   cursor: phone ? 'pointer' : 'default',
+                                   opacity: phone ? 1 : 0.5, fontFamily: 'inherit' }}>
+                          {phone ? `📱 Text ${owner}` : `No number for ${owner}`}
+                        </button>
+                      </div>
+
+                      {open && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>
+                            To {owner} at {formatPhone(phone)}
+                            {!isSendable(phone) && ' — that number does not look sendable'}
+                          </div>
+                          <textarea value={smsBody}
+                            onChange={e => setSmsBody(e.target.value)}
+                            rows={5}
+                            style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                                     border: '1px solid #9b6cff66', borderRadius: 8, color: '#e2e8f0',
+                                     padding: '9px 11px', fontSize: 13.5, lineHeight: 1.45,
+                                     fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+                          {/* Segments, because these are billed per 160 chars
+                              and "we'll be using lots of texts". A link pushes
+                              most messages to two on its own. */}
+                          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>
+                            {smsBody.length} chars · {Math.max(1, Math.ceil(smsBody.length / 160))} segment
+                            {Math.ceil(smsBody.length / 160) === 1 ? '' : 's'}
+                          </div>
+                          <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                            <button onClick={() => doSendSms(t)}
+                              disabled={smsSending || !smsBody.trim() || !isSendable(phone)}
+                              style={{ flex: 2, background: '#9b6cff', border: 'none', borderRadius: 8,
+                                       padding: '9px 0', color: '#08121f', fontSize: 13, fontWeight: 800,
+                                       cursor: smsSending ? 'default' : 'pointer', fontFamily: 'inherit',
+                                       opacity: smsSending || !smsBody.trim() ? 0.6 : 1 }}>
+                              {smsSending ? 'Sending…' : 'Send text'}
+                            </button>
+                            <button onClick={() => { setSmsFor(null); setSmsMsg(''); }}
+                              style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
+                                       borderRadius: 8, padding: '9px 0', color: C.muted, fontSize: 13,
+                                       fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                              Cancel
+                            </button>
+                          </div>
+                          {smsMsg && (
+                            <div style={{ fontSize: 12, marginTop: 7,
+                                          color: smsMsg.startsWith('⚠') ? C.amber : '#4ade80' }}>
+                              {smsMsg}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             );
           })}

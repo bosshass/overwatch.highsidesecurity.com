@@ -378,6 +378,45 @@ The Bob/Wally note reads "Yesterday" correctly — `created_at` is Aug 19 at
 10:53 AM Denver, and its own body says *"Tomorrow, 8/20/2026 Bob and Wally are
 onsite."* Written on the 19th about the 20th. Not a timezone display bug.
 
+### Texting the person who owns a task — DONE
+> "JR has a task on this card… I can't click on this task. I want to click it, I
+> am the creator of the task. I want to be able to text JR. I have Twilio now."
+
+The task block on the job card was a read-only label. The one thing the creator
+of a task wants from that card is to chase whoever owns it, and there was no
+control for it anywhere. Each task now carries **📱 Text {name}** — an editable
+message, the number it will dial, and a live segment count (these bill per 160
+characters, and a link pushes most messages to two on its own).
+
+**The plumbing was already complete and unreachable, twice over.**
+
+`api/send-sms.js` (Twilio, CORS, rate-guarded) and `services/sms.js` both
+existed. `sendSms` had **zero callers**. And it could not have had any:
+
+> the endpoint accepted only a **Supabase session token**, and Overwatch has
+> never had one — it signs in with Google OAuth directly and talks to Supabase
+> with the anon key under permissive RLS. There is no Supabase user to get a
+> token for. `sms.js` sent no `Authorization` header at all. **Every call from
+> the browser would have returned 401.**
+
+So `authorize()` now also accepts the **Google** token the app actually holds:
+verified against Google's userinfo, with the resulting address required to be on
+a company domain (`SMS_ALLOWED_DOMAINS`, defaulting to the three DRH/JNB ones).
+Nothing secret reaches the client and the sender is a named person, not anyone
+who can reach the URL.
+
+The draft is deliberately **not** the raw task body — several of those still
+carry the old intake template inline, which is not something to send a person.
+It leads with the customer and the **last paragraph** (the most recent thing
+anybody added — the actual ask), then a short link.
+
+Every text sent is logged as an archived note on the job, so it is part of the
+record rather than something that happened only on somebody's phone.
+
+**Needs in Vercel:** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and either
+`TWILIO_MESSAGING_SERVICE_SID` or `TWILIO_FROM_NUMBER`. If any is missing the
+endpoint says exactly which, and the card shows it.
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.

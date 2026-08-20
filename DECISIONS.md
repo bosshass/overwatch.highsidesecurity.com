@@ -300,6 +300,55 @@ allowed `blocked`; only `time_entries` was blocking.
 This also corrects the earlier note that `blocked` "produced zero rows and never
 succeeded" without saying *why*. The why is a constraint, and it was fixable.
 
+### The sign-in loop — DONE
+> "When I login the yellow session exp appears, click sign back in, it makes me
+> do this twice, then I get the app for seconds and then get directed to the
+> pick Google account."
+
+**Two keys, one of them never maintained.**
+
+| Key | Written by | Read by | Meaning |
+|---|---|---|---|
+| `juce_v4_expiry` | the OAuth redirect (**36h**) | the session check | how long we let somebody stay signed in |
+| `juce_v4_token_expiry` | **`silentRefresh` only** | the pre-emptive renewal, the dead-on-arrival check | when this Google token stops working |
+
+`clearStorage` never removed the second one, and the OAuth redirect never wrote
+it. So a fresh sign-in landed with a **new token and a `token_expiry` timestamp
+from a previous session**. The dead-on-arrival check runs immediately on mount,
+read that past timestamp, tried a silent refresh, and failed — so *"Your session
+expired"* appeared seconds after signing in successfully. "Sign back in" ran the
+same failing refresh, fell through to the full redirect, and the full redirect
+carried `prompt=select_account`. **That is the account picker.** Round and round.
+
+Four fixes, each addressing one turn of the loop:
+
+1. **`clearStorage` clears `juce_v4_token_expiry`.** It never did.
+2. **The redirect writes it**, from Google's own `expires_in` in the fragment —
+   3600s, not an invented 36 hours.
+3. **A failed background refresh no longer raises the gate by itself.**
+   `silentRefresh` goes through GIS `requestAccessToken`, which opens a popup
+   when it cannot complete silently — and **a popup with no user gesture behind
+   it is blocked outright on mobile**. It failed routinely on a phone for
+   reasons unrelated to the token. The 401 interceptor is the honest signal and
+   still raises it; this path now also requires the token to be genuinely past
+   expiry.
+4. **Re-auth does not force the picker.** `handleSignIn({ reauth: true })` sends
+   `login_hint` and omits `prompt`, so Google round-trips the same account. With
+   six Google accounts on that phone, `select_account` meant hand-picking hers
+   every time an hour-long token lapsed.
+
+Plus a **boot repair**: anyone already signed in when this build lands still has
+the poisoned value. It cannot be fixed by clearing on sign-out — that helps the
+*next* login, not the open tab. So the app asks Google directly via `tokeninfo`,
+which returns the token's actual remaining life, and re-stamps. If the token is
+genuinely dead the call 400s and the normal expiry path takes over — the right
+outcome, reached for a real reason instead of a stale string.
+
+Also fixed: **GIS is loaded `async defer`**, so `window.google` may not exist
+when the first refresh fires on a cold load. `getTokenClient()` returned null and
+the refresh reported failure instantly — a load-order race being shown to the
+user as a dead session. It now waits up to 3s.
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.

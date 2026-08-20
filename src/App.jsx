@@ -289,6 +289,44 @@ export default function App() {
     setIsLoading(false);
   }, []);
 
+  // ── BOOT REPAIR: re-stamp a token expiry we cannot trust ────────────────
+  // Anyone already signed in when this build lands still has the poisoned
+  // juce_v4_token_expiry in localStorage — a timestamp from an old session
+  // that the redirect never overwrote. Clearing it on sign-out fixes the NEXT
+  // sign-in; it does nothing for the tab that is open right now, which would
+  // read the stale value and raise the session gate over a perfectly good
+  // token.
+  //
+  // So ask Google. tokeninfo returns the token's ACTUAL remaining life, which
+  // is the one number nobody here has been able to state honestly: the
+  // redirect invented 36 hours, silentRefresh assumed 3600s. If the token is
+  // genuinely dead this 400s and the normal expiry path takes over — which is
+  // the correct outcome, reached for a real reason instead of a stale string.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const tok = localStorage.getItem('juce_v4_token');
+    if (!tok) return;
+    const exp = localStorage.getItem('juce_v4_token_expiry');
+    // Only when it is missing or already lapsed — a live value is left alone.
+    if (exp && new Date(exp).getTime() > Date.now()) return;
+    let dead = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(tok)}`);
+        if (!res.ok) return;                 // really expired — leave it alone
+        const info = await res.json();
+        const left = Number(info.expires_in);
+        if (!dead && Number.isFinite(left) && left > 0) {
+          localStorage.setItem('juce_v4_token_expiry',
+            new Date(Date.now() + left * 1000).toISOString());
+          setNeedsReconnect(false);
+        }
+      } catch { /* offline or blocked — the 401 path still covers us */ }
+    })();
+    return () => { dead = true; };
+  }, [isSignedIn]);
+
   // ── LIVE VERSION POLL ────────────────────────────────────────────────────
   // The check above only ever runs once, on load — someone who has a tab
   // open for hours never gets caught by it, no matter how many versions ship
@@ -339,10 +377,28 @@ export default function App() {
     localStorage.removeItem('juce_v4_token');
     localStorage.removeItem('juce_v4_email');
     localStorage.removeItem('juce_v4_expiry');
+    // THIS KEY WAS NEVER CLEARED, AND THAT IS THE SIGN-IN LOOP.
+    // juce_v4_token_expiry is written ONLY by silentRefresh. Signing out left
+    // it behind, and the OAuth redirect below never overwrote it — so a fresh
+    // sign-in landed with a brand-new token and a token_expiry timestamp from
+    // hours or days earlier. The "already dead on arrival" check runs
+    // immediately on mount, read that stale past timestamp, decided the
+    // session was gone, tried a silent refresh, and on a phone (where the GIS
+    // popup is blocked outside a user gesture) failed — so "Your session
+    // expired" appeared SECONDS after signing in successfully. Tapping
+    // "Sign back in" ran the same failing refresh and fell through to the full
+    // redirect, which is the account picker. Round and round.
+    localStorage.removeItem('juce_v4_token_expiry');
   };
 
   // ── AUTH: Google Sign In ────────────────────────────────────────────────
-  const handleSignIn = useCallback(() => {
+  // `reauth` — this is a token renewal for somebody already signed in, not a
+  // fresh login. The difference is the account picker: forcing
+  // prompt=select_account on a renewal makes a user with several Google
+  // accounts on the phone hand-pick theirs every single time the hour-long
+  // token lapses. With login_hint and no prompt, Google round-trips the same
+  // account silently and the user sees a flicker instead of a menu.
+  const handleSignIn = useCallback(({ reauth = false } = {}) => {
     // Remember where the user was actually trying to go — e.g. a /board?job=...
     // deep link from an assign-to SMS/email — so sign-in can send them there
     // instead of unconditionally dropping them at '/' or their default view.
@@ -350,12 +406,17 @@ export default function App() {
     if (here && here !== '/') {
       sessionStorage.setItem('ow_post_login_path', here);
     }
+    const known = localStorage.getItem('juce_v4_email') || '';
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
     authUrl.searchParams.set('redirect_uri', window.location.origin);
     authUrl.searchParams.set('response_type', 'token');
     authUrl.searchParams.set('scope', SCOPES);
-    authUrl.searchParams.set('prompt', 'select_account');
+    if (reauth && known) {
+      authUrl.searchParams.set('login_hint', known);
+    } else {
+      authUrl.searchParams.set('prompt', 'select_account');
+    }
     window.location.href = authUrl.toString();
   }, []);
 
@@ -388,6 +449,17 @@ export default function App() {
             localStorage.setItem('juce_v4_token', token);
             localStorage.setItem('juce_v4_email', email);
             localStorage.setItem('juce_v4_expiry', expiry.toISOString());
+            // AND THE TOKEN'S OWN LIFETIME, from Google's own expires_in in
+            // the redirect fragment (3600s). This was never written here —
+            // only silentRefresh wrote it — so after a fresh sign-in the
+            // pre-emptive renewal read whatever was left over from a previous
+            // session. Two keys, two meanings, and only one of them was being
+            // kept honest:
+            //   juce_v4_expiry       — how long we let somebody stay signed in
+            //   juce_v4_token_expiry — when THIS Google token stops working
+            const tokenLifeMs = (Number(params.get('expires_in')) || 3600) * 1000;
+            localStorage.setItem('juce_v4_token_expiry',
+              new Date(Date.now() + tokenLifeMs).toISOString());
 
             setAccessToken(token);
             setUserEmail(email);
@@ -474,7 +546,20 @@ export default function App() {
     return tokenClientRef.current;
   }, []);
 
-  const silentRefresh = useCallback(() => {
+  // The GIS script in index.html is `async defer`, so window.google may not
+  // exist yet when the first refresh fires on a cold load. getTokenClient()
+  // returned null and the refresh reported failure instantly — a load-order
+  // race being reported to the user as a dead session. Wait for it briefly.
+  const waitForGis = useCallback(async (ms = 3000) => {
+    const deadline = Date.now() + ms;
+    while (!window.google?.accounts?.oauth2 && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return !!window.google?.accounts?.oauth2;
+  }, []);
+
+  const silentRefresh = useCallback(async () => {
+    await waitForGis();
     return new Promise((resolve) => {
       const client = getTokenClient();
       if (!client) return resolve(false);
@@ -493,7 +578,7 @@ export default function App() {
       try { client.requestAccessToken({ prompt: '', login_hint: userEmail }); }
       catch { done(false); }
     });
-  }, [getTokenClient, userEmail]);
+  }, [getTokenClient, userEmail, waitForGis]);
 
   // ── AUTH: refresh BEFORE it breaks ────────────────────────────────────
   // Waiting for a 401 means the user always eats one failed action. Renew at
@@ -553,7 +638,21 @@ export default function App() {
       // 60s of slack so we act just before it lapses, not just after.
       if (new Date(exp).getTime() - Date.now() > 60000) return;
       const ok = await silentRefresh();
-      if (!ok && !dead) setNeedsReconnect(true);
+      // A FAILED BACKGROUND REFRESH IS NOT PROOF THE SESSION IS DEAD.
+      // silentRefresh goes through GIS requestAccessToken, which opens a
+      // popup when it cannot complete silently — and a popup with no user
+      // gesture behind it is blocked outright on mobile. So this failed
+      // routinely on a phone for reasons that had nothing to do with the
+      // token, and threw up a full-screen "session expired" over a session
+      // that still worked.
+      //
+      // The 401 interceptor below is the honest signal: it fires when a real
+      // request to Google actually came back unauthorised. That still raises
+      // the gate. This one now only raises it once the token is properly
+      // past its expiry AND the renewal failed — not merely inside the
+      // 60-second renewal window.
+      const reallyExpired = new Date(exp).getTime() <= Date.now();
+      if (!ok && !dead && reallyExpired) setNeedsReconnect(true);
     };
     check();
     const t = setInterval(check, 60000);
@@ -988,7 +1087,10 @@ export default function App() {
             <button onClick={async () => {
                       const ok = await silentRefresh();
                       if (ok) setNeedsReconnect(false);
-                      else handleSignIn();   // full flow, returns to this page
+                      // reauth: same account, no picker. This button used to
+                      // drop a user with six Google accounts on the phone into
+                      // the account list every time.
+                      else handleSignIn({ reauth: true });
                     }}
               style={{ width: '100%', background: '#f59e0b', border: 'none', borderRadius: 10,
                        color: '#08121f', fontWeight: 900, fontSize: 15,

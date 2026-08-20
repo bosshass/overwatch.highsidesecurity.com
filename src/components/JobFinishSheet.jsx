@@ -32,7 +32,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
-import { timeEntriesApi, returnCardsApi, jobsApi, supabase, JOB_STATUS } from '../services/supabase.js';
+import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
@@ -79,6 +79,47 @@ export default function JobFinishSheet({
   // buttons were buried under Notes+Materials and doubled as the submit,
   // so the tech had to scroll past everything to say what happened.
   const [selectedDispo, setSelectedDispo] = useState(null);
+
+  // ── THE JOB BEHIND THIS EVENT ──────────────────────────────────────
+  // The sheet used to know NOTHING about the card. "Scope of work" was built
+  // only from the Google event description — a COPY of the issue, snapshotted
+  // into the calendar at the moment of booking. So the tech saw nothing
+  // whenever the description was stale or absent:
+  //   • the event was booked directly on Google, so nothing ever wrote a
+  //     description
+  //   • the issue was typed or edited AFTER the booking
+  //   • somebody edited the event by hand and lost the block
+  //
+  // The issue lives in jobs.issue. Read it from there. resolveJobForEvent
+  // already checks all four event-id homes, and the sheet already calls it at
+  // submit time — this just does it on OPEN, when the tech actually needs it.
+  const [linkedJob, setLinkedJob]   = useState(null);
+  const [jobNotes, setJobNotes]     = useState([]);
+  useEffect(() => {
+    let dead = false;
+    if (!event?.id) { setLinkedJob(null); setJobNotes([]); return undefined; }
+    (async () => {
+      try {
+        const j = await resolveJobForEvent(event.id, {
+          select: 'id, issue, status, customer_id, customer_name, customer_phone, customer_address',
+        });
+        if (dead) return;
+        setLinkedJob(j || null);
+        if (!j?.id) return;
+        // Notes were readable in exactly one place. notesApi.getAllForJob
+        // merges job_history, completion notes and prior field notes — the
+        // tech should see what was already said about this job before adding
+        // to it.
+        try {
+          const n = await notesApi.getAllForJob(j.id);
+          if (!dead) setJobNotes(n || []);
+        } catch (e) { console.warn('job notes lookup failed:', e?.message || e); }
+      } catch (e) {
+        console.warn('job lookup failed (sheet still usable):', e?.message || e);
+      }
+    })();
+    return () => { dead = true; };
+  }, [event?.id]);
 
   // If the parent passes a different prefill customer mid-life, follow it.
   useEffect(() => { if (prefillCustomer) setLinkedCust(prefillCustomer); }, [prefillCustomer]);
@@ -175,7 +216,18 @@ export default function JobFinishSheet({
     const base = cleanTitle(event.title);
     const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
     // ONE resolver, shared with Unbilled and the home tile. See utils/jobResolve.
-    const existing = await resolveJobForEvent(event.id);
+    //
+    // PREFER THE JOB WE ALREADY FOUND ON OPEN. The sheet resolves the card when
+    // it mounts (see linkedJob) to show the issue and history. Resolving a
+    // SECOND time here meant two lookups against a moving database: anything
+    // that changed the row in between — a status move on the board, another
+    // tech dispositioning the same visit, a customer link being fixed — could
+    // make the second lookup miss where the first one hit, and a miss here goes
+    // on to CREATE A CARD. Same event, two cards.
+    //
+    // If the sheet already knows the job, that is the answer. Only fall back to
+    // a fresh resolve when it does not.
+    const existing = linkedJob?.id ? linkedJob : await resolveJobForEvent(event.id);
 
     if (existing) {
       // Already tracked — move it to the disposition's status AND put the
@@ -247,17 +299,25 @@ export default function JobFinishSheet({
     // which is how 62% of entries ended up unlinked. resolveJobForEvent checks
     // calendar_event_id, scheduled_event_id AND job_assignments, so it catches
     // the Jeanneret case where the two event ids differ.
-    let jobId = null;
-    try {
-      const linked = await resolveJobForEvent(event.id);
-      jobId = linked?.id || linked?.job_id || null;
-    } catch (e) {
-      console.warn('job resolve failed, writing entry unlinked:', e?.message || e);
+    // Same rule as ensureJobForEvent: use the job the sheet already resolved
+    // on open. A third independent lookup was a third chance to disagree.
+    let jobId = linkedJob?.id || null;
+    if (!jobId) {
+      try {
+        const linked = await resolveJobForEvent(event.id);
+        jobId = linked?.id || linked?.job_id || null;
+      } catch (e) {
+        console.warn('job resolve failed, writing entry unlinked:', e?.message || e);
+      }
     }
     return timeEntriesApi.create({
       job_id:             jobId,
-      customer_id:        linkedCustomer?.id || null,
-      customer_name_raw:  linkedCustomer?.name || cleanTitle(event.title) || null,
+      // Fall back to the CARD's customer. The sheet only had whatever the tech
+      // picked, so a visit on a properly-linked job still wrote customer_id
+      // null whenever the tech skipped the picker — and an unlinked entry is
+      // what sends hours to the wrong customer or to nobody.
+      customer_id:        linkedCustomer?.id || linkedJob?.customer_id || null,
+      customer_name_raw:  linkedCustomer?.name || linkedJob?.customer_name || cleanTitle(event.title) || null,
       calendar_event_id:  event.id,
       calendar_id:        event.calendarId,
       event_title:        event.title,
@@ -368,13 +428,22 @@ export default function JobFinishSheet({
   // field notes (📝 lines). Shown IN FULL — no "Show more" truncation. This
   // is the single most important thing on the screen and it used to be
   // collapsed behind a link.
-  const scope = (event.description || '')
+  const eventScope = (event.description || '')
     .replace(/📱.*|Open in (JUC-E|Overwatch).*/g, '')
     .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
     .split('\n')
     .filter(l => !l.trim().startsWith('📝'))
     .join('\n')
     .trim();
+  // jobs.issue WINS. It is the live answer to "what are we doing here" and it
+  // is what the office typed on the card. The event description is a snapshot
+  // of it and can be stale, empty, or hand-edited — so it is the fallback,
+  // never the source.
+  const issueText = (linkedJob?.issue || '').trim();
+  const scope     = issueText || eventScope;
+  // Show the calendar block too when it says something the issue does not —
+  // gate codes and access notes often live only there.
+  const extraFromEvent = issueText && eventScope && eventScope !== issueText ? eventScope : '';
 
   // Same five destinations as the board and My Tasks, in the words a tech
   // would use. The labels used to be this sheet's own invention — "Needs
@@ -413,6 +482,34 @@ export default function JobFinishSheet({
         </div>
       )}
 
+      {/* WHAT WAS ALREADY SAID. Prior notes on this job — office notes, status
+          history and earlier field notes, all via notesApi.getAllForJob. Until
+          now these were readable in exactly one screen, so a tech walked in
+          without the last three things anybody wrote about the job. Newest
+          first, capped at four so it informs without burying the form. */}
+      {jobNotes.length > 0 && (
+        <div style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12,
+                      padding:'10px 12px', marginBottom:12 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase',
+                        letterSpacing:0.5, marginBottom:6 }}>
+            🗒 History {jobNotes.length > 4 ? `(latest 4 of ${jobNotes.length})` : ''}
+          </div>
+          {jobNotes.slice(0, 4).map(n => (
+            <div key={n.id} style={{ fontSize:13, color:'#334155', lineHeight:1.45,
+                                     paddingBottom:6, marginBottom:6,
+                                     borderBottom:'1px solid #eef2f6' }}>
+              <div style={{ fontSize:10.5, color:'#94a3b8', fontWeight:700 }}>
+                {n.created_by || 'Someone'}
+                {n.created_at ? ` · ${new Date(n.created_at).toLocaleDateString('en-US',
+                  { month:'short', day:'numeric' })}` : ''}
+                {n.to_status ? ` · ${n.to_status}` : ''}
+              </div>
+              <div style={{ whiteSpace:'pre-wrap' }}>{String(n.text || '').slice(0, 240)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* SCOPE OF WORK — the hero. Full text, no truncation, no "Show more". */}
       {scope && (
         <div style={scopeBox}>
@@ -422,6 +519,15 @@ export default function JobFinishSheet({
           <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
             {scope}
           </div>
+          {/* Access details and gate codes often live only on the calendar
+              event, so show that block too when it says something the issue
+              does not. */}
+          {extraFromEvent && (
+            <div style={{ fontSize: 12.5, color: '#3b5aa0', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                          marginTop: 8, paddingTop: 8, borderTop: '1px solid #bfdbfe' }}>
+              {extraFromEvent}
+            </div>
+          )}
         </div>
       )}
 

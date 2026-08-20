@@ -20,7 +20,7 @@
 import ArchiveModal from './ArchiveModal.jsx';
 import { reasonLabel } from '../config/archiveReasons.js';
 import { useState, useEffect } from 'react';
-import { supabase } from '../services/supabase.js';
+import { supabase, jobsApi } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
 import { assignmentMessage, APP_BASE } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
@@ -29,6 +29,7 @@ import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import { releaseCalendar } from '../services/schedule.js';
+import { syncIssueToEvents } from '../services/calendarSync.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
 
@@ -52,6 +53,7 @@ export default function TicketSheet({
   onOpenScheduler,   // (mode: 'hold' | 'book') => void
   onClose,
   onAssigned,        // (jobId, email|null) => void — let the parent refresh its list
+  onUpdated = null,  // (job) => void — the issue was edited; refresh the list behind
   // Optional sections — the ONLY things that differ between surfaces.
   timeSection = null,     // Work To Do Today passes its time entry block here
   billingSection = null,  // Billing passes its unbilled-hours block here
@@ -108,6 +110,15 @@ export default function TicketSheet({
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
   const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
+
+  // ── Editing the issue ────────────────────────────────────────────────
+  const [issueEdit, setIssueEdit]     = useState(false);
+  const [issueText, setIssueText]     = useState('');
+  const [issueSaving, setIssueSaving] = useState(false);
+  const [issueMsg, setIssueMsg]       = useState('');
+  // The saved value, so the box reflects the edit without waiting for the
+  // parent to refetch. Null until something is saved here.
+  const [issueLocal, setIssueLocal]   = useState(null);
   const [showMoves, setShowMoves] = useState(false);
 
   // WHAT IS ALREADY OUT THERE. Without this the card happily lets you send a
@@ -117,14 +128,17 @@ export default function TicketSheet({
     let dead = false;
     (async () => {
       if (!job?.id) return;
+      // lane 'done' IS INCLUDED NOW. It used to be filtered out on the grounds
+      // that nobody is actively working it — true, but "Shana finished this and
+      // is waiting on you to confirm" is precisely what the card was supposed
+      // to tell you, and excluding it made the task vanish from the job at the
+      // one moment somebody had to act on it. The lane is rendered instead, so
+      // "on it" and "says done" read differently rather than one disappearing.
       const { data } = await supabase.from('notes')
-        .select('id, body, assigned_to')
+        .select('id, body, assigned_to, assigned_by, lane, handoff_to, created_at, done_at, done_by')
         .eq('job_id', job.id).eq('status', 'open')
-        // lane 'done' means the doer finished — it sits with the assigner for
-        // confirmation but nobody is working it. Counting it as open told you
-        // Shana was on something she had already handed back.
-        .neq('lane', 'done')
-        .not('assigned_to', 'is', null);
+        .not('assigned_to', 'is', null)
+        .order('created_at', { ascending: true });
       if (!dead) setOpenTasks(data || []);
     })();
     return () => { dead = true; };
@@ -145,7 +159,7 @@ export default function TicketSheet({
   // any job whose scope was never filled in past the template shows the raw
   // boilerplate verbatim. Same rule here: if nothing real was written after
   // "Scope of Work:", there is nothing to show, and the box doesn't render.
-  const cleanIssue = stripIntakeTemplate(job.issue);
+  const cleanIssue = issueLocal !== null ? issueLocal : stripIntakeTemplate(job.issue);
 
   // ONE rule for who owns this, from ownership.js. The board card used to read
   // job.tech_name directly, which is why assigning somebody left the card
@@ -243,6 +257,44 @@ export default function TicketSheet({
       }
     } catch (e) { setErr(e.message || 'Could not assign'); }
     finally { setSaving(false); }
+  };
+
+  // Save the issue, then mirror it to the calendar.
+  //
+  // ORDER MATTERS AND IS NOT NEGOTIABLE. The database write happens first and
+  // its failure is the only failure that can lose the edit. The calendar patch
+  // is best-effort after the fact: Google being slow, the token being stale,
+  // or the event having been deleted must never throw away what someone just
+  // typed. When the mirror does not land, the message says so rather than
+  // reporting a clean save — an issue that is right in Overwatch and stale on
+  // the tech's phone is exactly the kind of quiet disagreement this app keeps
+  // being bitten by.
+  const saveIssue = async () => {
+    const next = issueText.trim();
+    setIssueSaving(true);
+    setIssueMsg('');
+    try {
+      await jobsApi.update(job.id, { issue: next || null }, userEmail);
+      setIssueLocal(next);
+      setIssueEdit(false);
+      onUpdated?.({ ...job, issue: next || null });
+
+      const hasEvent = job.scheduled_event_id || job.calendar_event_id || job.tentative_event_id;
+      if (!hasEvent) {
+        setIssueMsg('Saved. Not on a calendar yet — it will carry over when this is scheduled.');
+      } else if (!accessToken) {
+        setIssueMsg('⚠ Saved here, but not signed in to Google — the calendar event still shows the old text.');
+      } else {
+        const r = await syncIssueToEvents(accessToken, job, next);
+        setIssueMsg(r.patched > 0
+          ? `Saved · calendar updated (${r.patched} event${r.patched === 1 ? '' : 's'})`
+          : '⚠ Saved here, but the calendar event could not be updated.');
+      }
+    } catch (e) {
+      setIssueMsg(`⚠ Could not save: ${e.message || e}`);
+    } finally {
+      setIssueSaving(false);
+    }
   };
 
   const choose = async (lane) => {
@@ -400,13 +452,71 @@ export default function TicketSheet({
         </div>
 
         {/* ── Issue ── */}
-        {cleanIssue && (
-          <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase',
-                          letterSpacing: 0.6, marginBottom: 6 }}>Issue</div>
-            <div style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cleanIssue}</div>
+        {/* ── THE ISSUE, EDITABLE ──────────────────────────────────────
+            "What are we doing?" is the one thing on a card that everybody
+            needs and nobody could change. It was read-only here, so a scope
+            that arrived wrong stayed wrong — and 28 live cards had no issue at
+            all, which made a read-only box render nothing rather than offering
+            somewhere to fix it. Now it always renders, empty included.
+            Saving writes jobs.issue and then patches the linked calendar
+            events, replacing only the fenced issue region of the description —
+            the CUSTOMER_ID stamp, field notes and anything hand-typed are left
+            exactly as they are. See applyIssueToDescription. */}
+        <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase',
+                           letterSpacing: 0.6 }}>Issue — what are we doing?</span>
+            {!issueEdit && (
+              <button onClick={() => { setIssueEdit(true); setIssueText(cleanIssue || ''); setIssueMsg(''); }}
+                style={{ marginLeft: 'auto', background: 'transparent', border: 'none',
+                         color: C.blue, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                         fontFamily: 'inherit', padding: 0 }}>
+                {cleanIssue ? 'Edit' : 'Add it'}
+              </button>
+            )}
           </div>
-        )}
+
+          {issueEdit ? (
+            <>
+              <textarea
+                value={issueText}
+                onChange={e => setIssueText(e.target.value)}
+                rows={4}
+                placeholder="e.g. Front door contact not reporting — check sensor and panel programming"
+                style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                         border: `1px solid ${C.blue}`, borderRadius: 8, color: '#e2e8f0',
+                         padding: '9px 11px', fontSize: 14, lineHeight: 1.5,
+                         fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+              <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                <button onClick={saveIssue} disabled={issueSaving}
+                  style={{ flex: 2, background: C.blue, border: 'none', borderRadius: 8,
+                           padding: '9px 0', color: '#04121f', fontSize: 13, fontWeight: 800,
+                           cursor: issueSaving ? 'default' : 'pointer', fontFamily: 'inherit',
+                           opacity: issueSaving ? 0.6 : 1 }}>
+                  {issueSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button onClick={() => { setIssueEdit(false); setIssueMsg(''); }} disabled={issueSaving}
+                  style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
+                           borderRadius: 8, padding: '9px 0', color: C.muted, fontSize: 13,
+                           fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : cleanIssue ? (
+            <div style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cleanIssue}</div>
+          ) : (
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: C.amber }}>
+              Nothing written yet — the tech will arrive without knowing the job.
+            </div>
+          )}
+
+          {issueMsg && (
+            <div style={{ fontSize: 12, color: issueMsg.startsWith('⚠') ? C.amber : C.muted, marginTop: 7 }}>
+              {issueMsg}
+            </div>
+          )}
+        </div>
 
         {/* ── Time — only where hours are captured ── */}
         {timeSection && (
@@ -450,21 +560,57 @@ export default function TicketSheet({
           the card has to SAY so, or the only way to know somebody is already
           working a piece of it is to open the composer and read the button. */}
       {openTasks.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
-                      background: '#1a1533', border: '1px solid #9b6cff66',
+        <div style={{ background: '#1a1533', border: '1px solid #9b6cff66',
                       borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
-          <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.06em',
-                         color: '#c4a6ff', border: '1px solid #9b6cff66',
-                         borderRadius: 5, padding: '3px 7px' }}>
-            {openTasks.length === 1 ? 'TASK' : `${openTasks.length} TASKS`}
-          </span>
-          <span style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 700 }}>
-            {[...new Set(openTasks.map(t =>
-              ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to))].join(', ')}
-          </span>
-          <span style={{ fontSize: 11.5, color: C.muted, marginLeft: 'auto' }}>
-            working a piece of this
-          </span>
+          <div style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.06em',
+                        color: '#c4a6ff', marginBottom: 9 }}>
+            {openTasks.length === 1 ? 'TASK ON THIS JOB' : `${openTasks.length} TASKS ON THIS JOB`}
+          </div>
+          {/* This was one line — a comma-joined list of names and the words
+              "working a piece of this". It named who, and nothing else: not
+              what was asked, not whether they had started, not whether they
+              had already handed it back. Which is the actual question when you
+              open a card and want to know what is happening. */}
+          {openTasks.map(t => {
+            const owner = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
+            const asker = ASSIGNEES.find(a => a.email === t.assigned_by)?.name || t.assigned_by;
+            const days  = Math.floor((Date.now() - new Date(t.created_at).getTime()) / 86400000);
+            // Three states, three colours. 'done' means the doer finished and
+            // it is sitting with whoever asked — that is a prompt for the
+            // reader, not a closed item, so it is the loudest of the three.
+            const state = t.lane === 'done'
+              ? { label: 'SAYS DONE — needs your OK', color: '#c4a6ff' }
+              : t.lane === 'doing'
+                ? { label: 'ON IT', color: '#38bdf8' }
+                : { label: 'TO DO', color: '#94a3b8' };
+            return (
+              <div key={t.id} style={{ paddingTop: 8, marginTop: 8,
+                                       borderTop: '1px solid #9b6cff33' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13.5, color: '#e2e8f0', fontWeight: 800 }}>{owner}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.05em',
+                                 color: state.color, border: `1px solid ${state.color}55`,
+                                 borderRadius: 5, padding: '2px 6px' }}>
+                    {state.label}
+                  </span>
+                  <span style={{ fontSize: 11.5, marginLeft: 'auto',
+                                 color: days >= 21 ? '#ef4444' : days >= 7 ? '#f59e0b' : C.muted }}>
+                    {days > 0 ? `${days}d` : 'today'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.45, marginTop: 3,
+                              whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                  {t.body || '(no detail)'}
+                </div>
+                {(asker || t.handoff_to) && (
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
+                    {asker ? `asked by ${asker}` : ''}
+                    {t.handoff_to ? ` · then → ${ASSIGNEES.find(a => a.email === t.handoff_to)?.name || t.handoff_to}` : ''}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -659,7 +805,7 @@ export default function TicketSheet({
         <FieldVisits job={job} />
 
         {/* ── Notes — same component, same place, every surface ── */}
-        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />
 
         {/* ── Surface-specific tools (merge, UUID link) — deliberately LAST.
             They exist, they matter, and they are not the reason anyone opens

@@ -938,7 +938,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} onRequestSchedule={attemptSchedule} />
 
           {/* Notes */}
-          <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+          <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />
 
           {/* Field visits — the tech's actual time_entry (notes/materials/hours) */}
           <FieldVisits job={job} />
@@ -1242,7 +1242,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
             anything about it is the reason people stop opening cards. */}
         <MoveStatus job={job} userEmail={userEmail} onMoved={() => { loadJob(); onUpdate?.(); }} onRequestSchedule={attemptSchedule} />
 
-        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} />
+        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />
 
         <FieldVisits job={job} />
 

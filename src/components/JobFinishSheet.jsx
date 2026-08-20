@@ -101,7 +101,7 @@ export default function JobFinishSheet({
     (async () => {
       try {
         const j = await resolveJobForEvent(event.id, {
-          select: 'id, issue, status, customer_id, customer_name, customer_phone, customer_address',
+          select: 'id, issue, status, customer_id, customer_name, customer_phone, customer_address, site_contact_name, site_contact_phone, access_permission',
         });
         if (dead) return;
         setLinkedJob(j || null);
@@ -479,6 +479,37 @@ export default function JobFinishSheet({
             Pick the client below so this bills correctly. If they aren't in the
             system yet, finish anyway — it'll be flagged for the office.
           </div>
+        </div>
+      )}
+
+      {/* WHO TO ASK FOR. On-site contact and access, from migration 047. These
+          were three lines of prose inside `issue` until 9.82.0, so a tech
+          hunting for a phone number had to read a form skeleton to find it —
+          and on most cards it wasn't filled in at all. Rendered only when
+          somebody actually recorded something. */}
+      {(linkedJob?.site_contact_name || linkedJob?.site_contact_phone ||
+        linkedJob?.access_permission === true || linkedJob?.access_permission === false) && (
+        <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12,
+                      padding:'10px 12px', marginBottom:12 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', textTransform:'uppercase',
+                        letterSpacing:0.5, marginBottom:6 }}>
+            👤 On site
+          </div>
+          {linkedJob.site_contact_name && (
+            <div style={{ fontSize:14, color:'#1e3a8a', fontWeight:600 }}>{linkedJob.site_contact_name}</div>
+          )}
+          {linkedJob.site_contact_phone && (
+            <a href={`tel:${String(linkedJob.site_contact_phone).replace(/[^0-9+]/g, '')}`}
+               style={{ fontSize:14, color:'#2563eb', fontWeight:700, textDecoration:'none' }}>
+              📱 {linkedJob.site_contact_phone}
+            </a>
+          )}
+          {linkedJob.access_permission === true && (
+            <div style={{ fontSize:13, color:'#166534', marginTop:4 }}>🔓 May enter without the client present</div>
+          )}
+          {linkedJob.access_permission === false && (
+            <div style={{ fontSize:13, color:'#b45309', marginTop:4 }}>🔒 Client must be present</div>
+          )}
         </div>
       )}
 

@@ -55,13 +55,22 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
     if (!scheduleDate) setScheduleDate(new Date().toISOString().split('T')[0]);
   }, []);
 
-  const INTAKE_TEMPLATE = `Name: 
-Phone: 
-On-Site Contact: 
-Contact Phone: 
-CMS #: 
-Access: ☐ Permission to enter without client present
-Scope of Work: `;
+  // INTAKE_TEMPLATE REMOVED 2026-08-20.
+  // `issue` used to open as a seven-line text skeleton with "Scope of Work:"
+  // as its LAST line. Three of those lines duplicated real columns
+  // (customer_name, customer_phone, cms_account_id) and three had nowhere else
+  // to live, so they were prose inside the one field that answers WHAT ARE WE
+  // DOING. Nobody could tell that the bottom line was the point.
+  //
+  // Measured on live data: 80 cards carry the template and 28 of them have an
+  // EMPTY Scope of Work — sent to a tech as a form with no job on it. One card
+  // has "testing two techs" typed into the Contact Phone line, because there
+  // was nowhere else to put it.
+  //
+  // Since 9.81.0 `issue` is what the tech reads on the job card AND what
+  // prints into the Google Calendar description, so the skeleton became
+  // visible noise in two more places. `issue` now holds ONLY the scope; the
+  // on-site lines have their own columns (migration 047).
 
   const [form, setForm] = useState({
     customer_name: prefill?.customerName || '',
@@ -69,7 +78,10 @@ Scope of Work: `;
     customer_phone: '',
     job_type: prefill?.jobType || 'service_res',
     priority: 'normal',
-    issue: prefill?.issue || INTAKE_TEMPLATE,
+    issue: prefill?.issue || '',
+    site_contact_name: '',
+    site_contact_phone: '',
+    access_permission: null,
     photoLink: '',
     gate_code: '',
     panel_password: '',
@@ -91,27 +103,19 @@ Scope of Work: `;
 
   const selectCustomer = (customer) => {
     setSelectedCustomer(customer);
-    setForm(f => {
-      // If the issue is still the blank intake template, pre-fill the Name/Phone
-      // lines from the customer record so they don't have to retype known info.
-      let issue = f.issue;
-      if (issue && issue.includes('Name:') && issue.includes('Phone:')) {
-        issue = issue
-          .replace(/^Name:\s*$/m, `Name: ${customer.name || ''}`)
-          .replace(/^Phone:\s*$/m, `Phone: ${customer.phone || ''}`)
-          .replace(/^CMS #:\s*$/m, `CMS #: ${customer.cms_account_id || ''}`);
-      }
-      return {
-        ...f,
-        customer_name: customer.name,
-        customer_address: customer.address || '',
-        customer_phone: customer.phone || '',
-        gate_code: customer.gate_code || '',
-        panel_password: customer.panel_password || '',
-        cms_account_id: customer.cms_account_id || '',
-        issue,
-      };
-    });
+    setForm(f => ({
+      // The name/phone/CMS regex patching that used to happen here is gone with
+      // the template. Those three facts live in their own fields, which this
+      // already fills — copying them into `issue` as well only ever produced a
+      // second, staler copy on the tech's card.
+      ...f,
+      customer_name: customer.name,
+      customer_address: customer.address || '',
+      customer_phone: customer.phone || '',
+      gate_code: customer.gate_code || '',
+      panel_password: customer.panel_password || '',
+      cms_account_id: customer.cms_account_id || '',
+    }));
     setShowCustomerSearch(false);
     setSearchQuery(customer.name);
   };
@@ -217,9 +221,15 @@ Scope of Work: `;
       description: [
         job.issue ? `Issue: ${job.issue}` : '',
         job.customer_phone ? `Phone: ${job.customer_phone}` : '',
+        // On-site contact now has its own line instead of being buried in the
+        // middle of the issue text.
+        job.site_contact_name  ? `On-site: ${job.site_contact_name}` : '',
+        job.site_contact_phone ? `On-site phone: ${job.site_contact_phone}` : '',
+        job.access_permission === true  ? 'Access: may enter without client present' : '',
+        job.access_permission === false ? 'Access: client must be present' : '',
         job.gate_code ? `Gate: ${job.gate_code}` : '',
         job.panel_password ? `Panel: ${job.panel_password}` : '',
-        `JUC-E Job: ${job.job_number || job.id}`
+        `JUC-E Job: ${job.id}`
       ].filter(Boolean).join('\n'),
       start: { dateTime: startTime.toISOString(), timeZone: 'America/Denver' },
       end: { dateTime: endTime.toISOString(), timeZone: 'America/Denver' },
@@ -284,7 +294,12 @@ Scope of Work: `;
       const job = await jobsApi.create({
         customer_id: customerId, customer_name: resolvedName, customer_address: form.customer_address,
         customer_phone: form.customer_phone, job_type: form.job_type, priority: form.priority,
-        issue: [form.issue, form.photoLink.trim() ? `📎 Photos: ${form.photoLink.trim()}` : ''].filter(Boolean).join('\n\n'),
+        issue: [form.issue.trim(), form.photoLink.trim() ? `📎 Photos: ${form.photoLink.trim()}` : ''].filter(Boolean).join('\n\n'),
+        site_contact_name: form.site_contact_name.trim(),
+        site_contact_phone: form.site_contact_phone.trim(),
+        // Three-valued on purpose: null means nobody was asked. jobsApi.create
+        // strips '' but keeps `false`, so "client must be present" survives.
+        access_permission: form.access_permission,
         gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id,
         status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW
       }, userEmail);
@@ -392,6 +407,11 @@ Scope of Work: `;
     color: '#e2e8f0', padding: '10px 12px', fontSize: '14px', outline: 'none', boxSizing: 'border-box'
   };
   const labelStyle = { color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' };
+
+  // Warned, never blocked. Sara's standing rule is that intake must not stand
+  // between a card and the board — a hard gate here just gets fed a full stop
+  // to make it go away. The warning is loud instead.
+  const issueMissing = !form.issue.trim();
 
   // Time helpers
   const timeSlots = ['07:00','07:30','08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00'];
@@ -726,11 +746,67 @@ Scope of Work: `;
           )}
         </div>
 
-        {/* 2. ISSUE */}
+        {/* 2. ISSUE — the one field the tech actually reads.
+            It gets its own labelled box, its own border, and an explicit
+            empty-state warning, because the previous version was an 8-row
+            textarea pre-loaded with a form skeleton and no indication that the
+            bottom line was the point. 28 live cards went out with it blank. */}
+        <div style={{ marginBottom: '16px',
+                      border: `1px solid ${issueMissing ? '#f59e0b' : '#00c8e855'}`,
+                      background: '#00c8e808', borderRadius: 10, padding: '12px' }}>
+          <label style={{ ...labelStyle, color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 2 }}>
+            What are we doing? *
+          </label>
+          <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 6 }}>
+            This is what the tech sees on the job card and in the calendar. Plain words.
+          </div>
+          <textarea value={form.issue}
+            onChange={e => setForm(f => ({ ...f, issue: e.target.value }))}
+            placeholder="e.g. Front door contact not reporting — check sensor and panel programming"
+            rows={4}
+            style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit', marginBottom: 6 }} />
+          {issueMissing && (
+            <div style={{ color: '#f59e0b', fontSize: 11, marginBottom: 6 }}>
+              ⚠ Nothing here yet — the tech will arrive without knowing the job.
+            </div>
+          )}
+          <input value={form.photoLink}
+            onChange={e => setForm(f => ({ ...f, photoLink: e.target.value }))}
+            placeholder="📎 Photos — paste a Google Drive share link (optional)"
+            style={{ ...fieldStyle, marginBottom: 0 }} />
+        </div>
+
+        {/* 2b. ON SITE — the template's other three lines, as real fields.
+            "Contact Phone" used to be a line of prose, which is how one card
+            ended up with "testing two techs" typed into it. */}
         <div style={{ marginBottom: '16px' }}>
-          <label style={labelStyle}>Issue / Description</label>
-          <textarea value={form.issue} onChange={e => setForm(f => ({ ...f, issue: e.target.value }))} placeholder="What's the job?" rows={8} style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }} />
-          <input value={form.photoLink} onChange={e => setForm(f => ({ ...f, photoLink: e.target.value }))} placeholder="📎 Photos — paste a Google Drive share link (optional)" style={fieldStyle} />
+          <label style={labelStyle}>On-site contact <span style={{ color: '#64748b', fontWeight: 400 }}>— if it isn't the account holder</span></label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={form.site_contact_name}
+              onChange={e => setForm(f => ({ ...f, site_contact_name: e.target.value }))}
+              placeholder="Name" style={{ ...fieldStyle, flex: 1 }} />
+            <input value={form.site_contact_phone}
+              onChange={e => setForm(f => ({ ...f, site_contact_phone: e.target.value }))}
+              placeholder="Phone" inputMode="tel" style={{ ...fieldStyle, flex: 1 }} />
+          </div>
+          {/* Three-valued, so "never asked" stays distinct from "no". Tapping
+              the active choice again clears it back to unasked. */}
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+            {[{ v: true, t: '🔓 Can enter without client' }, { v: false, t: '🔒 Client must be present' }].map(o => {
+              const on = form.access_permission === o.v;
+              return (
+                <button key={String(o.v)} type="button"
+                  onClick={() => setForm(f => ({ ...f, access_permission: on ? null : o.v }))}
+                  style={{ background: on ? '#00c8e8' : 'transparent',
+                           border: `1px solid ${on ? '#00c8e8' : '#334155'}`,
+                           color: on ? '#04121f' : '#94a3b8',
+                           borderRadius: 999, padding: '7px 14px', fontSize: 12,
+                           fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {o.t}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
 

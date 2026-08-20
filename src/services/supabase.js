@@ -199,8 +199,20 @@ export const customersApi = {
   },
 
   async getAllNotes(customerId) {
-    // Get all job_history notes across all of this customer's jobs
-    const { data: jobs } = await supabase.from('jobs').select('id, job_number, customer_name').eq('customer_id', customerId);
+    // Get all job_history notes across all of this customer's jobs.
+    //
+    // THIS SELECTED `job_number`, WHICH DOES NOT EXIST ON THE TABLE. PostgREST
+    // 400s the whole query on an unknown column, the error was destructured
+    // away, `jobs` came back undefined, and the guard below returned [] — so
+    // the customer view showed NO NOTES FOR ANYBODY, always, and looked like a
+    // customer who had simply never been written about.
+    //
+    // `p_number` is the column that actually holds a code. It is frozen (kept,
+    // never written again — see DECISIONS.md), but reading it is fine and it
+    // is what GlobalSearch already maps onto `job_number` for display.
+    const { data: jobs, error: jobsErr } = await supabase
+      .from('jobs').select('id, p_number, customer_name').eq('customer_id', customerId);
+    if (jobsErr) { console.error('getAllNotes: job lookup failed', jobsErr); return []; }
     if (!jobs || jobs.length === 0) return [];
     const jobIds = jobs.map(j => j.id);
     const jobMap = {};
@@ -212,7 +224,7 @@ export const customersApi = {
       .not('notes', 'is', null)
       .order('changed_at', { ascending: false });
     if (error) throw error;
-    return (notes || []).map(n => ({ ...n, job_number: jobMap[n.job_id]?.job_number }));
+    return (notes || []).map(n => ({ ...n, job_number: jobMap[n.job_id]?.p_number }));
   },
 
   async addNote(customerId, note, userEmail) {

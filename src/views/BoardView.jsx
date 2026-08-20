@@ -484,7 +484,7 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
 // calling it bare from in here was an out-of-scope reference that crashed the
 // "Watch this" button. The build stayed green because Vite doesn't
 // check undefined identifiers; that's what the lint gate is for now.
-function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch, onAssigned }) {
+function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClose, moving, onUUIDLinked, allJobs, onMerge, onRenamed, userEmail, onWatch, onAssigned, onJobEdited }) {
   // REBUILT 9.11.0 as a thin shell around TicketSheet. This drawer was the
   // third bespoke ticket layout (JobDetail had two more of its own). Opening
   // the same job from the board, from My Tasks and from a link now renders the
@@ -510,6 +510,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           }
           onMove={async (target, note, reason) => { await onStatusMove(job.id, target, note, reason); }}
           onAssigned={onAssigned}
+          onUpdated={onJobEdited}
           extras={
             <div style={{ marginTop: 14, display:'flex', flexDirection:'column', gap: 10 }}>
               {/* "👁 Watch this" REMOVED. It wrote a note into lane 'watching'
@@ -1228,6 +1229,13 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <DetailDrawer
           job={selectedJob} techs={techs} accessToken={accessToken} moving={moving} userEmail={userEmail} onAssigned={onAssigned}
           allJobs={jobs}
+          // The issue was edited inside the sheet. Merge it into the open card
+          // AND the list behind, so closing the drawer doesn't reveal the old
+          // text sitting on the board.
+          onJobEdited={(updated) => {
+            setSelectedJob(cur => (cur && cur.id === updated.id ? { ...cur, ...updated } : cur));
+            setJobs(list => list.map(j => (j.id === updated.id ? { ...j, ...updated } : j)));
+          }}
           onStatusMove={(jobId, verb, note, reason) => { moveStatus(jobId, verb, note, reason); setSelectedJob(null); }}
           onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}
           onClose={() => setSelectedJob(null)}

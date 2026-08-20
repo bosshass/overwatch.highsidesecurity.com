@@ -122,11 +122,23 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
   // delete below was skipped and a duplicate event was created. Re-read the
   // row: one query, and no caller anywhere can hand us a stale copy again.
   {
-    const { data: fresh } = await supabase
+    // `job_number` WAS IN THIS SELECT AND DOES NOT EXIST ON THE TABLE.
+    // PostgREST 400s the whole query on an unknown column, the error was
+    // destructured away (`const { data: fresh }` with no `error`), and `fresh`
+    // came back undefined EVERY TIME. So the re-read above this — the entire
+    // never-trust-the-passed-job guard, written specifically to stop duplicate
+    // calendar events — has never once run. The stale drawer object it exists
+    // to defeat was passed straight through to the booking below.
+    //
+    // Now selects what the row actually has, and surfaces the error instead of
+    // failing open: if the re-read breaks again, it says so rather than
+    // quietly reverting to the behaviour that caused the duplicates.
+    const { data: fresh, error: freshErr } = await supabase
       .from('jobs')
-      .select('id, status, scheduled_event_id, scheduled_calendar_id, tentative_event_id, customer_address, customer_name, customer_id, job_number, issue')
+      .select('id, status, scheduled_event_id, scheduled_calendar_id, tentative_event_id, customer_address, customer_name, customer_phone, customer_id, issue, gate_code, panel_password, site_contact_name, site_contact_phone, access_permission')
       .eq('id', job.id)
       .single();
+    if (freshErr) console.error('schedule: job re-read FAILED, duplicate guard is down:', freshErr);
     if (fresh) job = { ...job, ...fresh };
   }
   if (!tech?.id || !tech?.calendar_id) throw new Error('Pick a tech');

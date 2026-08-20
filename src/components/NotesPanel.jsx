@@ -5,10 +5,24 @@
 // Used in: JobDetail, JobCard expanded, everywhere.
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { notesApi, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { appendNoteToJobEvents } from '../services/calendarSync.js';
 
-export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null }) {
+// `readOnly` — the feed without the composer, for the JOB CARD.
+//
+// The card used to offer three ways to write from inside it: Note, Response,
+// and "Customer note (no job)". The third quietly INSERTED A SECOND CARD — a
+// job_type:'note' row against the customer — from a control that read like a
+// comment box, which is one of the ways spare cards appear without anyone
+// choosing to make one.
+//
+// The card's own writable field is the ISSUE. Anything else that needs saying
+// about the client belongs on the client, so the button navigates there
+// instead of writing here: deep-linked to the customer when the job has one,
+// and to the client search when it does not.
+export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null, readOnly = false }) {
+  const navigate = useNavigate();
   const [notes, setNotes] = useState([]);
   const [activity, setActivity] = useState([]);
   const [showActivity, setShowActivity] = useState(false);
@@ -284,8 +298,25 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         )}
       </div>
 
+      {/* THE COMPOSER IS GONE FROM THE JOB CARD. One button, and it leaves. */}
+      {readOnly && (
+        <button
+          onClick={() => navigate(job?.customer_id
+            ? `/customers?customerId=${job.customer_id}&returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`
+            : '/customers')}
+          style={{ width: '100%', background: 'transparent', border: '1px dashed #334155',
+                   borderRadius: 8, padding: '9px 12px',
+                   marginBottom: notes.length > 0 ? '10px' : '0',
+                   color: '#00c8e8', fontSize: 12.5, fontWeight: 700,
+                   cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+          {job?.customer_id
+            ? `\uFF0B Add a note on ${job.customer_name || 'this client'} \u2192`
+            : '\uFF0B Add a note \u2014 pick the client \u2192'}
+        </button>
+      )}
+
       {/* Quick add */}
-      {newNote.trim() && (
+      {!readOnly && newNote.trim() && (
         <div style={{ display: 'flex', gap: '5px', marginBottom: '6px' }}>
           {[
             { v: 'note', label: '📝 Note' },
@@ -304,7 +335,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: notes.length > 0 ? '10px' : '0' }}>
+      <div style={{ display: readOnly ? 'none' : 'flex', gap: '8px', marginBottom: notes.length > 0 ? '10px' : '0' }}>
         <input
           value={newNote}
           onChange={e => setNewNote(e.target.value)}

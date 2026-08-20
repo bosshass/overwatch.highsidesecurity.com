@@ -175,6 +175,12 @@ export function buildEventDescription(job, latestNote, { scheduledBy = null } = 
   if (job.job_number) desc += `JOB #${job.job_number}\n`;
   if (job.customer_address) desc += `📍 ${job.customer_address}\n`;
   if (job.customer_phone) desc += `📞 ${job.customer_phone}\n`;
+  // On-site contact (migration 047). Used to be prose inside job.issue, which
+  // meant the tech had to read a form skeleton to find who to ask for.
+  if (job.site_contact_name)  desc += `👤 On site: ${job.site_contact_name}\n`;
+  if (job.site_contact_phone) desc += `📱 On-site phone: ${job.site_contact_phone}\n`;
+  if (job.access_permission === true)  desc += `🔓 May enter without client present\n`;
+  if (job.access_permission === false) desc += `🔒 Client must be present\n`;
   if (job.gate_code) desc += `🚪 Gate: ${job.gate_code}\n`;
   if (job.panel_password) desc += `🔐 Panel: ${job.panel_password}\n`;
   if (job.issue) desc += `\nIssue: ${job.issue}\n`;
@@ -283,6 +289,101 @@ export async function appendNoteToJobEvents(accessToken, job, noteText, authorEm
       }
     } catch (e) {
       console.warn('Note->calendar append failed (non-fatal):', e.message);
+    }
+  }
+  return summary;
+}
+
+// ============================================
+// ISSUE <-> CALENDAR DESCRIPTION
+// ============================================
+// "Calendar event desc and 'issue' are or should be the same — NEVER
+// OVERWRITE." Both halves of that matter, and they pull against each other:
+// the issue has to reach the event, but an event description also carries
+// things the app must not destroy — the CUSTOMER_ID stamp that billing and
+// CustomerLookup resolve against, appended field notes, the deep link, and
+// whatever a human typed into it directly.
+//
+// So the issue gets a FENCED REGION of its own and nothing else is touched.
+// Rewrites replace what is between the fences; every other byte of the
+// description survives verbatim.
+const ISSUE_OPEN  = '▼ ISSUE — edited in Overwatch';
+const ISSUE_CLOSE = '▲';
+
+// Legacy events have a bare "Issue: ..." line written by buildEventDescription
+// before fences existed. It runs until the next structured line (an emoji
+// marker, "Scheduled by", "Latest Note", "Managed by Overwatch") or the end.
+// Matching it lets the first edit REPLACE the old text instead of leaving two
+// contradictory copies of the job in one description.
+const LEGACY_ISSUE = /^Issue:[^\n]*(?:\n(?![\u2600-\u27BF\uD83C-\uDBFF\u2190-\u21FF\u25A0-\u25FF]|---|\u26A1|Issue:)[^\n]*)*/m;
+
+export function applyIssueToDescription(description, issueText) {
+  const body  = (issueText || '').trim();
+  const fenced = body ? `${ISSUE_OPEN}\n${body}\n${ISSUE_CLOSE}` : '';
+  const current = description || '';
+
+  // 1. Already fenced — swap the contents, touch nothing else.
+  const fences = new RegExp(`${ISSUE_OPEN}\\n[\\s\\S]*?\\n${ISSUE_CLOSE}`);
+  if (fences.test(current)) {
+    return body ? current.replace(fences, fenced) : current.replace(fences, '').replace(/\n{3,}/g, '\n\n');
+  }
+
+  // 2. Legacy "Issue:" block — upgrade it in place.
+  if (LEGACY_ISSUE.test(current)) {
+    return body ? current.replace(LEGACY_ISSUE, fenced) : current.replace(LEGACY_ISSUE, '').replace(/\n{3,}/g, '\n\n');
+  }
+
+  if (!body) return current;
+
+  // 3. Neither — insert ABOVE the "Managed by Overwatch" footer if there is
+  // one, otherwise append. Never at the very top: the CUSTOMER_ID stamp is
+  // deliberately first so a tech sees it without scrolling.
+  const footer = current.indexOf('\u26A1 Managed by Overwatch');
+  if (footer > -1) {
+    return `${current.slice(0, footer).replace(/\s+$/, '')}\n\n${fenced}\n\n${current.slice(footer)}`;
+  }
+  return current ? `${current.replace(/\s+$/, '')}\n\n${fenced}` : fenced;
+}
+
+// Push the job's issue onto every calendar event that represents it.
+// Non-fatal by design: the issue is already saved in Supabase before this
+// runs, so a calendar failure must never cost the edit. Returns
+// { patched, attempted } for the caller to report honestly.
+export async function syncIssueToEvents(accessToken, job, issueText) {
+  const summary = { patched: 0, attempted: 0 };
+  if (!accessToken || !job) return summary;
+
+  // All four homes an event id can live in — the same set jobResolve checks,
+  // because an issue that reaches only one of them is an issue that disagrees
+  // with itself depending on which calendar you opened.
+  const ids = new Set([
+    job.scheduled_event_id,
+    job.calendar_event_id,
+    job.tentative_event_id,
+    ...(job.assignments || []).map(a => a?.calendar_event_id),
+  ].filter(Boolean));
+  if (ids.size === 0) return summary;
+
+  const calendars = [job.scheduled_calendar_id, ...noteSearchCalendars()].filter(Boolean);
+
+  for (const eventId of ids) {
+    summary.attempted++;
+    try {
+      const seen = new Set();
+      for (const calId of calendars) {
+        if (seen.has(calId)) continue;
+        seen.add(calId);
+        const ev = await apiGetEvent(accessToken, calId, eventId);
+        if (!ev) continue;
+        const updated = applyIssueToDescription(ev.description || '', issueText);
+        if (updated !== (ev.description || '')) {
+          await apiPatch(accessToken, calId, eventId, { description: updated });
+          summary.patched++;
+        }
+        break;
+      }
+    } catch (e) {
+      console.warn('Issue->calendar sync failed (non-fatal):', e.message);
     }
   }
   return summary;

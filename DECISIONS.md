@@ -195,6 +195,71 @@ Current state: all three week screens start Monday, but only `CalendarTechDay` h
 week makes those invisible. Suggested resolution — render M–F, but show a Saturday column *only
 when it has something on it*, and count the full Mon–Sun span in totals so nothing vanishes.
 
+### The issue is its own field, and it is editable — DONE
+> "The issue is pulling from the prefilled list on new creation — it isn't clear
+> that this is where to enter."
+
+`NewJobModal` opened `issue` as a seven-line text skeleton with **"Scope of Work:"
+as the last line**. Three of those lines duplicated real columns; three had no
+column at all. Measured: **80 cards carried the template, and 28 of them had an
+empty Scope of Work** — sent to a tech as a form with no job written on it. One
+card has `testing two techs` typed into the Contact Phone line, because there was
+nowhere else to put it.
+
+- The template is gone. `issue` is a labelled box of its own — *"What are we doing?"*
+  — with an amber warning when it is empty. Warned, never blocked.
+- The three homeless lines got real columns (**migration 047**): `site_contact_name`,
+  `site_contact_phone`, `access_permission`. The last is three-valued — `NULL`
+  means nobody was asked, which is true of all 453 existing rows.
+- **Migration 048** split the 80 existing rows: 52 keep a real scope, 28 became
+  NULL, 14 on-site contacts and 14 phones moved to their columns, and 2 rows with
+  text outside the skeleton kept it. Backup: `jobs_backup_048`.
+- The issue is now **editable on the card**, and saving mirrors it to the linked
+  calendar events.
+
+### Never overwrite the calendar description — DONE
+> "Calendar event desc and 'issue' are or should be the same — never overwrite."
+
+The issue gets a **fenced region** in the description; rewrites replace only what
+is between the fences. The `CUSTOMER_ID` stamp, appended field notes, the deep
+link and anything hand-typed survive untouched. A legacy bare `Issue:` block is
+upgraded in place on first edit, so there is never a second contradictory copy.
+23 assertions cover it, including a fourth-revision case with a field note below.
+
+The database write happens first and the calendar patch is best-effort after it.
+When the mirror does not land, **the card says so** instead of reporting a clean
+save.
+
+### No writing notes from the job card — DONE
+> "Best to remove the ability to + a note from the job card… if you select + note
+> you are taken into the client search tool."
+
+The card offered three composers: Note, Response, and **"Customer note (no job)"**
+— and the third *inserted a second card* (`job_type:'note'`) from a control that
+read like a comment box. That is one of the ways spare cards appear without
+anyone choosing to make one.
+
+The feed stays; the composer is gone. One button navigates instead — deep-linked
+to `/customers?customerId=…` when the job has a customer, to the client search
+when it does not. The card's own writable field is the issue.
+
+### Tasks are clickable, and the card says what is happening — DONE
+> "The task created from a note isn't clickable — I should be able to see what is
+> happening with the task associated to the card."
+
+Both directions were broken:
+
+- **Task → job.** "Open the job" had been *deliberately removed*, on the grounds
+  that archived jobs "landed on nothing". That objection was stale — the board's
+  deep link fetches the job directly by id and opens an archived card fine. It is
+  back, with a customer-record fallback for tasks with no job and for non-operators
+  (`/board` is operator-only).
+- **Job → task.** The card showed a one-line banner: names, and the words
+  "working a piece of this". No body, no state, no age. And it **filtered out
+  `lane='done'`** — so a task somebody had finished and handed back vanished from
+  the job at the exact moment it needed acting on. Now: each task, its text, who
+  asked, its age, and one of *To do · On it · Says done — needs your OK*.
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.
@@ -262,5 +327,16 @@ Recorded because the earlier documents were wrong and are still in the repo.
   with gates.
 - **`non_billable_reason`** — advised removing it from time entries. Too aggressive; it stays,
   narrowed to write-offs.
+- **`job_number` was in three live queries and does not exist.** PostgREST 400s
+  the whole query on an unknown column, and all three destructured the error
+  away, so each failed silently and permanently:
+  - `services/schedule.js` re-read the job before booking — the "NEVER TRUST THE
+    PASSED JOB" guard written specifically to stop duplicate calendar events.
+    `fresh` came back undefined every time, so **that guard has never once run**.
+  - `customersApi.getAllNotes` returned `[]` for **every customer, always** — the
+    customer view showed no notes for anybody and looked like a client nobody had
+    ever written about. Now reads `p_number` (frozen, but reading is fine).
+  - `createLinkedJob` still calls it; that path is separately dead on
+    `parent_job_id` and is not repaired here.
 - **The atlas never mapped Supabase Storage.** The word appears zero times. Photos live in a
   bucket, and a bucket is not a table, so it was invisible to the method used.

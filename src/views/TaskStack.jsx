@@ -473,14 +473,33 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                 {n.body || '(no detail)'}
               </div>
 
-              {/* "Open the job >" REMOVED. It deep-linked to /board?job=<id>,
-                  and most of these tasks hang off a job that has since been
-                  ARCHIVED — five of the seven live ones do — so the link either
-                  landed on nothing or on a dead card. A button that usually
-                  fails is worse than no button.
-                  The useful destination is the CUSTOMER record, which is where
-                  the history and the open work actually live. That is a real
-                  link to build, not a rename of this one. */}
+              {/* OPEN THE THING THIS IS ABOUT — restored, and now correct.
+                  This was removed because /board?job=<id> "landed on nothing"
+                  for archived jobs. That objection is stale: the board's deep
+                  link fetches the job DIRECTLY by id and no longer depends on
+                  the active-status list, so an archived card opens fine.
+                  What was actually missing is the second destination — the
+                  customer record — for the two cases the board cannot serve:
+                  a task with no job on it, and a reader who is not an
+                  operator (the /board route is operator-only, so linking a
+                  tech there would bounce them to the home screen).
+                  Rendered only when there is somewhere real to go. */}
+              {(n.job_id || n.customer_id) && (
+                <button
+                  onClick={() => {
+                    if (isOperator && n.job_id) onNavigate?.(`/board?job=${n.job_id}`);
+                    else if (n.customer_id)     onNavigate?.(`/customers?customerId=${n.customer_id}&returnTo=/tasks`);
+                    else if (n.job_id)          onNavigate?.(`/board?job=${n.job_id}`);
+                  }}
+                  style={{ background: 'transparent', border: `1px solid ${C.line}`,
+                           borderRadius: 9, padding: '8px 12px', marginBottom: 11,
+                           color: C.blue, fontSize: 12.5, fontWeight: 800,
+                           cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {isOperator && n.job_id
+                    ? `Open the job${n._customer ? ` · ${n._customer}` : ''} →`
+                    : `Open ${n._customer || 'the customer'} →`}
+                </button>
+              )}
 
               {!open && back && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>

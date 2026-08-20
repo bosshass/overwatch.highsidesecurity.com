@@ -108,8 +108,54 @@ export default async function handler(req, res) {
         { headers: { Authorization: basic } });
       const body = await acc.json().catch(() => null);
       if (!acc.ok) {
-        out.twilio = { credentials: 'REJECTED', status: acc.status,
-          detail: body?.message || 'Twilio refused these credentials.' };
+        // A 401 says the pair is wrong. It does not say WHICH, and the two
+        // values are unreadable by design, so the only way anyone diagnoses
+        // this is by re-pasting both and hoping. Report the SHAPE instead —
+        // which reveals nothing (an Account SID is 'AC' plus 32 hex digits;
+        // that format is public) but catches the failures that actually
+        // happen:
+        //
+        //   • the wrong KIND of SID pasted in — SK (API key), MG (messaging
+        //     service), PN (phone number) all look like "a Twilio SID"
+        //   • a trailing newline or space picked up from a copy-paste, which
+        //     is invisible in the Vercel UI and breaks the HTTP Basic header
+        //   • a token that was truncated
+        const sidRaw = String(SID || '');
+        const tokRaw = String(TOKEN || '');
+        const trimmedSid = sidRaw.trim();
+        const kind = { AC: 'Account SID — correct kind',
+                       SK: 'an API KEY SID, not an Account SID',
+                       MG: 'a Messaging Service SID, not an Account SID',
+                       PN: 'a Phone Number SID, not an Account SID',
+                       AP: 'a TwiML App SID, not an Account SID' }[trimmedSid.slice(0, 2).toUpperCase()]
+                     || 'not a recognised Twilio SID prefix';
+        out.twilio = {
+          credentials: 'REJECTED', status: acc.status,
+          detail: body?.message || 'Twilio refused these credentials.',
+          shape: {
+            accountSidStartsWith: trimmedSid.slice(0, 2) || '(empty)',
+            accountSidIs: kind,
+            accountSidLength: trimmedSid.length,
+            accountSidLooksValid: /^AC[0-9a-fA-F]{32}$/.test(trimmedSid),
+            accountSidHasStrayWhitespace: sidRaw !== trimmedSid,
+            authTokenLength: tokRaw.trim().length,
+            authTokenLooksValid: /^[0-9a-fA-F]{32}$/.test(tokRaw.trim()),
+            authTokenHasStrayWhitespace: tokRaw !== tokRaw.trim(),
+          },
+        };
+        const sh = out.twilio.shape;
+        if (!sh.accountSidLooksValid) {
+          out.blocking.push(`TWILIO_ACCOUNT_SID is ${kind}. It must start with "AC" and be 34 characters — Twilio Console home, "Account SID".`);
+        }
+        if (!sh.authTokenLooksValid) {
+          out.blocking.push(`TWILIO_AUTH_TOKEN is ${sh.authTokenLength} characters; a Twilio auth token is 32 hex characters. Use the PRIMARY auth token from Console home.`);
+        }
+        if (sh.accountSidHasStrayWhitespace || sh.authTokenHasStrayWhitespace) {
+          out.blocking.push('One of the Twilio values has a stray space or newline around it — invisible in the Vercel UI, fatal to the auth header. Re-paste it.');
+        }
+        if (sh.accountSidLooksValid && sh.authTokenLooksValid) {
+          out.blocking.push('Both values are the right shape but Twilio still refused them. Most likely a SECONDARY auth token that has not been promoted to primary, or a token that has since been rotated.');
+        }
       } else {
         out.twilio = {
           credentials: 'ok',

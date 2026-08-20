@@ -125,9 +125,36 @@ export default function SmsSetup({ accessToken, userEmail, onBack }) {
                 Not tested. Reload this page while signed in.
               </div>
             ) : t.credentials === 'REJECTED' ? (
-              <div style={{ fontSize: 13.5, color: C.bad }}>
-                Twilio refused these credentials ({t.status}). {t.detail}
-              </div>
+              <>
+                <div style={{ fontSize: 13.5, color: C.bad, marginBottom: 9 }}>
+                  Twilio refused these credentials ({t.status}). {t.detail}
+                </div>
+                {/* The 401 says the pair is wrong, not which one. These are the
+                    shapes of the stored values — enough to spot a wrong paste,
+                    revealing nothing: the Account SID format is public. */}
+                {t.shape && (
+                  <div style={{ background: C.panel2, borderRadius: 8, padding: '10px 12px',
+                                fontSize: 12.5, lineHeight: 1.65,
+                                fontFamily: 'ui-monospace, monospace' }}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <Dot on={t.shape.accountSidLooksValid} />
+                      SID starts &ldquo;{t.shape.accountSidStartsWith}&rdquo;, {t.shape.accountSidLength} chars
+                    </div>
+                    <div style={{ color: C.muted, paddingLeft: 17, marginBottom: 5 }}>
+                      {t.shape.accountSidIs}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <Dot on={t.shape.authTokenLooksValid} />
+                      Token {t.shape.authTokenLength} chars {t.shape.authTokenLooksValid ? '(right shape)' : '(should be 32 hex)'}
+                    </div>
+                    {(t.shape.accountSidHasStrayWhitespace || t.shape.authTokenHasStrayWhitespace) && (
+                      <div style={{ color: C.warn, marginTop: 6 }}>
+                        Stray whitespace found — re-paste it.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             ) : t.credentials === 'ok' ? (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', fontSize: 14, marginBottom: 6 }}>

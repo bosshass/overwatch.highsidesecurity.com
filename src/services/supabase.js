@@ -296,14 +296,41 @@ export const jobsApi = {
     return data;
   },
 
-  async update(id, updates, updatedBy) {
+  // THIS WILL WRITE ANY COLUMN, INCLUDING `status`, AND USED TO RECORD NOTHING.
+  // That is the structural hole behind "something is moving cards behind the
+  // disposition's back": a card could change lanes from anywhere in the app
+  // with no history row, so a legitimate move and a mystery move looked
+  // identical on the card — which is to say, both looked like a mystery.
+  //
+  // changeStatus() stays the front door: it carries the side effects (completed_at,
+  // invoiced_at, the scheduling task, clearing a hold) that a bare column write
+  // does not. But a status arriving through here can no longer pass unrecorded.
+  // The extra read costs one round trip and ONLY happens when a status is
+  // actually present, so the ordinary field save is untouched.
+  async update(id, updates, updatedBy, historyNote = null) {
     const cleaned = {};
     for (const [k, v] of Object.entries(updates)) {
       if (v !== undefined) cleaned[k] = v; // allow null for clearing fields, but not undefined
     }
     cleaned.updated_by = updatedBy;
+
+    let before = null;
+    if (cleaned.status !== undefined) {
+      const { data: prev } = await supabase.from('jobs').select('status').eq('id', id).single();
+      before = prev?.status ?? null;
+    }
+
     const { data, error } = await supabase.from('jobs').update(cleaned).eq('id', id).select().single();
     if (error) throw error;
+
+    if (cleaned.status !== undefined && cleaned.status !== before) {
+      // Say plainly that this did not come through the front door. When one of
+      // these turns up in a card's history, the note is the lead: it means a
+      // direct column write moved the card and the changeStatus side effects
+      // did NOT run.
+      await this.logHistory(id, before, cleaned.status, updatedBy || 'unknown',
+        historyNote || 'Status set by a direct field update (not the status flow)');
+    }
     return data;
   },
 

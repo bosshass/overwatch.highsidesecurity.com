@@ -300,6 +300,15 @@ export default function CustomerAudit({ onBack, accessToken }) {
         updated_at: new Date().toISOString(),
       }).eq('id', job.id);
       if (error) throw error;
+      // Same rule as everywhere else: a card that changes lanes says so in its
+      // own history, or the board is the only record and the board forgets.
+      try {
+        await supabase.from('job_history').insert([{
+          job_id: job.id, from_status: job.status || null, to_status: 'archived',
+          changed_by: userEmail || 'unknown',
+          notes: 'Marked complete from the Audit — never a customer job',
+        }]);
+      } catch (e) { console.warn('audit archive not logged (non-fatal)', e?.message || e); }
       setOrphanJobs(prev => prev.filter(j => j.id !== job.id));
     } catch (e) {
       alert('Could not mark complete: ' + (e.message || e));

@@ -44,6 +44,23 @@ export default function InboxBar({ userEmail, onConvertToJob, onRefresh }) {
     return () => clearInterval(interval);
   }, [loadItems]);
 
+  // ARCHIVING IS A STATUS MOVE, and it was recorded nowhere. A card
+  // disappearing off the board with no line in its history is the same problem
+  // as a card appearing in a lane with no line: you cannot tell a deliberate
+  // dismissal from something the app did on its own.
+  const logArchive = async (ids, from) => {
+    try {
+      await supabase.from('job_history').insert(
+        ids.map(id => ({
+          job_id: id,
+          from_status: from?.[id] || null,
+          to_status: JOB_STATUS.ARCHIVED,
+          changed_by: userEmail || 'unknown',
+          notes: 'Dismissed from the inbox',
+        })));
+    } catch (e) { console.warn('inbox archive not logged (non-fatal)', e?.message || e); }
+  };
+
   const acknowledge = async (item) => {
     setActionInProgress(item.id);
     try {
@@ -52,6 +69,7 @@ export default function InboxBar({ userEmail, onConvertToJob, onRefresh }) {
         acknowledged_by: userEmail,
         status: JOB_STATUS.ARCHIVED
       }).eq('id', item.id);
+      await logArchive([item.id], { [item.id]: item.status });
       setItems(prev => prev.filter(i => i.id !== item.id));
       onRefresh?.();
     } catch (e) { console.error('Acknowledge error:', e); }
@@ -82,6 +100,7 @@ export default function InboxBar({ userEmail, onConvertToJob, onRefresh }) {
         acknowledged_by: userEmail,
         status: JOB_STATUS.ARCHIVED
       }).in('id', ids);
+      await logArchive(ids, Object.fromEntries(items.map(i => [i.id, i.status])));
       setItems([]);
       onRefresh?.();
     } catch (e) { console.error('Dismiss all error:', e); }

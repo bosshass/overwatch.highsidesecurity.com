@@ -327,7 +327,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const linkExisting = async (ev, cal) => {
     setSaving(true); setErr('');
     try {
-      await linkToEvent({ job, event: ev, calendarId: cal.id, techName: cal.name, accessToken });
+      await linkToEvent({ job, event: ev, calendarId: cal.id, techName: cal.name, accessToken, byEmail: userEmail });
       onScheduled();
     } catch (e) { setErr(e.message || 'Could not link'); }
     setSaving(false);

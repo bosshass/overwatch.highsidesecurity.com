@@ -1017,11 +1017,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                   const wasTaskOrNote = ['task', 'note'].includes(job.job_type);
                   const isBecomingJob = !['task', 'note'].includes(key);
                   const updates = { job_type: key, updated_by: userEmail };
-                  if (wasTaskOrNote && isBecomingJob) {
-                    updates.status = JOB_STATUS.NEW;
-                    await jobsApi.logHistory(job.id, job.status, JOB_STATUS.NEW, userEmail, `Converted from ${job.job_type} to ${key}`);
-                  }
-                  await jobsApi.update(job.id, updates);
+                  // jobsApi.update logs the status move itself now, so the
+                  // explicit logHistory that used to sit here would write a
+                  // second row for the same change. The note travels with the
+                  // update instead.
+                  if (wasTaskOrNote && isBecomingJob) updates.status = JOB_STATUS.NEW;
+                  await jobsApi.update(job.id, updates, userEmail,
+                    `Converted from ${job.job_type} to ${key}`);
                   setShowTypePicker(false); loadJob(); onUpdate?.();
                 }} style={{ background: job.job_type === key ? info.color : `${info.color}20`, color: job.job_type === key ? '#fff' : info.color, border: 'none', borderRadius: '20px', padding: '8px 14px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
                   {info.icon} {info.label}

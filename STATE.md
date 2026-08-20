@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.103.0 · 2026-08-20.** Every number here was read from the live database or
+**9.104.0 · 2026-08-20.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -154,20 +154,69 @@ fixed this session (the duplicate-event guard in `schedule.js`, and
 `getAllNotes`, which returned `[]` for **every customer, always**). **The rest
 are still there** and fail the same silent way.
 
-### 3. Board drift — 7 cards where the lane contradicts the tech
+### 3. Board drift — found, and it is not what I said it was
 
-| Card | Lane says | Tech said |
-|---|---|---|
-| Jeff Goodell | To Bill | `estimate` |
-| Shepard Construction | To Bill | `in_progress` (5 live entries) |
-| Pault, Jerroud/Cynthia | To Bill | — **zero time entries** |
-| Sainati, Perry | Ready to Schedule | `return` — since **June 24** |
-| Tae Won Suh | Return Pending | `in_progress` |
-| Rupert, Ed/Joann | Needs Estimate | `estimate` — since July 15 |
-| DRH Security | Ready to Schedule | `estimate` (test data with live hours) |
+**Correction: the "7 cards where the lane contradicts the tech" list was wrong.**
+Re-derived from `time_entries` against the disposition→status map the finish
+sheet actually uses, only **one** open card genuinely contradicts its tech:
 
-The disposition is always the newer fact. These drifted *after* it was recorded,
-so something moves cards without consulting the visit — **not yet found.**
+| Card | Lane says | Tech said | Verdict |
+|---|---|---|---|
+| Shepard Construction | To Bill | `in_progress` | deliberate — un-archived 8/16 as a rollup holding est 5760/5811/5812 |
+| Rupert, Ed/Joann | Needs Estimate | `estimate` | **correct.** `estimate → needs_estimate` is the map |
+| Sainati, Perry | Ready to Schedule | `return` | correct destination; stale since June 24 |
+| Jeanneret | Scheduled | `return` | correct — the return got booked |
+| DRH Security | Ready to Schedule | `estimate` | a person moved it → won → ready in 56 seconds |
+| Jeff Goodell | To Bill | — | **zero time entries.** Not drift (see #12) |
+| Tae Won Suh | Return Pending | — | **zero time entries.** Not drift (see #12) |
+| Pault, Jerroud/Cynthia | To Bill | — | **zero time entries**, and a duplicate of a billed card |
+
+**What actually made the board look untrustworthy: nothing records a move to
+`scheduled`.**
+
+`services/schedule.js` writes `status: 'scheduled'` with a direct
+`supabase.from('jobs').update(...)` in **two** places — `scheduleJob` and
+`linkToEvent` — bypassing `jobsApi.changeStatus`, which is the only thing that
+writes `job_history`. So a booking left no line anywhere, and a legitimate move
+was indistinguishable from a mystery one.
+
+**And the audit log built to catch this has never written a single row.**
+`logScheduleAction` inserts `to_status: null`; `job_history.to_status` is **NOT
+NULL**; Postgres rejected every insert. supabase-js returns the error rather
+than throwing, so the `try/catch` never fired, and the one call site did not
+`await` it. Six months, zero rows. *Verified against the live database: the old
+insert shape is rejected, the new one succeeds.*
+
+**Scale of the gap, provable from the data itself** — compare each history row's
+`from_status` with the previous row's `to_status`:
+
+| | |
+|---|---:|
+| Status changes with no history row | **334** |
+| Jobs affected | **213** |
+| Of those, moves to `scheduled` | **~99** — the largest single group, still happening 2026-08-20 |
+
+Other silent writers, all now fixed: `jobsApi.update()` (would write `status`
+from any caller and log nothing — the structural hole), `InboxBar.acknowledge`
+and `dismissAll` (bulk → `archived`), `CustomerAudit.markOrphanComplete`
+(→ `archived`).
+
+**Still true:** the 334 historical gaps cannot be reconstructed. Only new moves
+are recorded.
+
+### 12. Cards in outcome lanes with no visit behind them
+
+Three open cards sit in a lane that asserts an outcome, with **zero time
+entries** — nothing has been billed, returned or estimated because nobody has
+recorded going:
+
+- **Jeff Goodell** — To Bill, scheduled Aug 24
+- **Tae Won Suh** — Return Pending, scheduled Aug 6
+- **Pault, Jerroud/Cynthia** — To Bill, scheduled Aug 14, and a **duplicate** of
+  a Pault card already billed in June
+
+This is what I previously mis-read as the lane contradicting the tech. There is
+no tech to contradict.
 
 ### 4. One job, several cards
 **Laird Heikens is three cards. Jeanneret is two. Shepard is two.** There is no

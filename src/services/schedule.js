@@ -29,13 +29,40 @@ import { supabase, assignmentsApi } from './supabase.js';
 // WHEN in a form a weekly recap could count. This writes one job_history row
 // per action, using the same table notes already use, so it costs nothing
 // structurally and a week's worth of these can just be counted.
-async function logScheduleAction(jobId, action, byEmail) {
+//
+// ── IT HAD NEVER WRITTEN A SINGLE ROW. ────────────────────────────────────
+// It inserted `to_status: null`, and `job_history.to_status` is NOT NULL.
+// Postgres rejected every insert. supabase-js returns the error rather than
+// throwing, so the try/catch never even fired — and the ONE call site did not
+// await it, so the rejected promise went nowhere. Six months, zero rows: the
+// weekly recap this exists to answer has been counting an empty table, and the
+// board has been moving cards to `scheduled` with nothing recording it.
+//
+// Two consequences, both of which Sara saw as "drift":
+//   1. A card that went to `scheduled` had no history line saying so, so a
+//      legitimate booking was indistinguishable from a mystery move. There was
+//      no way to tell which was which — that is what made the board look like
+//      something was moving cards behind the disposition's back.
+//   2. `from_status` on the NEXT real history row disagreed with the previous
+//      row's `to_status`, which is how the gap is provable: 334 such gaps
+//      across 213 jobs.
+//
+// So it now writes a REAL transition — the status the job was in, and the one
+// it is in now — with the recap note attached. Awaited, and it reports the
+// error instead of discarding it.
+async function logScheduleAction(jobId, action, byEmail, fromStatus, toStatus) {
   try {
-    await supabase.from('job_history').insert([{
-      job_id: jobId, from_status: null, to_status: null,
-      changed_by: byEmail || 'unknown', notes: `📅 RECAP: ${action}`,
+    const { error } = await supabase.from('job_history').insert([{
+      job_id: jobId,
+      from_status: fromStatus || null,
+      // NOT NULL. Never pass null here again — an audit line that cannot be
+      // inserted is worse than no audit line, because it looks like one.
+      to_status: toStatus,
+      changed_by: byEmail || 'unknown',
+      notes: `📅 RECAP: ${action}`,
     }]);
-  } catch (e) { console.warn('schedule audit log failed (non-fatal)', e.message); }
+    if (error) console.warn('schedule audit log rejected (non-fatal):', error.message);
+  } catch (e) { console.warn('schedule audit log failed (non-fatal)', e?.message || e); }
 }
 import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote } from './calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
@@ -144,6 +171,10 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
   if (!tech?.id || !tech?.calendar_id) throw new Error('Pick a tech');
   if (!(start instanceof Date) || !(end instanceof Date) || end <= start) throw new Error('Bad time range');
   const isReschedule = job.status === 'scheduled' && !!job.scheduled_event_id;
+  // What the card said BEFORE this booking. The update below overwrites it, so
+  // it has to be read now or the history row cannot say where the card came
+  // from — which is the whole point of the history row.
+  const beforeStatus = job.status || null;
 
   // A booking supersedes any hold — remove the Tent event so the calendar
   // doesn't show a hold for work that is now real.
@@ -204,7 +235,15 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     } catch (e) { console.warn(`helper mirror failed for ${h.name} (non-fatal)`, e.message); }
   }
 
-  logScheduleAction(job.id, isReschedule ? 'Rescheduled' : 'Scheduled', byEmail);
+  // AWAITED. Fire-and-forget is how the previous version's failure stayed
+  // invisible for six months.
+  await logScheduleAction(
+    job.id,
+    isReschedule ? 'Rescheduled' : 'Scheduled',
+    byEmail,
+    beforeStatus,
+    'scheduled',
+  );
   return { eventId: created?.id || null };
 }
 
@@ -284,7 +323,7 @@ export async function bookExtraDay({ job, tech, start, end, accessToken, dayLabe
 // ── LINK: adopt an event somebody already made ─────────────────────────
 // The other legitimate way to become scheduled. No new event is created —
 // creating one is how a job ends up with two.
-export async function linkToEvent({ job, event, calendarId, techName, accessToken }) {
+export async function linkToEvent({ job, event, calendarId, techName, accessToken, byEmail = null }) {
   if (!job?.id) throw new Error('No job');
   if (!event?.id) throw new Error('No event');
 
@@ -293,6 +332,7 @@ export async function linkToEvent({ job, event, calendarId, techName, accessToke
   }
 
   const start = new Date(event.start?.dateTime || event.start?.date);
+  const beforeStatus = job.status || null;
   const { error } = await supabase.from('jobs').update({
     status: 'scheduled',
     scheduled_date: localDateStr(start),
@@ -304,6 +344,11 @@ export async function linkToEvent({ job, event, calendarId, techName, accessToke
     updated_at: new Date().toISOString(),
   }).eq('id', job.id);
   if (error) throw error;
+  // The second silent route to `scheduled`, and it recorded nothing at all —
+  // not even a rejected insert. Linking an existing event to a card moves that
+  // card, so it is a status change and it gets a history row like every other.
+  await logScheduleAction(job.id, 'Linked to an existing calendar event',
+    byEmail, beforeStatus, 'scheduled');
 }
 
 // ── CLEAR a hold without booking ───────────────────────────────────────

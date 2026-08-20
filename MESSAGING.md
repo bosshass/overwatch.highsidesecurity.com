@@ -3,7 +3,7 @@
 Everything that sends or receives a text message. The code, the rules, and why
 each rule exists.
 
-As of **9.89.0**. Nothing here is theoretical — every file named is in the repo
+As of **9.93.0**. Nothing here is theoretical — every file named is in the repo
 and every rule named is enforced in code, not by convention.
 
 ---
@@ -276,6 +276,27 @@ that is the live path.
 **The safe move is to set the same URL in both places** — Messaging → Services →
 Overwatch → Integration, *and* on the number. Then it works whichever way the
 flag is set.
+
+### The screen: `/sms`
+
+```
+https://overwatch-highsidesecurity-com.vercel.app/sms
+```
+
+`/api/sms-status` could always do the check that matters — call Twilio with the
+stored credentials and prove they work — but it needs a Google token, and typing
+the URL into a browser tab does not send one. Its own advice, *"sign in and open
+this from Overwatch"*, pointed at a screen that did not exist.
+
+`/sms` is that screen. One-word verdict at the top, anything wrong in plain
+words, the environment variables as a list, the webhook string with a Copy
+button, and which webhook Twilio will actually call.
+
+**And a real send.** Every check above it is inference: credentials can
+authenticate, a sender can exist, the webhook can be right, and the message can
+still fail at the carrier. A toll-free number that has not finished verification
+returns **error 30032 asynchronously**, after Twilio has already accepted the
+message. Nothing short of sending finds that, so the screen sends.
 
 ## THE SIGNATURE IS TESTED
 

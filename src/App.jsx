@@ -37,6 +37,7 @@ import ShortLink from './views/ShortLink.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import { jobDeepLink, APP_BASE } from './config/appBase.js';
+import SmsSetup from './views/SmsSetup.jsx';
 import { APP_VERSION } from './version.js';
 
 // APP_VERSION lives in src/version.js and version.json is generated from it.
@@ -1209,6 +1210,10 @@ export default function App() {
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
         <Route path="/recap" element={<OperatorOnly><WeeklyRecap onBack={() => navigate('/')} userEmail={userEmail} /></OperatorOnly>} />
         <Route path="/j/:code" element={<ShortLink accessToken={accessToken} userEmail={userEmail} userRole={getUserConfig(userEmail).role} onUpdate={() => {}} />} />
+        {/* Texting setup. Reachable by typing /sms — the status endpoint's own
+            advice was "sign in and open this from Overwatch", which pointed at
+            a screen that did not exist until now. */}
+        <Route path="/sms" element={<OperatorOnly><ViewShell><SmsSetup accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
         <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}

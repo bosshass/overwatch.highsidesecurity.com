@@ -268,6 +268,35 @@ anybody can see.
 
 ---
 
+## A REPLY IS A MESSAGE, NOT A TASK
+
+Inbound texts land in **Tasks**, because that is where somebody looks for work
+they owe. But they are rendered as **messages**, not as tasks:
+
+- a green **💬 MESSAGE** chip and the sender's name as the headline
+- the number, the customer if one matched, and **"{name} answers"** — so the
+  card says whose reply it is
+- their actual words in a quoted block, set apart, because that is the thing to
+  read
+- **↩ Reply to {name}** — texting back without leaving the screen
+
+The first version rendered them as ordinary task cards, and Sara's description
+was exactly right: *"a task with no customer."* That is precisely what it looked
+like, and nothing about it said a person was waiting on an answer.
+
+### Who answers
+
+`api/sms-inbound.js` assigns the reply to **whoever sent the outgoing message to
+that number**, found via the phone number `SmsComposer` writes into its log line.
+With no prior outbound — a client texting cold — it goes to the owner
+(`SMS_DEFAULT_OWNER`, default `admin@jnbservice.com`) rather than into the
+unassigned pile.
+
+That routing is the whole fix behind *"the send back did not work."* The webhook
+was working and five replies had already landed; they were inserted with
+`assigned_to` NULL, and an unassigned note never appears in Tasks. **A reply that
+lands where the person who asked will never see it has not arrived.**
+
 ## CHECKING THE SETUP
 
 `GET /api/sms-status` answers "which part is wrong" directly, instead of by

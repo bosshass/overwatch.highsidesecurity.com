@@ -141,6 +141,14 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
       const j = n.job_id ? jById[n.job_id] : null;
       return {
         ...n,
+        // AN INBOUND TEXT IS NOT A TASK, and rendering it as one is what made
+        // the first replies read as "a task with no customer". The webhook
+        // writes a fixed shape — "📲 Text from {who} ({+1…}):\n{message}" —
+        // so it can be recognised and given its own card instead.
+        _msg: (() => {
+          const m = String(n.body || '').match(/^📲 Text from (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/);
+          return m ? { who: m[1].trim(), phone: m[2], text: m[3].trim() } : null;
+        })(),
         _customer: cById[n.customer_id]?.name || j?.customer_name || null,
         // The client's number, from whichever record has one. Without this the
         // Tasks screen knows who a task is about and has no way to reach them.
@@ -401,12 +409,61 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
               style={{ background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
                        border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
 
-              {/* CUSTOMER FIRST — same as the job card. A paragraph of body
-                  text with no name on it tells you nothing about who it is for,
-                  which is the first thing anybody needs. */}
-              <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>
-                {n._customer || 'No customer'}
-              </div>
+              {/* ── A MESSAGE, NOT A TASK ────────────────────────────────
+                  An inbound text arriving as a task card read as "a task with
+                  no customer" — which is exactly what it looked like, and
+                  nothing about it said somebody was waiting on a reply. It gets
+                  its own header: who wrote, that it is a message, and who owes
+                  the answer. */}
+              {n._msg ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                                marginBottom: 6 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '.07em',
+                                   color: '#08121f', background: C.green,
+                                   borderRadius: 5, padding: '3px 8px' }}>
+                      💬 MESSAGE
+                    </span>
+                    <span style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2 }}>
+                      {n._msg.who}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 9 }}>
+                    {n._msg.phone}
+                    {n._customer ? ` · ${n._customer}` : ''}
+                    {/* WHO ANSWERS. The whole point of routing a reply back to
+                        its sender is lost if the card does not say whose it is. */}
+                    {n.assigned_to && (
+                      <> · <b style={{ color: C.text }}>
+                        {NAME_BY_EMAIL[canonicalEmail(n.assigned_to)] || n.assigned_to} answers
+                      </b></>
+                    )}
+                  </div>
+                  {/* Their actual words, set apart — this is the thing to read. */}
+                  <div style={{ background: '#0f172a', borderLeft: `3px solid ${C.green}`,
+                                borderRadius: '0 10px 10px 0', padding: '11px 13px',
+                                fontSize: 16, lineHeight: 1.45, marginBottom: 11,
+                                whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {n._msg.text || '(no text)'}
+                  </div>
+                  <div style={{ marginBottom: 11 }}>
+                    <TextButton
+                      to={n._msg.phone}
+                      name={n._msg.who}
+                      accessToken={accessToken}
+                      label={`↩ Reply to ${n._msg.who}`}
+                      logTo={{ jobId: n.job_id, customerId: n.customer_id, userEmail }}
+                    />
+                  </div>
+                </>
+              ) : (
+                /* CUSTOMER FIRST — same as the job card. A paragraph of body
+                   text with no name on it tells you nothing about who it is for,
+                   which is the first thing anybody needs. */
+                <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>
+                  {n._customer || 'No customer'}
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 {/* The JOB's status, carried onto the task. "Ed Rupert — Needs

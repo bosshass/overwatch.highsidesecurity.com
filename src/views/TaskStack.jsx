@@ -48,7 +48,14 @@ const C = {
   // is what you find after you have already stopped. So messages sit on a
   // green-teal ground with a thick left rail — recognisable in peripheral
   // vision, before any text is read.
-  msgBg: '#0b201a', msgLine: '#1d4a3a', msgQuote: '#071612',
+  // Grey ground, teal banner, blue action — deliberately NOTHING like the navy
+  // task cards. The first pass used a green-teal wash and it still read as "one
+  // more card"; a different shade of the same family is not a different thing.
+  // Grey is the only neutral on this screen, so a grey card is unmistakably not
+  // a task, and the teal banner and blue button are the only places those hues
+  // appear at all.
+  msgBg: '#2b3038', msgLine: '#454c57', msgQuote: '#1e232a',
+  teal: '#14b8a6', markBlue: '#3b82f6',
 };
 
 const TABS = [
@@ -454,7 +461,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                     // message looks equally urgent forever is one nobody reads
                     // twice. The rail carries it: bright and thick while it is
                     // new, dim and thin once somebody has seen it.
-                    borderLeft: `${n.read_at ? 3 : 6}px solid ${n.read_at ? C.msgLine : C.green}`,
+                    borderLeft: `${n.read_at ? 3 : 6}px solid ${n.read_at ? C.msgLine : C.teal}`,
                     opacity: n.read_at ? 0.72 : 1 }
                 : { background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
                     border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
@@ -467,13 +474,17 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                   the answer. */}
               {n._msg ? (
                 <>
+                  {/* A BANNER, NOT A CHIP. A chip sits among other chips and
+                      reads as one more label; a band across the top of the card
+                      is the first thing the eye lands on. */}
+                  <div style={{ background: C.teal, color: '#04211e',
+                                margin: '-15px -16px 11px', padding: '7px 16px',
+                                borderRadius: '0 12px 0 0',
+                                fontSize: 11.5, fontWeight: 900, letterSpacing: '.09em' }}>
+                    💬 TEXT MESSAGE
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                                 marginBottom: 6 }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '.07em',
-                                   color: '#08121f', background: C.green,
-                                   borderRadius: 5, padding: '3px 8px' }}>
-                      💬 MESSAGE
-                    </span>
                     <span style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2 }}>
                       {n._msg.who}
                     </span>
@@ -506,7 +517,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                   <div style={{ background: C.msgQuote, borderRadius: 10,
                                 padding: '12px 14px',
                                 fontSize: 16.5, lineHeight: 1.5, marginBottom: 11,
-                                color: '#d9f5e6',
+                                color: '#eef2f7',
                                 whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                     {n._msg.text || '(no text)'}
                   </div>
@@ -525,9 +536,9 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                       </span>
                     ) : (
                       <button onClick={() => markRead(n)} disabled={busy === n.id}
-                        style={{ background: 'transparent', border: `1px solid ${C.msgLine}`,
-                                 borderRadius: 999, color: C.muted, fontSize: 12,
-                                 fontWeight: 700, padding: '6px 13px', cursor: 'pointer',
+                        style={{ background: C.markBlue, border: 'none',
+                                 borderRadius: 999, color: '#fff', fontSize: 12.5,
+                                 fontWeight: 800, padding: '7px 15px', cursor: 'pointer',
                                  fontFamily: 'inherit' }}>
                         {busy === n.id ? '…' : 'Mark read'}
                       </button>

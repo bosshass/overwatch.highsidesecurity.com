@@ -217,7 +217,7 @@ and then discarded.
 Change **"A message comes in"** to:
 
 ```
-https://overwatch.highsidesecurity.com/api/sms-inbound
+https://overwatch-highsidesecurity-com.vercel.app/api/sms-inbound
 ```
 
 Method: **HTTP POST**. Leave the backup handler blank.
@@ -248,7 +248,7 @@ Two levels:
   blocking item rather than as a text that never arrives.
 
 ```
-https://overwatch.highsidesecurity.com/api/sms-status
+https://overwatch-highsidesecurity-com.vercel.app/api/sms-status
 ```
 
 `ready: true` means every variable is set, the credentials authenticate, a

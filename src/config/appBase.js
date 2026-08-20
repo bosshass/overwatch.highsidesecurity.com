@@ -17,10 +17,19 @@ import { fmtLocalDate } from '../utils/lanes.js';
 // the orphan scan in TechCalendar, which is the real path for pulling
 // untracked calendar work into Overwatch.
 
+// The fallback WAS https://overwatch.highsidesecurity.com — a hostname with no
+// DNS record. It has never resolved. Several places in this repo refer to it as
+// though it were the live domain; none of them were ever reachable, and a text
+// or calendar link built from this fallback would have landed on
+// DNS_PROBE_FINISHED_NXDOMAIN.
+//
+// In the browser this line never runs — window.location.origin wins, which is
+// correct by construction. The fallback only matters where there is no window,
+// so it now names the deployment that actually exists.
 export const APP_BASE =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
-    : 'https://overwatch.highsidesecurity.com';
+    : 'https://overwatch-highsidesecurity-com.vercel.app';
 
 // The canonical deep link to a calendar-backed job.
 export function jobDeepLink(calendarId, eventId) {

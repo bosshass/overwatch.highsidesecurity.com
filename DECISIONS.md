@@ -463,6 +463,39 @@ answer, and archiving it would make the inbox tidy and the client ignored.
 **Sara must repoint the webhook** to
 `https://overwatch.highsidesecurity.com/api/sms-inbound` (HTTP POST).
 
+### `overwatch.highsidesecurity.com` HAS NEVER EXISTED
+
+Sara got `DNS_PROBE_FINISHED_NXDOMAIN` opening the setup check. Verified by
+resolving each host directly:
+
+| Host | DNS |
+|---|---|
+| `overwatch.highsidesecurity.com` | **no record** |
+| `highsidesecurity.com` | resolves |
+| `overwatch-highsidesecurity-com.vercel.app` | **resolves — this is the app** |
+
+The subdomain was never configured. The repo names it in several places as
+though it were the live domain, and **I repeated it without checking** — so the
+inbound webhook Sara pasted into Twilio pointed at a hostname that does not
+resolve.
+
+In the browser this was invisible: `APP_BASE` derives from
+`window.location.origin`, so every link the app builds at runtime is correct.
+Only the no-window fallback was wrong.
+
+Two things it did break:
+
+- **The inbound webhook**, above. Now `…vercel.app/api/sms-inbound`.
+- **The calendar backfill guard in `App.jsx`, which was inverted by it.** It read
+  *skip if the description has an old `juc-e-v2` link AND does not have an
+  `overwatch.highsidesecurity.com` one*. Since no description could ever contain
+  the second, it meant **"skip every event still carrying an old link"** — the
+  exact set the backfill exists to repair. It skipped its own work. Now it skips
+  events already pointing at `APP_BASE`, whatever that is today.
+
+The dead hostname is kept in `candidateUrls()` so that pointing the subdomain at
+this deployment later needs no code change.
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.

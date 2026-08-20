@@ -21,7 +21,9 @@ import { createClient } from '@supabase/supabase-js';
 //   4. Returns empty TwiML so Twilio sends no auto-reply of its own.
 //
 // SET THE WEBHOOK TO:
-//   https://overwatch.highsidesecurity.com/api/sms-inbound   (HTTP POST)
+//   https://overwatch-highsidesecurity-com.vercel.app/api/sms-inbound  (POST)
+//
+// NOT overwatch.highsidesecurity.com — that subdomain has no DNS record.
 //
 // Requires: TWILIO_AUTH_TOKEN, VITE_SUPABASE_URL (or SUPABASE_URL),
 //           SUPABASE_SERVICE_ROLE_KEY.
@@ -83,6 +85,11 @@ function candidateUrls(req) {
   const hosts = [
     req.headers['x-forwarded-host'],
     req.headers.host,
+    // Both are listed because only one of them exists today:
+    // overwatch.highsidesecurity.com has NO DNS RECORD and never has. It is
+    // kept so that pointing the subdomain at this deployment later needs no
+    // code change; the .vercel.app host is the one Twilio can actually reach.
+    'overwatch-highsidesecurity-com.vercel.app',
     'overwatch.highsidesecurity.com',
   ].filter(Boolean);
 

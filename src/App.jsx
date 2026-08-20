@@ -36,7 +36,7 @@ import Unbilled from './views/Unbilled.jsx';
 import ShortLink from './views/ShortLink.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
-import { jobDeepLink } from './config/appBase.js';
+import { jobDeepLink, APP_BASE } from './config/appBase.js';
 import { APP_VERSION } from './version.js';
 
 // APP_VERSION lives in src/version.js and version.json is generated from it.
@@ -209,7 +209,17 @@ export default function App() {
         for (const event of events) {
           if (event.status === 'cancelled') continue;
           const desc = event.description || '';
-          if (desc.includes('juc-e-v2.vercel.app') && !desc.includes('overwatch.highsidesecurity.com')) { skipped++; continue; }
+          // THIS GUARD WAS INVERTED BY A DOMAIN THAT DOES NOT EXIST.
+          // It read: skip if the description has an old juc-e-v2 link AND does
+          // NOT have an overwatch.highsidesecurity.com one. That subdomain has
+          // no DNS record and never has, so no description has ever contained
+          // it — which made the condition "skip every event still carrying an
+          // old link", i.e. precisely the events this backfill exists to
+          // repair. It skipped its own work.
+          //
+          // The real question is whether the event already points at THIS
+          // deployment, whatever that is today.
+          if (desc.includes(APP_BASE)) { skipped++; continue; }
           const deepLink = jobDeepLink(cal.id, event.id);
           const stripped = desc.replace(/\n*🔗 OPEN IN OVERWATCH:.*$/s, '').replace(/\n*📱 Open in Overwatch:.*$/s, '').trimEnd();
           const newDesc = (stripped ? stripped + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;

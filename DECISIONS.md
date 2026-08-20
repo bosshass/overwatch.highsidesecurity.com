@@ -417,6 +417,52 @@ record rather than something that happened only on somebody's phone.
 `TWILIO_MESSAGING_SERVICE_SID` or `TWILIO_FROM_NUMBER`. If any is missing the
 endpoint says exactly which, and the card shows it.
 
+### Texting clients — DONE
+> "I want to be able to text clients too."
+
+The composer was extracted into `src/components/SmsComposer.jsx` — **one message
+box** — rather than copied. Copying it would have meant two places to fix a
+Twilio error, two segment counters, and two chances for one of them to send
+something it should not.
+
+The rule that separates the two uses is `internal`:
+
+- **staff** — the draft carries a short Overwatch link so they can open the card
+- **client** — **no Overwatch link, ever.** Internal app, exposes a job id,
+  invites a customer into something not meant for them.
+
+Not left to whoever writes the draft: the composer regexes the body and
+**disables Send** if a client message contains an Overwatch URL, including one
+typed by hand.
+
+Client templates (*On the way · Confirm visit · Running late · Blank*) each end
+with `Reply STOP to opt out.` — what A2P registration expects of business
+messaging. "Confirm visit" reads the job's `scheduled_date`.
+
+The account holder and the **on-site contact** (migration 047) get separate
+buttons. They are different people and one button that guesses would text the
+wrong one.
+
+Full detail, rules and configuration: **`MESSAGING.md`**.
+
+### Inbound texts had nowhere to go — DONE
+The number's "a message comes in" webhook was still Twilio's sample endpoint,
+`https://demo.twilio.com/welcome/sms/reply/`. Every client reply was answered by
+Twilio's demo auto-responder and discarded. **Texting clients without an inbound
+path is a one-way radio.**
+
+`api/sms-inbound.js` verifies `X-Twilio-Signature` (HMAC-SHA1 over the URL plus
+every field in alphabetical order, constant-time compared) — a public URL that
+writes to the database must prove the caller, or anyone could post a fabricated
+message from a client's number onto that client's record. It then matches the
+sender (staff roster → customer → job's site/customer phone → unmatched) on the
+**last 10 digits**, because one number is typed four ways in this data, and files
+the message as an **OPEN** note. Open, deliberately: somebody is waiting on an
+answer, and archiving it would make the inbox tidy and the client ignored.
+
+**Sara must repoint the webhook** to
+`https://overwatch.highsidesecurity.com/api/sms-inbound` (HTTP POST).
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.

@@ -30,7 +30,8 @@ import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import { releaseCalendar } from '../services/schedule.js';
 import { syncIssueToEvents } from '../services/calendarSync.js';
-import { sendSms, formatPhone, isSendable } from '../services/sms.js';
+import { formatPhone } from '../services/sms.js';
+import SmsComposer from './SmsComposer.jsx';
 import { shortJobLink } from '../config/appBase.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
@@ -117,10 +118,11 @@ export default function TicketSheet({
   // api/send-sms.js (Twilio) and services/sms.js have both been complete and
   // UNREACHABLE — sendSms had zero callers anywhere in the app. Same shape as
   // the assign picker in Notes: the plumbing was built, the button never was.
-  const [smsFor, setSmsFor]       = useState(null);   // task id being texted
-  const [smsBody, setSmsBody]     = useState('');
-  const [smsSending, setSmsSending] = useState(false);
-  const [smsMsg, setSmsMsg]       = useState('');
+  // ONE target at a time: { key, to, name, internal, draft, templates }.
+  // Was four pieces of state wired to a single task; the customer needs the
+  // same box, so the sheet tracks WHAT is being texted rather than whether a
+  // task is.
+  const [sms, setSms] = useState(null);
 
   // ── Editing the issue ────────────────────────────────────────────────
   const [issueEdit, setIssueEdit]     = useState(false);
@@ -270,16 +272,15 @@ export default function TicketSheet({
     finally { setSaving(false); }
   };
 
-  // What the text says before she edits it.
+  // What a STAFF text says before she edits it.
   //
-  // NOT the raw task body. These bodies are machine-composed and several of
-  // them still carry the old intake template inline ("Name: ... Phone: ...
-  // On-Site Contact:"), which is not something to send a person. The LAST
-  // paragraph is the most recent thing anybody added — a reply, a question,
-  // the actual ask — so that is what leads, under the customer's name, with a
-  // short link so the recipient can open the card instead of texting back to
-  // ask what it is about.
-  const draftSmsFor = (t) => {
+  // NOT the raw task body. These bodies are machine-composed and several still
+  // carry the old intake template inline ("Name: ... Phone: ... On-Site
+  // Contact:"), which is not something to send a person. The LAST paragraph is
+  // the most recent thing anybody added — a reply, a question, the actual ask —
+  // so that leads, under the customer's name, with a short link so the
+  // recipient can open the card instead of texting back to ask what it is about.
+  const draftForTask = (t) => {
     const paras = String(t.body || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
     let ask = paras.length ? paras[paras.length - 1] : '';
     ask = ask.replace(/^—\s*/, '');
@@ -288,46 +289,51 @@ export default function TicketSheet({
     return [`${who} — ${ask}`.trim(), '', shortJobLink(job.id)].join('\n');
   };
 
-  const openSms = (t) => {
-    if (smsFor === t.id) { setSmsFor(null); return; }
-    setSmsFor(t.id);
-    setSmsBody(draftSmsFor(t));
-    setSmsMsg('');
+  const textTask = (t) => {
+    const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
+    const name  = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
+    if (sms?.key === `task:${t.id}`) { setSms(null); return; }
+    setSms({ key: `task:${t.id}`, to: phone, name, internal: true, draft: draftForTask(t) });
   };
 
-  const doSendSms = async (t) => {
-    const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
-    if (!phone) { setSmsMsg('⚠ No phone number on file for them.'); return; }
-    setSmsSending(true);
-    setSmsMsg('');
-    const r = await sendSms({ to: phone, message: smsBody, accessToken });
-    setSmsSending(false);
-    if (r.ok) {
-      // "Accepted", not "delivered". Twilio queues the message and can still
-      // fail it afterwards — on a new toll-free number, error 30032 (not yet
-      // verified) arrives that way. Say which number it left on, so a freshly
-      // approved line can be confirmed from here instead of from the console.
-      setSmsMsg(`Sent ✓ ${r.status || 'queued'}${r.from ? ` · from ${r.from}` : ''}`);
-      // Log it on the job so the text is part of the record rather than
-      // something that happened only on somebody's phone.
-      try {
-        await supabase.from('notes').insert({
-          body: `📱 Texted ${ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to}: ${smsBody.split('\n')[0]}`,
-          job_id: job.id,
-          customer_id: job.customer_id || null,
-          author_email: userEmail,
-          lane: 'note',
-          status: 'archived',
-          on_customer_record: false,
-          archived_at: new Date().toISOString(),
-          archived_by: userEmail,
-        });
-      } catch (e) { console.warn('SMS log failed (non-fatal):', e?.message || e); }
-      setTimeout(() => { setSmsFor(null); setSmsMsg(''); }, 2600);
-    } else {
-      // A Twilio refusal is information, not a crash. Say what it said.
-      setSmsMsg(`⚠ ${r.error || 'Could not send'}${r.detail ? ` — ${r.detail}` : ''}`);
-    }
+  // ── TEXTING THE CLIENT ───────────────────────────────────────────────
+  // Different rules from a staff nudge, enforced in SmsComposer: no Overwatch
+  // link, ever. The templates below are the three things anybody actually
+  // texts a customer about a visit, and each ends with opt-out language
+  // because that is what A2P registration expects of business messaging.
+  const SIGN = 'DRH Security Services';
+  const OPTOUT = 'Reply STOP to opt out.';
+  const whenText = () => {
+    if (!job.scheduled_date) return '';
+    const d = new Date(`${job.scheduled_date}T12:00:00`);
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  };
+  const clientTemplates = () => {
+    const when = whenText();
+    return [
+      { label: 'On the way',
+        text: `${SIGN}: our technician is on the way to you now. ${OPTOUT}` },
+      { label: 'Confirm visit',
+        text: when
+          ? `${SIGN}: confirming your appointment on ${when}. Reply to let us know if that still works. ${OPTOUT}`
+          : `${SIGN}: we are getting your visit scheduled and will confirm a time shortly. ${OPTOUT}` },
+      { label: 'Running late',
+        text: `${SIGN}: our technician is running behind and will be with you as soon as possible. Sorry for the wait. ${OPTOUT}` },
+      { label: 'Blank', text: `${SIGN}: ` },
+    ];
+  };
+
+  // Two numbers can be on a card and they are different people: the account
+  // holder, and whoever the tech actually meets on site (migration 047).
+  const textClient = (which) => {
+    const isSite = which === 'site';
+    const to   = isSite ? job.site_contact_phone : job.customer_phone;
+    const name = isSite
+      ? (job.site_contact_name || 'the on-site contact')
+      : (job.customer_name || 'the client');
+    if (sms?.key === `client:${which}`) { setSms(null); return; }
+    setSms({ key: `client:${which}`, to, name, internal: false,
+             draft: '', templates: clientTemplates() });
   };
 
   // Save the issue, then mirror it to the calendar.
@@ -477,7 +483,50 @@ export default function TicketSheet({
         <div style={{ background: C.panel, borderRadius: 12, padding: '6px 14px', marginBottom: 14 }}>
           <Row label="Type">{job.job_type || 'service'}</Row>
           <Row label="Address">{job.customer_address}</Row>
-          <Row label="Phone">{job.customer_phone}</Row>
+          <Row label="Phone">
+            {job.customer_phone}
+            {/* TEXT THE CLIENT. Two numbers can be on a card and they are
+                different people: the account holder, and whoever the tech
+                actually meets on site (migration 047). Both get their own
+                button rather than one that guesses. SmsComposer enforces the
+                rules a client message has and a staff one does not — no
+                Overwatch link, ever. */}
+            {job.customer_phone && (
+              <button onClick={() => textClient('customer')}
+                style={{ marginLeft: 9, background: sms?.key === 'client:customer' ? '#9b6cff' : 'transparent',
+                         border: '1px solid #9b6cff66', borderRadius: 7,
+                         color: sms?.key === 'client:customer' ? '#08121f' : '#c4a6ff',
+                         fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
+                         cursor: 'pointer', fontFamily: 'inherit' }}>
+                📱 Text
+              </button>
+            )}
+          </Row>
+          {job.site_contact_phone && (
+            <Row label="On site">
+              {job.site_contact_name || 'contact'} · {job.site_contact_phone}
+              <button onClick={() => textClient('site')}
+                style={{ marginLeft: 9, background: sms?.key === 'client:site' ? '#9b6cff' : 'transparent',
+                         border: '1px solid #9b6cff66', borderRadius: 7,
+                         color: sms?.key === 'client:site' ? '#08121f' : '#c4a6ff',
+                         fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
+                         cursor: 'pointer', fontFamily: 'inherit' }}>
+                📱 Text
+              </button>
+            </Row>
+          )}
+          {sms?.key?.startsWith('client:') && (
+            <div style={{ padding: '4px 0 10px' }}>
+              <SmsComposer
+                key={sms.key}
+                to={sms.to} name={sms.name} internal={sms.internal}
+                draft={sms.draft} templates={sms.templates} accessToken={accessToken}
+                logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                onSent={() => setTimeout(() => setSms(null), 2600)}
+                onCancel={() => setSms(null)}
+              />
+            </div>
+          )}
           <Row label="Tech on site">{job.tech_name}</Row>{/* physical presence, NOT ownership — see the Assigned to block */}
           <Row label="Scheduled">{job.scheduled_date
             ? new Date(job.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -700,12 +749,11 @@ export default function TicketSheet({
                     there was no control for it anywhere. */}
                 {(() => {
                   const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
-                  const open  = smsFor === t.id;
+                  const open  = sms?.key === `task:${t.id}`;
                   return (
                     <>
                       <div style={{ display: 'flex', gap: 7, marginTop: 8, flexWrap: 'wrap' }}>
-                        <button onClick={() => openSms(t)}
-                          disabled={!phone}
+                        <button onClick={() => textTask(t)} disabled={!phone}
                           title={phone ? formatPhone(phone) : 'No phone number on file'}
                           style={{ background: open ? '#9b6cff' : 'transparent',
                                    border: '1px solid #9b6cff66', borderRadius: 8,
@@ -716,50 +764,15 @@ export default function TicketSheet({
                           {phone ? `📱 Text ${owner}` : `No number for ${owner}`}
                         </button>
                       </div>
-
                       {open && (
-                        <div style={{ marginTop: 8 }}>
-                          <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>
-                            To {owner} at {formatPhone(phone)}
-                            {!isSendable(phone) && ' — that number does not look sendable'}
-                          </div>
-                          <textarea value={smsBody}
-                            onChange={e => setSmsBody(e.target.value)}
-                            rows={5}
-                            style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
-                                     border: '1px solid #9b6cff66', borderRadius: 8, color: '#e2e8f0',
-                                     padding: '9px 11px', fontSize: 13.5, lineHeight: 1.45,
-                                     fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
-                          {/* Segments, because these are billed per 160 chars
-                              and "we'll be using lots of texts". A link pushes
-                              most messages to two on its own. */}
-                          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>
-                            {smsBody.length} chars · {Math.max(1, Math.ceil(smsBody.length / 160))} segment
-                            {Math.ceil(smsBody.length / 160) === 1 ? '' : 's'}
-                          </div>
-                          <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-                            <button onClick={() => doSendSms(t)}
-                              disabled={smsSending || !smsBody.trim() || !isSendable(phone)}
-                              style={{ flex: 2, background: '#9b6cff', border: 'none', borderRadius: 8,
-                                       padding: '9px 0', color: '#08121f', fontSize: 13, fontWeight: 800,
-                                       cursor: smsSending ? 'default' : 'pointer', fontFamily: 'inherit',
-                                       opacity: smsSending || !smsBody.trim() ? 0.6 : 1 }}>
-                              {smsSending ? 'Sending…' : 'Send text'}
-                            </button>
-                            <button onClick={() => { setSmsFor(null); setSmsMsg(''); }}
-                              style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
-                                       borderRadius: 8, padding: '9px 0', color: C.muted, fontSize: 13,
-                                       fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                              Cancel
-                            </button>
-                          </div>
-                          {smsMsg && (
-                            <div style={{ fontSize: 12, marginTop: 7,
-                                          color: smsMsg.startsWith('⚠') ? C.amber : '#4ade80' }}>
-                              {smsMsg}
-                            </div>
-                          )}
-                        </div>
+                        <SmsComposer
+                          key={sms.key}
+                          to={sms.to} name={sms.name} internal={sms.internal}
+                          draft={sms.draft} accessToken={accessToken}
+                          logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                          onSent={() => setTimeout(() => setSms(null), 2600)}
+                          onCancel={() => setSms(null)}
+                        />
                       )}
                     </>
                   );

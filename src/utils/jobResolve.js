@@ -125,6 +125,17 @@ export function unbilledBucket(job, entry = null) {
     if (entry.disposition === 'estimate')       return 'sales';
     if (entry.disposition === 'in_progress')    return 'progress';
     if (entry.disposition === 'return')         return 'return';
+    // 'bill_it' HAD NO CASE. Four dispositions, three branches — so an entry the
+    // tech marked "bill it" fell through to the job-status block below and was
+    // bucketed by whatever the CARD said. A bill_it entry on a job still sitting
+    // in 'scheduled' came back 'progress': not finished, not billable yet. That
+    // contradicts the precedence this whole function exists to enforce — the
+    // ENTRY is the thing that gets invoiced, so it outranks the job.
+    //
+    // The tech said the work is done and chargeable. Nothing above this line
+    // disagreed (not resolved, not billed, not written off, not archived), so
+    // it is ready. The job's status is not a second opinion.
+    if (entry.disposition === 'bill_it')        return 'ready';
   }
   if (!job) return 'nojob';
   const s = job.status;

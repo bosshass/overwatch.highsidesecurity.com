@@ -1,11 +1,14 @@
 // ============================================
 // JobFinishSheet — canonical "tech finishes a job" UI
 // ============================================
-// One bottom sheet, four dispositions, four canonical tags:
-//   • [BILL IT]      — disposition: 'bill_it'
-//   • [RETURN]       — disposition: 'return' (also writes a return_card)
-//   • [IN PROGRESS]  — disposition: 'in_progress' (multi-day work, stays open)
-//   • [ESTIMATE]     — disposition: 'estimate' (sales handoff)
+// One bottom sheet, five dispositions:
+//   • bill_it      — done, hours go to Billing
+//   • return       — must go back (also writes a return_card)
+//   • in_progress  — multi-day work, stays open
+//   • estimate     — sales handoff
+//   • blocked      — couldn't do it: no access, wrong parts, turned away
+//
+// It does NOT tag the calendar title. Status lives in the database.
 //
 // REPLACES (deleted): CompletionModal.jsx, JobCompleteModal.jsx, TimeCaptureModal.jsx
 //
@@ -14,7 +17,7 @@
 // should already exist upstream; it's still captured when present, just not
 // a blocker.)
 // Writes ONE row to time_entries; for 'return' also writes ONE row to return_cards.
-// Patches the calendar event TITLE only (description is owned by CustomerLookup).
+// Appends the tech's field notes to the calendar event DESCRIPTION. Never the title.
 //
 // Props:
 //   event           { id, title, calendarId, start, end, description, location, techName }
@@ -22,7 +25,7 @@
 //   userEmail       signed-in user's email (becomes time_entry.tech_email)
 //   userName        signed-in user's display name (fallback for tech_name)
 //   prefillCustomer optional pre-linked customer (skips the lookup if provided)
-//   onFinished      called after a successful disposition: (disposition, newTitle) => void
+//   onFinished      called after a successful disposition: (disposition) => void
 //   onCancel        called when the user dismisses the sheet
 //   mode            optional; 'full' (default) shows all 4 buttons. 'bill-only' shows only Bill It.
 //   inline          optional; when true, renders JUST the form (no overlay, no header) for use
@@ -39,16 +42,8 @@ import { ASSIGNEES } from '../utils/ownership.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
-// Canonical tags. Parsers in Billing/Queue/Board/Scheduler accept these PLUS legacy
-// synonyms ([COMPLETED], [TO BILL], [RETURN NEEDED], etc.) for backward compatibility.
-const TAG = {
-  bill_it:     '[BILL IT]',
-  return:      '[RETURN]',
-  in_progress: '[IN PROGRESS]',
-  estimate:    '[ESTIMATE]',
-};
-
-// Strip any existing leading/trailing tags from the title before applying a new one.
+// Strip LEGACY bracket tags out of a title so the bare customer name is left for
+// matching. Overwatch no longer writes these, but years of events still carry them.
 function cleanTitle(title) {
   return (title || '').replace(/\s*\[.*?\]/g, '').trim();
 }
@@ -99,11 +94,23 @@ export default function JobFinishSheet({
   const canFinish     = notesValid && !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
-  // Patches the title and, when the tech left notes/materials, APPENDS them to
-  // the event description so the worker's notes live on the calendar — not just
-  // in Overwatch. Append-only: never overwrites the existing description.
-  const patchTitle = async (newTitle) => {
-    const body = { summary: newTitle };
+  // APPENDS the tech's notes/materials to the event DESCRIPTION so the worker's
+  // notes live on the calendar — not just in Overwatch. Append-only: never
+  // overwrites the existing description.
+  //
+  // THE TITLE IS NEVER TOUCHED. Overwatch used to stamp [BILL IT] / [RETURN] /
+  // [IN PROGRESS] / [ESTIMATE] onto the summary. That is the writing half of the
+  // rule against deriving structured meaning from free text: a tag written into
+  // a title is a string somebody then has to parse back out, and the parsers
+  // drifted the moment a fifth disposition was added — TAG had no `blocked`
+  // entry, so the title became "Customer Name undefined" and committed to
+  // Google before the failing insert even ran.
+  //
+  // Status lives in the database. A calendar title is for a human to recognise
+  // the appointment. Sara, 2026-08-20: "we are not to update calendar events
+  // with [name] to reflect status in the app."
+  const appendFieldNotes = async () => {
+    const body = {};
 
     const noteText = notes.trim();
     const matText  = materials.trim();
@@ -134,6 +141,9 @@ export default function JobFinishSheet({
 
       body.description = current ? `${current}\n${line}` : line;
     }
+
+    // Nothing to say — no note, no materials. Do not PATCH an empty body.
+    if (!Object.keys(body).length) return;
 
     const url = `${GCAL}/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`;
     const res = await fetch(url, {
@@ -285,8 +295,7 @@ export default function JobFinishSheet({
     setError('');
     try {
       const base = cleanTitle(event.title);
-      const newTitle = `${base} ${TAG[disposition]}`;
-      await patchTitle(newTitle);
+      await appendFieldNotes();
       const entry = await writeTimeEntry(disposition);
 
       // Adopt-on-disposition: ensure a jobs row exists for THIS event and
@@ -313,7 +322,9 @@ export default function JobFinishSheet({
         });
       }
 
-      onFinished?.(disposition, newTitle);
+      // No second argument any more — the title is unchanged, so there is
+      // nothing for the caller to swap in. See appendFieldNotes().
+      onFinished?.(disposition);
     } catch (e) {
       console.error(`${disposition} failed:`, e);
       setError(e.message || 'Failed to save — try again.');

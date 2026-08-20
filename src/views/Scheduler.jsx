@@ -464,9 +464,6 @@ export default function Scheduler({ accessToken, onBack }) {
       });
 
       if (res.ok) {
-        // Tag original as scheduled
-        await tagEventAsScheduled(rec.item.calendarId, rec.item.id);
-
         // Remove from recommendations
         setRecommendations(prev => prev.filter(r => r.item.id !== rec.item.id));
         setBacklogItems(prev => prev.filter(i => i.id !== rec.item.id));
@@ -478,32 +475,10 @@ export default function Scheduler({ accessToken, onBack }) {
     setSaving(false);
   };
 
-  // Tag original event as scheduled
-  const tagEventAsScheduled = async (calendarId, eventId) => {
-    try {
-      // Get current event
-      const res = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) return;
-
-      const event = await res.json();
-      const newSummary = event.summary.includes('[SCHEDULED]')
-        ? event.summary
-        : `[SCHEDULED] ${event.summary}`;
-
-      await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ summary: newSummary }),
-      });
-    } catch (err) {
-      console.error('Tag error:', err);
-    }
-  };
+  // tagEventAsScheduled REMOVED 2026-08-20.
+  // It stamped [SCHEDULED] onto the ORIGINAL event's summary. Overwatch does not
+  // tag calendar titles — being scheduled is jobs.status plus scheduled_event_id,
+  // and a bracket in a title is a second, drifting copy of that fact.
 
   // Format date
   const formatDate = (date) => {

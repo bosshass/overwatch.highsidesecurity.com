@@ -218,13 +218,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // Called by JobFinishSheet after a successful disposition.
   // Optimistically updates the local list so the just-finished item flips
   // tabs immediately, then closes the sheet.
-  const onFinished = (disposition, newTitle) => {
+  const onFinished = (disposition) => {
     const newTab =
       disposition === 'bill_it'     ? 'billit' :
       disposition === 'return'      ? 'return' :
       disposition === 'estimate'    ? 'estimate' :
-      'new'; // in_progress stays in 'new' tab
-    setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, title: newTitle, tab: newTab } : e));
+      'new'; // in_progress and blocked stay in 'new' tab
+    // The TITLE is deliberately not touched — Overwatch no longer tags calendar
+    // events, so there is no new title to swap in. Only the tab moves.
+    setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, tab: newTab } : e));
     closeSheet();
   };
 

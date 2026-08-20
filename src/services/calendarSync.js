@@ -135,11 +135,17 @@ export async function getLatestNote(jobId) {
   }
 }
 
-// Build a clean event title from job data
-export function buildEventTitle(job, tag) {
-  let title = job.customer_name || 'Unknown';
-  if (tag) title = `[${tag}] ${title}`;
-  return title;
+// Build a clean event title from job data.
+//
+// The `tag` parameter is GONE (2026-08-20). It prefixed the title with
+// [COMPLETE] / [RETURN NEEDED] / [ESTIMATE NEEDED] / [NO CHARGE]. Overwatch does
+// not tag calendar titles: status lives in the database, and a tag written into
+// a summary is a string somebody has to parse back out later.
+//
+// The only caller that ever passed one was onJobComplete(), which is exported
+// and called from nowhere — so removing it changes nothing that runs.
+export function buildEventTitle(job) {
+  return job.customer_name || 'Unknown';
 }
 
 // Build event description with just the latest note
@@ -302,8 +308,9 @@ export async function scheduleToTechCalendar(accessToken, job, tech, scheduledFo
 export async function onJobComplete(accessToken, job, completionType, oldCalendarId, oldEventId) {
   const latestNote = await getLatestNote(job.id);
 
-  const tagMap = { fixed: 'COMPLETE', return: 'RETURN NEEDED', sales: 'ESTIMATE NEEDED', nc: 'NO CHARGE' };
-  const tag = tagMap[completionType] || 'COMPLETE';
+  // tagMap REMOVED 2026-08-20 — Overwatch does not tag calendar titles.
+  // completionType still drives the event COLOUR below, which is a display
+  // property rather than a fact somebody has to parse back out of a string.
 
   const start = new Date();
   start.setHours(9, 0, 0, 0);
@@ -311,7 +318,7 @@ export async function onJobComplete(accessToken, job, completionType, oldCalenda
 
   // Create new event on Sales & Accounting
   const newEvent = await createEventOnCalendar(accessToken, CALENDARS.SALES_ACCOUNTING, {
-    title: buildEventTitle(job, tag),
+    title: buildEventTitle(job),
     description: buildEventDescription(job, latestNote),
     location: job.customer_address,
     startTime: start,

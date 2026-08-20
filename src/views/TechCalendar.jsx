@@ -444,32 +444,11 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
   };
   const formatTime = (dateStr) => { if (!dateStr) return ''; return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); };
 
-  const STATUS_TAGS = [
-    { label: 'SCHEDULED',       emoji: '📅', color: '#3b82f6', dark: '#0f2544' },
-    { label: 'CONFIRMED',       emoji: '✅', color: '#22c55e', dark: '#052e16' },
-    { label: 'BILLED',          emoji: '💵', color: '#a78bfa', dark: '#1e1040' },
-    { label: 'RETURN NEEDED',   emoji: '🔄', color: '#f59e0b', dark: '#2d1a00' },
-    { label: 'ESTIMATE NEEDED', emoji: '📋', color: '#00c8e8', dark: '#001a20' },
-    { label: 'COMPLETED',       emoji: '🏁', color: '#94a3b8', dark: '#1e293b' },
-  ];
-
-  const applyStatusTag = async (event, tag) => {
-    const currentSummary = event.summary || '';
-    // Strip any existing tag prefix like [WHATEVER]
-    const stripped = currentSummary.replace(/^\[[^\]]+\]\s*/, '');
-    const newSummary = `[${tag.label}] ${stripped}`;
-    try {
-      await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(event.calendarId)}/events/${event.id}`,
-        {
-          method: 'PATCH',
-          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ summary: newSummary })
-        }
-      );
-      fetchCalendarEvents();
-    } catch(e) { console.error('Tag failed:', e); }
-  };
+  // STATUS_TAGS / applyStatusTag REMOVED 2026-08-20.
+  // They wrote [SCHEDULED] / [BILLED] / [RETURN NEEDED] / [COMPLETED] into the
+  // calendar SUMMARY. Overwatch does not tag calendar titles — status lives in
+  // the database, and a title written by a machine is a string somebody then has
+  // to parse back out. See src/components/JobFinishSheet.jsx for the same removal.
 
   const OrphanActions = ({ orphan, onClose }) => {
     const [working, setWorking] = useState(false);
@@ -502,12 +481,6 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
       } catch(e) { console.error(e); setWorking(false); }
     };
 
-    const needsBilled = async () => {
-      setWorking(true);
-      await applyStatusTag(orphan.event, { label: 'NEEDS BILLING', emoji: '💵', color: '#a78bfa' });
-      setOrphans(prev => prev.filter(o => o.event.id !== orphan.event.id));
-      onClose();
-    };
 
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
@@ -553,17 +526,6 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             </button>
 
             {/* Needs to be Billed */}
-            <button onClick={needsBilled} disabled={working} style={{
-              background: '#1e1040', border: '2px solid #a78bfa',
-              borderRadius: 12, padding: '16px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left'
-            }}>
-              <span style={{ fontSize: 24 }}>💵</span>
-              <div>
-                <div style={{ color: '#a78bfa', fontSize: 14, fontWeight: 700 }}>Needs to be Billed</div>
-                <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>Tags as NEEDS BILLING, removes from orphan list</div>
-              </div>
-            </button>
 
             {/* Hide */}
             <button onClick={() => { handleIgnoreOrphan(orphan); onClose(); }} disabled={working} style={{
@@ -1321,18 +1283,6 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                 <div style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>Creates job record + stamps deep link for end-of-job workflow</div>
               </div>
             </button>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-              {STATUS_TAGS.map(tag => (
-                <button key={tag.label} onClick={() => { applyStatusTag(eventPreview, tag); setEventPreview(null); }} style={{
-                  background: tag.dark, border: `1px solid ${tag.color}40`,
-                  borderRadius: 10, padding: '10px 8px', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 8
-                }}>
-                  <span style={{ fontSize: 16 }}>{tag.emoji}</span>
-                  <span style={{ color: tag.color, fontSize: 11, fontWeight: 700 }}>{tag.label}</span>
-                </button>
-              ))}
-            </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => {
@@ -1346,14 +1296,15 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             {isOperator && (
               <button onClick={async () => {
                 try {
-                  const alreadyTagged = eventPreview.summary?.startsWith('[IGNORE]');
-                  const newSummary = alreadyTagged ? eventPreview.summary : `[IGNORE] ${eventPreview.summary}`;
+                  // visibility:'private' is what actually hides it. The old code
+                  // also wrote [IGNORE] into the summary — a redundant text marker
+                  // for a state the API already models. Title left alone.
                   await fetch(
                     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(eventPreview.calendarId)}/events/${eventPreview.id}`,
                     {
                       method: 'PATCH',
                       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ visibility: 'private', summary: newSummary }),
+                      body: JSON.stringify({ visibility: 'private' }),
                     }
                   );
                   setEventPreview(null);

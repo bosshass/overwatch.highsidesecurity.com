@@ -23,7 +23,6 @@ import { CALENDARS } from '../config/calendars.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
-import Spotlight from '../components/Spotlight.jsx';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -724,44 +723,11 @@ const STALE_PULSE_CSS = `
 
 // Real steps against real elements — data-tour targets tagged above. Every
 // operator lands here now, so this is the walkthrough that matters most.
-const BOARD_SPOTLIGHT_STEPS = [
-  { target: 'col-triage',    title: '📝 New / Notes',
-    body: 'Not actionable yet — needs info, parts, or a decision before anyone can move it forward.' },
-  { target: 'col-ready',     title: '✅ Ready to Schedule',
-    body: 'Good to go. Someone just needs to put it on a calendar — that\'s the next lane over.' },
-  { target: 'col-tentative', title: '✏️ Tentative',
-    body: 'Pencilled in on the Tent calendar, nobody booked yet. Tapping a card here opens the scheduler, same as everywhere.' },
-  { target: 'col-scheduled', title: '📅 Scheduled',
-    body: 'A tech is booked and it\'s on their calendar. This can only get set by actually booking — never by hand.' },
-  { target: 'board-assigned-filter', title: 'Filter by person',
-    body: 'Tap a name to see just their open work, or "Nobody" to find things nobody has claimed yet.' },
-  { target: 'board-search', title: 'Search',
-    body: 'Customer name, issue text, or CMS number — whatever you remember about the job.' },
-  { target: 'whos-stuck', title: "Who's stuck",
-    body: 'Jumps to the home screen section showing who has the oldest work sitting with no movement.' },
-  { target: 'my-tasks-link', title: 'My Tasks',
-    body: 'Your own to-do list — separate from the board. Notes, hand-offs, and things you\'re personally tracking live here.' },
-];
-
-// TOUR_BUILD-style versioning, same pattern Tour.jsx already uses — bump this
-// string and everyone sees the walkthrough again next time something here
-// changes meaningfully.
-const SPOTLIGHT_BUILD = '9.11.6';
-const spotlightKey = (email) => `ow_board_spotlight_${SPOTLIGHT_BUILD}_${(email || '').toLowerCase()}`;
+// Spotlight walkthrough REMOVED 2026-08-20 — see src/App.jsx.
 
 export default function BoardView({ accessToken, onBack, userEmail, userName }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [showSpotlight, setShowSpotlight] = useState(false);
-  useEffect(() => {
-    try {
-      if (!localStorage.getItem(spotlightKey(userEmail))) setShowSpotlight(true);
-    } catch { /* private browsing — just don't auto-show */ }
-  }, [userEmail]);
-  const closeSpotlight = () => {
-    setShowSpotlight(false);
-    try { localStorage.setItem(spotlightKey(userEmail), new Date().toISOString()); } catch {}
-  };
   const [jobs, setJobs] = useState([]);
   // Job ids that already have a time entry — see loadJobs(). Used to stop
   // ⚠ NO DISPOSITION firing on work the tech actually wrote up.
@@ -1128,15 +1094,6 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                      borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}>
             🗂️ My Tasks
           </button>
-          {/* Real walkthrough — points at the actual buttons, not a picture of
-              them. Separate from the shared "?" (which still opens the plain
-              text guide) because "explain it" and "show me on the real
-              screen" are different asks. */}
-          <button onClick={() => setShowSpotlight(true)}
-            style={{ background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', padding:'7px 14px',
-                     borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:700 }}>
-            ▶ Show me around
-          </button>
           <span style={{ fontWeight:700, fontSize:16 }}>📋 Board</span>
         </div>
         <div style={{ display:'flex', gap:8 }}>
@@ -1266,9 +1223,6 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         </div>
       )}
 
-      {showSpotlight && (
-        <Spotlight steps={BOARD_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
-      )}
 
       {selectedJob && (
         <DetailDrawer

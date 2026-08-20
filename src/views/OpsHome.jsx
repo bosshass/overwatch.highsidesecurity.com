@@ -20,7 +20,6 @@ import DidYouGo, { ASKS as DIDYOUGO_ASKS } from '../components/DidYouGo.jsx';
 import TaskStack from './TaskStack.jsx';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
 import NewJobModal from '../components/NewJobModal.jsx';
-import Spotlight from '../components/Spotlight.jsx';
 import { ASSIGNEES, assigneeOf, CLOSED_STATUSES, emailsFor } from '../utils/ownership.js';
 import { shortCode } from '../config/appBase.js';
 import { visitsOwedCount } from '../utils/visitsOwed.js';
@@ -64,7 +63,7 @@ const BOARD_TILES = [
 
 export default function OpsHome({
   userName, isOperator, isSuperAdmin, accessToken, userEmail,
-  onNavigate, onSignOut, onSearch, onShowTour, onBackfill,
+  onNavigate, onSignOut, onSearch, onBackfill,
 }) {
   const [people, setPeople] = useState(null);
   // HOME IS A GRID OF DOORS, NOT A STACK OF PANELS. The prompt and the task
@@ -82,17 +81,6 @@ export default function OpsHome({
 
   const go = path => onNavigate(path);
 
-  // Contextual help marker. Sits next to a section and opens the walkthrough at
-  // that section's step, rather than making someone sit through a linear tour
-  // to reach the part they're actually looking at.
-  const Help = ({ topic, label }) => (
-    <button onClick={(e) => { e.stopPropagation(); onShowTour?.(topic); }}
-      aria-label={label || 'How this works'} title={label || 'How this works'}
-      style={{ width:20, height:20, borderRadius:999, background:'transparent',
-               border:`1px solid ${C.line2}`, color:C.muted, fontSize:11, fontWeight:800,
-               cursor:'pointer', lineHeight:1, padding:0, flexShrink:0,
-               fontFamily:'inherit' }}>?</button>
-  );
 
   // ── Per-person rollup ──────────────────────────────────────────────────
   // Volume is not the signal. Everyone has a pile; what matters is whether the
@@ -264,28 +252,7 @@ export default function OpsHome({
   // a month means nobody owns it.
   const staleColor = d => d == null ? C.muted : d >= 30 ? C.red : d >= 14 ? C.amber : d >= 7 ? C.soft : C.muted;
 
-  const HOME_SPOTLIGHT_STEPS = [
-    { target: 'home-search', title: 'Search everything',
-      body: 'Customer name, job, or CMS number — searches across the whole system, not just what\'s on screen.' },
-    { target: 'home-databad', title: 'Work that will never bill',
-      body: 'Calendar events nobody turned into a job, and jobs with no client attached. Real work, invisible to billing until someone links it.' },
-    { target: 'home-stranded', title: 'Scheduled, then nothing happened',
-      body: 'The day came and went with no disposition. These are most likely sitting on Work To Do Today doing nothing.' },
-    { target: 'home-people', title: "Who's stuck",
-      body: 'Not volume — the OLDEST untouched thing per person. That\'s what\'s quietly rotting.' },
-    { target: 'home-admin', title: 'Admin tools',
-      body: 'Event Audit, Billing, Weekly Recap, and the tour you\'re on right now — all live here.' },
-  ];
-  const SPOTLIGHT_BUILD = '9.11.13';
-  const spotlightKey = (email) => `ow_home_spotlight_${SPOTLIGHT_BUILD}_${(email || '').toLowerCase()}`;
-  const [showSpotlight, setShowSpotlight] = useState(false);
-  useEffect(() => {
-    try { if (!localStorage.getItem(spotlightKey(userEmail))) setShowSpotlight(true); } catch {}
-  }, [userEmail]);
-  const closeSpotlight = () => {
-    setShowSpotlight(false);
-    try { localStorage.setItem(spotlightKey(userEmail), new Date().toISOString()); } catch {}
-  };
+  // Spotlight walkthrough REMOVED 2026-08-20 — see src/App.jsx.
 
   return (
     <div style={{ minHeight:'100vh', background: `radial-gradient(circle at top left, #10213c 0%, ${C.bg} 32%, #050912 100%)`, color: C.text, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif', display:'flex', flexDirection:'column' }}>
@@ -301,8 +268,6 @@ export default function OpsHome({
             </div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={() => setShowSpotlight(true)} title="Show me around"
-              style={{ width:38, height:38, borderRadius:13, background:'#00c8e822', border:'1px solid #00c8e8', color:'#00c8e8', fontWeight:900, fontSize:15, cursor:'pointer' }}>▶</button>
             <button onClick={() => { loadPeople(); }}
               style={{ width:38, height:38, borderRadius:13, background:'#15243a', border:`1px solid #30445f`, color:C.text, fontWeight:900, fontSize:16, cursor:'pointer' }}>↻</button>
             {/* NEVER role-gated. isOperator follows the IMPERSONATED user, so
@@ -412,9 +377,6 @@ export default function OpsHome({
           </div>
         )}
 
-        {showSpotlight && (
-          <Spotlight steps={HOME_SPOTLIGHT_STEPS} onDone={closeSpotlight} onSkip={closeSpotlight} />
-        )}
 
         {/* ══ 0. FOUR DOORS ══ */}
         {/* Two up on a phone, three on anything wider — six tiles in a 2-wide
@@ -547,7 +509,6 @@ export default function OpsHome({
               <span style={{ fontSize:11, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:C.muted }}>
                 Admin tools
               </span>
-              <Help topic="warning" label="What to do with these" />
             </div>
             <div style={{ background:C.panel, border:`1px solid ${C.line}`, borderRadius:18, overflow:'hidden' }}>
               {[
@@ -558,16 +519,12 @@ export default function OpsHome({
                 // Clients moved to a primary button at the top of this screen
                 // and into the footer. Listing it here as well was the same
                 // duplication the board rollup had.
-                { action:'tour', icon:'🎓', label:'How this works',
-                  sub:'Tasks, dispositions, Tent calendar, scheduling' },
                 // Backfill from calendar REMOVED. The bulk import it ran is
                 // done; leaving a button that rewrites many records at once on
                 // the home screen is a loaded gun with no job left to do.
               ].map((t, i) => (
                 <button key={t.path || t.action}
-                  onClick={() => t.action === 'tour' ? onShowTour?.('intro')
-                    : t.action === 'backfill' ? onBackfill?.()
-                    : go(t.path)}
+                  onClick={() => t.action === 'backfill' ? onBackfill?.() : go(t.path)}
                   style={{ display:'flex', width:'100%', alignItems:'center', gap:13, textAlign:'left',
                            background:'transparent', border:'none',
                            borderTop: i ? `1px solid ${C.line}` : 'none',

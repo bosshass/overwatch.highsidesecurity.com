@@ -22,7 +22,6 @@ import PreviewChanges from './views/PreviewChanges.jsx';
 import BoardView from './views/BoardView.jsx';
 import Notes from './views/Notes.jsx';
 import SoldWork from './views/SoldWork.jsx';
-import Tour, { shouldShowTour, tourKey } from './components/Tour.jsx';
 import Scheduler from './views/Scheduler.jsx';
 import Projects from './views/Projects.jsx';
 import NewJobModal from './components/NewJobModal.jsx';
@@ -37,7 +36,6 @@ import Unbilled from './views/Unbilled.jsx';
 import ShortLink from './views/ShortLink.jsx';
 import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
-import BuildLog from './components/BuildLog.jsx';
 import { jobDeepLink } from './config/appBase.js';
 import { APP_VERSION } from './version.js';
 
@@ -164,15 +162,13 @@ export default function App() {
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [showIdentityPicker, setShowIdentityPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  // First-run tour. Fires once per person per build for the people whose day
-  // actually changed; see components/Tour.jsx.
-  const [showTour, setShowTour] = useState(false);
-  const [tourTopic, setTourTopic] = useState(null);
+  // Tour / Spotlight / BuildLog / HelpBot REMOVED 2026-08-20 at Sara's call:
+  // the help layer teaches the OLD vocabulary and would be wrong the day the
+  // stages change. It comes back once the core loop is right, not before.
   const [viewAs, setViewAs] = useState(() => {
     try { return sessionStorage.getItem(VIEW_AS_KEY) || null; } catch { return null; }
   });
   const [showAlertGate, setShowAlertGate] = useState(false);
-  const [showBuildLog, setShowBuildLog] = useState(false);
   // Google session went stale. NOT a sign-out — the app stays put and the
   // user taps once to reconnect.
   const [needsReconnect, setNeedsReconnect] = useState(false);
@@ -235,13 +231,8 @@ export default function App() {
   // ── AUTH: Check stored session ──────────────────────────────────────────
   useEffect(() => {
     const storedVersion = localStorage.getItem('juce_v4_version');
-    if (storedVersion && storedVersion !== APP_VERSION) {
-      // New build — show the changelog as an overlay, but DO NOT skip the
-      // session + identity restore below. Falling through keeps the user signed
-      // in and routed correctly underneath (fixes info@ -> JR identity not
-      // firing on version bumps).
-      setShowBuildLog(true);
-    }
+    // The version is still recorded so UpdateBanner can spot a new deploy.
+    // The changelog GATE is gone — see the removal note above.
     localStorage.setItem('juce_v4_version', APP_VERSION);
 
     const storedToken = localStorage.getItem('juce_v4_token');
@@ -434,11 +425,6 @@ export default function App() {
                 setShowSetup(true);
               }
 
-              // QuickGuide's own first-login trigger REMOVED 9.11.13 along with
-              // the component — it used a separate flag (juce_guide_${email})
-              // from Tour's own auto-launch (shouldShowTour, elsewhere in this
-              // file), so removing it doesn't touch Tour's first-login firing.
-
               // Deep link takes priority over the normal default-view redirect.
               sessionStorage.removeItem('ow_post_login_path');
               const dest = pendingPath || (config.defaultView ? `/${config.defaultView}` : '/');
@@ -460,13 +446,6 @@ export default function App() {
     navigate('/');
   }, [navigate]);
 
-  const handleBuildLogDismiss = useCallback(() => {
-    // Just acknowledge the changelog. Keep the session and identity intact so
-    // the user (especially info@ -> JR) stays signed in and on their routed
-    // screen instead of being bounced to a re-login as anonymous info@.
-    localStorage.setItem('juce_v4_version', APP_VERSION);
-    setShowBuildLog(false);
-  }, []);
 
   // ── AUTH: Silent token refresh ────────────────────────────────────────
   // WHAT WAS HERE, AND WHY IT COULD NEVER WORK
@@ -638,9 +617,6 @@ export default function App() {
   const readAsEmail = viewAs || userEmail;
 
   const isRestricted = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
-  useEffect(() => {
-    if (userEmail && shouldShowTour(userEmail)) setShowTour(true);
-  }, [userEmail]);
 
   const isOperator = getUserConfig(readAsEmail).role === 'operator';
 
@@ -785,18 +761,6 @@ export default function App() {
     );
   }
 
-  // ── BUILD LOG ───────────────────────────────────────────────────────────
-  // Skip this gate for /j/ deep links. The gate forces a full "new build,
-  // sign in again" ceremony BEFORE any routing happens at all — meaning
-  // every deep link tap since the last visit hit this instead of the card,
-  // any time APP_VERSION had changed (which, during an active patch cycle,
-  // is most of the time). A text-message link's whole purpose is instant,
-  // single-card access; the normal board/login flow still gets the gate.
-  const isDeepLink = window.location.pathname.startsWith('/j/');
-  if (showBuildLog && !isDeepLink) {
-    return <BuildLog version={APP_VERSION} onDismiss={handleBuildLogDismiss} />;
-  }
-
   // ── LOGIN ───────────────────────────────────────────────────────────────
   if (!isSignedIn) {
     const teal = '#2bb3b3';
@@ -939,18 +903,7 @@ export default function App() {
               able to trigger a mass rewrite by mis-tapping. It is still
               reachable — see Admin Tools — just not by accident. */}
 
-          {/* RETIRED QuickGuide 9.11.13 — 450 lines describing a PIN-entry
-              screen, an "Office" tab, and a "Stats" tab that don't exist in
-              this app anymore. It was a genuinely different, much older
-              onboarding flow that nobody had touched while everything else
-              moved on, so the "?" was teaching people to look for buttons
-              that were never there. Points at Tour now — the walkthrough
-              that's actually been kept in sync with the app tonight. */}
-          <button onClick={() => setShowTour(true)} title="How this works"
-            style={{ background: '#00c8e815', border: '1px solid #00c8e8', borderRadius: 10,
-                     color: '#00c8e8', width: 38, height: 38, fontSize: 20, fontWeight: 800,
-                     cursor: 'pointer', lineHeight: 1, padding: 0, flexShrink: 0 }}
-          >?</button>
+          
           <button onClick={handleSignOut}
             style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
           >Out</button>
@@ -1052,15 +1005,9 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Tour sits ABOVE Routes on purpose. Rendering it inside ViewShell meant
-          it never fired on the home screen, which is exactly where a first-time
-          user lands. */}
-      {showTour && (
-        <Tour email={userEmail} startKey={tourTopic} onClose={() => { setShowTour(false); setTourTopic(null); }} onNavigate={navigate} />
-      )}
       <Routes>
         <Route path="/" element={
-          <OpsHome userName={effectiveName} isOperator={isOperator} isSuperAdmin={isSuperAdmin} isRestricted={isRestricted} accessToken={accessToken} userEmail={readAsEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} onShowTour={(topic) => { setTourTopic(topic || null); setShowTour(true); }} />
+          <OpsHome userName={effectiveName} isOperator={isOperator} isSuperAdmin={isSuperAdmin} isRestricted={isRestricted} accessToken={accessToken} userEmail={readAsEmail} onNavigate={navigate} onSignOut={handleSignOut} onBackfill={() => { setShowBackfill(true); setBackfillLog([]); }} onSearch={() => setShowSearch(true)} />
         } />
 
         {/* /my — JR's landing. The visit prompt plus his assigned notes.

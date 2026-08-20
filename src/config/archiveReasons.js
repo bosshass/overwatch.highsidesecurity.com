@@ -59,6 +59,13 @@ export function isSalesCost(reason) {
   return REASON_BY_KEY[reason]?.cls === 'sales';
 }
 
+// Never happened at all — test, duplicate, data mistake. The one class where
+// the visit must leave BOTH ledgers and stop appearing on the customer's
+// record, because there is nothing to appear about.
+export function isNotReal(reason) {
+  return REASON_BY_KEY[reason]?.cls === 'not_real';
+}
+
 export function reasonLabel(reason) {
   return REASON_BY_KEY[reason]?.label || reason || 'archived';
 }

@@ -24,7 +24,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
-import { reasonLabel } from '../config/archiveReasons.js';
+import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
 
 
 // ── BUCKETS ──────────────────────────────────────────────────────────
@@ -628,12 +628,81 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
+  // Move every job whose last live visit just went away to a terminal status.
+  //
+  // WHICH terminal status is decided by the reason's CLASS, and the two are
+  // genuinely different facts:
+  //
+  //   not_real (test / duplicate / mistake) -> 'dead'
+  //       No truck rolled. Calling this 'complete' would assert work was done.
+  //   everything else (absorbed / sales)    -> 'complete'
+  //       The work happened and DRH ate it. That is finished, not cancelled.
+  //
+  // Deliberately NOT 'archived': that status is frozen — kept so existing rows
+  // stay readable, never written again (DECISIONS.md). doClearWithReason above
+  // still writes it and is a separate cleanup.
+  const settleJobsFor = async (rows, reason) => {
+    // RESOLVE THE JOB THE SAME TWO WAYS markBilled DOES. 320 of 357 time
+    // entries have a NULL job_id and reach their job through
+    // calendar_event_id instead, so keying on job_id alone would find nothing
+    // on ~90% of rows and this write-through would quietly never run — the
+    // identical failure markBilled was fixed for. `_job` is the job this
+    // screen already resolved for the row.
+    const jobIds = [...new Set(rows.map(r => r.job_id || r._job?.id).filter(Boolean))];
+    if (!jobIds.length) return 0;
+    const target = isNotReal(reason) ? 'dead' : 'complete';
+
+    // WRITING OFF THE HOURS IS NOT THE SAME AS THERE BEING NOTHING LEFT TO DO.
+    // A job in return_pending owes a second visit; one in estimate_sent is
+    // waiting on the customer to answer. Neither obligation is carried by the
+    // time already logged, so absorbing those hours as warranty must NOT close
+    // the card — that would quietly delete a return somebody is expecting.
+    // (Three live jobs sit in exactly that shape today.) Only statuses whose
+    // remaining obligation IS the billing may settle this way.
+    //
+    // not_real is the exception and settles from anywhere: test, duplicate and
+    // data-mistake rows describe work that never happened, so whatever lane
+    // the card is sitting in, it is sitting there on the strength of a fiction.
+    const SETTLEABLE = ['to_bill', 'scheduled', 'complete'];
+
+    let n = 0;
+    for (const id of jobIds) {
+      const cur = rows.find(r => (r.job_id || r._job?.id) === id)?._job?.status;
+      if (!isNotReal(reason) && cur && !SETTLEABLE.includes(cur)) continue;
+      // Anything still owed on this job, found BOTH ways, after the archive
+      // above has landed.
+      const evIds = [...new Set(rows
+        .filter(r => (r.job_id || r._job?.id) === id)
+        .map(r => r._job?.calendar_event_id || r.calendar_event_id)
+        .filter(Boolean))];
+      const orParts = [`job_id.eq.${id}`, ...evIds.map(e => `calendar_event_id.eq.${e}`)];
+      const { data: left } = await supabase
+        .from('time_entries').select('id')
+        .or(orParts.join(','))
+        .not('billed', 'is', true)
+        .not('archived', 'is', true)
+        .limit(1);
+      if (left && left.length) continue;   // still genuinely owed — leave it
+      try {
+        await jobsApi.changeStatus(id, target, userEmail,
+          `All time written off — ${reasonLabel(reason)}`);
+        n++;
+      } catch (e) {
+        // Never unwind the archive because the status move failed; the hours
+        // are the record and they are already correct.
+        console.warn('settleJobsFor: status move failed', id, e?.message || e);
+      }
+    }
+    return n;
+  };
+
   // Archive — the REASON matters more than the act. See config/archiveReasons.js:
   // "test" and "warranty" both leave the billing queue, but one never happened
   // and the other is real cost DRH absorbed. Collapsing them would silently
   // make unprofitable customers look profitable. So the class is captured here.
   const doArchive = async (reason) => {
     try {
+      const rows = sel.rows;
       const { error } = await supabase
         .from('time_entries')
         .update({
@@ -642,9 +711,24 @@ export default function Unbilled({ onBack, userEmail }) {
           archived_by: userEmail || null,
           archive_reason: reason,
         })
-        .in('id', sel.rows.map(r => r.id));
+        .in('id', rows.map(r => r.id));
       if (error) throw error;
-      setToast(`${sel.rows.length} visit(s) archived — not billed`);
+
+      // ── WRITE-THROUGH TO THE JOB CARD ─────────────────────────────────
+      // THIS TOUCHED time_entries ONLY. Exactly the bug markBilled above was
+      // fixed for — two switches, nobody flipping both — and the archive path
+      // never got the same treatment. A visit marked "Test entry" left the
+      // billing queue while its job sat in to_bill, so the customer record
+      // still listed it under OPEN WORK: a job with no hours, no revenue and
+      // nothing left to do, presented as outstanding work.
+      //
+      // A job settles only when NOTHING live is left on it. Partial archives
+      // (one of three visits written off) leave the job where it is, because
+      // the rest still has to be billed.
+      const settled = await settleJobsFor(rows, reason);
+
+      setToast(`${rows.length} visit(s) archived — not billed`
+        + (settled ? ` · ${settled} job${settled === 1 ? '' : 's'} closed out` : ''));
       setPicked(new Set());
       setArchiving(false);
       await load();

@@ -13,6 +13,7 @@ import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, customersApi, JOB_STATUS } from '../services/supabase.js';
+import { isNotReal } from '../config/archiveReasons.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 
 // ── helpers ──────────────────────────────────────────────────
@@ -58,7 +59,11 @@ function typeBadge(job) {
   return { label: 'Job', color: '#97c459' };
 }
 
-const TERMINAL = [JOB_STATUS.BILLED, JOB_STATUS.LOST, JOB_STATUS.DEAD, JOB_STATUS.ARCHIVED].filter(Boolean);
+// COMPLETE WAS MISSING. It is the card's terminal settled stage — Sara's word
+// for it — so a finished job kept counting as OPEN WORK on the client's record
+// and the section overstated what was outstanding.
+const TERMINAL = [JOB_STATUS.BILLED, JOB_STATUS.LOST, JOB_STATUS.DEAD,
+                  JOB_STATUS.ARCHIVED, JOB_STATUS.COMPLETE].filter(Boolean);
 
 // Distinctive name tokens, for finding un-tagged look-alikes.
 const STOP = new Set([
@@ -169,7 +174,36 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
       .select('id, customer_name, job_type, status, issue, notes, created_at, customer_id')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false });
-    if (!error) setOpenWork(data || []); // keep ALL (open + done); split in render
+    if (error) return;
+    const jobs = data || [];
+
+    // NOT-REAL WORK DOES NOT BELONG ON A CLIENT'S RECORD.
+    // "If it is clearly old test data — or upcoming test data marked that way —
+    // it should not store the event in the calendar or in the customer view."
+    // A visit archived as test / duplicate / data mistake never happened: no
+    // truck rolled, no hours were spent, and there is nothing for the client's
+    // history to be a history OF. Absorbed work (warranty, goodwill) is the
+    // opposite and STAYS — that is real cost DRH ate, and hiding it is how a
+    // customer who costs money starts looking profitable.
+    //
+    // Judged on the entries, not the job: the reason lives on the time entry,
+    // which is the thing somebody actually classified. A job is hidden only
+    // when it has entries and EVERY one of them is not-real.
+    try {
+      const ids = jobs.map(j => j.id);
+      if (ids.length) {
+        const { data: ents } = await supabase
+          .from('time_entries').select('job_id, archived, archive_reason').in('job_id', ids);
+        const byJob = {};
+        (ents || []).forEach(e => { (byJob[e.job_id] ||= []).push(e); });
+        const hidden = new Set(Object.entries(byJob)
+          .filter(([, rows]) => rows.length && rows.every(r => r.archived && isNotReal(r.archive_reason)))
+          .map(([id]) => id));
+        if (hidden.size) return setOpenWork(jobs.filter(j => !hidden.has(j.id)));
+      }
+    } catch (e) { console.warn('not-real filter failed, showing everything:', e?.message || e); }
+
+    setOpenWork(jobs); // keep ALL (open + done); split in render
   }, []);
 
 

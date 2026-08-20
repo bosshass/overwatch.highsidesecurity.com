@@ -260,8 +260,14 @@ export default async function handler(req, res) {
       out.twilio = { credentials: 'unknown', detail: e?.message || 'Could not reach Twilio.' };
     }
   } else if (!actor) {
-    out.twilio = { credentials: 'not checked',
-      detail: 'Sign in and open this from Overwatch to test the credentials against Twilio.' };
+    // "Open this from Overwatch" was not actionable — it did not say WHERE,
+    // and this URL is the thing people keep landing on instead. Name the
+    // screen, in full, so the next step is a tap rather than a guess.
+    out.twilio = {
+      credentials: 'not checked',
+      detail: `A browser tab cannot test the credentials — it sends no sign-in. Open ${proto}://${host}/sms while signed in to Overwatch and press Re-check.`,
+      openThis: `${proto}://${host}/sms`,
+    };
   }
 
   out.ready = out.blocking.length === 0 && canSendOutbound && canReceive;

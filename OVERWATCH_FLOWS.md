@@ -768,6 +768,14 @@ Documented, not fixed — this pass is a map.
     constraint may have been widened live. The `TAG` gap needs no such caveat — it is
     certain from the code.
 
+    **Severity, corrected against live data.** This has produced **zero rows** — the button has
+    never once succeeded. The single `blocked` job in the database (DAS, ANU) came from the
+    *board* in July 2026 (`job_history.changed_by = 'board'`, note "Assigned to Shana
+    (BLOCKED — needs attention)"), not from this sheet. So it is a button that has never
+    worked, not an ongoing leak. It still renames the calendar event on each tap before
+    failing. Note also that the word "blocked" never appears on screen — the button is
+    labelled **"📝 New / Notes"**, which is why it is hard to find.
+
 14. **`normalizeDisposition()` can return values the column rejects.** It returns six values
     (`bill_it · return · in_progress · estimate · skip · triage`) into a column that accepts
     four. Safe only as long as its output is used for reading/classifying and never written
@@ -775,7 +783,111 @@ Documented, not fixed — this pass is a map.
 
 ---
 
-## 8. QUICK REFERENCE — table → files
+## 8. LIVE DATABASE AUDIT
+
+Queried against production (`wolhqelloeypafmmvapn`). What the data says, as opposed to what the
+schema allows.
+
+### 452 jobs — 90% terminal
+
+| State | Rows | Statuses |
+|---|---:|---|
+| **Terminal** | 409 | `dead` 180 · `archived` 125 · `billed` 74 · `lost` 30 |
+| **Live work** | 43 | `scheduled` 14 · `ready_to_schedule` 7 · `to_bill` 7 · `new` 4 · `return_pending` 4 · `estimate_sent` 3 · `complete` 2 · `blocked` 1 · `needs_estimate` 1 |
+
+`complete` has **2 rows ever**. Since billing reads `time_entries` and not job status,
+`complete` / `to_bill` / `billed` are three displays of a fact stored elsewhere.
+
+### Five of eighteen statuses have zero rows
+
+`needs_details` · `needs_parts` · `pending_decision` · `pending_materials` · `won`
+
+**`won` is empty because of a bug, not disuse.** `lanes.js:188` documents it: `ESTIMATE_STEPS`
+entries were written with only `key` and no `target`, so `TicketSheet` committed
+`onMove(undefined)`, supabase-js dropped the undefined `status` from the PATCH, and the row came
+back unchanged while the UI reported success. Sent / Won / Lost looked clickable and did nothing.
+That is fixed — every entry now carries `target` — so `won` is reachable today. It also gates the
+contract prompt (`TicketSheet:266`), the only moment fixed-fee pricing is captured, and
+`api/welcome-draft.js:414` depends on it. **Keep it.**
+
+### 32 of 82 columns on `jobs` are completely empty
+
+| Family | Empty columns |
+|---|---|
+| Welcome email | `welcome_email_sent_at` `welcome_email_draft_id` `materials_invoice_sent` `materials_invoice_paid` `materials_invoice_sent_at` `materials_invoice_paid_at` |
+| Subcontractor | `sub_required` `sub_name` `sub_confirmed` |
+| Parts | `parts` `parts_notes` (+ `parts_ordered`/`parts_received` at 1 row) |
+| Time on jobs | `time_in` `actual_hours` `is_complete` `office_notified` (+ `time_out` `day_number` `is_multi_day` `total_days` at 1) — duplicate `job_assignments`/`time_entries` |
+| Invoice on jobs | `invoice_number` `invoice_ref` `invoice_id` `materials_invoice_number` |
+| Money | `materials_cost` `materials_invoiced` `hourly_rate` `deposit_invoiced` `collected_at` `is_no_charge` |
+| Access | `gate_code` `panel_password` — NewJobModal collects both, neither lands |
+| Other | `customer_email` `s_number` `customer_confirmed` `materials_used` `calendar_summary` |
+
+`s_number` at 0 while `p_number` has 69 means `assign_s_number` has never produced anything.
+
+### Sparse — decide, don't auto-remove
+
+`tentative_date`/`tentative_event_id` 2 · `estimated_hours` 4 · `return_reason` 5 ·
+`blocked_tags` 1 (contains `{waiting_on_customer}`) · `qbo_estimate_ref` 10 · `is_fixed_fee` 12
+
+---
+
+## 9. THE COLLAPSE PLAN
+
+Sequence agreed with Sara: **approve the mapping → migrate → drop.**
+
+### Status mapping — four, not five
+
+`won` stays (see §8). All four below have **zero rows**, so there is no data migration —
+this is a code change only.
+
+| Retire | Becomes | Reasoning |
+|---|---|---|
+| `needs_details` | `new` | "Not scoped yet" *is* new |
+| `needs_parts` | `blocked` + `waiting_on_parts` | `lanes.js`: blocked is *"the one state a person asserts on purpose, and the only one that carries a reason."* Three statuses doing one status's job. Reason moves to `blocked_tags` as a key, never prose. |
+| `pending_materials` | `blocked` + `waiting_on_materials` | |
+| `pending_decision` | `blocked` + `waiting_on_customer` | tag already in use on the one populated row |
+
+### Triage queue — three things, two already dead
+
+| Thing | State | Action |
+|---|---|---|
+| `/triage` route | removed in 9.9.30 | nothing to do |
+| `STATUS_GROUPS.ATC_TRIAGE` | **zero callers** | delete |
+| MCP `get_triage_queue` | would degrade to just `new` | delete the tool |
+| `queries.getATCQueue()` | **live** — `TechCalendar:327` | keep, rename, shrink to `new` + `blocked` |
+
+`getATCQueue()` pulls unscheduled intake jobs in alongside today's booked assignments on the
+calendar Tasks tab. The name says triage; the job it does is "new work waiting, shown next to
+today's schedule" — not the screen that was retired. The board's Triage *lane* is already
+labelled "new/notes" on screen (`BoardView:1151`).
+
+### Files touched — 11
+
+`services/supabase.js` · `utils/statusMachine.js` · `utils/lanes.js` · `views/BoardView.jsx` ·
+`views/OpsHome.jsx` · `views/ReconcileView.jsx` · `views/CustomerHistory.jsx` ·
+`views/OwnerDashboard.jsx` · `components/JobDetail.jsx` · `components/MoveStatus.jsx` ·
+`api/sse.js`
+
+**Visible changes:** the mover's "Waiting on Parts" becomes "Blocked — parts" (5 places) ·
+JobDetail's parts form repoints to blocked+tag · the dashboard parts tile counts blocked+tag ·
+MCP stops offering a triage tool.
+
+### Sequence
+
+1. Approve the mapping. Nothing changed yet.
+2. **Migrate** — the 11-file pass, then a CHECK constraint on `jobs.status`. `npm run verify` before push.
+3. **Drop** — the 32 empty columns, after a `jobs_backup_046` snapshot. Separate commit.
+4. **Welcome email to its own table** — 6 columns move off `jobs`. It is written but never wired
+   to a button, and was unreachable anyway until `won` was fixed.
+
+Deliberately **not** on this list: rotating the anon key. It accomplishes little while RLS is
+`USING (true)` on every table. Scoping RLS is its own project — and it is the change that also
+closes the MCP endpoint.
+
+---
+
+## 10. QUICK REFERENCE — table → files
 
 ```
 jobs              App BoardView OpsHome OwnerDashboard Scheduler TechCalendar TechWorkToday

@@ -425,14 +425,60 @@ export default function Notes({ userEmail, onBack, accessToken }) {
                 {fmtDate(n.status === 'archived' ? n.archived_at : n.created_at)}
               </span>
               {n.status === 'open' && (
-                <button onClick={() => setDonePrompt(n)}
-                  style={{ marginLeft: 'auto', background: 'transparent', color: '#22c55e',
-                           border: '1px solid #22c55e55', borderRadius: 8, padding: '5px 12px',
-                           fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                  ✓ Done
-                </button>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 7 }}>
+                  {/* GIVE IT TO SOMEBODY — the missing half of this screen.
+                      assignTo() has always existed and works: it stamps
+                      assigned_to / assigned_by and moves the note to lane
+                      'todo', which is exactly what turns a note into a task in
+                      TaskStack. The `assigning` state was declared. But
+                      nothing ever called setAssigning and no picker was ever
+                      rendered, so the only thing you could do to an unassigned
+                      note was mark it Done. A note that needs somebody to act
+                      had one exit: pretend it was handled.
+
+                      Which is also the answer to "will this happen again?" —
+                      it was never a data problem. Notes arrive unowned by
+                      design (the + Note button does not ask), and until now
+                      there was no way to hand one over. */}
+                  <button onClick={() => setAssigning(assigning === n.id ? null : n.id)}
+                    style={{ background: 'transparent', color: '#9b6cff',
+                             border: '1px solid #9b6cff55', borderRadius: 8, padding: '5px 12px',
+                             fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    {n.assigned_to
+                      ? `→ ${ASSIGNEES.find(a => a.email === n.assigned_to)?.name || n.assigned_to}`
+                      : 'Give to…'}
+                  </button>
+                  <button onClick={() => setDonePrompt(n)}
+                    style={{ background: 'transparent', color: '#22c55e',
+                             border: '1px solid #22c55e55', borderRadius: 8, padding: '5px 12px',
+                             fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    ✓ Done
+                  </button>
+                </div>
               )}
             </div>
+
+            {assigning === n.id && (
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 9,
+                            paddingTop: 9, borderTop: `1px solid ${LINE}` }}>
+                {ASSIGNEES.map(a => (
+                  <button key={a.email} onClick={() => assignTo(n, a.email)}
+                    style={{ background: n.assigned_to === a.email ? '#9b6cff' : 'transparent',
+                             color: n.assigned_to === a.email ? '#08121f' : '#c4a6ff',
+                             border: '1px solid #9b6cff55', borderRadius: 999,
+                             padding: '7px 13px', fontSize: 12, fontWeight: 700,
+                             cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {a.name}
+                  </button>
+                ))}
+                <button onClick={() => setAssigning(null)}
+                  style={{ background: 'transparent', color: MUTED, border: `1px solid ${LINE}`,
+                           borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 700,
+                           cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

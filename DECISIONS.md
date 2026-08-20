@@ -349,6 +349,28 @@ when the first refresh fires on a cold load. `getTokenClient()` returned null an
 the refresh reported failure instantly — a load-order race being shown to the
 user as a dead session. It now waits up to 3s.
 
+### Unassigned notes — the button was missing, not the data
+> "These 15 notes not assigned, can't take any action here."
+
+`Notes.jsx` already had a working `assignTo()` — it stamps `assigned_to` /
+`assigned_by` and moves the note to lane `todo`, which is exactly what turns a
+note into a task in TaskStack — and an `assigning` state variable. **Nothing ever
+called `setAssigning` and no picker was ever rendered.** The only button on an
+unassigned note was ✓ Done, so a note that needed somebody to act had one exit:
+pretend it was handled.
+
+So the answer to *"would this happen again?"* is **yes, forever** — it was never
+a data problem. The + Note button does not ask for an owner, so notes arrive
+unowned by design, and there was no way to hand one over. **Give to…** is now
+rendered next to Done. No SQL needed.
+
+The 15 split into two clean populations:
+
+| | What they are |
+|---|---|
+| **8** · lane `doing`, has `job_id`, Jul 27–28, several with a NULL author | Import residue. Every body is a **verbatim copy of its job's `issue`**, and **every one of those jobs is already terminal** (archived / lost / dead / billed). Two are exact duplicates of each other. They carry nothing the job does not. |
+| **7** · lane `note`, 6 with a `customer_id`, Aug 13–19, real authors | Genuine client notes. These need an owner, and now they can have one. |
+
 ### Photos — DONE
 Camera **and** library. `capture="environment"` alone jumped straight to the rear camera and made
 an already-stored picture unattachable. Two buttons, one input each.

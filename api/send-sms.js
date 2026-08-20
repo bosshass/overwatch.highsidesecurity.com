@@ -153,7 +153,21 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ success: true, sid: data.sid, status: data.status, to: toNum });
+    // RETURN THE SENDING NUMBER. Twilio echoes the `from` it actually used,
+    // which is the only way to confirm from inside the app which number a
+    // message left on — and with a Messaging Service the server does not pick
+    // it, Twilio does, so nothing here could tell you otherwise.
+    //
+    // `status` matters more than usual on a NEW toll-free number. Twilio
+    // accepts the message (201) and queues it, then can still fail it
+    // asynchronously — error 30032 is "Toll-Free Number Has Not Been
+    // Verified". So a 200 here means ACCEPTED, not delivered, and the caller
+    // is told which so it does not report a lie.
+    return res.status(200).json({
+      success: true, sid: data.sid, status: data.status,
+      to: toNum, from: data.from || FROM || null,
+      service: MSG_SERVICE ? 'messaging-service' : 'from-number',
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Send failed', detail: err.message });
   }

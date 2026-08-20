@@ -303,7 +303,11 @@ export default function TicketSheet({
     const r = await sendSms({ to: phone, message: smsBody, accessToken });
     setSmsSending(false);
     if (r.ok) {
-      setSmsMsg('Sent ✓');
+      // "Accepted", not "delivered". Twilio queues the message and can still
+      // fail it afterwards — on a new toll-free number, error 30032 (not yet
+      // verified) arrives that way. Say which number it left on, so a freshly
+      // approved line can be confirmed from here instead of from the console.
+      setSmsMsg(`Sent ✓ ${r.status || 'queued'}${r.from ? ` · from ${r.from}` : ''}`);
       // Log it on the job so the text is part of the record rather than
       // something that happened only on somebody's phone.
       try {
@@ -319,7 +323,7 @@ export default function TicketSheet({
           archived_by: userEmail,
         });
       } catch (e) { console.warn('SMS log failed (non-fatal):', e?.message || e); }
-      setTimeout(() => { setSmsFor(null); setSmsMsg(''); }, 1400);
+      setTimeout(() => { setSmsFor(null); setSmsMsg(''); }, 2600);
     } else {
       // A Twilio refusal is information, not a crash. Say what it said.
       setSmsMsg(`⚠ ${r.error || 'Could not send'}${r.detail ? ` — ${r.detail}` : ''}`);

@@ -34,6 +34,7 @@
 import { useState, useEffect } from 'react';
 import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
+import TextButton, { clientTemplates } from './TextButton.jsx';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
@@ -101,7 +102,7 @@ export default function JobFinishSheet({
     (async () => {
       try {
         const j = await resolveJobForEvent(event.id, {
-          select: 'id, issue, status, customer_id, customer_name, customer_phone, customer_address, site_contact_name, site_contact_phone, access_permission',
+          select: 'id, issue, status, scheduled_date, customer_id, customer_name, customer_phone, customer_address, site_contact_name, site_contact_phone, access_permission',
         });
         if (dead) return;
         setLinkedJob(j || null);
@@ -510,6 +511,54 @@ export default function JobFinishSheet({
           {linkedJob.access_permission === false && (
             <div style={{ fontSize:13, color:'#b45309', marginTop:4 }}>🔒 Client must be present</div>
           )}
+
+          {/* THE TEXT BUTTONS BELONG HERE MOST OF ALL. This sheet is what a
+              tech has open while standing at the door — running late, can't get
+              in, nobody home. Until now the only way to text from Overwatch was
+              a control buried in the office-side job card, which a tech in the
+              field never opens. A tel: link was the whole toolkit.
+              Both numbers get a button because they are two different people. */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
+            <TextButton
+              to={linkedJob.site_contact_phone}
+              name={linkedJob.site_contact_name || 'on-site contact'}
+              accessToken={accessToken}
+              templates={clientTemplates({ scheduledDate: linkedJob.scheduled_date })}
+              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
+            />
+            <TextButton
+              to={linkedJob.customer_phone}
+              name={linkedJob.customer_name || 'the client'}
+              accessToken={accessToken}
+              templates={clientTemplates({ scheduledDate: linkedJob.scheduled_date })}
+              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* AND WHEN THERE IS NO ON-SITE CONTACT, the client's number still has to
+          be reachable. The block above only renders when site contact or access
+          was recorded, which is most jobs — so without this the tech has a
+          phone number on the card and no way to text it. */}
+      {!(linkedJob?.site_contact_name || linkedJob?.site_contact_phone ||
+         linkedJob?.access_permission === true || linkedJob?.access_permission === false)
+        && linkedJob?.customer_phone && (
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap',
+                      background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12,
+                      padding:'10px 12px', marginBottom:12 }}>
+          <a href={`tel:${String(linkedJob.customer_phone).replace(/[^0-9+]/g, '')}`}
+             style={{ fontSize:14, color:'#2563eb', fontWeight:700, textDecoration:'none' }}>
+            📞 {linkedJob.customer_phone}
+          </a>
+          <TextButton
+            to={linkedJob.customer_phone}
+            name={linkedJob.customer_name || 'the client'}
+            accessToken={accessToken}
+            templates={clientTemplates({ scheduledDate: linkedJob.scheduled_date })}
+            logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
+            style={{ marginLeft: 'auto' }}
+          />
         </div>
       )}
 

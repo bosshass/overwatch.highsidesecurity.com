@@ -201,12 +201,41 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── HAND THE REPLY BACK TO WHOEVER SENT THE TEXT ──────────────────
+    // The first replies arrived correctly and were still invisible: the note
+    // was inserted with assigned_to NULL, and an unassigned note does not
+    // appear in Tasks. It went to the loose-notes pile, which is the one place
+    // nobody looks. A reply that lands where the person who asked will never
+    // see it has not arrived.
+    //
+    // So the reply is assigned to whoever sent the outgoing message to this
+    // number. That is what "it should come back to me" means, and it is
+    // findable because SmsComposer writes the number into its log line.
+    let owner = null;
+    try {
+      const { data: sent } = await admin
+        .from('notes')
+        .select('author_email, created_at')
+        .like('body', `%(${from})%`)
+        .not('author_email', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      owner = sent?.[0]?.author_email || null;
+    } catch (e) { console.warn('sms-inbound: sender lookup failed', e?.message || e); }
+
+    // No prior outgoing message — an unprompted text from a client, or a
+    // number nobody has written to. It still must not vanish, so it goes to
+    // the owner rather than into the unassigned pile.
+    const FALLBACK_OWNER = process.env.SMS_DEFAULT_OWNER || 'admin@jnbservice.com';
+
     const who = staff ? staff.name : (customer?.name || `Unknown ${from}`);
     await admin.from('notes').insert({
       body: `📲 Text from ${who} (${from}):\n${body}`,
       customer_id: customer?.id || null,
       job_id: jobId,
       author_email: staff?.email || null,
+      assigned_to: owner || FALLBACK_OWNER,
+      assigned_by: null,          // the system handed this over, not a person
       lane: 'todo',
       // OPEN, deliberately. An inbound message is a person waiting on an
       // answer. Filing it archived would make the inbox tidy and the client

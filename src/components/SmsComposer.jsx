@@ -76,7 +76,12 @@ export default function SmsComposer({
     if (logTo?.jobId || logTo?.customerId) {
       try {
         await supabase.from('notes').insert({
-          body: `📱 Texted ${name || phone}: ${body.split('\n')[0]}`,
+          // The NUMBER is in the body on purpose. A reply arrives knowing only
+          // the phone it came from, and it has to find whoever sent the
+          // outgoing message so it can be handed back to them. Without this
+          // there is nothing to match on, and the reply lands unassigned —
+          // which is exactly how the first replies became invisible.
+          body: `📱 Texted ${name || phone} (${phone}): ${body.split('\n')[0]}`,
           job_id: logTo.jobId || null,
           customer_id: logTo.customerId || null,
           author_email: logTo.userEmail || null,

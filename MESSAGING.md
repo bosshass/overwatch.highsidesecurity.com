@@ -214,12 +214,17 @@ From `src/utils/ownership.js`:
 |---|---|
 | Shana | 808-747-4948 |
 | JR | 808-854-1757 |
-| Subs | 720-750-0063 |
-| Austin, Brian, Trevor, Sara | **none** — their button reads "No number for X" and is disabled |
+| **Sara** | **720-750-0063** |
+| Subs | 720-750-0063 ⚠ same as Sara |
+| Austin, Brian, Trevor | **none** — their button does not render |
 
-Add a number there and the button lights up. No other change needed.
+Add a number there and the button appears. No other change needed.
 
----
+**The shared number.** 720-750-0063 is on both Sara and Subs. Outbound does not
+care — that is keyed by email and the two rows have different addresses. Inbound
+does: replies are matched by NUMBER, so a duplicate would resolve to whichever
+row was found first. `api/sms-inbound.js` resolves it to **Sara** explicitly.
+Both rows keep the number until somebody says what Subs' real one is.
 
 ## CONFIGURATION
 

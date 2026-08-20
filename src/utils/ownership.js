@@ -26,7 +26,17 @@ export const ASSIGNEES = [
   { email: 'austin@drhsecurityservices.com',      name: 'Austin', phone: null },
   { email: 'brian@drhsecurityservices.com',       name: 'Brian',  phone: null },
   { email: 'trevor@drhsecurityservices.com',      name: 'Trevor', phone: null },
-  { email: 'admin@jnbservice.com',                name: 'Sara',   phone: null },
+  { email: 'admin@jnbservice.com',                name: 'Sara',   phone: '7207500063' },
+  // ⚠ SAME NUMBER AS SARA, deliberately left in place rather than silently
+  // changed. 7207500063 was on Subs and only on Subs; Sara asked for it to be
+  // hers, and job records carry it as her on-site contact. Both rows keep it
+  // until somebody says what Subs' real number is.
+  //
+  // The collision matters in exactly one place: an INBOUND text is matched by
+  // number, so a duplicate would otherwise resolve to whichever row happened to
+  // be found first. api/sms-inbound.js resolves it to Sara explicitly — see
+  // STAFF_BY_PHONE there. Outbound is unaffected: that is keyed by email, and
+  // the two rows have different emails.
   { email: 'subs@drhsecurityservices.com',        name: 'Subs',   phone: '7207500063' },
 ];
 export const PHONE_BY_EMAIL = Object.fromEntries(

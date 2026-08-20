@@ -36,10 +36,14 @@ const admin = (SB_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
 // Staff numbers, mirroring src/utils/ownership.js. Duplicated deliberately:
 // this runs on the server and cannot import from the Vite bundle, and a reply
 // from a tech must not be filed as if a customer sent it.
+// Keyed by NUMBER, so a number shared by two roster rows has to be resolved
+// here, once, on purpose. 7207500063 sits on both Sara and Subs; a reply from
+// it is Sara's, because that is whose it is. Leaving it ambiguous would file
+// her texts under a subcontractor.
 const STAFF_BY_PHONE = {
   '+18087474948': { name: 'Shana',  email: 'shanaparks@drhsecurityservices.com' },
   '+18088541757': { name: 'JR',     email: 'jr@drhsecurityservices.com' },
-  '+17207500063': { name: 'Subs',   email: 'subs@drhsecurityservices.com' },
+  '+17207500063': { name: 'Sara',   email: 'admin@jnbservice.com' },
 };
 
 // Last 10 digits — the only comparison that survives the six ways a phone

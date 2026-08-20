@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.102.0 · 2026-08-20.** Every number here was read from the live database or
+**9.103.0 · 2026-08-20.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -119,8 +119,9 @@ answers"* carries ownership. Read silences the notification and is not done.
 - **Billing** — unbilled queue, write-through to the card on bill and on write-off
 - **Customers** — search, history, notes, QuickBooks link
 - **Texting** — staff, clients and on-site contacts; templates with YES/NO
-  confirm; inbound replies routed back to the sender; read state; a setup
-  screen at `/sms` that names what is misconfigured
+  confirm; inbound replies routed back to the sender; read state; a
+  **`💬 Messages` pill first in the Tasks filter row** carrying the unread
+  count; a setup screen at `/sms` that names what is misconfigured
 - **Auth** — Google OAuth with pre-emptive token renewal (the sign-in loop is fixed)
 
 ---

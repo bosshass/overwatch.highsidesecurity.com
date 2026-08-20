@@ -98,6 +98,19 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
   // never renders.
   const [who, setWho]     = useState('me');
   const [tab, setTab]     = useState('todo');
+  // MESSAGES ARE A PILL, NOT A TAB.
+  // The texting layer was built and then invisible — "NO ONE IS GOING TO SEE
+  // WHAT YOU HAVE IN THERE." A message that arrives into a mixed stack is found
+  // only by scrolling past tasks, which is the same as not arriving. It sits in
+  // the row people already use to change what they are looking at, FIRST,
+  // carrying its own unread count, so the answer to "did anyone text us" is
+  // visible without reading a single card.
+  //
+  // A pill and not a tab because the tabs are the task lifecycle — To Do,
+  // Doing, Done. A message has no lifecycle: it is correspondence, it is read
+  // or it is not. Putting it in that row would say it moves through those
+  // states, and it does not.
+  const [msgOnly, setMsgOnly] = useState(false);
   const [busy, setBusy]   = useState(null);
   const [panel, setPanel] = useState(null);   // {id, mode}
   const [answer, setAnswer] = useState('');
@@ -216,6 +229,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     setBusy(null);
   };
 
+  // Every inbound text, newest first, unread at the top — the shared inbox in
+  // one list. Not bucketed by lane: nothing here is assigned work.
+  const msgs = useMemo(() => (rows || []).filter(n => n._msg)
+    .slice().sort((a, b) => (!!a.read_at - !!b.read_at)
+      || new Date(b.created_at) - new Date(a.created_at)), [rows]);
+  // The count on the pill is UNREAD, matching the nav badge exactly. A total
+  // would never reach zero and would stop meaning anything within a week.
+  const unreadMsgs = msgs.filter(n => !n.read_at).length;
+
   const buckets = useMemo(() => {
     const all = rows || [];
     return {
@@ -248,6 +270,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     // "2 open" with nothing underneath it. There are no tabs on the home
     // screen — there is only "the next thing", so take To Do first and fall
     // through to Doing.
+    // The Messages pill overrides everything else: whose stack, which tab, all
+    // of it. You asked for the inbox, so you get the inbox.
+    if (msgOnly && !embedded) {
+      const needle0 = q.trim().toLowerCase();
+      return needle0
+        ? msgs.filter(n => (n._customer || '').toLowerCase().includes(needle0)
+            || (n.body || '').toLowerCase().includes(needle0))
+        : msgs;
+    }
     const all = embedded
       ? (() => {
           const live = n => !skips[n.id];
@@ -261,7 +292,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     return all.filter(n =>
       (n._customer || '').toLowerCase().includes(needle) ||
       (n.body || '').toLowerCase().includes(needle));
-  }, [buckets, tab, q, embedded, skips]);
+  }, [buckets, tab, q, embedded, skips, msgOnly, msgs]);
 
   const patch = async (n, fields, remove = true) => {
     setBusy(n.id);
@@ -366,20 +397,48 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
       {!embedded && (
         <div style={{ padding: '16px 16px 0' }}>
-          <div style={{ fontSize: 21, fontWeight: 900 }}>Tasks</div>
+          <div style={{ fontSize: 21, fontWeight: 900 }}>{msgOnly ? 'Messages' : 'Tasks'}</div>
           <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>
-            {rows == null ? 'Loading…' : `${buckets.todo.length} to do · ${buckets.doing.length} doing${buckets.done.length ? ` · ${buckets.done.length} back to you` : ''}`}
+            {rows == null ? 'Loading…'
+              : msgOnly ? `${msgs.length} message${msgs.length === 1 ? '' : 's'}${unreadMsgs ? ` · ${unreadMsgs} unread` : ' · all read'}`
+              : `${buckets.todo.length} to do · ${buckets.doing.length} doing${buckets.done.length ? ` · ${buckets.done.length} back to you` : ''}`}
           </div>
         </div>
       )}
 
-      {!embedded && isOperator && (
+      {/* THE FILTER ROW. Messages first, then people.
+          The person pills are an operator's tool — a tech has no business
+          reading somebody else's stack. Messages are not: the inbox is shared,
+          so the pill renders for anyone who has one waiting, operator or not.
+          That is why the row is no longer gated on isOperator as a whole. */}
+      {!embedded && (isOperator || msgs.length > 0) && (
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
-                      padding: embedded ? '2px 0 6px' : '10px 16px 4px' }}>
-          {[{ email: 'me', name: 'Me' }, ...ASSIGNEES].map(a => {
-            const on = who === a.email;
+                      padding: '10px 16px 4px', alignItems: 'center' }}>
+          {msgs.length > 0 && (
+            <button onClick={() => setMsgOnly(v => !v)}
+              style={{ padding: '7px 13px', borderRadius: 999, cursor: 'pointer',
+                       whiteSpace: 'nowrap',
+                       // Teal, the message colour, and nothing else on this
+                       // screen is teal. The pill and the cards it opens are
+                       // recognisably the same thing.
+                       background: msgOnly ? C.teal : 'transparent',
+                       border: `1px solid ${msgOnly ? C.teal : C.teal + '77'}`,
+                       color: msgOnly ? '#05201c' : C.teal,
+                       fontSize: 12.5, fontWeight: 900, fontFamily: 'inherit' }}>
+              💬 Messages{unreadMsgs ? ` ${unreadMsgs}` : ''}
+            </button>
+          )}
+          {isOperator && msgs.length > 0 && (
+            <span style={{ width: 1, alignSelf: 'stretch', background: C.line2,
+                           margin: '2px 3px', flex: '0 0 auto' }} />
+          )}
+          {isOperator && [{ email: 'me', name: 'Me' }, ...ASSIGNEES].map(a => {
+            // Whose-stack and the inbox are different questions. Tapping a
+            // person while Messages is open means "show me their work", so the
+            // inbox closes rather than leaving two filters silently fighting.
+            const on = who === a.email && !msgOnly;
             return (
-              <button key={a.email} onClick={() => setWho(a.email)}
+              <button key={a.email} onClick={() => { setWho(a.email); setMsgOnly(false); }}
                 style={{ padding: '7px 13px', borderRadius: 999, cursor: 'pointer',
                          whiteSpace: 'nowrap', background: on ? C.blue : 'transparent',
                          border: `1px solid ${on ? C.blue : C.line2}`,
@@ -394,13 +453,13 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
       <div style={{ padding: '10px 16px 0', display: embedded ? 'none' : 'block' }}>
         <input value={q} onChange={e => setQ(e.target.value)}
-          placeholder="Filter by client or text…"
+          placeholder={msgOnly ? 'Filter messages…' : 'Filter by client or text…'}
           style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px',
                    borderRadius: 10, border: `1px solid ${C.line2}`, background: '#0b1220',
                    color: C.text, fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
       </div>
 
-      <div style={{ display: embedded ? 'none' : 'flex', gap: 7, padding: '10px 16px 4px' }}>
+      <div style={{ display: (embedded || msgOnly) ? 'none' : 'flex', gap: 7, padding: '10px 16px 4px' }}>
         {TABS.map(t => {
           const n = buckets[t.key].length;
           const on = tab === t.key;
@@ -438,7 +497,8 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
         {!embedded && rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
-            {tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
+            {msgOnly ? 'No texts match that.'
+              : tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
           </div>
         )}
 

@@ -3,7 +3,7 @@
 Everything that sends or receives a text message. The code, the rules, and why
 each rule exists.
 
-As of **9.93.0**. Nothing here is theoretical — every file named is in the repo
+As of **9.103.0**. Nothing here is theoretical — every file named is in the repo
 and every rule named is enforced in code, not by convention.
 
 ---
@@ -340,11 +340,65 @@ the same navy slab. *"It still looks too much like everything else."* Colour is
 what distinguishes a thing at a glance; a badge is what you find once you have
 already stopped.
 
-So messages sit on a **green-teal ground with a thick left rail**, recognisable
-in peripheral vision before any text is read. **Unread shouts, read recedes** —
-the rail is 6px and bright while it is new, 3px and dim once somebody has seen
-it, and the whole card drops to 72% opacity. A shared inbox where every message
-looks equally urgent forever is one nobody reads twice.
+The first pass gave them a green-teal wash and it still read as one more card:
+**a different shade of the same family is not a different thing.** So the
+treatment is now three separate signals, none of which appear anywhere else on
+the screen:
+
+| | |
+|---|---|
+| Card ground | **grey** `#2b3038` — the only neutral on a navy screen |
+| Banner | **teal** `#14b8a6`, reading `💬 TEXT MESSAGE` |
+| Mark read | **blue** `#3b82f6`, solid |
+| Quote block | near-black `#1e232a`, so their words sit apart from ours |
+
+**Unread shouts, read recedes** — the left rail is 6px and teal while it is new,
+3px and grey once somebody has seen it, and the whole card drops to 72% opacity.
+A shared inbox where every message looks equally urgent forever is one nobody
+reads twice.
+
+### Messages are a pill, not a tab
+
+Looking different only helps once you are looking. The texting layer was built
+and then effectively invisible — *"NO ONE IS GOING TO SEE WHAT YOU HAVE IN
+THERE."* A message that arrives into a mixed stack is found by scrolling past
+tasks, which for a busy person is the same as not arriving at all.
+
+So **`💬 Messages {unread}` is the first pill in the filter row at the top of
+Tasks**, ahead of Me / Shana / JR / the rest. The logic behind that placement:
+
+**Why a pill and not a tab.** The tabs are the task lifecycle — To Do, Doing,
+Done. A message has no lifecycle; it is correspondence, read or unread, and it
+never becomes "doing". Putting it in that row would assert states it does not
+have. The pill row is already the row that answers *"what am I looking at"*, so
+that is where a second thing to look at belongs.
+
+**Why first.** The row is horizontally scrollable. Anything past the fourth pill
+is off-screen on a phone, and a notification you have to scroll sideways to find
+is not a notification.
+
+**The count is unread, not total.** A total never returns to zero, and a number
+that never clears stops being read within a week. Unread is the same figure the
+nav badge shows, from the same rule — `read_at is null` on any note whose body
+starts `📲 Text from` — so the two can never disagree.
+
+**The pill renders for everyone; the person pills stay operator-only.** Whose
+stack you are reading is an operator's question — a tech has no business in
+somebody else's list. The inbox is not that: it is shared by decision, so the
+pill appears for anyone with a message waiting, operator or not. That is why the
+row is no longer gated on `isOperator` as a whole, only the person half of it.
+
+**It hides only when there are none.** No messages, no pill — an empty control
+teaches people the feature is dead.
+
+**Tapping a person closes the inbox, and vice versa.** Two filters silently
+fighting is how a screen shows nothing and explains nothing. Messages override
+whose-stack *and* the tab, the header becomes "Messages · n unread", and the tab
+row disappears while it is open, because none of those three states apply.
+
+**Ordering: unread first, then newest.** The oldest unanswered question is not
+the most urgent thing in an inbox — the unanswered ones are, and among those the
+one that just arrived is the one somebody is waiting on right now.
 
 ### Who answers
 

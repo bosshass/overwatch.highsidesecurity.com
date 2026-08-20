@@ -41,6 +41,14 @@ const C = {
   bg: '#07111f', card: '#111f34', line: '#1d2f48', line2: '#263a55',
   text: '#edf4ff', muted: '#8ea0b8', green: '#22d16f', blue: '#4b8dff',
   amber: '#ffb020', red: '#ff4f5e', purple: '#9b6cff',
+  // ── A MESSAGE IS NOT A TASK, so it does not get the task palette. ──
+  // The MESSAGE chip alone was not enough: on a scrolling list every card was
+  // still the same navy slab, and Sara's read was "it still looks too much like
+  // everything else." Colour is what distinguishes a thing at a glance; a badge
+  // is what you find after you have already stopped. So messages sit on a
+  // green-teal ground with a thick left rail — recognisable in peripheral
+  // vision, before any text is read.
+  msgBg: '#0b201a', msgLine: '#1d4a3a', msgQuote: '#071612',
 };
 
 const TABS = [
@@ -107,7 +115,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     // memory keeps the counts on the tabs honest.
     const { data, error } = await supabase
       .from('notes')
-      .select('id, body, lane, status, assigned_to, assigned_by, handoff_to, author_email, done_at, done_by, customer_id, job_id, created_at, scheduled_for')
+      .select('id, body, lane, status, assigned_to, assigned_by, handoff_to, author_email, done_at, done_by, customer_id, job_id, created_at, scheduled_for, read_at, read_by')
       .eq('status', 'open')
       .not('assigned_to', 'is', null)
       .gte('created_at', floor)
@@ -165,9 +173,30 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     ? mine
     : [String(who).toLowerCase()];
 
-  const isMine    = n => viewing.includes((n.assigned_to || '').toLowerCase());
+  // SHARED INBOX. "Ya'll can see all." A message is company correspondence, not
+  // one person's errand: it shows for everybody regardless of who it was routed
+  // to. Only the "{name} answers" line says whose reply it is — visibility and
+  // ownership are separate questions, and conflating them is how a client's
+  // text sits unanswered because the one person it was assigned to is off.
+  const isMine    = n => n._msg || viewing.includes((n.assigned_to || '').toLowerCase());
   const iAssigned = n => viewing.includes((n.assigned_by || n.author_email || '').toLowerCase());
   const iFinished = n => viewing.includes((n.done_by || '').toLowerCase());
+
+  // Read silences the notification. It is NOT done — a message can be read and
+  // still owe an answer, and the assignee still owns replying. Conflating the
+  // two would make "I saw it" close a customer's question.
+  const markRead = async (n) => {
+    setBusy(n.id);
+    try {
+      await supabase.from('notes')
+        .update({ read_at: new Date().toISOString(), read_by: me })
+        .eq('id', n.id);
+      setRows(prev => prev.map(r => (r.id === n.id ? { ...r, read_at: new Date().toISOString(), read_by: me } : r)));
+      // The badge reads from the database on a timer; tell it now instead.
+      window.dispatchEvent(new Event('task-skips-changed'));
+    } catch (e) { console.warn('markRead failed', e?.message || e); }
+    setBusy(null);
+  };
 
   const buckets = useMemo(() => {
     const all = rows || [];
@@ -406,8 +435,18 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
           const mineFinished = tab === 'done' && iFinished(n);
           return (
             <div key={n.id}
-              style={{ background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
-                       border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
+              style={n._msg
+                ? { background: C.msgBg, borderRadius: '6px 16px 16px 6px',
+                    padding: '15px 16px', marginBottom: 12,
+                    border: `1px solid ${C.msgLine}`,
+                    // UNREAD SHOUTS, READ RECEDES. A shared inbox where every
+                    // message looks equally urgent forever is one nobody reads
+                    // twice. The rail carries it: bright and thick while it is
+                    // new, dim and thin once somebody has seen it.
+                    borderLeft: `${n.read_at ? 3 : 6}px solid ${n.read_at ? C.msgLine : C.green}`,
+                    opacity: n.read_at ? 0.72 : 1 }
+                : { background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
+                    border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
 
               {/* ── A MESSAGE, NOT A TASK ────────────────────────────────
                   An inbound text arriving as a task card read as "a task with
@@ -440,13 +479,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                     )}
                   </div>
                   {/* Their actual words, set apart — this is the thing to read. */}
-                  <div style={{ background: '#0f172a', borderLeft: `3px solid ${C.green}`,
-                                borderRadius: '0 10px 10px 0', padding: '11px 13px',
-                                fontSize: 16, lineHeight: 1.45, marginBottom: 11,
+                  <div style={{ background: C.msgQuote, borderRadius: 10,
+                                padding: '12px 14px',
+                                fontSize: 16.5, lineHeight: 1.5, marginBottom: 11,
+                                color: '#d9f5e6',
                                 whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                     {n._msg.text || '(no text)'}
                   </div>
-                  <div style={{ marginBottom: 11 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap',
+                                alignItems: 'center', marginBottom: 11 }}>
                     <TextButton
                       to={n._msg.phone}
                       name={n._msg.who}
@@ -454,6 +495,19 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
                       label={`↩ Reply to ${n._msg.who}`}
                       logTo={{ jobId: n.job_id, customerId: n.customer_id, userEmail }}
                     />
+                    {n.read_at ? (
+                      <span style={{ fontSize: 11.5, color: C.muted }}>
+                        ✓ read{n.read_by ? ` by ${NAME_BY_EMAIL[canonicalEmail(n.read_by)] || n.read_by}` : ''}
+                      </span>
+                    ) : (
+                      <button onClick={() => markRead(n)} disabled={busy === n.id}
+                        style={{ background: 'transparent', border: `1px solid ${C.msgLine}`,
+                                 borderRadius: 999, color: C.muted, fontSize: 12,
+                                 fontWeight: 700, padding: '6px 13px', cursor: 'pointer',
+                                 fontFamily: 'inherit' }}>
+                        {busy === n.id ? '…' : 'Mark read'}
+                      </button>
+                    )}
                   </div>
                 </>
               ) : (

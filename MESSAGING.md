@@ -284,6 +284,42 @@ The first version rendered them as ordinary task cards, and Sara's description
 was exactly right: *"a task with no customer."* That is precisely what it looked
 like, and nothing about it said a person was waiting on an answer.
 
+### Everybody sees every message
+
+> "Ya'll can see all — and we can mark read, then it doesn't flag as a
+> notification."
+
+Messages bypass the per-person filter that tasks use. A client's text is company
+correspondence, not one person's errand, so it shows for everyone regardless of
+who it was routed to. **Visibility and ownership are separate questions** — the
+*"{name} answers"* line says whose reply it is, and conflating the two is how a
+customer's text sits unanswered because the one person it was assigned to is off.
+
+**Read silences the notification. Read is not done.** A message can be read and
+still owe an answer; the assignee still owns replying. Marking read only stops
+the nagging — the thing that otherwise sits there forever and trains people to
+ignore the badge.
+
+Read is shared too: one person opening it clears it for all, because in a shared
+inbox a second person reading the same message is duplicated work, not
+diligence. The card then says *"✓ read by Shana"*.
+
+**The badge counts unread messages for everybody**, and tasks only for you
+(union by id, so a message routed to you is not counted twice).
+
+### Looking different is the point
+
+The MESSAGE chip alone was not enough — on a scrolling list every card was still
+the same navy slab. *"It still looks too much like everything else."* Colour is
+what distinguishes a thing at a glance; a badge is what you find once you have
+already stopped.
+
+So messages sit on a **green-teal ground with a thick left rail**, recognisable
+in peripheral vision before any text is read. **Unread shouts, read recedes** —
+the rail is 6px and bright while it is new, 3px and dim once somebody has seen
+it, and the whole card drops to 72% opacity. A shared inbox where every message
+looks equally urgent forever is one nobody reads twice.
+
 ### Who answers
 
 `api/sms-inbound.js` assigns the reply to **whoever sent the outgoing message to

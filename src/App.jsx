@@ -775,6 +775,17 @@ export default function App() {
           .eq('status', 'open').neq('lane', 'done')
           .in('assigned_to', mine.length ? mine : ['__none__']);
 
+        // UNREAD MESSAGES COUNT FOR EVERYBODY. Inbound texts are a shared
+        // inbox, so the badge cannot key off assignment the way tasks do — a
+        // client's unanswered question must nag the whole office, not only
+        // whoever it happened to be routed to. Read state is what silences it,
+        // and read is shared too: one person opening it clears it for all.
+        const { data: unread } = await supabase.from('notes')
+          .select('id')
+          .eq('status', 'open')
+          .is('read_at', null)
+          .like('body', '📲 Text from%');
+
         let skipped = {};
         try {
           const raw = JSON.parse(localStorage.getItem('task_skips') || '{}');
@@ -785,7 +796,13 @@ export default function App() {
           skipped = Object.fromEntries(Object.entries(raw).filter(([, d]) => d === today));
         } catch {}
 
-        if (!dead) setTaskCount((data || []).filter(n => !skipped[n.id]).length);
+        // Union by id — a message routed to you would otherwise be counted
+        // twice, once as your task and once as an unread message.
+        const ids = new Set([
+          ...(data   || []).filter(n => !skipped[n.id]).map(n => n.id),
+          ...(unread || []).map(n => n.id),
+        ]);
+        if (!dead) setTaskCount(ids.size);
       } catch { /* a badge is not worth an error */ }
     };
     tick();

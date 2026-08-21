@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.107.0 · 2026-08-21.** Every number here was read from the live database or
+**9.108.0 · 2026-08-21.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -19,7 +19,7 @@ see Corrections in DECISIONS.md*), **`WALKTHROUGHS.md`** (the push gate).
 |---|---|
 | Application code | **32,106 lines** across `src/` and `api/` |
 | Database tables | **20** (excluding backups) |
-| Migrations | **25** files, 053 latest |
+| Migrations | **26** files, 054 latest |
 | Serverless endpoints | 5 — `send-sms`, `sms-inbound`, `sms-status`, `welcome-draft`, `sse` |
 | Hosting | Vercel · `overwatch-highsidesecurity-com.vercel.app` |
 | Database | Supabase `wolhqelloeypafmmvapn` |
@@ -387,6 +387,51 @@ note, an audit line, a decision about money — passed null and had the insert
 rejected, silently. A null destination now means "nothing moved" and is filled
 in with the job's current status: the row records what happened without claiming
 a transition that did not occur. Errors are surfaced instead of swallowed.
+
+### 20. Tasks existed in one person's stack and nowhere else
+
+> *"Tasks are born from notes cards — all of the stuff with the tasks should
+> have a parent note in the board."*
+
+A note is a thought. Assigning it makes it a **task**: work a person now owes.
+Two creation paths wrote tasks with **no `job_id` at all** —
+`NewJobModal.handleSubmitTask` and the assign button in `/notes`. So the work
+lived in one stack and nowhere else: not on the board, not on the customer, not
+findable by anyone who did not already know to look. If that person did not open
+Tasks, it did not exist.
+
+Of **33 open tasks**, found 2026-08-21:
+
+| | |
+|---|---:|
+| No card at all | **8** |
+| Pointing at an **archived** card | **4** |
+| Pointing at a card killed by a **merge** | **1** |
+| **Had a parent visible on the board** | **20** |
+
+The merge one is its own bug: **the merge tool carried `job_history`, the issue,
+the phone and the calendar event across — and left `notes.job_id` on the
+corpse.** An open task outlived its parent and went invisible. A merge says
+"these are the same job"; its tasks are the same tasks. It repoints notes now.
+
+**The rule, in code:** `notesApi.ensureBoardCard()` — the moment a note becomes a
+task it gets a parent card, `job_type` `note`, status `new`, in the New/Notes
+lane. Not a job (nobody drives to it) but a thing on the board with a customer, a
+history and a URL. Idempotent, and non-fatal: a missing card is a gap to fix,
+never a reason to lose the assignment. Called from both creation paths and from
+the handoff in Tasks.
+
+**Inbound texts are excluded** everywhere in this rule. The webhook assigns every
+reply to whoever sent the outgoing message, which looks exactly like a task to
+anything keyed on `assigned_to` — a client's *"yes that works"* must not
+manufacture a card on the board.
+
+**Migration 054** settled the 13: the merged one follows its parent (recorded on
+both sides, not guessed), the four archived parents come back to the New/Notes
+lane — *a parent cannot be closed while the work it carries is open* — and the
+eight get cards, `Internal` where there is no customer, because a gift basket is
+still work, it is just not about anybody. **Verified after: 0 with no card, 0
+whose parent is archived or dead.**
 
 ---
 

@@ -31,7 +31,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase, STATUS_INFO } from '../services/supabase.js';
+import { supabase, STATUS_INFO, notesApi } from '../services/supabase.js';
 import { sendGmail } from '../services/gmailSend.js';
 import { APP_BASE } from '../config/appBase.js';
 import { ASSIGNEES, emailsFor, canonicalEmail, NAME_BY_EMAIL, PHONE_BY_EMAIL } from '../utils/ownership.js';
@@ -358,6 +358,10 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     const fields = { body };
     if (toWhom) { fields.assigned_to = toWhom; fields.assigned_by = me; fields.lane = 'todo'; }
     await patch(n, fields, !!toWhom);
+    // Handing a task to somebody else is another way a note becomes work
+    // somebody owes. If it never had a card — an older row, or one made before
+    // the rule existed — it gets one now. No-ops when there already is one.
+    if (toWhom) await notesApi.ensureBoardCard({ ...n, ...fields }, me);
   };
 
   const Btn = ({ onClick, children, tone = 'ghost', disabled, flex = 1 }) => {

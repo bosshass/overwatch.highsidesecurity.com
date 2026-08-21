@@ -708,6 +708,61 @@ export const assignmentsApi = {
 // ============================================
 
 export const notesApi = {
+  // ── EVERY TASK HAS A CARD ON THE BOARD ───────────────────────────────────
+  // "Tasks are born from notes cards — all of the stuff with the tasks should
+  // have a parent note in the board."
+  //
+  // A note is a thought. Assigning it to somebody makes it a TASK: real work
+  // that a person now owes. Two paths created tasks with NO `job_id` at all —
+  // NewJobModal's task form and the assign button in /notes — so the work
+  // existed in one person's stack and NOWHERE ELSE. It could not be seen on the
+  // board, could not be found by customer, and if that person did not open
+  // Tasks it did not exist. Eight are sitting like that right now.
+  //
+  // So the moment a note becomes a task it gets a parent card: `job_type`
+  // 'note', status 'new', in the New/Notes lane. Not a job — nobody drives to
+  // it — but a thing on the board with a customer, a history and a URL.
+  //
+  // IDEMPOTENT. A note that already points at a card keeps it; this never makes
+  // a second one, and it never touches a note that is not a task.
+  async ensureBoardCard(note, byEmail) {
+    if (!note?.id || !note.assigned_to || note.job_id) return note?.job_id || null;
+    // INBOUND TEXTS ARE NOT TASKS. The webhook assigns every reply to whoever
+    // sent the outgoing message, which makes it look exactly like a task to
+    // any rule keyed on `assigned_to`. A client's "yes that works" must not
+    // manufacture a card on the board.
+    if (String(note.body || '').startsWith('📲 Text from')) return null;
+    try {
+      let customerName = null;
+      if (note.customer_id) {
+        const { data: c } = await supabase.from('customers').select('name').eq('id', note.customer_id).single();
+        customerName = c?.name || null;
+      }
+      const body = String(note.body || '').replace(/\s+/g, ' ').trim();
+      const created = await jobsApi.create({
+        // A task with no customer is internal — a gift basket, an invoice to
+        // review. It still belongs on the board; it just is not about anybody,
+        // and saying "Internal" is truer than borrowing a name from the text.
+        customer_name: customerName || 'Internal',
+        customer_id: note.customer_id || undefined,
+        job_type: 'note',
+        status: JOB_STATUS.NEW,
+        // The body IS the card. A note card with an empty issue is a blank
+        // rectangle you have to open to learn anything from.
+        issue: body.slice(0, 500) || 'Task',
+        assigned_to: note.assigned_to || undefined,
+      }, byEmail || note.assigned_by || note.author_email || 'unknown');
+      if (!created?.id) return null;
+      await supabase.from('notes').update({ job_id: created.id }).eq('id', note.id);
+      return created.id;
+    } catch (e) {
+      // NEVER unwind the task. The assignment is the thing that matters; a
+      // missing card is a gap to fix, not a reason to lose the work.
+      console.warn('ensureBoardCard failed (task still created):', e?.message || e);
+      return null;
+    }
+  },
+
   async getAllForJob(jobId) {
     const notes = [];
     const { data: history, error: hErr } = await supabase

@@ -412,6 +412,18 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
         } catch (e) { console.warn('merge: calendar move failed', e); }
       }
 
+      // 3b) THE TASKS COME TOO.
+      // The merge carried job_history, the issue, the phone, the calendar
+      // event — and left `notes.job_id` pointing at the card it was about to
+      // kill. So an OPEN task survived its parent and became invisible on the
+      // board, which is exactly the state Laird Heikens' return task was found
+      // in. A merge is "these are the same job"; its tasks are the same tasks.
+      try {
+        const { error: nErr } = await supabase.from('notes')
+          .update({ job_id: survivorId }).eq('job_id', job.id);
+        if (nErr) console.warn('merge: notes not moved', nErr.message);
+      } catch (e) { console.warn('merge: notes not moved', e?.message || e); }
+
       // 4) Mark this job dead, pointing at the survivor
       const { error } = await supabase.from('jobs').update({
         status: 'dead',

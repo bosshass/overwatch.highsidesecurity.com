@@ -16,7 +16,7 @@
 // migration for why customersApi.addNote() was the wrong home.
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '../services/supabase.js';
+import { supabase, notesApi } from '../services/supabase.js';
 import { CALENDARS } from '../config/calendars.js';
 import CustomerPicker from '../components/CustomerPicker.jsx';
 import { ASSIGNEES } from '../utils/ownership.js';
@@ -104,6 +104,11 @@ export default function Notes({ userEmail, onBack, accessToken }) {
         .update({ assigned_to: email, assigned_by: userEmail, lane: 'todo' })
         .eq('id', note.id);
       if (error) throw error;
+      // ASSIGNING IS WHAT TURNS A NOTE INTO A TASK, and a task belongs on the
+      // board. Without this the note simply vanished off this screen into one
+      // person's stack, visible nowhere else — no card, no customer history,
+      // no URL. Non-fatal by design: the assignment is the thing that matters.
+      await notesApi.ensureBoardCard({ ...note, assigned_to: email, assigned_by: userEmail }, userEmail);
       setNotes(prev => prev.filter(r => r.id !== note.id));
       setAssigning(null);
     } catch (e) {

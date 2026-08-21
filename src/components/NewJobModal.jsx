@@ -6,7 +6,7 @@
 // Shows timeline bar with busy blocks + green open slots
 
 import { useState, useEffect, useCallback } from 'react';
-import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase } from '../services/supabase.js';
+import { jobsApi, customersApi, assignmentsApi, techsApi, JOB_STATUS, supabase, notesApi } from '../services/supabase.js';
 import { JOB_TYPE_INFO, JOB_TYPE_PICKER, PRIORITY_INFO } from '../utils/statusMachine.js';
 import { SYNC_CALENDARS, TECH_COLORS, getTechCalendarId } from '../config/calendars.js';
 import CustomerPicker from './CustomerPicker.jsx';
@@ -398,6 +398,11 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
         on_customer_record: !!taskForm.customerId,
       }]).select().single();
       if (error) throw error;
+      // A task made here carried no job_id, so it existed in one person's
+      // stack and nowhere else — not on the board, not on the customer, not
+      // findable by anyone who did not already know to look. Eight are sitting
+      // like that. Give it its parent card.
+      await notesApi.ensureBoardCard(data, meEmail);
       onClose(); try { onCreated?.(data); } catch (_) {}
     } catch (e) { alert('Error creating task: ' + e.message); setIsSaving(false); }
   };

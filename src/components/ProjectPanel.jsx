@@ -135,8 +135,9 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
       : '';
     if (!window.confirm(
       `Close out ${job.customer_name || 'this project'}?${warn}\n\n` +
-      `${hrs(logged)} logged${budget ? ` against ${hrs(budget)}` : ''}. ` +
-      `This says the work is settled and takes it off the board.`)) return;
+      `${hrs(logged)} logged${budget ? ` against ${hrs(budget)}` : ''}.\n\n` +
+      `It leaves the board and leaves Billing — its hours too. It stays on the ` +
+      `customer's record, where you can re-open it.`)) return;
     setBusy(true); setErr('');
     try {
       const { error } = await supabase.from('jobs').update({
@@ -146,8 +147,21 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
         updated_by: userEmail,
       }).eq('id', job.id);
       if (error) throw error;
-      if (job.status !== JOB_STATUS.COMPLETE && job.status !== 'billed') {
-        await jobsApi.changeStatus(job.id, JOB_STATUS.COMPLETE, userEmail,
+      // ── WHICH STATUS A CLOSED PROJECT TAKES ───────────────────────────
+      // This wrote `complete`, and the comment above it claimed that took the
+      // card off the board. IT DOES NOT. `complete` is in BoardView's ACTIVE
+      // list and BILLING_LANE covers ['complete','to_bill'] — so closing a
+      // project OUT would have moved it INTO the Done — To Bill lane. The
+      // opposite of gone, and it would have grown the same To Bill column that
+      // is already eleven cards, seven of them with no hours.
+      //
+      // `billed` is the status that actually leaves the board, and it is the
+      // honest one here: BILLED_LANE's own definition is "nothing further owed
+      // on it," which is precisely what closing out a project says. The money
+      // meaning lives in is_complete / completed_at / completed_by, written
+      // above; this is the lane, and only canBill can reach it either way.
+      if (job.status !== 'billed') {
+        await jobsApi.changeStatus(job.id, 'billed', userEmail,
           `Project closed out — ${hrs(logged)} logged${budget ? ` against a ${hrs(budget)} budget` : ''}${over ? `, ${hrs(Math.abs(delta))} over` : ''}`);
       }
       // ── IT HAS TO COMPLETELY GO AWAY ──────────────────────────────────
@@ -185,7 +199,15 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
         .update({ resolved_at: null, resolution_reason: null })
         .eq('job_id', job.id)
         .eq('resolution_reason', 'Project closed out — covered by the agreed price');
-      await jobsApi.logHistory(job.id, null, null, userEmail, 'Project re-opened — not settled after all').catch(() => {});
+      // Put the CARD back as well. Clearing is_complete alone left it sitting
+      // in `billed`, off the board, so "re-open" re-opened nothing anyone
+      // could see. Back to to_bill — work that happened and is not settled.
+      if (job.status === 'billed') {
+        await jobsApi.changeStatus(job.id, JOB_STATUS.TO_BILL, userEmail,
+          'Project re-opened — not settled after all');
+      } else {
+        await jobsApi.logHistory(job.id, null, null, userEmail, 'Project re-opened — not settled after all').catch(() => {});
+      }
       onChanged?.();
     } catch (e) { setErr(e.message || String(e)); }
     setBusy(false);

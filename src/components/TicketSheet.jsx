@@ -413,6 +413,15 @@ export default function TicketSheet({
     // reported success. Say so instead of pretending the move happened.
     const target = lane.target || lane.key;
     if (!target) { setErr(`"${lane.label}" has no destination — tell Sara.`); return; }
+    // BLOCKED IS THE ONE STATE THAT CARRIES A REASON. Its own definition says
+    // so — "cannot move until something outside us changes — say what." A card
+    // parked in Blocked with no reason is indistinguishable from a card
+    // somebody forgot, which is the exact confusion the lane exists to end,
+    // and nobody remembers in three weeks why the GC was waiting.
+    if (target === 'blocked' && !note.trim()) {
+      setErr('Say what is blocking it — that is the whole point of this lane.');
+      return;
+    }
     // A JOB WITHOUT A CUSTOMER IS NOT A JOB. Notes get filed against nobody all
     // the time and that is fine — a note is a thought. The moment it becomes
     // real work somebody has to drive to, it needs an address to drive to, and

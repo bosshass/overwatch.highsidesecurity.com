@@ -261,6 +261,18 @@ export function movesFor(job, { includeBilling = true, includeClear = true, mayB
     ...LANES.slice(0, 2),        // New/Notes, Ready
     RETURN_LANE,
     ...LANES.slice(2),           // Tentative, Scheduled, Estimates
+    // BLOCKED WAS DEFINED AND NEVER OFFERED.
+    // BLOCKED_LANE has existed since the lane vocabulary was written, and it
+    // appears in the list `laneOf` reads — so a blocked card RENDERS correctly.
+    // It was simply never in the list of moves, which means the only way to
+    // reach the status was a tech picking it in the field. From the board:
+    // "I have no way to mark things blocked as an operator."
+    //
+    // That is backwards. Blocked is the one state a PERSON asserts on purpose,
+    // and the office is usually who learns of it — the customer cancelled, the
+    // parts did not land, the GC is not ready. Not offering it here is why five
+    // cards sat in `scheduled` for work everybody knew was stopped.
+    BLOCKED_LANE,
     ...(includeBilling ? [BILLING_LANE] : []),
     ...(includeBilling && finished && mayBill ? [BILLED_LANE] : []),
     ...(includeClear ? [CLEAR_LANE] : []),

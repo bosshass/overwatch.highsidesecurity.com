@@ -122,6 +122,23 @@ export function unbilledBucket(job, entry = null) {
     if (entry.billed || entry.invoice_ref)      return 'billed';
     if (entry.billable === false)               return 'project';
     if (entry.archived)                         return 'absorbed';
+    // ── THE CONTRACT ALREADY SAID SO ────────────────────────────────────
+    // `billable === false` above is the manual flag, and it has NEVER been
+    // written: zero of 74 entries carry it, because nothing in the app could
+    // set it. So the Project hours bucket has always been empty while
+    // fixed-fee hours sat in Ready to bill looking invoiceable — 28 hours of
+    // Jeanneret against an $1,881 fixed price, on a job already marked
+    // is_fixed_fee.
+    //
+    // If the JOB is fixed-fee, its hours are cost against that price. That is
+    // not a per-entry judgement anybody should have to make twelve times; the
+    // decision was made once, on the job, when the price was agreed. Derive it.
+    //
+    // Below `billed` and `billable === false` deliberately: an invoice that
+    // exists outranks everything, and an explicit human flag outranks a
+    // derivation. Above `disposition`, because "bill it" from a tech means the
+    // WORK is done — it was never a claim about how the job was sold.
+    if (job?.is_fixed_fee)                      return 'project';
     if (entry.disposition === 'estimate')       return 'sales';
     if (entry.disposition === 'in_progress')    return 'progress';
     if (entry.disposition === 'return')         return 'return';

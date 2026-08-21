@@ -21,7 +21,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { supabase, jobsApi } from '../services/supabase.js';
+import { supabase, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
 import { canBill } from '../utils/ownership.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
@@ -294,6 +294,13 @@ export default function Unbilled({ onBack, userEmail }) {
   // open this screen can read it and can CLEAR a row with a reason — that is
   // bookkeeping hygiene. Only billing can assert that an invoice went out.
   const mayBill = canBill(userEmail);
+  // "I show Jeanneret as a client in my to bill — I want to select the time
+  // entry and merge it into the job." Two things that had no control anywhere
+  // in the app: attaching loose hours to a card, and saying that a job's hours
+  // are covered by a fixed price rather than invoiced by the hour.
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeJobs, setMergeJobs] = useState(null);   // null = loading
+  const [mergeQ, setMergeQ] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -320,7 +327,10 @@ export default function Unbilled({ onBack, userEmail }) {
         .from('jobs')
         // scheduled_date joins the select for the 30-day no-disposition sweep
         // below. Without it every job reads as undated and nothing can age.
-        .select('id, status, calendar_event_id, customer_name, updated_at, scheduled_date')
+        // is_fixed_fee joins the select so unbilledBucket can tell that a job's
+        // hours are cost against an agreed price rather than an invoice line.
+        // Without it every fixed-fee hour reads as ready to bill.
+        .select('id, status, calendar_event_id, customer_name, customer_id, updated_at, scheduled_date, is_fixed_fee, estimate_amount')
         .limit(5000);
       const jobById = {}, jobByEvent = {};
       (jobRows || []).forEach(j => {
@@ -576,6 +586,96 @@ export default function Unbilled({ onBack, userEmail }) {
       setTimeout(() => setToast(''), 2600);
       await load();
     } catch (e) { setToast('Could not update: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // ── FIXED FEE: these hours are cost, not an invoice line ─────────────
+  // `billable = false` is read in three places and was written in NONE — zero
+  // of 74 entries carry it, so the Project hours bucket has always been empty
+  // while fixed-fee work sat in Ready to bill. This is the switch that was
+  // missing.
+  //
+  // It marks the JOB fixed-fee as well as the entries. The flag belongs on the
+  // job — that is where the agreed price lives, and it is what makes every
+  // FUTURE hour on the same job derive correctly without anyone ticking it.
+  // Flagging only the entries would leave the next visit reading as billable
+  // and put somebody back here doing this again.
+  const markFixedFee = async () => {
+    if (!sel.rows.length) return;
+    const n = sel.rows.length;
+    if (!window.confirm(
+      `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as fixed-fee project hours?\n\n` +
+      `They stay visible as COST — they just stop reading as something to invoice ` +
+      `by the hour. The job is flagged fixed-fee so later visits follow automatically.`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('time_entries').update({
+        billable: false,
+        non_billable_reason: 'Fixed fee — covered by the agreed price',
+      }).in('id', sel.rows.map(r => r.id));
+      if (error) throw error;
+
+      const jobIds = [...new Set(sel.rows.map(r => r.job_id || r._g?.job?.id).filter(Boolean))];
+      if (jobIds.length) {
+        // is_fixed_fee is not a status, so it does not go through
+        // changeStatus — but it IS a decision about money, so it says who made
+        // it rather than changing silently.
+        await supabase.from('jobs')
+          .update({ is_fixed_fee: true, updated_by: userEmail }).in('id', jobIds);
+        for (const jid of jobIds) {
+          await jobsApi.logHistory(jid, null, null, userEmail,
+            'Marked fixed fee — hours are cost against the agreed price, not invoiced by the hour')
+            .catch(() => {});
+        }
+      }
+      setToast(`${n} visit${n > 1 ? 's' : ''} — fixed fee`);
+      setTimeout(() => setToast(''), 2600);
+      setPicked(new Set());
+      await load();
+    } catch (e) { setToast('Could not update: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // ── MERGE LOOSE HOURS ONTO A JOB ─────────────────────────────────────
+  // 163 unarchived entries have no job_id. They show up here under whatever
+  // name the calendar event carried, next to the real card for the same
+  // customer, and there was no way to put them together — the only routes
+  // offered were "make a ticket" (a second card) or "mark billed" (hides it).
+  const openMerge = async (g) => {
+    setMergeOpen(g);
+    setMergeJobs(null);
+    setMergeQ('');
+    // Their OPEN jobs first — that is the answer nine times out of ten. The
+    // search box below covers the tenth.
+    const { data } = await supabase.from('jobs')
+      .select('id, customer_name, customer_id, status, scheduled_date, is_fixed_fee, estimate_amount')
+      .not('status', 'in', '(dead,lost,archived)')
+      .order('scheduled_date', { ascending: false })
+      .limit(600);
+    setMergeJobs(data || []);
+  };
+
+  const doMerge = async (job) => {
+    const g = mergeOpen;
+    const ids = (g?.visits || []).map(v => v.id).filter(Boolean);
+    if (!ids.length || !job?.id) return;
+    setSaving(true);
+    try {
+      const patch = { job_id: job.id };
+      // The customer comes along. A loose entry usually has customer_name_raw
+      // and no customer_id, which is half of why it was loose.
+      if (job.customer_id) patch.customer_id = job.customer_id;
+      const { error } = await supabase.from('time_entries').update(patch).in('id', ids);
+      if (error) throw error;
+      await jobsApi.logHistory(job.id, null, null, userEmail,
+        `Merged ${ids.length} loose time ${ids.length === 1 ? 'entry' : 'entries'} (${fmtH(g.hours)}) onto this job from Billing`)
+        .catch(() => {});
+      setToast(`${ids.length} visit${ids.length > 1 ? 's' : ''} merged into ${job.customer_name}`);
+      setTimeout(() => setToast(''), 2600);
+      setMergeOpen(false);
+      setPicked(new Set());
+      await load();
+    } catch (e) { setToast('Could not merge: ' + (e.message || e)); }
     setSaving(false);
   };
 
@@ -919,10 +1019,19 @@ export default function Unbilled({ onBack, userEmail }) {
               {open && !g.noEntries && g.bucket === 'nojob' && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
                               display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button onClick={() => window.open('/board', '_self')}
-                    style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
+                  {/* FIRST, because it is the right answer far more often than
+                      making a second card. These hours usually belong to a job
+                      that is already on the board — that is exactly what
+                      "Jeanneret shows as a client in my To Bill" is. */}
+                  <button onClick={() => openMerge(g)} disabled={saving}
+                    style={{ background: '#7c3aed', border: 'none', borderRadius: 8, color: '#fff',
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Make a ticket for this
+                    🔗 Merge into a job
+                  </button>
+                  <button onClick={() => window.open('/board', '_self')}
+                    style={{ background: 'transparent', border: '1px solid #1d4ed8', borderRadius: 8, color: '#93c5fd',
+                             fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Make a new ticket instead
                   </button>
                   {mayBill && (
                   <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
@@ -1023,6 +1132,71 @@ export default function Unbilled({ onBack, userEmail }) {
         />
       )}
 
+      {/* ── MERGE PICKER ───────────────────────────────────────────────
+          Which card do these hours belong to. Their own customer's open jobs
+          float to the top, because that is nearly always the answer; the box
+          searches everything else. Each row says enough to tell two cards for
+          the same customer apart — the status, the date, and whether it is
+          fixed fee, which changes what happens to the hours the moment they
+          land. */}
+      {mergeOpen && (
+        <div onClick={() => setMergeOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', zIndex: 60,
+                   display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '18px 18px 0 0',
+                     width: '100%', maxWidth: 620, maxHeight: '82vh', display: 'flex',
+                     flexDirection: 'column', padding: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: '#e2e8f0' }}>
+              Merge {mergeOpen.visits?.length || 0} visit{(mergeOpen.visits?.length || 0) === 1 ? '' : 's'} · {fmtH(mergeOpen.hours)}
+            </div>
+            <div style={{ fontSize: 12.5, color: '#94a3b8', margin: '3px 0 10px' }}>
+              from <b style={{ color: '#cbd5e1' }}>{mergeOpen.name}</b> — pick the job these hours belong to.
+              Nothing is deleted; the entries just point at the card.
+            </div>
+            <input value={mergeQ} onChange={e => setMergeQ(e.target.value)} autoFocus
+              placeholder="Search every job…"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+                       border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
+                       fontSize: 14, fontFamily: 'inherit', outline: 'none', marginBottom: 10 }} />
+            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {mergeJobs == null && (
+                <div style={{ color: '#64748b', fontSize: 13, padding: '18px 0', textAlign: 'center' }}>Loading jobs…</div>
+              )}
+              {mergeJobs && (() => {
+                const needle = mergeQ.trim().toLowerCase();
+                const mine = (j) => (mergeOpen.name || '').toLowerCase().slice(0, 8) &&
+                  (j.customer_name || '').toLowerCase().includes((mergeOpen.name || '').toLowerCase().slice(0, 8));
+                const rows = mergeJobs
+                  .filter(j => !needle || (j.customer_name || '').toLowerCase().includes(needle))
+                  .sort((a, b) => (mine(b) - mine(a)))
+                  .slice(0, 60);
+                if (!rows.length) return (
+                  <div style={{ color: '#64748b', fontSize: 13, padding: '18px 0', textAlign: 'center' }}>No job matches that.</div>
+                );
+                return rows.map(j => (
+                  <button key={j.id} onClick={() => doMerge(j)} disabled={saving}
+                    style={{ textAlign: 'left', background: mine(j) ? '#172554' : '#111f34',
+                             border: `1px solid ${mine(j) ? '#3b82f6' : '#1e293b'}`, borderRadius: 10,
+                             padding: '10px 12px', cursor: 'pointer', color: '#e2e8f0', fontFamily: 'inherit' }}>
+                    <div style={{ fontSize: 14, fontWeight: 800 }}>{j.customer_name || 'Unnamed'}</div>
+                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 2 }}>
+                      {(STATUS_INFO[j.status]?.label || j.status)}
+                      {j.scheduled_date ? ` · ${new Date(j.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                      {j.is_fixed_fee ? ' · 📐 fixed fee — these hours become cost' : ''}
+                    </div>
+                  </button>
+                ));
+              })()}
+            </div>
+            <button onClick={() => setMergeOpen(false)}
+              style={{ marginTop: 10, background: 'none', border: '1px solid #334155', color: '#94a3b8',
+                       borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 700,
+                       cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {archiving && (
         <ArchiveModal
           count={sel.rows.length}
@@ -1049,6 +1223,30 @@ export default function Unbilled({ onBack, userEmail }) {
                 title="Junk / test data. Leaves the queue WITHOUT being marked billed."
                 style={{ background: 'none', border: '1px solid #64748b', color: '#cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 🗑️ Archive — pick a reason
+              </button>
+              {/* NOT gated on canBill. Saying how a job was SOLD is not the
+                  same as saying an invoice went out — it is the scoping fact
+                  that decides whether these hours could ever be an invoice
+                  line at all, and it is the person running the job who knows
+                  it. Nothing here claims anything was invoiced. */}
+              {/* "I want to SELECT the time entry and merge it into the job."
+                  The merge button on the no-job bucket only reaches hours the
+                  screen already knows are orphaned. An entry can also resolve
+                  to a job through its calendar event while carrying a null
+                  job_id — it looks attached and is not — so the same action
+                  has to work on anything you can tick. */}
+              <button onClick={() => openMerge({
+                        name: sel.rows.length === 1 ? (sel.rows[0]._g?.name || 'this visit') : `${sel.rows.length} selected visits`,
+                        visits: sel.rows, hours: sel.hours })}
+                disabled={saving}
+                title="Point these hours at the job they belong to."
+                style={{ background: 'none', border: '1px solid #7c3aed', color: '#c4b5fd', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                🔗 Merge into a job
+              </button>
+              <button onClick={markFixedFee} disabled={saving}
+                title="These hours are cost against an agreed price, not billed by the hour."
+                style={{ background: 'none', border: '1px solid #8b5cf6', color: '#c4b5fd', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                📐 Fixed fee — not by the hour
               </button>
               {/* Reading the queue, selecting rows, and archiving junk with a
                   reason are all fine for anyone who can open this screen.

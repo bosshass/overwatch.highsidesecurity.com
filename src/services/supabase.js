@@ -437,9 +437,30 @@ export const jobsApi = {
     return data;
   },
 
+  // `job_history.to_status` is NOT NULL. Every caller that wanted to record
+  // something that ISN'T a status move — a note, an audit line, a decision
+  // about money — passed null and had the insert REJECTED. That is exactly how
+  // schedule.js's recap log wrote zero rows in six months while appearing to
+  // work: supabase-js returns the error rather than throwing, so a try/catch
+  // never fires and a caller that doesn't await never learns.
+  //
+  // So a null destination now means "nothing moved" and is filled in with the
+  // job's current status. The row records what happened without claiming a
+  // transition that didn't occur, and the constraint is satisfied honestly.
+  // Errors are surfaced instead of swallowed.
   async logHistory(jobId, fromStatus, toStatus, changedBy, notes = null) {
     try {
-      await supabase.from('job_history').insert([{ job_id: jobId, from_status: fromStatus, to_status: toStatus, changed_by: changedBy, notes }]);
+      let to = toStatus, from = fromStatus;
+      if (to == null) {
+        const { data: cur } = await supabase.from('jobs').select('status').eq('id', jobId).single();
+        to = cur?.status || 'new';
+        if (from == null) from = to;
+      }
+      const { error } = await supabase.from('job_history').insert([{
+        job_id: jobId, from_status: from, to_status: to,
+        changed_by: changedBy || 'unknown', notes,
+      }]);
+      if (error) console.warn('History log rejected:', error.message);
     } catch (e) { console.warn('History log failed:', e); }
   },
 

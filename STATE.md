@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.106.0 · 2026-08-21.** Every number here was read from the live database or
+**9.107.0 · 2026-08-21.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -317,6 +317,76 @@ her is one line in `BILLING_EMAILS`.
 RLS `USING (true)` and the anon key ships in the browser, so anyone signed in
 can still write these columns directly. It stops the accident and the wrong
 habit; it does not stop a determined person.
+
+### 16. Blocked was defined and never offered
+
+> *"I have no way to mark things blocked as an operator."*
+
+`BLOCKED_LANE` has existed since the lane vocabulary was written, and it is in
+the list `laneOf` reads — so a blocked card **renders** correctly. It was simply
+never in the list `movesFor` returns, so the only route to the status was a tech
+picking it in the field.
+
+That is backwards. Blocked is the one state a **person** asserts on purpose, and
+the office is usually who learns of it: the customer cancelled, the parts did not
+land, the GC is not ready. It is offered from the ticket now, and **it will not
+commit without a reason** — its own definition says *"cannot move until
+something outside us changes — say what,"* and a card parked in Blocked with no
+reason is indistinguishable from one somebody forgot.
+
+### 17. Fixed-fee hours have never been marked, because nothing could mark them
+
+`time_entries.billable` is read in three places — `unbilledBucket`,
+`CalendarTechDay`, the Billing screen — and **written in none.** Zero of 74
+entries carry it. So the **📐 Project hours** bucket, whose whole job is to hold
+work covered by a fixed price, has always been empty while those hours sat in
+*Ready to bill* looking invoiceable.
+
+Jeanneret is the live case: **28 hours** against a job already flagged
+`is_fixed_fee` with an **$1,881** agreed price, reading as billable by the hour.
+
+Two fixes, and the first is the important one:
+
+**The contract already said so — derive it.** If the job is `is_fixed_fee`, its
+hours are cost against that price. That is not a judgement anyone should make
+twelve times; it was made once, on the job, when the price was agreed. It sits
+below `billed` and below an explicit `billable = false` (an invoice, and a human
+flag, both outrank a derivation) and **above `disposition`** — "bill it" from a
+tech means the *work* is done; it was never a claim about how the job was sold.
+Twelve fixed-fee jobs correct themselves the moment this ships.
+
+**And the switch that was missing.** Select visits in Billing → **📐 Fixed fee —
+not by the hour**. It flags the entries *and the job*, because the flag belongs
+on the job: that is where the price lives, and it is what makes every future
+hour follow without anyone ticking it again. Not gated on `canBill` — saying how
+a job was **sold** is a scoping fact, not a claim that an invoice went out.
+
+### 18. Loose hours could not be joined to their job
+
+**163 unarchived entries have no `job_id`.** They appear in Billing under
+whatever name the calendar event carried, sitting next to the real card for the
+same customer, and the only routes offered were *make a ticket* (a second card)
+or *mark billed* (hide it). Neither joins them up.
+
+> *"I show Jeanneret as a client in my To Bill — I want to select the time entry
+> and merge it into the job."*
+
+**🔗 Merge into a job** now appears both on the no-job bucket and in the
+selection bar, so it reaches anything you can tick — including an entry that
+resolves to a job through its calendar event while carrying a null `job_id`,
+which *looks* attached and is not. The picker floats that customer's own open
+jobs to the top and says which are fixed fee, since that changes what happens to
+the hours the moment they land. Nothing is deleted; the entries point at the
+card, and the job's history records the merge.
+
+### 19. `logHistory` rejected every note-only row
+
+Same trap as #3, one function over. `job_history.to_status` is **NOT NULL**, so
+every caller that wanted to record something which *isn't* a status move — a
+note, an audit line, a decision about money — passed null and had the insert
+rejected, silently. A null destination now means "nothing moved" and is filled
+in with the job's current status: the row records what happened without claiming
+a transition that did not occur. Errors are surfaced instead of swallowed.
 
 ---
 

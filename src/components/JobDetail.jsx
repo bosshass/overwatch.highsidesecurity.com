@@ -103,7 +103,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
 
   // Billing modal (info@ only)
   const [showBillingModal, setShowBillingModal] = useState(false);
-  const [billedAmount, setBilledAmount] = useState('');
   const [billingNote, setBillingNote] = useState('');
 
   const isOperator = userRole === 'operator';
@@ -272,19 +271,23 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     if (actionInProgress) return;
     setActionInProgress(JOB_STATUS.BILLED);
     try {
-      // BOTH OF THESE COLUMNS WERE INVENTED. `jobs` has no `billed_amount`
-      // and no `billing_notes` — the amount column is `invoiced_amount`, and
-      // the note goes to `completion_notes`, which changeStatus below already
-      // writes from `notes`. PostgREST 400s the whole UPDATE on an unknown
-      // column, jobsApi.update throws, and the catch at the bottom of this
-      // function logs "Billing error" to a console nobody has open. So this
-      // button has never once marked a job billed — it failed before it ever
-      // reached the status change.
-      const updateData = { invoiced_amount: parseFloat(billedAmount) || 0 };
-      await jobsApi.update(job.id, updateData, userEmail);
-
-      // Change status to BILLED
+      // NO AMOUNT IS WRITTEN. "Overwatch is NOT going to do accounting."
+      //
+      // This modal asked for an Invoice Amount and refused to submit without
+      // one — into `billed_amount`, a column that does not exist, so it 400'd
+      // before it ever reached the status change. Rather than repoint it at
+      // `invoiced_amount` and keep asking, the question goes: what a job was
+      // invoiced for lives in QuickBooks, and a second figure typed here is a
+      // second version of it that will disagree within a week.
+      //
+      // What Overwatch records is that billing SAID it went out, when, and who
+      // said so. The invoice number is optional and is a REFERENCE, not an
+      // amount — it points at the book of record instead of copying it.
       await jobsApi.changeStatus(job.id, JOB_STATUS.BILLED, userEmail, billingNote || null);
+      if (billingNote.trim()) {
+        try { await jobsApi.update(job.id, { invoice_ref: billingNote.trim() }, userEmail); }
+        catch (e) { console.warn('invoice ref not stored (non-fatal)', e?.message || e); }
+      }
 
       // Move GCal event to Completed calendar
       if (accessToken && assignments.length > 0) {
@@ -307,7 +310,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       }
 
       setShowBillingModal(false);
-      setBilledAmount('');
       setBillingNote('');
       await loadJob();
       onUpdate?.();
@@ -752,7 +754,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       {showBillingModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: '#0f1729', borderRadius: '20px', padding: '24px', width: '100%', maxWidth: '380px', border: '1px solid #8b5cf640' }}>
-            <h3 style={{ color: '#8b5cf6', fontSize: '18px', fontWeight: '700', margin: '0 0 4px 0' }}>💰 Mark as Billed</h3>
+            <h3 style={{ color: '#8b5cf6', fontSize: '18px', fontWeight: '700', margin: '0 0 4px 0' }}>🧾 Mark invoiced</h3>
             <div style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '20px' }}>
               {/* `job_number` does not exist on this table — it rendered the
                   literal word "undefined" next to the customer's name on the
@@ -761,30 +763,14 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
               {job?.customer_name}{job?.invoice_ref ? ` — ${job.invoice_ref}` : ''}
             </div>
 
-            {/* Amount field */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Invoice Amount *</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#22c55e', fontSize: '18px', fontWeight: '700' }}>$</span>
-                <input
-                  type="number" step="0.01" autoFocus
-                  value={billedAmount}
-                  onChange={e => setBilledAmount(e.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    width: '100%', background: '#1a2332', border: '2px solid #334155', borderRadius: '12px',
-                    color: '#22c55e', padding: '14px 14px 14px 32px', fontSize: '24px', fontWeight: '700',
-                    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit'
-                  }}
-                  onFocus={e => e.target.style.borderColor = '#8b5cf6'}
-                  onBlur={e => e.target.style.borderColor = '#334155'}
-                />
-              </div>
-            </div>
-
+            {/* THE AMOUNT FIELD IS GONE, ON PURPOSE.
+                Overwatch does not do accounting. It knows hours — budget,
+                logged, delta — and it knows that billing says an invoice went
+                out. It does not know, and must not claim to know, what the
+                invoice was for. */}
             {/* Billing note */}
             <div style={{ marginBottom: '20px' }}>
-              <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Invoice # / Note (optional)</label>
+              <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '4px' }}>Invoice # or note (optional)</label>
               <input
                 value={billingNote}
                 onChange={e => setBillingNote(e.target.value)}
@@ -804,20 +790,23 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
 
             {/* Buttons */}
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => { setShowBillingModal(false); setBilledAmount(''); setBillingNote(''); }}
+              <button onClick={() => { setShowBillingModal(false); setBillingNote(''); }}
                 style={{ flex: 1, padding: '14px', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px', color: '#94a3b8', fontSize: '14px', cursor: 'pointer' }}>
                 Cancel
               </button>
+              {/* No longer gated on an amount being typed. It used to be
+                  disabled until you entered dollars, which is why this button
+                  could not be pressed at all once the amount question was the
+                  wrong question. */}
               <button onClick={handleBilledSubmit}
-                disabled={!billedAmount || actionInProgress}
+                disabled={actionInProgress}
                 style={{
                   flex: 2, padding: '14px', fontSize: '16px', fontWeight: '700',
-                  background: billedAmount ? '#8b5cf6' : '#334155',
-                  color: billedAmount ? '#fff' : '#64748b',
-                  border: 'none', borderRadius: '10px', cursor: billedAmount ? 'pointer' : 'default',
-                  boxShadow: billedAmount ? '0 4px 20px #8b5cf640' : 'none'
+                  background: '#8b5cf6', color: '#fff',
+                  border: 'none', borderRadius: '10px', cursor: 'pointer',
+                  boxShadow: '0 4px 20px #8b5cf640'
                 }}>
-                {actionInProgress ? 'Processing...' : `Bill $${parseFloat(billedAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                {actionInProgress ? 'Processing...' : 'Mark invoiced'}
               </button>
             </div>
           </div>

@@ -16,6 +16,7 @@ import { supabase, jobsApi, assignmentsApi, techsApi, customersApi, JOB_STATUS }
 import { isNotReal } from '../config/archiveReasons.js';
 import TextButton, { clientTemplates } from '../components/TextButton.jsx';
 import NewJobModal from '../components/NewJobModal.jsx';
+import ProjectPanel from '../components/ProjectPanel.jsx';
 
 // ── helpers ──────────────────────────────────────────────────
 function fmtDateTime(iso) {
@@ -99,6 +100,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [tagged, setTagged]       = useState([]);
   const [suggested, setSuggested] = useState([]);
   const [openWork, setOpenWork]   = useState([]);
+  // Hours logged per job, and the customer-level roll-up behind Stats. Both
+  // fall out of the time-entry read loadOpenWork already does.
+  const [jobMinutes, setJobMinutes] = useState({});
+  const [stats, setStats] = useState({ visits: 0, hours: 0, lastVisit: null });
   const [custNotes, setCustNotes] = useState([]);
   const [showNotes, setShowNotes] = useState(true);
   const [showDone, setShowDone]   = useState(true);
@@ -172,7 +177,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const loadOpenWork = useCallback(async (customer) => {
     const { data, error } = await supabase
       .from('jobs')
-      .select('id, customer_name, job_type, status, issue, notes, created_at, customer_id')
+      // Project fields ride along so the customer screen can answer "do they
+      // have a project, and where is it against its hours" without a second
+      // round trip. Overwatch tracks hours, not money — see ProjectPanel.
+      .select('id, customer_name, job_type, status, issue, notes, created_at, customer_id, is_fixed_fee, hours_budget, estimated_hours, is_complete, completed_at, progress_invoice_count, progress_invoiced_at')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false });
     if (error) return;
@@ -194,7 +202,21 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
       const ids = jobs.map(j => j.id);
       if (ids.length) {
         const { data: ents } = await supabase
-          .from('time_entries').select('job_id, archived, archive_reason').in('job_id', ids);
+          .from('time_entries')
+          .select('job_id, archived, archive_reason, total_minutes, event_start')
+          .in('job_id', ids);
+        // The same read already happening for the not-real filter also answers
+        // "how many hours has this customer taken" — no second query for it.
+        const mins = {}; let totalMin = 0; let visits = 0; let last = null;
+        (ents || []).forEach(e => {
+          if (e.archived) return;
+          mins[e.job_id] = (mins[e.job_id] || 0) + (e.total_minutes || 0);
+          totalMin += e.total_minutes || 0;
+          visits += 1;
+          if (e.event_start && (!last || e.event_start > last)) last = e.event_start;
+        });
+        setJobMinutes(mins);
+        setStats({ visits, hours: totalMin / 60, lastVisit: last });
         const byJob = {};
         (ents || []).forEach(e => { (byJob[e.job_id] ||= []).push(e); });
         const hidden = new Set(Object.entries(byJob)
@@ -693,6 +715,56 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
 
             {!loading && (
               <>
+                {/* ── STATS ────────────────────────────────────────────────
+                    What this customer actually is, in four numbers. Every one
+                    is counted from rows Overwatch owns — visits and hours from
+                    time_entries, work from jobs. No money: Overwatch is not
+                    the book of record for what anybody was charged, and a
+                    dollar figure here would be a second version of a number
+                    QuickBooks already has. */}
+                {(() => {
+                  const openCount = openWork.filter(j => !TERMINAL.includes(j.status)).length;
+                  const projects = openWork.filter(j => j.is_fixed_fee || j.job_type === 'project');
+                  const S = ({ label, value, tone }) => (
+                    <div style={{ flex: '1 1 78px', minWidth: 78 }}>
+                      <div style={{ fontSize: 10, color: '#64748b', fontWeight: 800, letterSpacing: '.07em' }}>{label}</div>
+                      <div style={{ fontSize: 17, fontWeight: 900, color: tone || '#e2e8f0', marginTop: 1 }}>{value}</div>
+                    </div>
+                  );
+                  return (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap',
+                                  background: '#0f1729', border: '1px solid #1e293b',
+                                  borderRadius: 12, padding: '11px 13px', margin: '4px 0 14px' }}>
+                      <S label="VISITS" value={stats.visits || 0} />
+                      <S label="HOURS" value={(stats.hours || 0).toFixed(1)} />
+                      <S label="OPEN" value={openCount} tone={openCount ? '#a78bfa' : undefined} />
+                      <S label="PROJECTS" value={projects.length} tone={projects.length ? '#8b5cf6' : undefined} />
+                      <S label="LAST VISIT" value={stats.lastVisit ? fmtDate(stats.lastVisit) : '—'} />
+                    </div>
+                  );
+                })()}
+
+                {/* ── PROJECTS ─────────────────────────────────────────────
+                    "I need a way in the customer view to see that they have a
+                    project and to be able to close it out." A project is not
+                    just another work card — it carries a budget of hours and
+                    accrues against it for weeks, so it reads differently and
+                    it closes differently. Above Open work because it is the
+                    bigger fact about the account. */}
+                {(() => {
+                  const projects = openWork.filter(j => j.is_fixed_fee || j.job_type === 'project');
+                  if (!projects.length) return null;
+                  return (
+                    <>
+                      <div style={{ ...sectionLabel, color: '#8b5cf6' }}>Projects ({projects.length})</div>
+                      {projects.map(j => (
+                        <ProjectPanel key={j.id} job={j} loggedMinutes={jobMinutes[j.id] || 0}
+                          userEmail={me} onChanged={refreshWork} compact />
+                      ))}
+                    </>
+                  );
+                })()}
+
                 {/* open work + collapsed done */}
                 {(() => {
                   const openItems = openWork.filter(j => !TERMINAL.includes(j.status));

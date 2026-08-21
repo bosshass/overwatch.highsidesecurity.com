@@ -24,6 +24,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
 import { canBill } from '../utils/ownership.js';
+import ProjectPanel from '../components/ProjectPanel.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
 
@@ -74,32 +75,35 @@ const fmtH = (h) => `${(Math.round(h * 10) / 10).toFixed(1)}h`;
 const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
 
 
-// ── FIXED-FEE PROJECTS ──────────────────────────────────────────────────────
-// Moved here from Weekly Recap. Every number is typed by hand — see the header
-// of apply_fixed_fee_billing.py for why the rate is not derived.
+// ── PROJECTS, IN HOURS ───────────────────────────────────────────────────────
+// This was FixedFeeProjects: six money fields (contract, rate per hour,
+// materials cost, materials billed, billed to date) and a bar drawn from
+// hours × rate against contract minus materials. A P&L rebuilt by hand in a
+// field-service app, next to a real one in QuickBooks that disagreed with it.
+//
+// "Overwatch is NOT going to do accounting. Overwatch gets a budget of hours
+//  available, and all the hours logged to it, and a delta."
+//
+// So it shows the three numbers Overwatch is genuinely the source of truth
+// for, and hands the two decisions that are billing's to ProjectPanel —
+// progress invoiced, and complete. No dollars anywhere.
 function FixedFeeProjects({ userEmail }) {
-  const [rows, setRows]   = useState(null);
-  const [used, setUsed]   = useState({});
-  const [open, setOpen]   = useState(null);
-  const [draft, setDraft] = useState({});
-  const [saving, setSaving] = useState(false);
+  const [rows, setRows] = useState(null);
+  const [used, setUsed] = useState({});
 
-  // accounting@ is the super admin and the only account that does the books.
-  const allowed = String(userEmail || '').toLowerCase()
-    === 'accounting@drhsecurityservices.com';
-
+  // Anyone who can open Billing can SEE this. The stamps inside ProjectPanel
+  // are gated on canBill; the readout is not, because "are we over on hours"
+  // is a question the person running the work needs answered too.
   const load = useCallback(async () => {
-    if (!allowed) return;
     const { data: js } = await supabase.from('jobs')
-      .select('id, customer_name, estimate_amount, estimated_hours, hourly_rate, materials_cost, materials_invoiced, invoiced_amount, qbo_estimate_ref, status')
-      .eq('is_fixed_fee', true)
+      .select('id, customer_name, status, is_fixed_fee, job_type, hours_budget, estimated_hours, is_complete, completed_at, progress_invoice_count, progress_invoiced_at')
+      .or('is_fixed_fee.eq.true,job_type.eq.project')
       .not('status', 'in', '(dead,archived,lost)')
+      .order('is_complete', { ascending: true })
       .limit(200);
-    const list = (js || []).sort((a, b) => (b.estimate_amount || 0) - (a.estimate_amount || 0));
+    const list = js || [];
     setRows(list);
     if (list.length) {
-      // Hours LOGGED, from time_entries. The only number on this screen that
-      // is not typed — it is the thing being measured.
       const { data: te } = await supabase.from('time_entries')
         .select('job_id, total_minutes, archived')
         .in('job_id', list.map(j => j.id)).limit(3000);
@@ -109,153 +113,36 @@ function FixedFeeProjects({ userEmail }) {
       });
       setUsed(m);
     }
-  }, [allowed]);
+  }, []);
   useEffect(() => { load(); }, [load]);
 
-  if (!allowed || rows === null) return null;
+  if (rows === null) return null;
 
-  const num = v => (v === '' || v === null || v === undefined) ? null : Number(v);
-  const save = async (id) => {
-    setSaving(true);
-    try {
-      const { error } = await supabase.from('jobs').update({
-        estimate_amount:    num(draft.estimate_amount),
-        estimated_hours:    num(draft.estimated_hours),
-        hourly_rate:        num(draft.hourly_rate),
-        materials_cost:     num(draft.materials_cost),
-        materials_invoiced: num(draft.materials_invoiced),
-        invoiced_amount:    num(draft.invoiced_amount),
-        updated_by:         userEmail,
-      }).eq('id', id);
-      if (error) throw error;
-      setOpen(null); setDraft({}); await load();
-    } catch (e) { alert('Could not save: ' + (e.message || e)); }
-    setSaving(false);
-  };
-
-  const money = n => n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
-  const F = ({ k, label, prefix }) => (
-    <label style={{ display:'block', flex:'1 1 130px' }}>
-      <span style={{ display:'block', fontSize:11, color:'#8ea0b8', marginBottom:4 }}>{label}</span>
-      <span style={{ display:'flex', alignItems:'center', gap:4 }}>
-        {prefix && <span style={{ color:'#64748b', fontSize:13 }}>{prefix}</span>}
-        <input type="number" step="0.01" value={draft[k] ?? ''}
-          onChange={e => setDraft(d => ({ ...d, [k]: e.target.value }))}
-          style={{ width:'100%', background:'#0f1729', border:'1px solid #334155',
-                   borderRadius:8, color:'#e2e8f0', padding:'8px 10px', fontSize:14,
-                   outline:'none', boxSizing:'border-box' }} />
-      </span>
-    </label>
-  );
+  const live = rows.filter(j => !j.is_complete);
 
   return (
-    <div style={{ margin:'0 0 16px' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:10 }}>
-        <span style={{ fontSize:12, fontWeight:900, letterSpacing:'0.09em',
-                       textTransform:'uppercase', color:'#8ea0b8' }}>
-          Fixed-fee projects
+    <div style={{ margin: '0 0 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.09em',
+                       textTransform: 'uppercase', color: '#8ea0b8' }}>
+          Projects — hours
         </span>
-        <span style={{ background:'#8b5cf622', color:'#a78bfa', fontSize:11,
-                       fontWeight:800, padding:'2px 8px', borderRadius:999 }}>
-          {rows.length}
+        <span style={{ background: '#8b5cf622', color: '#a78bfa', fontSize: 11,
+                       fontWeight: 800, padding: '2px 8px', borderRadius: 999 }}>
+          {live.length}
         </span>
       </div>
 
       {rows.length === 0 && (
-        <div style={{ fontSize:13, color:'#8ea0b8' }}>
-          Nothing tagged fixed fee. Tag a job on its card first.
+        <div style={{ fontSize: 13, color: '#8ea0b8' }}>
+          Nothing tagged as a project. Tag a job fixed fee from Billing, or set its type to project.
         </div>
       )}
 
-      {rows.map(j => {
-        const contract = Number(j.estimate_amount) || 0;
-        const matBill  = Number(j.materials_invoiced) || 0;
-        const matCost  = Number(j.materials_cost) || 0;
-        const rate     = Number(j.hourly_rate) || 0;
-        const soldHrs  = Number(j.estimated_hours) || 0;
-        const usedHrs  = (used[j.id] || 0) / 60;
-        const labourContract = Math.max(0, contract - matBill);   // what is left for labour
-        const labourUsed     = usedHrs * rate;                     // what has been consumed
-        const over = labourContract > 0 && labourUsed > labourContract;
-        const pctUsed = labourContract > 0
-          ? Math.min(100, (labourUsed / labourContract) * 100) : 0;
-        const isOpen = open === j.id;
-
-        return (
-          <div key={j.id} style={{ background:'#111f34', border:'1px solid #1d2f48',
-                                   borderRadius:14, padding:'14px 15px', marginBottom:10 }}>
-            <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap' }}>
-              <span style={{ fontSize:15, fontWeight:800, flex:1, minWidth:0 }}>
-                {j.customer_name || 'Job'}
-              </span>
-              <span style={{ fontSize:15, fontWeight:900, color:'#22d16f' }}>{money(contract)}</span>
-            </div>
-
-            {/* THE BAR. Contract, minus materials billed, leaves labour. Hours x
-                rate fills it. Red past the end — that is the whole message. */}
-            <div style={{ marginTop:11, height:12, borderRadius:6, overflow:'hidden',
-                          background:'#0b1628', display:'flex' }}>
-              {contract > 0 && matBill > 0 && (
-                <div title={`Materials billed ${money(matBill)}`}
-                  style={{ width:`${Math.min(100,(matBill/contract)*100)}%`, background:'#16c7df' }} />
-              )}
-              {labourContract > 0 && (
-                <div title={`Labour used ${money(labourUsed)} of ${money(labourContract)}`}
-                  style={{ width:`${(pctUsed/100)*Math.max(0,(labourContract/Math.max(contract,1))*100)}%`,
-                           background: over ? '#ff4f5e' : '#8b5cf6' }} />
-              )}
-            </div>
-            <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginTop:9, fontSize:12 }}>
-              <span style={{ color:'#16c7df' }}>materials billed {money(j.materials_invoiced)}</span>
-              <span style={{ color:'#8ea0b8' }}>cost {money(j.materials_cost)}</span>
-              <span style={{ color: over ? '#ff4f5e' : '#a78bfa' }}>
-                {usedHrs.toFixed(1)}h logged{soldHrs ? ` of ${soldHrs}h sold` : ''}
-                {rate ? ` @ ${money(rate)}/hr` : ' — no rate entered'}
-              </span>
-              <span style={{ color:'#8ea0b8' }}>billed {money(j.invoiced_amount)}</span>
-            </div>
-
-            <button onClick={() => {
-                if (isOpen) { setOpen(null); return; }
-                setOpen(j.id);
-                setDraft({
-                  estimate_amount:    j.estimate_amount ?? '',
-                  estimated_hours:    j.estimated_hours ?? '',
-                  hourly_rate:        j.hourly_rate ?? '',
-                  materials_cost:     j.materials_cost ?? '',
-                  materials_invoiced: j.materials_invoiced ?? '',
-                  invoiced_amount:    j.invoiced_amount ?? '',
-                });
-              }}
-              style={{ marginTop:11, background:'transparent', border:'1px solid #334155',
-                       color:'#8ea0b8', borderRadius:8, padding:'6px 12px', fontSize:12,
-                       fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
-              {isOpen ? 'Cancel' : 'Enter numbers'}
-            </button>
-
-            {isOpen && (
-              <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #1d2f48' }}>
-                <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:10 }}>
-                  <F k="estimate_amount"    label="Contract"          prefix="$" />
-                  <F k="estimated_hours"    label="Hours sold" />
-                  <F k="hourly_rate"        label="Rate / hr"         prefix="$" />
-                </div>
-                <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:12 }}>
-                  <F k="materials_cost"     label="Materials cost"    prefix="$" />
-                  <F k="materials_invoiced" label="Materials billed"  prefix="$" />
-                  <F k="invoiced_amount"    label="Billed to date"    prefix="$" />
-                </div>
-                <button onClick={() => save(j.id)} disabled={saving}
-                  style={{ background:'#22d16f', border:'none', color:'#04130a',
-                           borderRadius:9, padding:'9px 18px', fontSize:13, fontWeight:800,
-                           cursor:'pointer', fontFamily:'inherit' }}>
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {rows.map(j => (
+        <ProjectPanel key={j.id} job={j} loggedMinutes={used[j.id] || 0}
+          userEmail={userEmail} onChanged={load} />
+      ))}
     </div>
   );
 }

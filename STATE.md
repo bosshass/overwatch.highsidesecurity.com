@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.108.0 · 2026-08-21.** Every number here was read from the live database or
+**9.109.0 · 2026-08-21.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -19,7 +19,7 @@ see Corrections in DECISIONS.md*), **`WALKTHROUGHS.md`** (the push gate).
 |---|---|
 | Application code | **32,106 lines** across `src/` and `api/` |
 | Database tables | **20** (excluding backups) |
-| Migrations | **26** files, 054 latest |
+| Migrations | **27** files, 055 latest |
 | Serverless endpoints | 5 — `send-sms`, `sms-inbound`, `sms-status`, `welcome-draft`, `sse` |
 | Hosting | Vercel · `overwatch-highsidesecurity-com.vercel.app` |
 | Database | Supabase `wolhqelloeypafmmvapn` |
@@ -84,6 +84,12 @@ Two levels is right; storing both is what drifted.
 **A disposition is a DISPATCH signal, not a billing one.** The tech says what
 happened, which tells the scheduler what has to happen next. Billing reads the
 same rows later and gets no vote.
+
+**Overwatch does not do accounting.** A project is **a budget of hours, the
+hours logged against it, and a delta.** Billing says *progress invoiced* and
+*complete* — **no dollars**. What an invoice was for lives in QuickBooks; a
+second figure typed here is a second version of it that will disagree within a
+week. The money columns keep their data and are never written by the app again.
 
 **Every hour is a cost. Only some hours are an invoice line** — decided by how
 the job was *sold*, never by a flag typed onto the hour.
@@ -432,6 +438,59 @@ lane — *a parent cannot be closed while the work it carries is open* — and t
 eight get cards, `Internal` where there is no customer, because a gift basket is
 still work, it is just not about anybody. **Verified after: 0 with no card, 0
 whose parent is archived or dead.**
+
+---
+
+## A PROJECT IS HOURS
+
+> *"Overwatch is NOT going to do accounting. Overwatch gets a budget of hours
+> available and all the hours logged to it and a delta. The billing person gets
+> to say when it is progress invoiced — no dollars — and then when it is
+> complete. That's it."*
+
+**What this replaced.** The fixed-fee panel asked for six money fields —
+contract, rate per hour, materials cost, materials billed, billed to date — and
+drew its progress bar from *hours × rate against contract minus materials*. A
+P&L rebuilt by hand in a field-service app, next to a real one in QuickBooks
+that would disagree with it within a week.
+
+**Three numbers, and they are the three Overwatch actually owns:**
+
+| | |
+|---|---|
+| **Budget** | hours the job was sold with — `jobs.hours_budget` |
+| **Logged** | hours in `time_entries` against it |
+| **Delta** | budget − logged. Red past zero |
+
+**Two stamps, no amounts.** *Progress invoiced* — billing says an invoice went
+out, not how much; repeatable, because a long project bills several times and
+the count is what says so. *Complete* — billing says it is settled, and that is
+the close-out. Both gated on `canBill`. **Setting the budget is not gated** —
+that is scoping, decided when the job was sold, and the person running the work
+is who knows it.
+
+**Nothing is dropped.** `estimate_amount`, `hourly_rate`, `materials_cost`,
+`materials_invoiced` and `invoiced_amount` keep their data and stay readable.
+The money is simply no longer asked for, shown, or written. A column with
+history in it does not get deleted on the strength of a UI decision.
+
+**The job card's billing modal no longer asks for an amount** — it asks for an
+invoice number, which is a *reference* to the book of record rather than a copy
+of it, and writes `invoice_ref`. It also no longer refuses to submit without
+dollars, which is what made it unpressable once the amount question became the
+wrong question.
+
+**In the customer view:** a **Projects** section above Open work, because a
+project is the bigger fact about an account than any one card — budget, logged,
+delta, the stamps, and *Close it out*. Above it, **Stats**: visits, hours, open
+work, projects, last visit. All counted from rows Overwatch owns. **No money**,
+for the same reason as everywhere else.
+
+**Migration 055** adds `hours_budget`, `progress_invoiced_at/by`,
+`progress_invoice_count` and `completed_by`, and seeds the budget from
+`estimated_hours` where one existed — **five jobs**. The other eight fixed-fee
+jobs read *"no hours budget yet"* rather than a number invented from a contract
+price and a rate.
 
 ---
 

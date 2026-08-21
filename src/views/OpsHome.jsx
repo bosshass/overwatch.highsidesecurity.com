@@ -16,7 +16,6 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { weekHours, weekScheduled } from '../utils/weekHours.js';
 import DidYouGo, { ASKS as DIDYOUGO_ASKS } from '../components/DidYouGo.jsx';
 import TaskStack from './TaskStack.jsx';
 import { supabase, JOB_STATUS } from '../services/supabase.js';
@@ -75,9 +74,6 @@ export default function OpsHome({
   const [sheet, setSheet] = useState(null);   // 'visits' | 'tasks' | null
   const [tileCounts, setTileCounts] = useState({ visits: null, tasks: null });
   const [board, setBoard] = useState(null);
-  // THIS WEEK, IN HOURS. Sums of rows that already exist — see utils/weekHours.
-  const [wk, setWk] = useState(null);
-  const [sched, setSched] = useState(null);
   // Jobs marked scheduled whose day came and went with nobody dispositioning them.
   const [stranded, setStranded] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -234,16 +230,6 @@ export default function OpsHome({
     });
     return () => { dead = true; };
   }, [userEmail, sheet]);
-
-  // Two reads, once, on load. Both resolve to a zeroed shape on failure rather
-  // than leaving a tile reading "Checking…" forever — the bug the tile counts
-  // above already had once.
-  useEffect(() => {
-    let dead = false;
-    weekHours().then(r => { if (!dead) setWk(r); }).catch(() => { if (!dead) setWk({ total: 0 }); });
-    weekScheduled().then(r => { if (!dead) setSched(r); }).catch(() => { if (!dead) setSched({ booked: 0 }); });
-    return () => { dead = true; };
-  }, []);
 
   const peopleRef = useRef(null);
 
@@ -419,36 +405,14 @@ export default function OpsHome({
             ...(isOperator ? [
               { path:'/unbilled', icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
               { path:'/recap',    icon:'📊', label:'This week', sub:'What actually got done' },
-              // ── THIS WEEK, IN HOURS ──────────────────────────────────
-              // Three sums off time_entries. No new logic anywhere: the
-              // disposition the tech picked and the job the entry points at
-              // already say which bucket an hour is in.
-              //
-              // PROJECT HOURS opens Billing on the Project hours tab, which is
-              // where the projects themselves now live — the panel used to sit
-              // permanently at the top of Billing whether you wanted it or not.
-              { path:'/unbilled?tab=project', icon:'📐', label:'Project hours',
-                sub: wk == null ? 'Checking…'
-                   : wk.project ? `${wk.project}h this week — cost, not an invoice`
-                   : 'None this week' },
-              // RETURNS. Hours already spent that CANNOT be invoiced until
-              // somebody goes back. Every day one sits here is a day of
-              // unbilled work and a day of bad service, which is why it gets
-              // its own door rather than a line inside Billing.
-              { path:'/unbilled?tab=return', icon:'🔄', label:'Return hours',
-                sub: wk == null ? 'Checking…'
-                   : wk.returns ? `${wk.returns}h this week — can't bill till someone goes back`
-                   : 'None waiting',
-                hot: !!(wk && wk.returns) },
-              // SCHEDULED vs LOGGED. `jobs` has no duration column — a
-              // booking's LENGTH lives only on the Google event — so this
-              // counts VISITS booked and how many produced hours. The
-              // over-under is the part that matters: a visit with nothing
-              // logged is invisible work.
-              { path:'/calendar', icon:'📅', label:'Scheduled this week',
-                sub: sched == null ? 'Checking…'
-                   : `${sched.booked} booked · ${sched.logged} logged · ${sched.missing} not`,
-                hot: !!(sched && sched.missing) },
+              // THE HOURS CARDS LIVE ON THIS WEEK, NOT HERE.
+              // Project hours, Return hours and Scheduled-vs-logged were built
+              // as home tiles first. They are not home: home is "what do I do
+              // next", and an hours roll-up is "how did the week go" — a
+              // different question, asked at a different moment. Putting them
+              // here made six doors where there were four and buried the two
+              // that are actually actionable. They are cards on /recap now,
+              // each one clickable into the Billing bucket it counts.
             ] : []),
           ].map(t => (
             <button key={t.key || t.path}

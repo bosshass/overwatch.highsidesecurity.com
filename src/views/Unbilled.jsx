@@ -239,8 +239,29 @@ export default function Unbilled({ onBack, userEmail }) {
         ? (entries || []).filter(e => (e.tech_name || '').toLowerCase() === techFilter.toLowerCase())
         : (entries || []);
 
+      // ── TEST DATA LEAVES. ────────────────────────────────────────────
+      // A not_real entry — test, duplicate, data mistake — never happened, so
+      // there is nothing for this screen to be a queue OF. It is dropped
+      // outright rather than bucketed, because a bucket is still a row to read
+      // past and these accumulate forever.
+      //
+      // Absorbed and sales entries are NOT dropped: those are real hours DRH
+      // ate, and hiding them is how a customer who costs money starts looking
+      // profitable.
+      const notReal = (e) => e.archived && isNotReal(e.archive_reason);
+      // Jobs whose ONLY hours are not-real must not then reappear in the
+      // no-hours sweep below as "marked done, nobody logged time" — the time
+      // WAS logged and then correctly disowned. Same rule CustomerHistory uses.
+      const realByJob = {};
+      (entries || []).forEach(e => {
+        if (!e.job_id) return;
+        realByJob[e.job_id] = (realByJob[e.job_id] || 0) + (notReal(e) ? 0 : 1);
+      });
+      const allTestJobs = new Set(Object.entries(realByJob)
+        .filter(([, n]) => n === 0).map(([id]) => id));
+
       const byCustomer = {};
-      scoped.forEach(e0 => {
+      scoped.filter(e => !notReal(e)).forEach(e0 => {
         const job = jobFor(e0);
         // Zero clocked minutes is its own problem, not a 'ready to bill'.
         const b0 = bucketOf(job, e0);
@@ -288,6 +309,7 @@ export default function Unbilled({ onBack, userEmail }) {
       });
 
       const seenJobIds = new Set((entries || []).map(e => e.job_id).filter(Boolean));
+      allTestJobs.forEach(id => seenJobIds.add(id));
       (entries || []).forEach(e => { const j = jobFor(e); if (j) seenJobIds.add(j.id); });
       // A job with NO time entry has no tech on it, so it cannot belong to any
       // one person's column. Under a tech filter it would be noise attributed

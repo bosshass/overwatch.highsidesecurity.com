@@ -24,6 +24,7 @@
 // Import from here. Do not add a fourth subset.
 
 import { supabase } from '../services/supabase.js';
+import { isNotReal } from '../config/archiveReasons.js';
 
 // Find the job an event belongs to, checking all three homes in priority
 // order. Returns { id, status, ... } or null.
@@ -121,7 +122,18 @@ export function unbilledBucket(job, entry = null) {
     if (entry.resolved_at)                      return 'resolved';
     if (entry.billed || entry.invoice_ref)      return 'billed';
     if (entry.billable === false)               return 'project';
-    if (entry.archived)                         return 'absorbed';
+    // ── ARCHIVED IS TWO DIFFERENT THINGS ────────────────────────────────
+    // This returned 'absorbed' for EVERY archived entry, which put test rows,
+    // duplicates and data mistakes into the Absorbed cost bucket — a bucket
+    // whose whole purpose is "real cost DRH ate." So marking something as test
+    // data moved it one bucket sideways and it never left the screen.
+    //
+    // config/archiveReasons.js has always drawn the line and says why: a
+    // not_real visit never happened — no truck rolled, no hours were spent —
+    // and "it should vanish from BOTH sides of the ledger." Absorbed is the
+    // opposite and must stay visible, which is the part that is working.
+    if (entry.archived)
+      return isNotReal(entry.archive_reason) ? 'not_real' : 'absorbed';
     // ── THE CONTRACT ALREADY SAID SO ────────────────────────────────────
     // `billable === false` above is the manual flag, and it has NEVER been
     // written: zero of 74 entries carry it, because nothing in the app could

@@ -367,7 +367,12 @@ export default function Unbilled({ onBack, userEmail }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const [tab, setTab] = useState('ready');
+  // ?tab=project lands here straight from the Project hours tile on Home, so
+  // the tile is a real door rather than a number you then have to go looking
+  // for. Any bucket key works; an unknown one falls back to Ready.
+  const urlTab = searchParams.get('tab');
+  const [tab, setTab] = useState(
+    BUCKETS.some(b => b.key === urlTab) ? urlTab : 'ready');
 
   const byBucket = useMemo(() => {
     const m = {};
@@ -918,10 +923,6 @@ export default function Unbilled({ onBack, userEmail }) {
             </button>
           </div>
         )}
-      {/* Fixed-fee projects sit ABOVE the buckets: the hours inside them are
-          already accounted for by contract, so the question "what do I invoice"
-          is answered here first. accounting@ only. */}
-      <FixedFeeProjects userEmail={userEmail} />
 
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
           {BUCKETS.map(b => {
@@ -952,8 +953,19 @@ export default function Unbilled({ onBack, userEmail }) {
           <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.55 }}>{BUCKET_BY_KEY[tab].blurb}</div>
         </div>
 
+        {/* THE PROJECTS THEMSELVES LIVE BEHIND THIS TAB.
+            They used to sit permanently at the top of Billing, above every
+            bucket, whether you were looking for them or not. "The projects
+            thing in billing is displayed on clicking Project Hours" — so it
+            is: the tile on Home opens ?tab=project and lands here, and the
+            hours listed underneath are the same hours, grouped by client. */}
+        {tab === 'project' && <FixedFeeProjects userEmail={userEmail} />}
+
         {shown.length === 0 && (
-          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>Nothing in here. Good.</div>
+          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>
+            {tab === 'project' ? 'No unbilled project hours. The projects above still show where each one stands.'
+                               : 'Nothing in here. Good.'}
+          </div>
         )}
 
         {shown.map(g => {

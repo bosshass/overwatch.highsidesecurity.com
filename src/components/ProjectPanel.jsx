@@ -150,6 +150,23 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
         await jobsApi.changeStatus(job.id, JOB_STATUS.COMPLETE, userEmail,
           `Project closed out — ${hrs(logged)} logged${budget ? ` against a ${hrs(budget)} budget` : ''}${over ? `, ${hrs(Math.abs(delta))} over` : ''}`);
       }
+      // ── IT HAS TO COMPLETELY GO AWAY ──────────────────────────────────
+      // "It needs to completely go away in the billing view once I close it
+      //  out." Flagging the job is not enough: its HOURS are separate rows,
+      //  and Billing reads time_entries. A closed project whose visits still
+      //  sit in the queue is the same job asking to be dealt with twice.
+      //
+      // resolved_at is the one switch that takes a visit off that screen for
+      // good — the same mechanism migration 042 used to settle 193 pre-July
+      // entries. Not `billed`: these were never invoiced by the hour, and
+      // stamping them billed would put a lie in the row to tidy a screen.
+      try {
+        const { error: tErr } = await supabase.from('time_entries').update({
+          resolved_at: new Date().toISOString(),
+          resolution_reason: 'Project closed out — covered by the agreed price',
+        }).eq('job_id', job.id).is('resolved_at', null);
+        if (tErr) console.warn('project hours not settled:', tErr.message);
+      } catch (e) { console.warn('project hours not settled:', e?.message || e); }
       onChanged?.();
     } catch (e) { setErr(e.message || String(e)); }
     setBusy(false);
@@ -162,6 +179,12 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
       const { error } = await supabase.from('jobs')
         .update({ is_complete: false, updated_by: userEmail }).eq('id', job.id);
       if (error) throw error;
+      // Re-opening puts the hours back in the queue. A close-out that cannot be
+      // undone cleanly is one people stop using.
+      await supabase.from('time_entries')
+        .update({ resolved_at: null, resolution_reason: null })
+        .eq('job_id', job.id)
+        .eq('resolution_reason', 'Project closed out — covered by the agreed price');
       await jobsApi.logHistory(job.id, null, null, userEmail, 'Project re-opened — not settled after all').catch(() => {});
       onChanged?.();
     } catch (e) { setErr(e.message || String(e)); }

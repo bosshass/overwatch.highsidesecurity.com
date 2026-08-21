@@ -180,3 +180,39 @@ export function ownsJob(job, emailOrName) {
 // Statuses that mean "finished or abandoned" — never surface these as someone's
 // open work, however they're assigned.
 export const CLOSED_STATUSES = ['billed', 'archived', 'dead', 'lost'];
+
+// ── WHO GETS TO SAY A JOB WAS INVOICED ───────────────────────────────────────
+// "They don't get to tell us how much they were invoicing — that's not for
+// them to do."
+//
+// This is the billing side of the rule the finish sheet already obeys: a
+// disposition is a DISPATCH signal, not a billing one. The tech says what
+// happened; what it is worth and whether it went on an invoice is settled
+// later, by the people who send invoices. The field having a $ field at all
+// invites a number that then disagrees with QuickBooks, and once two numbers
+// exist nobody can tell which is the invoice.
+//
+// IT WAS NOT GATED THAT WAY. JobDetail asked `isInfoUser`, meaning
+// info@drhsecurityservices.com — written when that address was a shared office
+// mailbox. IT IS JR'S LOGIN. So the one account the billing modal was opened
+// for is a tech's, and every other operator marked jobs billed with NO amount
+// at all by falling through to a plain status change.
+//
+// Named for the job, not the mailbox, so it cannot drift the same way again:
+// accounting@ (who invoices) and Sara's logins. Deliberately NOT info@ (JR) and
+// NOT shanaparks@ (scheduling). If Shana starts invoicing, add her here — one
+// line, one place.
+//
+// THIS IS A UI CONVENTION, NOT A SECURITY BOUNDARY. Every table is RLS
+// `USING (true)` and the anon key ships in the browser, so anyone who can sign
+// in can still write these columns directly. It stops the accident and the
+// wrong habit; it does not stop a determined person.
+export const BILLING_EMAILS = [
+  'accounting@drhsecurityservices.com',
+  'admin@jnbservice.com',
+  'sara@jnbllc.com',
+  'sara@jnbservice.com',
+];
+
+export const canBill = (email) =>
+  BILLING_EMAILS.includes(String(email || '').toLowerCase().trim());

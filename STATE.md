@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.105.0 · 2026-08-21.** Every number here was read from the live database or
+**9.106.0 · 2026-08-21.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -248,6 +248,75 @@ have ever used it.** Three reasons, all now fixed:
 unknown column, `jobsApi.update` throws, and the catch logs "Billing error" to a
 console nobody has open. **The status change never ran.** Same failure mode as
 #2, found the same way — by asking the database what the columns actually are.
+
+The modal header also rendered `job.job_number`, which does not exist, so it
+printed the literal word **undefined** next to the customer's name on the one
+screen where a number matters. It shows the invoice reference now, when there
+is one.
+
+### 15. The billing gate was a mailbox, and the mailbox is JR's
+
+> *"They don't get to tell us how much they were invoicing — that's not for them
+> to do."*
+
+The invoice-amount modal was gated on `isInfoUser` —
+`info@drhsecurityservices.com` or `sara@jnbllc.com` — written when info@ was
+believed to be a shared office mailbox. **It is JR's login**, role `operator`.
+So the one account the $ field opened for belonged to a tech.
+
+Worse, the gate only covered the *modal*. The click handler read:
+
+```js
+else if (action.toStatus === BILLED && isInfoUser) { setShowBillingModal(true); }
+else { handleStatusChange(action.toStatus); }
+```
+
+Everyone who was **not** info@ fell through to the `else` and **marked the job
+billed with no amount, no invoice reference, and nothing recording who decided.**
+The gate made the careful path exclusive and left the careless one open to all.
+
+---
+
+## WHO GETS TO SAY A JOB WAS INVOICED
+
+This is the billing side of a rule the finish sheet already obeys: **a
+disposition is a dispatch signal, not a billing one.** The tech says what
+happened. What it is worth, and whether it went on an invoice, is settled later
+by the people who send invoices.
+
+**`canBill()` in `utils/ownership.js` is the one definition** — named for the
+job, not for a mailbox, so it cannot drift the same way twice:
+
+| | |
+|---|---|
+| **Can mark billed** | `accounting@`, `admin@jnbservice.com`, `sara@jnbllc.com`, `sara@jnbservice.com` |
+| **Cannot** | `info@` (JR), `jr@`, `shanaparks@`, and every tech login |
+
+Enforced in four places, because `billed` was reachable from all four:
+
+1. **JobDetail** — the Mark Billed action is not offered, the modal cannot open,
+   and `handleStatusChange` refuses `billed` outright (the status picker lists
+   every destination, so the action buttons were never the only route).
+2. **The board's quick-advance chip** — `to_bill → billed` was one tap, and the
+   board is operators, which includes JR.
+3. **TicketSheet** — `movesFor()` takes `mayBill`, **defaulting to false**: a
+   caller that forgets to say who is asking gets the safe answer.
+4. **Billing (`/unbilled`)** — Mark billed, the invoice-# field, and both
+   "invoiced elsewhere" buttons. The screen is `OperatorOnly`, which is not the
+   same as being the person who invoices.
+
+**What everyone keeps.** *Done — To Bill* stays available to all — a tech saying
+the work is finished is a fact they are entitled to state, and it is how work
+reaches billing in the first place. Reading the queue, selecting rows, and
+clearing junk with a reason all stay too. **One action moved, not a lockout.**
+
+**Shana is excluded.** She schedules; accounting invoices. If she bills, adding
+her is one line in `BILLING_EMAILS`.
+
+**This is a UI convention, not a security boundary** — see #11. Every table is
+RLS `USING (true)` and the anon key ships in the browser, so anyone signed in
+can still write these columns directly. It stops the accident and the wrong
+habit; it does not stop a determined person.
 
 ---
 

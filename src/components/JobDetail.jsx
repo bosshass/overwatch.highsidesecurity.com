@@ -17,6 +17,7 @@
 //   Nothing else. Zero clutter.
 
 import { useState, useEffect, useCallback } from 'react';
+import { canBill } from '../utils/ownership.js';
 import { useNavigate } from 'react-router-dom';
 import { jobsApi, assignmentsApi, techsApi, notesApi, timeEntriesApi, STATUS_INFO, JOB_STATUS, queries, supabase } from '../services/supabase.js';
 import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIONS, ACTIONS, PRE_SCHEDULE_CHECKLIST, getChecklistState, getChecklistBlockers, INSTALL_TYPES, stripIntakeTemplate, parsePhoneNumbers } from '../utils/statusMachine.js';
@@ -237,6 +238,13 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       alert('⚠️ Cannot mark as Billed — completion notes are required.');
       return;
     }
+    // The status picker lists every destination, so `billed` is reachable
+    // without going near the action buttons above. One rule, checked wherever
+    // the move actually happens.
+    if (newStatus === JOB_STATUS.BILLED && !mayBill) {
+      alert('Only billing marks a job invoiced. Finish it and it goes to their queue.');
+      return;
+    }
     if (newStatus === JOB_STATUS.BILLED && INSTALL_TYPES.includes(job.job_type) && !job.manager_approved_by) {
       alert('⚠️ Cannot mark as Billed — installation requires manager approval first.');
       return;
@@ -253,7 +261,12 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   };
 
   // Handle billing with $ amount + move to Completed calendar
-  const isInfoUser = userEmail?.toLowerCase()?.includes('info@drhsecurityservices.com') || userEmail?.toLowerCase()?.includes('sara@jnbllc.com');
+  // WAS `isInfoUser` — info@ plus sara@jnbllc. info@ IS JR'S LOGIN, so the one
+  // account allowed to type an invoice amount belonged to a tech, and everybody
+  // else marked jobs billed with no amount at all by falling through to a plain
+  // status change. See utils/ownership.js — the rule is named for the job now,
+  // not for a mailbox that changed hands.
+  const mayBill = canBill(userEmail);
   
   const handleBilledSubmit = async () => {
     if (actionInProgress) return;
@@ -447,12 +460,17 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       case JOB_STATUS.READY_TO_SCHEDULE:
         actions.push(ACTIONS.SCHEDULE); break;
       case JOB_STATUS.SCHEDULED: break;
+      // MARK BILLED IS BILLING'S BUTTON. Offering it to a tech is offering
+      // them the decision; hiding it is the honest version of a rule the app
+      // was only half enforcing. Everything else about the card stays exactly
+      // as it was — this is not a lockout, it is one action.
       case JOB_STATUS.COMPLETE:
-        actions.push(ACTIONS.MARK_BILLED, ACTIONS.COMPLETE_RETURN); break;
+        if (mayBill) actions.push(ACTIONS.MARK_BILLED);
+        actions.push(ACTIONS.COMPLETE_RETURN); break;
       case JOB_STATUS.TO_BILL:
         if (INSTALL_TYPES.includes(job.job_type) && !job.manager_approved_by) {
           if (isOperator) actions.push({ label: '✅ Approve Installation', action: () => setShowApprovalModal(true), color: '#22c55e' });
-        } else { actions.push(ACTIONS.MARK_BILLED); }
+        } else if (mayBill) { actions.push(ACTIONS.MARK_BILLED); }
         break;
       case JOB_STATUS.NEEDS_ESTIMATE:
         actions.push(ACTIONS.SEND_ESTIMATE, ACTIONS.MARK_DEAD); break;
@@ -736,7 +754,11 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           <div style={{ background: '#0f1729', borderRadius: '20px', padding: '24px', width: '100%', maxWidth: '380px', border: '1px solid #8b5cf640' }}>
             <h3 style={{ color: '#8b5cf6', fontSize: '18px', fontWeight: '700', margin: '0 0 4px 0' }}>💰 Mark as Billed</h3>
             <div style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '20px' }}>
-              {job?.customer_name} — {job?.job_number}
+              {/* `job_number` does not exist on this table — it rendered the
+                  literal word "undefined" next to the customer's name on the
+                  one screen where a number matters. The invoice reference is
+                  what belongs here, when there is one. */}
+              {job?.customer_name}{job?.invoice_ref ? ` — ${job.invoice_ref}` : ''}
             </div>
 
             {/* Amount field */}
@@ -1218,7 +1240,14 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
                     if (action.action) { action.action(); }
                     else if (action.toStatus === JOB_STATUS.NEEDS_PARTS) { setShowPartsForm(true); }
                     else if (action.toStatus === JOB_STATUS.SCHEDULED) { attemptSchedule(); }
-                    else if (action.toStatus === JOB_STATUS.BILLED && isInfoUser) { setShowBillingModal(true); }
+                    // NO FALLTHROUGH. This used to end `else
+                    // handleStatusChange(BILLED)`, so anyone who was not
+                    // info@ marked the job billed with no amount, no invoice
+                    // reference and nothing recording who decided — the exact
+                    // thing the modal exists to capture. Billing opens the
+                    // modal; nobody else reaches this branch, because the
+                    // action is not offered to them.
+                    else if (action.toStatus === JOB_STATUS.BILLED) { if (mayBill) setShowBillingModal(true); }
                     else { handleStatusChange(action.toStatus); }
                   }}
                   disabled={actionInProgress !== null}

@@ -23,6 +23,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
+import { canBill } from '../utils/ownership.js';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
 
@@ -289,6 +290,10 @@ export default function Unbilled({ onBack, userEmail }) {
   // place the absorbed-vs-never-happened distinction can be captured — and
   // after the fact nobody remembers. See config/archiveReasons.js.
   const [clearTarget, setClearTarget] = useState(null);
+  // "They don't get to tell us how much they were invoicing." Everyone who can
+  // open this screen can read it and can CLEAR a row with a reason — that is
+  // bookkeeping hygiene. Only billing can assert that an invoice went out.
+  const mayBill = canBill(userEmail);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -519,6 +524,10 @@ export default function Unbilled({ onBack, userEmail }) {
   // path every other status move uses.
   const closeNoHours = async (g, target) => {
     if (!g.job?.id) return;
+    // /unbilled is OperatorOnly, and operators include JR. Reaching the
+    // billing screen is not the same as being the person who invoices, so the
+    // one irreversible-looking action on it asks separately.
+    if (target === 'billed' && !mayBill) return;
     const label = target === 'billed' ? 'billed' : 'cleared';
     // Clearing needs a reason, not a confirm box. "Not billable" collapsed a
     // warranty callback and a test entry into one string.
@@ -550,6 +559,7 @@ export default function Unbilled({ onBack, userEmail }) {
   const closeOrphan = async (g, target) => {
     const ids = g.visits.map(v => v.id).filter(Boolean);
     if (!ids.length) return;
+    if (target === 'billed' && !mayBill) return;
     const n = ids.length;
     if (target !== 'billed') { setClearTarget({ kind: 'orphan', group: g }); return; }
     const msg = `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed?\n\nNo ticket is created. Use this when the work was already invoiced in QuickBooks.`;
@@ -604,6 +614,7 @@ export default function Unbilled({ onBack, userEmail }) {
   };
 
   const markBilled = async () => {
+    if (!mayBill) return;
     if (!sel.rows.length) return;
     const n = sel.rows.length;
     if (!window.confirm(`Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed?\n\nThey will leave this queue. This does not create an invoice — do that in QuickBooks.`)) return;
@@ -913,12 +924,13 @@ export default function Unbilled({ onBack, userEmail }) {
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Make a ticket for this
                   </button>
+                  {mayBill && (
                   <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
                              color: '#22c55e', fontSize: 13, fontWeight: 700, padding: '9px 14px',
                              cursor: 'pointer', fontFamily: 'inherit' }}>
                     Invoiced elsewhere — mark billed
-                  </button>
+                  </button>)}
                   <button onClick={() => closeOrphan(g, 'archived')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #64748b', borderRadius: 8,
                              color: '#94a3b8', fontSize: 13, fontWeight: 700, padding: '9px 14px',
@@ -941,12 +953,13 @@ export default function Unbilled({ onBack, userEmail }) {
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Open the ticket
                   </button>
+                  {mayBill && (
                   <button onClick={() => closeNoHours(g, 'billed')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
                              color: '#22c55e', fontSize: 13, fontWeight: 700, padding: '9px 14px',
                              cursor: 'pointer', fontFamily: 'inherit' }}>
                     Invoiced elsewhere — mark billed
-                  </button>
+                  </button>)}
                   <button onClick={() => closeNoHours(g, 'archived')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #64748b', borderRadius: 8,
                              color: '#94a3b8', fontSize: 13, fontWeight: 700, padding: '9px 14px',
@@ -1027,8 +1040,9 @@ export default function Unbilled({ onBack, userEmail }) {
               <span style={{ fontSize: 15, fontWeight: 800, color: '#22c55e' }}>
                 {sel.rows.length} visit{sel.rows.length > 1 ? 's' : ''} · {fmtH(sel.hours)}
               </span>
+              {mayBill && (
               <input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="invoice # (optional)"
-                style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 13, width: 150 }} />
+                style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 13, width: 150 }} />)}
               <button onClick={() => setPicked(new Set())}
                 style={{ background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>Clear</button>
               <button onClick={() => setArchiving(true)} disabled={saving}
@@ -1036,10 +1050,19 @@ export default function Unbilled({ onBack, userEmail }) {
                 style={{ background: 'none', border: '1px solid #64748b', color: '#cbd5e1', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 🗑️ Archive — pick a reason
               </button>
+              {/* Reading the queue, selecting rows, and archiving junk with a
+                  reason are all fine for anyone who can open this screen.
+                  Asserting that an invoice went out is not. */}
+              {mayBill ? (
               <button onClick={markBilled} disabled={saving}
                 style={{ marginLeft: 'auto', background: '#22c55e', border: 'none', color: '#052e16', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 800, cursor: saving ? 'wait' : 'pointer' }}>
                 {saving ? 'Saving…' : 'Mark billed'}
               </button>
+              ) : (
+              <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#94a3b8', fontWeight: 700 }}>
+                Billing marks these invoiced
+              </span>
+              )}
             </div>
             {sel.materials.length > 0 && (
               <div style={{ marginTop: 8, fontSize: 12, color: '#fbbf24', background: '#78350f33', borderRadius: 6, padding: '6px 9px' }}>

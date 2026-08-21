@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
-import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail } from '../utils/ownership.js';
+import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
 import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
@@ -537,7 +537,11 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
   const hasUUID = !!job.customer_id;
-  const quickVerbs = SUGGESTED_NEXT[job.status] ? [SUGGESTED_NEXT[job.status]] : [];
+  // `to_bill → billed` is the one suggested move that is not this screen's to
+  // make. The board is operators, and operators include JR; advancing a card
+  // one lane is a scheduling gesture, not a decision to invoice.
+  const suggested = SUGGESTED_NEXT[job.status];
+  const quickVerbs = (suggested && (suggested !== 'billed' || canBill(userEmail))) ? [suggested] : [];
 
   // 72h rule — see src/utils/staleness.js. A card nobody has touched in 3 days
   // gets an amber rail; a week gets red. The status chip used to be the loudest

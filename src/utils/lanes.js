@@ -195,7 +195,12 @@ const ESTIMATE_STEPS = [
 
 const ESTIMATE_STATUSES = new Set(ESTIMATE_STEPS.map(s => s.key));
 
-export function movesFor(job, { includeBilling = true, includeClear = true } = {}) {
+// `mayBill` — whether the person looking at this ticket is the one who
+// invoices. Defaults to FALSE on purpose: "Done — To Bill" is a statement of
+// fact a tech is entitled to make, but "Billed" is a claim that an invoice
+// went out, and a caller that forgets to say who is asking should get the
+// safe answer rather than the permissive one.
+export function movesFor(job, { includeBilling = true, includeClear = true, mayBill = false } = {}) {
   const here = laneOf(job)?.key;
   const currentStatus = job?.status;
 
@@ -257,7 +262,7 @@ export function movesFor(job, { includeBilling = true, includeClear = true } = {
     RETURN_LANE,
     ...LANES.slice(2),           // Tentative, Scheduled, Estimates
     ...(includeBilling ? [BILLING_LANE] : []),
-    ...(includeBilling && finished ? [BILLED_LANE] : []),
+    ...(includeBilling && finished && mayBill ? [BILLED_LANE] : []),
     ...(includeClear ? [CLEAR_LANE] : []),
   ].filter(l => l.key !== here);
 }

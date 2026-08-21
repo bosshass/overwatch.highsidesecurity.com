@@ -26,6 +26,7 @@ import { assignmentMessage, APP_BASE } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
 import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME, canonicalEmail, NAME_BY_EMAIL } from '../utils/ownership.js';
 import { LANES, movesFor, laneOf, isHeld , requiresDisposition } from '../utils/lanes.js';
+import { canBill } from '../utils/ownership.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import { releaseCalendar } from '../services/schedule.js';
@@ -161,7 +162,9 @@ export default function TicketSheet({
   if (!job) return null;
 
   const here = laneOf(job);
-  const moves = movesFor(job);
+  // Billing's move is billing's to offer. Everyone else can still send the
+  // card to them — that is BILLING_LANE, "Done — To Bill", and it stays.
+  const moves = movesFor(job, { mayBill: canBill(userEmail) });
   // Opened from the home screen's No Disposition list, this is the whole
   // reason the card is in front of you. Say so at the top instead of making
   // someone infer it from a status chip.

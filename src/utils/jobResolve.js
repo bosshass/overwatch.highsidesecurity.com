@@ -136,6 +136,13 @@ export function unbilledBucket(job, entry = null) {
     // disagreed (not resolved, not billed, not written off, not archived), so
     // it is ready. The job's status is not a second opinion.
     if (entry.disposition === 'bill_it')        return 'ready';
+    // A WASTED TRIP IS STILL A TRIP. It gets its own bucket rather than
+    // 'ready': the work was NOT done, so filing it with finished work would
+    // have the office invoicing for a repair nobody made. And it must not fall
+    // into 'nohours' either — a blocked visit legitimately has almost no
+    // clocked time, so "nobody logged hours" would read as a data error when
+    // it is the correct and expected shape of the thing.
+    if (entry.disposition === 'blocked')        return 'trip';
   }
   if (!job) return 'nojob';
   const s = job.status;

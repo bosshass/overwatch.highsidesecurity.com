@@ -259,9 +259,15 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     if (actionInProgress) return;
     setActionInProgress(JOB_STATUS.BILLED);
     try {
-      // Save billed amount
-      const updateData = { billed_amount: parseFloat(billedAmount) || 0 };
-      if (billingNote.trim()) updateData.billing_notes = billingNote.trim();
+      // BOTH OF THESE COLUMNS WERE INVENTED. `jobs` has no `billed_amount`
+      // and no `billing_notes` — the amount column is `invoiced_amount`, and
+      // the note goes to `completion_notes`, which changeStatus below already
+      // writes from `notes`. PostgREST 400s the whole UPDATE on an unknown
+      // column, jobsApi.update throws, and the catch at the bottom of this
+      // function logs "Billing error" to a console nobody has open. So this
+      // button has never once marked a job billed — it failed before it ever
+      // reached the status change.
+      const updateData = { invoiced_amount: parseFloat(billedAmount) || 0 };
       await jobsApi.update(job.id, updateData, userEmail);
 
       // Change status to BILLED

@@ -897,13 +897,18 @@ export const queries = {
 //   estimate     → sales handoff
 //   skip         → terminal / already handled / ignore
 //   triage       → unknown, needs human eyes
-export const DISPOSITIONS = ['bill_it', 'return', 'in_progress', 'estimate'];
+//   blocked      → went out, could not do the work; the TRIP bills
+export const DISPOSITIONS = ['bill_it', 'return', 'in_progress', 'estimate', 'blocked'];
 
 export function normalizeDisposition(raw) {
   if (!raw) return 'triage';
   const t = String(raw).toUpperCase().replace(/[[\]]/g, ' ').trim();
   // Order matters: 'billed/invoiced' (skip) must beat 'bill' (bill_it).
   if (/\b(BILLED|INVOICED?|IGNORED?|SKIP|SCHEDULED|ARCHIVED?)\b/.test(t)) return 'skip';
+  // Before RETURN and before BILL: a wasted trip often carries both words in
+  // the same title ("no access - return"), and what happened is that nobody
+  // got in. That fact outranks what has to happen next.
+  if (/\b(NO ?ACCESS|NOBODY (?:HOME|THERE)|NO ?ONE (?:HOME|THERE)|LOCKED ?OUT|TURNED ?AWAY|COULD ?N'?T ?(?:GET ?IN|DO)|BLOCKED)\b/.test(t)) return 'blocked';
   if (/\bRETURN\b/.test(t)) return 'return';                       // return · return trip · return needed · return required
   if (/\b(ESTIMATE|SALES|QUOTE|BID)\b/.test(t)) return 'estimate';
   if (/\b(IN ?PROGRESS|ONGOING|MULTI[- ]?DAY)\b/.test(t)) return 'in_progress';
@@ -982,7 +987,10 @@ export const timeEntriesApi = {
     const { data, error } = await supabase
       .from('time_entries')
       .select('*, customers(name, phone, address, drh_id)')
-      .eq('disposition', 'bill_it')
+      // A blocked visit is chargeable — see utils/billing.js. Leaving it out
+      // meant a tech could mark "couldn't do it" and the trip would never
+      // reach anyone who invoices.
+      .in('disposition', ['bill_it', 'blocked'])
       .eq('billed', false)
       .order('created_at', { ascending: true });
     if (error) throw error;

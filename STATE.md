@@ -3,7 +3,7 @@
 Everything: the code, the tables, the rules, what works, what is built and
 broken, and what was never built.
 
-**9.104.0 · 2026-08-20.** Every number here was read from the live database or
+**9.105.0 · 2026-08-21.** Every number here was read from the live database or
 counted in the repo. Nothing is from memory.
 
 Companion documents: **`MESSAGING.md`** (the texting layer in full),
@@ -19,7 +19,7 @@ see Corrections in DECISIONS.md*), **`WALKTHROUGHS.md`** (the push gate).
 |---|---|
 | Application code | **32,106 lines** across `src/` and `api/` |
 | Database tables | **20** (excluding backups) |
-| Migrations | **24** files, 052 latest |
+| Migrations | **25** files, 053 latest |
 | Serverless endpoints | 5 — `send-sms`, `sms-inbound`, `sms-status`, `welcome-draft`, `sse` |
 | Hosting | Vercel · `overwatch-highsidesecurity-com.vercel.app` |
 | Database | Supabase `wolhqelloeypafmmvapn` |
@@ -72,7 +72,9 @@ The five biggest files are `App.jsx` (1,511), `JobDetail.jsx` (1,392),
 Full reasoning in `DECISIONS.md`. In brief:
 
 **closed ≠ complete.** *Closed* is set by the disposition — the doing is
-finished. *Complete* is set by `invoiced = true` — the money is settled. A
+finished. *Complete* is the money being settled — `is_complete` / `invoiced_at`
+/ `invoiced_amount`; there is no `jobs.invoiced` column, though several places
+in the code have believed there was. A
 fixed-fee project accrues closed visits for weeks with none complete, and that
 is correct, not a backlog.
 
@@ -204,62 +206,85 @@ and `dismissAll` (bulk → `archived`), `CustomerAudit.markOrphanComplete`
 **Still true:** the 334 historical gaps cannot be reconstructed. Only new moves
 are recorded.
 
-### 12. Cards in outcome lanes with no visit behind them
+### 12. Cards in outcome lanes with no visit behind them — settled
 
-Three open cards sit in a lane that asserts an outcome, with **zero time
-entries** — nothing has been billed, returned or estimated because nobody has
-recorded going:
+Three open cards sat in a lane asserting an outcome with **zero time entries**.
+Sara ruled on each:
 
-- **Jeff Goodell** — To Bill, scheduled Aug 24
-- **Tae Won Suh** — Return Pending, scheduled Aug 6
-- **Pault, Jerroud/Cynthia** — To Bill, scheduled Aug 14, and a **duplicate** of
-  a Pault card already billed in June
+- **Jeff Goodell** — To Bill, scheduled **Aug 24**. *"The 24th is future."* It is
+  a `project` card carrying $9,558 invoiced with pre-wire still going. **Not a
+  defect** — a project accrues, which is the closed ≠ complete rule working.
+- **Tae Won Suh** — *"JR never did notes, no one was there, needs to bill a
+  trip — that's what the blocked option was meant for."* Nothing was started, so
+  nothing needed returning to. **Migration 053** moves it to `blocked`.
+- **Pault** — two cards. The June one is a separate `project`, already billed.
+  The live one is 7 days old, not 30, so the new rule below leaves it alone.
 
-This is what I previously mis-read as the lane contradicting the tech. There is
-no tech to contradict.
+### 13. The `blocked` disposition existed and was unusable
 
-### 4. One job, several cards
-**Laird Heikens is three cards. Jeanneret is two. Shepard is two.** There is no
-`parent_job_id`, so related work cannot be recognised as related. Same root
-cause as the fifteen P-codes.
+`blocked` shipped with the database ready for it — `jobs_status_check` and
+`time_entries_disposition_check` both allow it — and **zero of 307 time entries
+have ever used it.** Three reasons, all now fixed:
 
-### 5. Four scheduled cards with no issue
-Tae Won Suh, David Huang, Jeanneret, **Nancy Neville — scheduled Aug 24**. A
-tech is going somewhere with nothing telling them why. (Was 28 before migration
-048; these are the ones that never had one.)
+1. **The button was labelled `📝 New / Notes`** — a board lane, not an outcome.
+   A tech scanning five buttons reads the labels; the correct wording
+   ("Couldn't do it — no access, wrong parts") was in the small print
+   underneath. It now reads **`🚫 Couldn't do it`**, with the consequence a tech
+   would otherwise assume is lost on the face of it: *the trip still bills*.
+2. **It was missing from `utils/billing.js`**, the file that exists so every
+   screen names and colours a disposition the same way. `dispo('blocked')` fell
+   through to the generic branch: the bare word, in grey, with no meaning line.
+3. **It could not reach billing.** `getBillingQueue` filtered
+   `disposition = 'bill_it'`, so a tech marking "couldn't do it" sent the trip
+   nowhere. Blocked visits now have their own bucket — **🚫 Trip to bill** —
+   separate from finished work, and exempt from the zero-minutes downgrade,
+   since a wasted trip legitimately carries almost no clocked time.
 
-### 6. Five past visits with no disposition
-Huang 8/17, Laird Heikens 8/06, Watson 8/13, plus Sherick and Spannring today.
-Either the visit happened and nobody closed it out, or it did not and nobody
-said so.
+### 14. The billing button on the job card has never worked
 
-### 7. `notes.status` drift
-Three values live where the migration allowed two: `open`, `archived`, `closed`.
-`archived` and `closed` are the same end state reached from different screens, so
-finishing a task behaves differently depending on where you finish it.
+`JobDetail.handleBilledSubmit` wrote **`billed_amount`** and
+**`billing_notes`**. Neither column exists on `jobs` — the real ones are
+`invoiced_amount` and `completion_notes`. PostgREST 400s the whole UPDATE on an
+unknown column, `jobsApi.update` throws, and the catch logs "Billing error" to a
+console nobody has open. **The status change never ran.** Same failure mode as
+#2, found the same way — by asking the database what the columns actually are.
 
-### 8. MyDay's dead button
-`DidYouGo` is mounted at `MyDay:25` with **no `onOpenSheet`**, so "Close it out"
-silently does nothing on JR's landing screen. `OpsHome` wires it correctly.
+---
 
-### 9. Notes reach only some calendar events
-`appendNoteToJobEvents` reads `job.assignments[].calendar_event_id` only. It
-never looks at `scheduled_event_id` — which is where the scheduler writes, and
-**30 live jobs have one and no `calendar_event_id`.**
+## THE 30-DAY NO-DISPOSITION RULE
 
-### 10. Reported, not reproduced
-**"Clicking a job link isn't deep linking to the card."** I checked the resolver:
-the UUID-prefix range query returns exactly 1 hit for a real code, the route is
-not operator-gated, `MergeTool` exports correctly, and the post-login path
-restore looks right. **I could not reproduce it and I do not know the cause.** It
-needs the failing link and what appeared instead.
+> *"if it says June somehow — it should be greater than 30 days old, flag as no
+> dispo, push to billing."* — Sara
 
-### 11. RLS is not a boundary
-Every table is `USING (true)` and the anon key ships in the browser bundle. The
-per-person filtering in Tasks is a **display convention**. Anyone who can sign in
-can read everything. Six people share `info@drhsecurityservices.com` as owner, so
-in practice most of the team already sees everything — which matches the shared
-inbox decision, but should be a choice rather than a surprise.
+A visit date that passed a month ago with **no time entry and no disposition**
+is not work in progress. It is a decision nobody made, and after thirty days
+nobody remembers enough to make it well.
+
+**Thirty days, not seven.** A card whose date slipped by a week is usually a
+tech who has not written it up yet; flagging those would bury the real ones. A
+month is past every honest explanation.
+
+It is deliberately **not** limited to To Bill and Complete like the existing
+no-hours sweep. The cards this exists for are stuck in `scheduled` and
+`return_pending` — lanes that say the work is still coming — which is exactly
+why nothing has ever surfaced them.
+
+They land in Billing as **⏳ Nobody closed it out**, carrying their age: bill
+it, write it off, or rebook it.
+
+**It fires on nothing today.** Eleven cards have a past date and no time entry;
+the oldest is 16 days. The rule is a tripwire, not a cleanup — these are the
+ones it will catch as they age:
+
+| Card | Date | Age | Lane |
+|---|---|---:|---|
+| ShoCo — Main St | Aug 5 | 16d | To Bill |
+| Laird Heikens | Aug 6 | 15d | Scheduled |
+| Tynan, Shawn/Ann | Aug 11 | 10d | To Bill |
+| Watson, Shirley | Aug 13 | 8d | Scheduled |
+| Devereaux, Harry/Deb | Aug 14 | 7d | To Bill |
+| Pault, Jerroud/Cynthia | Aug 14 | 7d | To Bill |
+| + 5 more under a week | | | |
 
 ---
 

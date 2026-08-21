@@ -50,6 +50,10 @@ export const BUCKETS = [
     blurb: 'A tech spent these hours and the job was later marked dead, lost or archived. Somebody has to DECIDE: bill it anyway, or archive it as cost DRH absorbed. Right now it is just sitting there.' },
   { key: 'nojob',    label: '🔗 No job on the board',  color: '#94a3b8',
     blurb: 'Work with no job attached. Make a ticket to chase it, or — if it was already invoiced in QuickBooks — mark it billed straight from here without creating one.' },
+  { key: 'trip',     label: '🚫 Trip to bill',         color: '#b91c1c',
+    blurb: 'The tech went out and could not do the work — nobody there, no access, wrong parts. Nothing was fixed, so this is NOT finished work, but the trip happened and it is chargeable. Invoice the trip, then decide whether it needs rebooking.' },
+  { key: 'nodispo',  label: '⏳ Nobody closed it out',  color: '#eab308',
+    blurb: 'The visit date passed more than 30 days ago and no tech ever said what happened — no hours, no disposition, nothing. After a month nobody remembers. Decide now: bill it, write it off, or rebook it.' },
   { key: 'nohours',  label: '⏱ To bill, no hours',    color: '#f97316',
     blurb: 'The job is marked To Bill but nobody logged time against it. It shows as done on the board and is invisible on an invoice. Either the hours were never clocked, or it should not be in To Bill. Open it and decide.' },
   { key: 'mismatch', label: '❓ Job says billed',      color: '#a855f7',
@@ -309,7 +313,9 @@ export default function Unbilled({ onBack, userEmail }) {
       // calendar_event_id instead, so we resolve both ways.
       const { data: jobRows } = await supabase
         .from('jobs')
-        .select('id, status, calendar_event_id, customer_name, updated_at')
+        // scheduled_date joins the select for the 30-day no-disposition sweep
+        // below. Without it every job reads as undated and nothing can age.
+        .select('id, status, calendar_event_id, customer_name, updated_at, scheduled_date')
         .limit(5000);
       const jobById = {}, jobByEvent = {};
       (jobRows || []).forEach(j => {
@@ -336,6 +342,9 @@ export default function Unbilled({ onBack, userEmail }) {
         const job = jobFor(e0);
         // Zero clocked minutes is its own problem, not a 'ready to bill'.
         const b0 = bucketOf(job, e0);
+        // The zero-minutes downgrade applies to work that claims to be
+        // FINISHED. A blocked trip is not finished and is expected to carry
+        // almost no clocked time, so it keeps its own bucket.
         const e = { ...e0, _job: job,
                     _bucket: (b0 === 'ready' && !(e0.total_minutes > 0)) ? 'nohours' : b0 };
         // Group on the customer UUID where we have one. Where we don't, the
@@ -382,15 +391,59 @@ export default function Unbilled({ onBack, userEmail }) {
       // one person's column. Under a tech filter it would be noise attributed
       // to someone who may never have been there — leave it to the unfiltered
       // view, which is where it gets chased.
+      // `blocked` joins complete/to_bill here. A wasted trip is chargeable the
+      // day it happens, and it will usually have NO time entry at all — the
+      // tech turned around. Waiting for the 30-day sweep below to notice it
+      // would mean a month of a billable trip being invisible, which is the
+      // exact failure the blocked option was added to prevent.
+      const NOHOURS_STATUSES = ['complete', 'to_bill', 'blocked'];
       (techFilter ? [] : (jobRows || []))
-        .filter(j => ['complete', 'to_bill'].includes(j.status)
+        .filter(j => NOHOURS_STATUSES.includes(j.status)
                   && !seenJobIds.has(j.id) && !hasAnyTime.has(j.id))
         .forEach(j => {
           const key = `nohours::job:${j.id}`;
           byCustomer[key] = {
-            key, bucket: 'nohours', job: j, customerId: null,
+            key,
+            // A blocked card is a trip, not a hole in the data.
+            bucket: j.status === 'blocked' ? 'trip' : 'nohours',
+            job: j, customerId: null,
             name: j.customer_name || 'Unknown', shortCode: null,
             orphan: false, noEntries: true, visits: [],
+          };
+        });
+
+      // ── NOBODY EVER CLOSED IT OUT ────────────────────────────────────
+      // Sara's rule: "greater than 30 days old, flag as no dispo, push to
+      // billing." A visit date that passed a month ago with NO time entry and
+      // NO disposition is not work in progress — it is a decision nobody made,
+      // and after thirty days nobody remembers enough to make it well. It has
+      // to stop being invisible and land in front of whoever invoices.
+      //
+      // THIRTY DAYS, not seven: a card whose date slipped by a week is usually
+      // just a tech who has not written it up yet, and flagging those would
+      // bury the real ones. A month is past every honest explanation.
+      //
+      // Deliberately NOT limited to to_bill/complete like the sweep above.
+      // The cards this is for are stuck in `scheduled` and `return_pending` —
+      // lanes that say the work is still coming — which is exactly why nothing
+      // has ever surfaced them.
+      const NODISPO_DAYS = 30;
+      const nodispoFloor = new Date(Date.now() - NODISPO_DAYS * 86400000);
+      const NODISPO_SKIP = ['dead', 'archived', 'lost', 'billed', 'complete',
+                            'new', 'needs_estimate', 'estimate_sent', 'won'];
+      (techFilter ? [] : (jobRows || []))
+        .filter(j => !NODISPO_SKIP.includes(j.status)
+                  && j.scheduled_date && new Date(j.scheduled_date) < nodispoFloor
+                  && !seenJobIds.has(j.id) && !hasAnyTime.has(j.id)
+                  && !byCustomer[`nohours::job:${j.id}`]
+                  && j.status !== 'blocked')
+        .forEach(j => {
+          const key = `nodispo::job:${j.id}`;
+          byCustomer[key] = {
+            key, bucket: 'nodispo', job: j, customerId: null,
+            name: j.customer_name || 'Unknown', shortCode: null,
+            orphan: false, noEntries: true, visits: [],
+            staleDays: Math.floor((Date.now() - new Date(j.scheduled_date).getTime()) / 86400000),
           };
         });
 

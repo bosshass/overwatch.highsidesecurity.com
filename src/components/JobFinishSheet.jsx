@@ -460,8 +460,16 @@ export default function JobFinishSheet({
       means: 'Multi-day job. Not finished, still booked.' },
     { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',
       means: 'Scope changed — this needs pricing.' },
-    { key: 'blocked',     label: '📝 New / Notes',        accent: '#b91c1c', tint: '#fef2f2',
-      means: "Couldn't do it — no access, wrong parts, customer turned me away." },
+    // THE LABEL WAS "📝 New / Notes" — a board lane, not an outcome.
+    // A tech scanning five buttons reads the LABELS; `means` is small print
+    // underneath. Nobody hunting for "I drove out and nobody was there" is
+    // going to pick "New / Notes", and nobody ever did: zero rows in 307 time
+    // entries since it shipped. The button existed and the option did not.
+    //
+    // Named for what happened, and the billing consequence is on the face of
+    // it, because that is the part a tech would otherwise assume is lost.
+    { key: 'blocked',     label: "🚫 Couldn't do it",     accent: '#b91c1c', tint: '#fef2f2',
+      means: 'Nobody there, no access, wrong parts. The trip still bills.' },
   ];
 
   // ── The actual form content (customer + time + notes + materials + buttons) ──

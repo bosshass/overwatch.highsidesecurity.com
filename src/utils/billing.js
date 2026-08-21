@@ -31,6 +31,18 @@ export const DISPOSITIONS = {
                  means: 'Priced work — waiting on a number or on the customer' },
   in_progress: { key: 'in_progress', label: 'In progress', color: '#00c8e8',
                  means: 'Mid-job — not finished, not billable yet' },
+  // THE FIFTH ONE, MISSING FROM THE VOCABULARY IT BELONGED TO.
+  // `blocked` was added to the finish sheet and to the jobs CHECK constraint,
+  // and never here — so every screen that asks dispo() for a colour and a name
+  // got the fallback: the word "blocked" in grey, with no `means` line at all.
+  // It reads as a system state rather than something a tech did.
+  //
+  // It is not a system state. It is a trip that happened: the tech drove out,
+  // nobody was there / no access / wrong parts, and NOTHING GOT FIXED. That
+  // trip is chargeable. Sara: "needs to bill a trip — that's what the blocked
+  // option was meant for."
+  blocked:     { key: 'blocked',     label: "Couldn't do it", color: '#b91c1c',
+                 means: 'Went out, could not do the work. The trip still bills' },
 };
 
 export const DISPO_KEYS = Object.keys(DISPOSITIONS);

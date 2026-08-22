@@ -405,6 +405,14 @@ export default function OpsHome({
             ...(isOperator ? [
               { path:'/unbilled', icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
               { path:'/recap',    icon:'📊', label:'This week', sub:'What actually got done' },
+              // THE HOURS CARDS LIVE ON THIS WEEK, NOT HERE.
+              // Project hours, Return hours and Scheduled-vs-logged were built
+              // as home tiles first. They are not home: home is "what do I do
+              // next", and an hours roll-up is "how did the week go" — a
+              // different question, asked at a different moment. Putting them
+              // here made six doors where there were four and buried the two
+              // that are actually actionable. They are cards on /recap now,
+              // each one clickable into the Billing bucket it counts.
             ] : []),
           ].map(t => (
             <button key={t.key || t.path}

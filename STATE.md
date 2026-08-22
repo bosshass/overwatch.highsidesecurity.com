@@ -19,7 +19,7 @@ see Corrections in DECISIONS.md*), **`WALKTHROUGHS.md`** (the push gate).
 |---|---|
 | Application code | **32,106 lines** across `src/` and `api/` |
 | Database tables | **20** (excluding backups) |
-| Migrations | **27** files, 055 latest |
+| Migrations | **28** files, 057 latest |
 | Serverless endpoints | 5 — `send-sms`, `sms-inbound`, `sms-status`, `welcome-draft`, `sse` |
 | Hosting | Vercel · `overwatch-highsidesecurity-com.vercel.app` |
 | Database | Supabase `wolhqelloeypafmmvapn` |

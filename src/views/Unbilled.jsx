@@ -99,7 +99,12 @@ function FixedFeeProjects({ userEmail }) {
       .select('id, customer_name, status, is_fixed_fee, job_type, hours_budget, estimated_hours, is_complete, completed_at, progress_invoice_count, progress_invoiced_at')
       .or('is_fixed_fee.eq.true,job_type.eq.project')
       .not('status', 'in', '(dead,archived,lost)')
-      .order('is_complete', { ascending: true })
+      // CLOSED MEANS GONE FROM HERE. "It needs to completely go away in the
+      // billing view once I close it out." A finished project rendered at 70%
+      // opacity is still a row to read past every time this screen opens, and
+      // there are more of those every month. It stays on the customer record,
+      // which is where a settled project belongs.
+      .or('is_complete.is.null,is_complete.eq.false')
       .limit(200);
     const list = js || [];
     setRows(list);
@@ -116,9 +121,9 @@ function FixedFeeProjects({ userEmail }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  if (rows === null) return null;
+  if (rows === null || rows.length === 0) return null;
 
-  const live = rows.filter(j => !j.is_complete);
+  const live = rows;
 
   return (
     <div style={{ margin: '0 0 16px' }}>
@@ -132,12 +137,6 @@ function FixedFeeProjects({ userEmail }) {
           {live.length}
         </span>
       </div>
-
-      {rows.length === 0 && (
-        <div style={{ fontSize: 13, color: '#8ea0b8' }}>
-          Nothing tagged as a project. Tag a job fixed fee from Billing, or set its type to project.
-        </div>
-      )}
 
       {rows.map(j => (
         <ProjectPanel key={j.id} job={j} loggedMinutes={used[j.id] || 0}
@@ -188,6 +187,7 @@ export default function Unbilled({ onBack, userEmail }) {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeJobs, setMergeJobs] = useState(null);   // null = loading
   const [mergeQ, setMergeQ] = useState('');
+  const [newProj, setNewProj] = useState(null);   // {name, hours} while typing
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -389,7 +389,12 @@ export default function Unbilled({ onBack, userEmail }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const [tab, setTab] = useState('ready');
+  // ?tab=project lands here straight from the Project hours tile on Home, so
+  // the tile is a real door rather than a number you then have to go looking
+  // for. Any bucket key works; an unknown one falls back to Ready.
+  const urlTab = searchParams.get('tab');
+  const [tab, setTab] = useState(
+    BUCKETS.some(b => b.key === urlTab) ? urlTab : 'ready');
 
   const byBucket = useMemo(() => {
     const m = {};
@@ -427,6 +432,38 @@ export default function Unbilled({ onBack, userEmail }) {
     g.visits.forEach(v => all ? n.delete(v.id) : n.add(v.id));
     return n;
   });
+
+  // ── EVERY HOUR THIS CLIENT HAS ─────────────────────────────────────
+  // "I should be able to grab all the hours of the client."
+  // pickAll above only reaches ONE group, and a customer's unbilled time is
+  // split across buckets by design — ready, waiting on a return, no job,
+  // project. Ticking them one bucket at a time is how you miss the two that
+  // were sitting under a different heading, which is exactly what a project
+  // is meant to gather up.
+  //
+  // Matched on customer_id where there is one, and on the displayed name where
+  // there is not — an orphaned entry has no id, and those are usually the very
+  // rows that need collecting.
+  const pickAllForClient = (g) => setPicked(p => {
+    const n = new Set(p);
+    const mine = groups.filter(x => g.customerId
+      ? x.customerId === g.customerId
+      : (x.name || '').toLowerCase() === (g.name || '').toLowerCase());
+    const rows = mine.flatMap(x => x.visits || []);
+    const all = rows.length > 0 && rows.every(v => n.has(v.id));
+    rows.forEach(v => all ? n.delete(v.id) : n.add(v.id));
+    return n;
+  });
+
+  // How many hours are sitting under this client's name in total, so the
+  // button can say what it is about to grab rather than being a leap.
+  const clientTotal = (g) => {
+    const mine = groups.filter(x => g.customerId
+      ? x.customerId === g.customerId
+      : (x.name || '').toLowerCase() === (g.name || '').toLowerCase());
+    const rows = mine.flatMap(x => x.visits || []);
+    return { visits: rows.length, hours: rows.reduce((t, v) => t + hrs(v.total_minutes), 0), groups: mine.length };
+  };
 
   // Everything currently ticked, across every customer
   const sel = useMemo(() => {
@@ -545,6 +582,69 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
+  // ── MAKE THE PROJECT THAT SHOULD HAVE EXISTED ────────────────────────
+  // "The only thing I should be able to create is a fixed-fee project. If one
+  //  doesn't exist, however, since there's hours that should not be marked as
+  //  billed, I should be able to grab all the hours of the client, create a new
+  //  job and set the budget."
+  //
+  // Yes — and this is the piece that was missing. Merge could only point hours
+  // at a card that ALREADY EXISTED, and the only other way out of this screen
+  // was "mark billed", which is the wrong answer for hours covered by a price
+  // nobody has written down yet. So the hours sat here looking invoiceable with
+  // no honest action available.
+  //
+  // One action does the whole thing, because doing it in three steps is how it
+  // gets left half done:
+  //   1. create the project — fixed fee, with the budget typed here
+  //   2. point every selected entry at it
+  //   3. mark those hours as cost against the price, not invoice lines
+  //
+  // Status `ready_to_schedule`: a project that already has hours has more days
+  // coming, and that is the lane where somebody books them. Not `new` — this is
+  // not an unread note — and not `scheduled`, which would claim a date nobody
+  // has picked.
+  const createProject = async (name, budgetHours) => {
+    if (!sel.rows.length) return;
+    const clean = String(name || '').trim();
+    if (!clean) { setToast('The project needs a name.'); return; }
+    const budget = budgetHours === '' || budgetHours == null ? null : Number(budgetHours);
+    if (budget != null && (!isFinite(budget) || budget < 0)) { setToast('Budget has to be a number of hours.'); return; }
+    setSaving(true);
+    try {
+      const custId = sel.rows.map(r => r.customer_id || r._g?.customerId).find(Boolean) || null;
+      const loggedH = sel.hours;
+      const created = await jobsApi.create({
+        customer_name: clean,
+        customer_id: custId || undefined,
+        job_type: 'project',
+        is_fixed_fee: true,
+        status: 'ready_to_schedule',
+        hours_budget: budget ?? undefined,
+        issue: `Project — ${budget ? `${budget}h budget` : 'budget not set'}. Opened from Billing to hold ${fmtH(loggedH)} already logged.`,
+      }, userEmail);
+      if (!created?.id) throw new Error('Project not created');
+
+      const patch = { job_id: created.id, billable: false,
+                      non_billable_reason: 'Fixed fee — covered by the agreed price' };
+      if (custId) patch.customer_id = custId;
+      const { error } = await supabase.from('time_entries')
+        .update(patch).in('id', sel.rows.map(r => r.id));
+      if (error) throw error;
+
+      await jobsApi.logHistory(created.id, null, null, userEmail,
+        `Project opened from Billing holding ${sel.rows.length} visit${sel.rows.length === 1 ? '' : 's'} (${fmtH(loggedH)})${budget ? ` against a ${budget}h budget` : ' — no budget set yet'}`)
+        .catch(() => {});
+
+      setToast(`${clean} — project created with ${fmtH(loggedH)} on it`);
+      setTimeout(() => setToast(''), 3200);
+      setMergeOpen(false);
+      setPicked(new Set());
+      await load();
+    } catch (e) { setToast('Could not create the project: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
   // ── MERGE LOOSE HOURS ONTO A JOB ─────────────────────────────────────
   // 163 unarchived entries have no job_id. They show up here under whatever
   // name the calendar event carried, next to the real card for the same
@@ -554,6 +654,7 @@ export default function Unbilled({ onBack, userEmail }) {
     setMergeOpen(g);
     setMergeJobs(null);
     setMergeQ('');
+    setNewProj(null);
     // Their OPEN jobs first — that is the answer nine times out of ten. The
     // search box below covers the tenth.
     const { data } = await supabase.from('jobs')
@@ -844,10 +945,6 @@ export default function Unbilled({ onBack, userEmail }) {
             </button>
           </div>
         )}
-      {/* Fixed-fee projects sit ABOVE the buckets: the hours inside them are
-          already accounted for by contract, so the question "what do I invoice"
-          is answered here first. accounting@ only. */}
-      <FixedFeeProjects userEmail={userEmail} />
 
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
           {BUCKETS.map(b => {
@@ -878,8 +975,19 @@ export default function Unbilled({ onBack, userEmail }) {
           <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.55 }}>{BUCKET_BY_KEY[tab].blurb}</div>
         </div>
 
+        {/* THE PROJECTS THEMSELVES LIVE BEHIND THIS TAB.
+            They used to sit permanently at the top of Billing, above every
+            bucket, whether you were looking for them or not. "The projects
+            thing in billing is displayed on clicking Project Hours" — so it
+            is: the tile on Home opens ?tab=project and lands here, and the
+            hours listed underneath are the same hours, grouped by client. */}
+        {tab === 'project' && <FixedFeeProjects userEmail={userEmail} />}
+
         {shown.length === 0 && (
-          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>Nothing in here. Good.</div>
+          <div style={{ ...card, textAlign: 'center', color: '#94a3b8' }}>
+            {tab === 'project' ? 'No unbilled project hours. The projects above still show where each one stands.'
+                               : 'Nothing in here. Good.'}
+          </div>
         )}
 
         {shown.map(g => {
@@ -993,10 +1101,27 @@ export default function Unbilled({ onBack, userEmail }) {
 
               {open && !g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
-                  <button onClick={() => pickAll(g)}
-                    style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer', marginBottom: 8 }}>
-                    {allPicked ? 'Deselect all' : 'Select all visits'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <button onClick={() => pickAll(g)}
+                      style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
+                      {allPicked ? 'Deselect all' : 'Select all visits'}
+                    </button>
+                    {/* "Grab all the hours of the client." A customer's unbilled
+                        time is split across buckets by design, so ticking one
+                        group at a time is how you miss the two sitting under a
+                        different heading — which are usually the ones a project
+                        is meant to gather up. Only shown when there ARE others. */}
+                    {(() => {
+                      const t = clientTotal(g);
+                      if (t.groups < 2) return null;
+                      return (
+                        <button onClick={() => pickAllForClient(g)}
+                          style={{ background: 'none', border: '1px solid #7c3aed', borderRadius: 6, color: '#c4b5fd', fontSize: 12, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Grab all {t.visits} of {g.name}'s hours ({fmtH(t.hours)})
+                        </button>
+                      );
+                    })()}
+                  </div>
 
                   {g.visits.map(v => {
                     const h = hrs(v.total_minutes);
@@ -1063,8 +1188,66 @@ export default function Unbilled({ onBack, userEmail }) {
               from <b style={{ color: '#cbd5e1' }}>{mergeOpen.name}</b> — pick the job these hours belong to.
               Nothing is deleted; the entries just point at the card.
             </div>
-            <input value={mergeQ} onChange={e => setMergeQ(e.target.value)} autoFocus
-              placeholder="Search every job…"
+            {/* THE PROJECT THAT DOESN'T EXIST YET, FIRST.
+                If it existed you would be picking it below. The reason these
+                hours are still sitting in Billing is usually that nothing was
+                ever opened to hold them. */}
+            {newProj == null ? (
+              <button onClick={() => setNewProj({ name: mergeOpen.name === 'Unknown' ? '' : (mergeOpen.name || ''), hours: '' })}
+                style={{ background: '#7c3aed', border: 'none', borderRadius: 10, color: '#fff',
+                         fontSize: 13.5, fontWeight: 800, padding: '11px 14px', cursor: 'pointer',
+                         fontFamily: 'inherit', marginBottom: 10, textAlign: 'left' }}>
+                📐 New fixed-fee project from these hours
+                <span style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#ddd6fe', marginTop: 2 }}>
+                  Opens the project, puts these hours on it, and stops them reading as invoiceable.
+                </span>
+              </button>
+            ) : (
+              <div style={{ background: '#1a1533', border: '1px solid #7c3aed', borderRadius: 12,
+                            padding: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: '#c4b5fd', marginBottom: 8 }}>
+                  📐 New fixed-fee project
+                </div>
+                <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 700, marginBottom: 3 }}>
+                  Project name
+                </label>
+                <input value={newProj.name} autoFocus
+                  onChange={e => setNewProj(v => ({ ...v, name: e.target.value }))}
+                  placeholder="Client or project name"
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 9,
+                           border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
+                           fontSize: 14, fontFamily: 'inherit', outline: 'none', marginBottom: 9 }} />
+                <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 700, marginBottom: 3 }}>
+                  Hours budget — what it was sold with
+                </label>
+                <input type="number" step="0.5" min="0" value={newProj.hours}
+                  onChange={e => setNewProj(v => ({ ...v, hours: e.target.value }))}
+                  placeholder="e.g. 40"
+                  style={{ width: 130, boxSizing: 'border-box', padding: '9px 11px', borderRadius: 9,
+                           border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
+                           fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+                <div style={{ fontSize: 11.5, color: '#8ea0b8', marginTop: 7, lineHeight: 1.5 }}>
+                  {fmtH(mergeOpen.hours)} across {mergeOpen.visits?.length || 0} visit{(mergeOpen.visits?.length || 0) === 1 ? '' : 's'} goes on it.
+                  {newProj.hours ? ` Delta starts at ${(Number(newProj.hours) - mergeOpen.hours).toFixed(1)}h.` :
+                    ' Leave the budget blank and set it later — the delta just waits.'}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button onClick={() => createProject(newProj.name, newProj.hours)} disabled={saving}
+                    style={{ background: '#22d16f', border: 'none', borderRadius: 9, color: '#04130a',
+                             fontSize: 13, fontWeight: 800, padding: '9px 16px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {saving ? 'Creating…' : 'Create the project'}
+                  </button>
+                  <button onClick={() => setNewProj(null)}
+                    style={{ background: 'none', border: '1px solid #334155', borderRadius: 9, color: '#94a3b8',
+                             fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <input value={mergeQ} onChange={e => setMergeQ(e.target.value)}
+              placeholder="…or search for a job that already exists"
               style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
                        border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
                        fontSize: 14, fontFamily: 'inherit', outline: 'none', marginBottom: 10 }} />

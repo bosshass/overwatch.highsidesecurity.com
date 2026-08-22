@@ -16,6 +16,8 @@
 // From here on they're real.
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { weekHours, weekScheduled } from '../utils/weekHours.js';
 import { supabase, notesApi } from '../services/supabase.js';
 
 const C = {
@@ -32,16 +34,47 @@ function mondayOf(d) {
 function fmt(d) { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
 
 export default function WeeklyRecap({ userEmail, onBack }) {
-  // Defaults to LAST full week, not the current partial one — a recap of
-  // "this week" on a Wednesday is half a week and reads as thin.
-  const [weekStart, setWeekStart] = useState(() => {
-    const m = mondayOf(new Date()); m.setDate(m.getDate() - 7); return m;
-  });
+  const navigate = useNavigate();
+  // ── IT OPENS ON THIS WEEK ────────────────────────────────────────────
+  // It used to default to LAST full week, on the reasoning that a recap read
+  // on a Wednesday is half a week and looks thin. Wrong question: the screen is
+  // not a report you publish on Friday, it is the thing you check to see where
+  // the week is going while you can still do something about it. Half a week is
+  // exactly what you want to see on Wednesday.
+  //
+  // "It needs to take the user to this week until Sunday, then Monday it will
+  //  flow to next week and be empty." That is what this does on its own —
+  //  mondayOf(today) rolls at midnight on Monday, and the new week starts
+  //  empty because nothing has been logged in it yet. An empty Monday is
+  //  correct, not a bug.
+  const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+
+  // ── NO PAGING BACK INTO NOTHING ──────────────────────────────────────
+  // "This just started — no history before [then] should NOT display."
+  // Paging back through empty weeks makes the screen look broken and makes
+  // anyone reading it wonder whether THIS week is empty for the same reason.
+  //
+  // The floor is the first week that actually has a time entry, read from the
+  // data rather than typed here, so it can never disagree with what loads.
+  // Change HISTORY_FLOOR below to pin it to a fixed date instead.
+  const HISTORY_FLOOR = null;   // e.g. new Date('2026-07-06') to hard-stop there
+  const [earliest, setEarliest] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    supabase.from('time_entries').select('event_start')
+      .not('event_start', 'is', null).order('event_start', { ascending: true }).limit(1)
+      .then(({ data }) => {
+        if (dead || !data?.[0]) return;
+        setEarliest(mondayOf(new Date(data[0].event_start)));
+      });
+    return () => { dead = true; };
+  }, []);
+  const floorWeek = HISTORY_FLOOR ? mondayOf(HISTORY_FLOOR) : earliest;
+  const atFloor = !!floorWeek && weekStart <= floorWeek;
 
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
-  const [contractRows, setContractRows] = useState([]);
   const [scheduleActions, setScheduleActions] = useState([]);
   const [focusText, setFocusText] = useState('');
   const [noteDrafts, setNoteDrafts] = useState({});
@@ -75,58 +108,53 @@ export default function WeeklyRecap({ userEmail, onBack }) {
       setEntries(live.map(e => ({ ...e, job: jobById[e.job_id] || null })));
       setScheduleActions(hist || []);
 
-      // ── FIXED FEE ────────────────────────────────────────────────────
-      // What we sold, what we have delivered, what is left. All time, not
-      // this week: the point is to see a project running away before it
-      // has run away, and that never lines up with a Monday.
+      // THE FIXED-FEE MONEY BLOCK IS GONE.
+      // It read estimate_amount, invoiced_amount and a derived $/hr into
+      // `contractRows` — and nothing has RENDERED contractRows since 9.78.0,
+      // when the panel moved to Billing. A money query feeding a variable no
+      // screen displays, kept alive through six versions.
       //
-      // The rate comes from the contract itself — Jeanneret is $19,420 over
-      // 125 hours, so $155/hr. Dividing by an assumed 115 or 135 would tell
-      // a different story than the one the customer signed.
-      const { data: ffJobs } = await supabase.from('jobs')
-        .select('id, customer_name, estimate_amount, estimated_hours, invoiced_amount, qbo_estimate_ref')
-        .gt('estimate_amount', 0)
-        .not('status', 'in', '(dead,archived,lost)')
-        .limit(200);
-
-      if (ffJobs?.length) {
-        const { data: ffTe } = await supabase.from('time_entries')
-          .select('job_id, total_minutes, archived')
-          .in('job_id', ffJobs.map(j => j.id))
-          .limit(2000);
-
-        const usedByJob = {};
-        (ffTe || []).filter(e => !e.archived).forEach(e => {
-          usedByJob[e.job_id] = (usedByJob[e.job_id] || 0) + (e.total_minutes || 0);
-        });
-
-        setContractRows(ffJobs.map(j => {
-          const soldHrs  = Number(j.estimated_hours) || 0;
-          const amount   = Number(j.estimate_amount) || 0;
-          const invoiced = Number(j.invoiced_amount) || 0;
-          const usedHrs  = (usedByJob[j.id] || 0) / 60;
-          return {
-            id: j.id,
-            name: j.customer_name || 'Job',
-            ref: j.qbo_estimate_ref || '',
-            amount, invoiced, soldHrs, usedHrs,
-            rate: soldHrs > 0 ? amount / soldHrs : 0,
-            remainingHrs: Math.max(0, soldHrs - usedHrs),
-            remainingAmt: Math.max(0, amount - invoiced),
-            pct: soldHrs > 0 ? Math.min(999, Math.round((usedHrs / soldHrs) * 100)) : 0,
-          };
-        }).sort((a, b) => b.amount - a.amount));
-      }
+      // It would go anyway: "Overwatch is NOT going to do accounting."
+      // Projects are budget / logged / delta, and the roll-up below is hours.
     } catch (e) { console.error('recap load', e); }
     setLoading(false);
   }, [weekStart]);  
 
   useEffect(() => { load(); }, [load]);
 
+  // ── THE HOURS ROLL-UP ────────────────────────────────────────────────
+  // Same function the home tiles use, so the recap and the tiles can never
+  // report a different week. weekStart is already a Monday, and weekBounds of
+  // a Monday returns that Monday — so paging back a week rolls this up too.
+  const [wk, setWk] = useState(null);
+  const [sched, setSched] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    weekHours(weekStart).then(r => { if (!dead) setWk(r); }).catch(() => {});
+    weekScheduled(weekStart).then(r => { if (!dead) setSched(r); }).catch(() => {});
+    return () => { dead = true; };
+  }, [weekStart]);
+
   // ── The real numbers ─────────────────────────────────────────────────
+  // COMPLETE WORK — anything the tech flagged To Bill. The word "completed"
+  // was doing two jobs: it is not complete in the money sense (that is
+  // is_complete, and billing says so), it is complete in the DOING sense.
   const completed = entries.filter(e => e.disposition === 'bill_it');
-  const locationKeys = new Set(entries.map(e => e.customer_id || e.customer_name_raw || e.event_title));
-  const serviceCalls = entries.filter(e => e.job?.job_type === 'service' || (!e.job && !e.job_id));
+  // RETURNS — anything flagged as a return. Work that happened and cannot be
+  // invoiced until somebody goes back, which is the number that says whether a
+  // busy week actually produced anything.
+  const returns = entries.filter(e => e.disposition === 'return');
+  // CUSTOMERS — unique customers seen. Was "locations visited", keyed on
+  // customer_id OR raw name OR event title, so one customer reached three
+  // different ways counted three times.
+  const customerKeys = new Set(entries.map(e =>
+    e.customer_id || (e.job?.customer_name || e.customer_name_raw || e.event_title || '').trim().toLowerCase()
+  ).filter(Boolean));
+  const sumH = (rows) => Math.round((rows.reduce((t, e) => t + (e.total_minutes || 0), 0) / 60) * 10) / 10;
+  // SERVICE CALLS IS GONE. It guessed — job_type 'service' OR no job at all —
+  // and "no job at all" is not a service call, it is an unlinked entry. There
+  // is no service-call flag today, so the card was counting a thing that does
+  // not exist. Nothing replaces it until something actually marks it.
 
   const byPerson = (verb) => {
     const counts = {};
@@ -155,7 +183,8 @@ export default function WeeklyRecap({ userEmail, onBack }) {
     const lines = [];
     lines.push(`Weekly Recap — ${fmt(weekStart)} to ${fmt(new Date(weekEnd - 86400000))}`);
     lines.push('');
-    lines.push(`✅ ${completed.length} completed  ·  📍 ${locationKeys.size} locations visited  ·  🔧 ${serviceCalls.length} service calls`);
+    lines.push(`✅ ${completed.length} complete work  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers`);
+    if (wk) lines.push(`⏱ ${wk.total}h logged — ${wk.project}h project · ${wk.returns}h return · ${wk.billable}h to bill · ${wk.other}h in progress`);
     if (hasAnyScheduleData) {
       const fmtCounts = (obj) => Object.entries(obj).map(([k, v]) => `${k.split('@')[0]}: ${v}`).join(', ') || '—';
       lines.push(`📅 Scheduled — ${fmtCounts(scheduledBy)}`);
@@ -182,8 +211,10 @@ export default function WeeklyRecap({ userEmail, onBack }) {
           <div style={{ fontSize: 19, fontWeight: 800 }}>Weekly Recap</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
-            style={{ background: 'none', border: `1px solid ${C.line}`, color: C.text, borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>←</button>
+          <button onClick={() => { if (!atFloor) setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); }}
+            disabled={atFloor}
+            title={atFloor ? 'Nothing was logged before this week' : ''}
+            style={{ background: 'none', border: `1px solid ${C.line}`, color: atFloor ? '#3a4658' : C.text, borderRadius: 8, padding: '6px 12px', cursor: atFloor ? 'default' : 'pointer' }}>←</button>
           <div style={{ fontSize: 14, fontWeight: 700 }}>{fmt(weekStart)} – {fmt(new Date(weekEnd - 86400000))}</div>
           <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
             disabled={weekEnd > new Date()}
@@ -201,16 +232,39 @@ export default function WeeklyRecap({ userEmail, onBack }) {
         ) : (
           <>
             {/* ── The real numbers ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+            {/* THE CARDS ARE DOORS, not read-outs.
+                "Return hours — just the number and the hours sum, and it's
+                clickable, so you see the UI you made." Each card counts
+                something on this screen and opens the Billing bucket that
+                holds it, so the number and the list behind it can never be two
+                different answers. Customers opens the client list. */}
+            <div style={{ display: 'grid', gap: 10, marginBottom: 16,
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
               {[
-                { n: completed.length, label: 'completed', color: C.green },
-                { n: locationKeys.size, label: 'locations visited', color: C.accent },
-                { n: serviceCalls.length, label: 'service calls', color: C.amber },
+                { n: completed.length, h: sumH(completed), label: 'complete work', color: C.green,
+                  to: '/unbilled?tab=ready' },
+                { n: returns.length, h: sumH(returns), label: 'return hours', color: '#ec4899',
+                  to: '/unbilled?tab=return' },
+                { n: customerKeys.size, label: 'customers', color: C.accent, to: '/customers' },
+                { n: wk ? `${wk.project}h` : '—', label: 'project hours', color: '#8b5cf6',
+                  to: '/unbilled?tab=project' },
+                { n: sched ? sched.booked : '—', label: 'scheduled',
+                  sub: sched ? `${sched.logged} logged · ${sched.missing} not` : null,
+                  color: sched && sched.missing ? C.amber : C.muted, to: '/calendar' },
               ].map((s, i) => (
-                <div key={i} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: '16px 14px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 32, fontWeight: 800, color: s.color }}>{s.n}</div>
+                <button key={i} onClick={() => s.to && navigate(s.to)}
+                  style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
+                           padding: '16px 14px', textAlign: 'center', cursor: s.to ? 'pointer' : 'default',
+                           color: C.text, fontFamily: 'inherit' }}>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: s.color }}>{s.n}</div>
                   <div style={{ fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 4 }}>{s.label}</div>
-                </div>
+                  {s.h != null && (
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: s.color, marginTop: 3 }}>{s.h}h</div>
+                  )}
+                  {s.sub && (
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{s.sub}</div>
+                  )}
+                </button>
               ))}
             </div>
 
@@ -237,6 +291,49 @@ export default function WeeklyRecap({ userEmail, onBack }) {
               )}
             </div>
 
+            {/* ── HOURS, THIS WEEK ─────────────────────────────────────
+                The three cards above count VISITS. This counts the hours
+                behind them and says which of those hours could ever become an
+                invoice line. A week can be busy and produce almost nothing
+                invoiceable, and until this was here nothing on any screen
+                said so. */}
+            {wk && wk.total > 0 && (
+              <div style={{ background: C.panel, border: `1px solid ${C.line}`,
+                            borderRadius: 14, padding: '13px 15px', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '.08em',
+                                 textTransform: 'uppercase', color: C.muted }}>Hours logged</span>
+                  <span style={{ fontSize: 20, fontWeight: 900 }}>{wk.total}h</span>
+                  <span style={{ fontSize: 11.5, color: C.muted }}>
+                    across {wk.visits} visit{wk.visits === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {[
+                    { n: wk.billable, label: 'to bill',     c: C.green },
+                    { n: wk.returns,  label: 'return',      c: '#ec4899' },
+                    { n: wk.project,  label: 'project',     c: '#8b5cf6' },
+                    { n: wk.other,    label: 'in progress', c: C.amber },
+                    { n: wk.settled,  label: 'billed',      c: C.muted },
+                  ].filter(x => x.n > 0).map(x => (
+                    <div key={x.label}>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: x.c }}>{x.n}h</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase', letterSpacing: '.05em' }}>{x.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {wk.unlinked > 0 && (
+                  // An hour with no job cannot reach an invoice, a project
+                  // budget, or a customer's record. It is the most expensive
+                  // number here and it had nowhere to be said.
+                  <div style={{ marginTop: 10, paddingTop: 9, borderTop: `1px solid ${C.line}`,
+                                fontSize: 12, color: C.amber, fontWeight: 700 }}>
+                    ⚠️ {wk.unlinkedHours}h across {wk.unlinked} visit{wk.unlinked === 1 ? '' : 's'} has no job attached — it can't reach an invoice or a project
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Fixed fee moved to Billing (9.78.0). This is a look-back
                 screen; a project you are still entering numbers against and
                 still deciding how to invoice belongs where the billing
@@ -245,7 +342,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             {/* ── Completed jobs — pick some to add the human story to ── */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
-                Completed this week ({completed.length})
+                Complete work this week ({completed.length})
               </div>
               {completed.length === 0 ? (
                 <div style={{ fontSize: 12, color: C.muted }}>Nothing marked done this week.</div>

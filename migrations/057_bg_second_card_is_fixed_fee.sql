@@ -1,4 +1,4 @@
--- 056 — BG Automotive's second card was always fixed fee too
+-- 057 — BG Automotive's second card was always fixed fee too
 --
 -- "BG's were always FF, so were all of Jeanneret's — find any for those
 --  clients and for Shepard that are marked bill it but never billed."
@@ -26,7 +26,7 @@
 --
 -- APPLIED LIVE 2026-08-21. Backup written first.
 
-create table if not exists backup_056_jobs as
+create table if not exists backup_057_jobs as
   select id, is_fixed_fee, updated_by, updated_at from jobs
   where id = 'a2ace2ac-0079-40c6-9221-fac870481ac4';
 

@@ -6,18 +6,12 @@
 // actually happened. Run: node --test tests/time-entry-clock.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { resolveSpan } from '../src/utils/clock.js';
 
-// TimeEntryBlock.jsx is a React component, so it cannot be imported here
-// without a JSX pipeline. The pure helpers are lifted out of the source at
-// runtime instead — which also proves the shipped file is the one under test.
-const src = readFileSync(new URL('../src/components/TimeEntryBlock.jsx', import.meta.url), 'utf8');
-const slice = (from, to) => src.slice(src.indexOf(from), src.indexOf(to));
-const helpers = [
-  slice('const DAY_MS', 'function parseClockOnDate'),
-  slice('function resolveInOut', 'function totalMinutes'),
-].join('\n');
-const resolveInOut = new Function(`${helpers}; return resolveInOut;`)();
+// The parser moved out of TimeEntryBlock.jsx into utils/clock.js when the
+// legacy calendar backfill needed to read the same free text. Same logic,
+// now imported directly instead of sliced out of a React component.
+const resolveInOut = (v, baseDate) => resolveSpan(v.timeIn, v.timeOut, baseDate);
 
 const hrs = (timeIn, timeOut, day = '2026-06-25') => {
   const io = resolveInOut({ timeIn, timeOut }, new Date(`${day}T00:00:00`));

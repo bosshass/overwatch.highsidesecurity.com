@@ -12,6 +12,8 @@
 //   if (!isValidTimeEntry(time, baseDate)) { show error; return; }
 //   const payload = timeEntryToPayload(time, baseDate);
 
+import { resolveSpan, MAX_PLAUSIBLE_MINUTES } from '../utils/clock.js';
+
 // ── helpers ────────────────────────────────────────────────────
 // Accepts: 1, 1.5, .5, 0.25, 1h, 0.5h, 1.5hours, 30m, 90min, 1h30m
 function parseManualHours(v) {
@@ -32,61 +34,10 @@ function parseManualHours(v) {
   return null;
 }
 
-// TIMES WERE BEING READ TWELVE HOURS WRONG. This parser took a bare "1:30"
-// at face value — 01:30, half past one in the morning — because the am/pm
-// group was optional and nothing filled it in. The inputs below are free
-// text placeholdered "In · 9:30", so a tech typing what the placeholder
-// showed got the afternoon recorded as pre-dawn. 27 entries carry a
-// clock-in before 6am; not one of them happened before 6am.
-//
-// Worse, resolveInOut used to rescue the resulting negative span with a
-// blind +24h. Crystal Osthoff, 12:00 in and 1:00 out — a one-hour call —
-// stored 13.00 hours. Three rows did that, 38.5 hours logged against 2.5
-// hours of real work.
-//
-// So: bare hours resolve against the workday, and a backwards span is
-// corrected by twelve hours, never twenty-four.
-const DAY_MS      = 24 * 60 * 60 * 1000;
-const HALF_DAY_MS = 12 * 60 * 60 * 1000;
-// Nothing on these calendars starts before 6am. A bare hour below it is the
-// afternoon — a tech does not begin a residential service call at 1am.
-const WORK_START_HOUR = 6;
-// Longer than this and something was mistyped, not worked.
-const MAX_PLAUSIBLE_MINUTES = 16 * 60;
-
-// Accepts: 9:30 · 9:30am · 9:30 AM · 9:30a · 930 · 9am · 9p · 13:30
-// Returns { h, min, explicit } where h is 24-hour and `explicit` says the
-// tech actually told us which half of the day they meant.
-function parseClockParts(clock) {
-  if (!clock) return null;
-  const s = String(clock).trim().toLowerCase().replace(/[\s.]/g, '');
-  const m = s.match(/^(\d{1,2})(?::?(\d{2}))?([ap]m?)?$/);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = m[2] == null ? 0 : parseInt(m[2], 10);
-  if (h > 23 || min > 59) return null;
-  const mer = m[3] ? m[3][0] : null;      // 'a' | 'p' | null
-
-  if (mer) {
-    if (h > 12) return null;              // "13pm" is not a time
-    if (mer === 'p' && h !== 12) h += 12;
-    if (mer === 'a' && h === 12) h = 0;
-    return { h, min, explicit: true };
-  }
-  // 13:00 and up can only be a 24-hour clock — already unambiguous.
-  if (h > 12) return { h, min, explicit: true };
-  // Bare hour. Below the workday start it is the afternoon; 12 stays noon.
-  const h24 = (h < WORK_START_HOUR) ? h + 12 : h;
-  return { h: h24, min, explicit: false };
-}
-
-function parseClockOnDate(clock, baseDate) {
-  const p = parseClockParts(clock);
-  if (!p) return null;
-  const d = new Date(baseDate);
-  d.setHours(p.h, p.min, 0, 0);
-  return d;
-}
+// The clock parsing that used to live here now lives in utils/clock.js,
+// because the legacy calendar backfill has to read the same free text out of
+// three years of hand-typed descriptions. See that file for what was wrong
+// with it — bare hours read as AM, and a negative span rescued with +24h.
 
 function fmtClock(d) {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -111,28 +62,7 @@ const EMPTY = {
 
 // ── public helpers ─────────────────────────────────────────────
 function resolveInOut(v, baseDate) {
-  const pin  = parseClockParts(v.timeIn);
-  const pout = parseClockParts(v.timeOut);
-  if (!pin || !pout) return null;
-  const at = (p) => { const d = new Date(baseDate || new Date()); d.setHours(p.h, p.min, 0, 0); return d; };
-
-  const inD = at(pin);
-  let outD  = at(pout);
-  let diff  = outD - inD;
-
-  // Out lands before in. If the tech gave no am/pm on the clock-out they
-  // meant the other half of the day — 9:30 to 5:00 is seven and a half
-  // hours, not nineteen and a half.
-  if (diff <= 0 && !pout.explicit) {
-    outD = new Date(outD.getTime() + HALF_DAY_MS);
-    diff = outD - inD;
-  }
-  // Still backwards with an explicit meridiem: a real overnight job.
-  if (diff <= 0) {
-    outD = new Date(outD.getTime() + DAY_MS);
-    diff = outD - inD;
-  }
-  return { in: inD, out: outD, ms: diff };
+  return resolveSpan(v.timeIn, v.timeOut, baseDate || new Date());
 }
 
 function totalMinutes(v, baseDate) {

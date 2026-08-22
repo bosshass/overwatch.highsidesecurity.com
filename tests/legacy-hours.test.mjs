@@ -10,7 +10,7 @@ import { extractLegacyHours } from '../src/utils/legacyHours.js';
 
 const JUL30 = new Date('2025-07-30T00:00:00');
 
-test('Invoice 8102 Kirk Eye Center — two trips, one line each', () => {
+test('Invoice 8102 Kirk Eye Center — two trips, billed as two lines', () => {
   // The event Sara pasted. Austin 7/28, JR returning 7/30; the description
   // accumulated both trips' notes and both hour lines.
   const d = `Error message on panel, no timer tests on CMS 6910015- NEED TO BILL FOR THIS TRIP 7/28
@@ -25,9 +25,9 @@ Radio installed by Trident- need to contact Comcast to get another line- Land it
 1/1`;
   const r = extractLegacyHours(d, JUL30);
   assert.equal(r.method, 'ratio');
-  assert.equal(r.trips.length, 2, 'two trips, one per 1/1 line');
+  assert.equal(r.lines.length, 2, 'billed as two separate one-hour lines');
   assert.equal(r.hours, 2);
-  assert.equal(r.manHours, 2);
+  assert.equal(r.trips, 2);
   assert.equal(r.confident, true);
 });
 
@@ -37,7 +37,7 @@ test('the 7/28 inside the note is not read as 7 hours over 28 techs', () => {
   assert.equal(r.hours, 1);
 });
 
-test('Invoice 8103 Boys & Girls — 3/2 is three hours with two techs', () => {
+test('Invoice 8103 Boys & Girls — 3/2 is three hours across two trips', () => {
   const d = `Pushbar- "Panic bar" issues
 
 Ribbon issue- advise Protzman to contact the installer regarding Ribbon and poor install. 
@@ -45,10 +45,15 @@ Ribbon issue- advise Protzman to contact the installer regarding Ribbon and poor
 Brock- 
 
 3/2`;
+  // Several BGC visits that JR eventually consolidated into one line for
+  // Sara to bill: three hours, two trips. NOT two techs.
   const r = extractLegacyHours(d, JUL30);
-  assert.equal(r.hours, 3, 'three hours on site');
-  assert.equal(r.manHours, 6, 'two techs — six man-hours');
-  assert.deepEqual(r.trips, [{ hours: 3, techs: 2 }]);
+  assert.equal(r.hours, 3, 'three hours total — this is what gets billed');
+  assert.equal(r.trips, 2, 'covering two visits');
+  assert.deepEqual(r.lines, [{ hours: 3, trips: 2 }]);
+  // The bug this pins: reading the denominator as a head count and
+  // multiplying by it sends BGC out at six hours against three worked.
+  assert.notEqual(r.hours, 6);
 });
 
 test('Invoice 8104 Ace Hardware — 1/1 on a two-hour block', () => {
@@ -59,7 +64,7 @@ NOTES: Trouble shot and brought remote access back online.  Confirmed the Wareho
 1/1`;
   const r = extractLegacyHours(d, new Date('2025-07-31T00:00:00'));
   assert.equal(r.hours, 1, 'the block was 2.0 hrs — the note says 1');
-  assert.equal(r.manHours, 1);
+  assert.equal(r.trips, 1);
 });
 
 test('Invoice 8114 Mountain & Plains Day 2 — free text beats the 5-hour block', () => {
@@ -102,8 +107,8 @@ Notes: order new mag lock and submit estimate for new alula system
   const r = extractLegacyHours(d, new Date('2025-07-09T00:00:00'));
   assert.equal(r.method, 'clock');
   assert.equal(r.hours, 0.67, '9:20 to 10:00 is forty minutes');
-  // "11 zones / 4 motions." must not be read as eleven hours over four techs
-  assert.equal(r.trips.length, 1);
+  // "11 zones / 4 motions." must not be read as eleven hours over four trips
+  assert.equal(r.lines.length, 1);
 });
 
 test('Invoice 8398 Pavilions — inspection readings are not hours', () => {
@@ -124,10 +129,10 @@ test('Invoice 8099 Timothy Kruger — numbered findings are not hours', () => {
   assert.equal(r.confident, false);
 });
 
-test('a trip with nothing written is one hour, one tech, and says so', () => {
+test('a trip with nothing written is one hour, one trip, and says so', () => {
   const r = extractLegacyHours('', JUL30);
   assert.equal(r.hours, 1);
-  assert.equal(r.manHours, 1);
+  assert.equal(r.trips, 1);
   assert.equal(r.method, 'default');
   assert.equal(r.confident, false, 'never passes as something a tech wrote');
 });
@@ -136,11 +141,11 @@ test('HTML descriptions are read like plain ones', () => {
   const d = 'Ribbon issue- advise Protzman.<br><br>Brock- <br><br>3/2';
   const r = extractLegacyHours(d, JUL30);
   assert.equal(r.hours, 3);
-  assert.equal(r.manHours, 6);
+  assert.equal(r.trips, 2);
 });
 
 test('implausible values are rejected rather than imported', () => {
   assert.equal(extractLegacyHours('99/1', JUL30).method, 'default');   // 99 hours
-  assert.equal(extractLegacyHours('3/40', JUL30).method, 'default');   // 40 techs
+  assert.equal(extractLegacyHours('3/40', JUL30).method, 'default');   // 40 trips
   assert.equal(extractLegacyHours('0/1', JUL30).method, 'default');    // zero hours
 });

@@ -20,49 +20,55 @@
 //
 // THREE NOTATIONS, in the order they are trusted:
 //
-//   1. H/T on its own line — hours over techs, ONE LINE PER TRIP.
-//      Invoice 8102 Kirk Eye Center carries two "1/1" lines because it was
-//      two trips: Austin on 7/28, JR returning on 7/30. The trips are the
-//      lines; the denominator is how many techs stood there.
-//      "3/2" is three hours with two techs on site — SIX man-hours.
+//   1. H/T on its own line — HOURS over TRIPS. One line is one billing line.
+//      "3/2" is three hours covering two trips: total billable is THREE, not
+//      six. Invoice 8103 Boys & Girls is exactly that — several BGC visits
+//      that JR eventually consolidated into one line for Sara to bill.
+//      Invoice 8102 Kirk Eye Center carries two separate "1/1" lines instead,
+//      because they were billed as two one-hour trips: Austin on 7/28, JR
+//      returning on 7/30.
+//
+//      THERE IS NO TECH MULTIPLIER. Reading the denominator as a head count
+//      and multiplying by it doubles the bill on every consolidated line —
+//      BGC would go out at six hours against three worked.
 //
 //   2. On site: / Offsite: — a clock pair, parsed by utils/clock.js so the
 //      am/pm handling matches what the live app does.
 //
 //   3. Free text at the end — "10hr 15 min", "1.5 hrs".
 //
-// A trip with none of the three is a one-hour, one-tech charge. That is the
+// A trip with none of the three is a one-hour, one-trip charge. That is the
 // standing rule for a trip that happened, not an invention by this parser —
 // but it is returned with method 'default' so it can never be mistaken for
 // something a tech actually wrote.
 
 import { resolveSpan } from './clock.js';
 
-// A tech count above this is not a crew, it is a misparse — which is exactly
+// A trip count above this is a misparse, not a consolidated line — which is
 // what saves us from reading the "7/28" in "NEED TO BILL FOR THIS TRIP 7/28"
-// as seven hours with twenty-eight techs.
-const MAX_TECHS = 6;
+// as seven hours over twenty-eight trips.
+const MAX_TRIPS = 6;
 const MAX_HOURS = 16;
 
-const DEFAULT_TRIP = { hours: 1, techs: 1 };
+const DEFAULT_LINE = { hours: 1, trips: 1 };
 
 // ── 1. H/T lines ──────────────────────────────────────────────────────
 // The line must be ONLY the token. Dates and measurements live inside
 // sentences ("13.5/216" on the Pavilions inspection, "7/28" mid-note), so
 // requiring the whole line to be the number is what keeps them out.
 function readRatioLines(text) {
-  const trips = [];
+  const lines = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim().replace(/[.,;]+$/, '');
     const m = line.match(/^(\d{1,2}(?:\.\d{1,2})?)\s*\/\s*(\d{1,2})$/);
     if (!m) continue;
     const hours = parseFloat(m[1]);
-    const techs = parseInt(m[2], 10);
+    const trips = parseInt(m[2], 10);
     if (!(hours > 0) || hours > MAX_HOURS) continue;
-    if (!(techs > 0) || techs > MAX_TECHS) continue;
-    trips.push({ hours, techs });
+    if (!(trips > 0) || trips > MAX_TRIPS) continue;
+    lines.push({ hours, trips });
   }
-  return trips;
+  return lines;
 }
 
 // ── 2. On site: / Offsite: ────────────────────────────────────────────
@@ -79,7 +85,7 @@ function readClockPair(text, baseDate) {
   if (!span) return null;
   const hours = span.ms / 3600000;
   if (!(hours > 0) || hours > MAX_HOURS) return null;
-  return { hours: Math.round(hours * 100) / 100, techs: 1 };
+  return { hours: Math.round(hours * 100) / 100, trips: 1 };
 }
 
 // ── 3. free text totals ───────────────────────────────────────────────
@@ -92,17 +98,17 @@ function readFreeText(text) {
   let m = text.match(FREE_HM);
   if (m) {
     const hours = parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
-    if (hours > 0 && hours <= MAX_HOURS) return { hours: Math.round(hours * 100) / 100, techs: 1 };
+    if (hours > 0 && hours <= MAX_HOURS) return { hours: Math.round(hours * 100) / 100, trips: 1 };
   }
   m = text.match(FREE_H);
   if (m) {
     const hours = parseFloat(m[1]);
-    if (hours > 0 && hours <= MAX_HOURS) return { hours, techs: 1 };
+    if (hours > 0 && hours <= MAX_HOURS) return { hours, trips: 1 };
   }
   m = text.match(FREE_M);
   if (m) {
     const hours = parseInt(m[1], 10) / 60;
-    if (hours > 0 && hours <= MAX_HOURS) return { hours: Math.round(hours * 100) / 100, techs: 1 };
+    if (hours > 0 && hours <= MAX_HOURS) return { hours: Math.round(hours * 100) / 100, trips: 1 };
   }
   return null;
 }
@@ -125,9 +131,9 @@ function toPlainText(description) {
  * @param {string} description  the Google Calendar description, HTML or plain
  * @param {Date|string} eventDate  the event's start, for resolving clock times
  * @returns {{
- *   trips:      Array<{hours:number, techs:number}>,
- *   hours:      number,   // hours ON SITE, summed across trips
- *   manHours:   number,   // hours x techs, summed — what gets billed
+ *   lines:      Array<{hours:number, trips:number}>,
+ *   hours:      number,   // TOTAL BILLABLE HOURS — summed across lines
+ *   trips:      number,   // how many visits those hours cover
  *   method:     'ratio'|'clock'|'freetext'|'default',
  *   confident:  boolean   // false means nothing was written down
  * }}
@@ -144,17 +150,17 @@ export function extractLegacyHours(description, eventDate) {
   const free = readFreeText(text);
   if (free) return summarize([free], 'freetext', true);
 
-  // Nothing written. A trip that happened is a one-hour, one-tech charge.
-  return summarize([DEFAULT_TRIP], 'default', false);
+  // Nothing written. A trip that happened is a one-hour, one-trip charge.
+  return summarize([DEFAULT_LINE], 'default', false);
 }
 
-function summarize(trips, method, confident) {
-  const hours    = trips.reduce((n, t) => n + t.hours, 0);
-  const manHours = trips.reduce((n, t) => n + t.hours * t.techs, 0);
+function summarize(lines, method, confident) {
+  const hours = lines.reduce((n, l) => n + l.hours, 0);
+  const trips = lines.reduce((n, l) => n + l.trips, 0);
   return {
+    lines,
+    hours: Math.round(hours * 100) / 100,
     trips,
-    hours:    Math.round(hours * 100) / 100,
-    manHours: Math.round(manHours * 100) / 100,
     method,
     confident,
   };

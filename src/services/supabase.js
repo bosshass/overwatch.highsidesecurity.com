@@ -1030,6 +1030,46 @@ export const timeEntriesApi = {
       job_id: entry.job_id || null,
       project_ref: entry.project_ref || extractProjectRef(entry.event_title) || null,
     };
+    // NOTHING STOPPED A SECOND ROW. time_entries carries a primary key, three
+    // foreign keys, two CHECKs and nine indexes — and not one uniqueness rule
+    // about the work itself. This was a bare INSERT, so every re-tap, every
+    // re-open of the finish sheet, every changed mind wrote another row and
+    // the database happily took it.
+    //
+    // The signature is all over the data: event 1bg95rcv ("Garage") holds four
+    // rows written in 55 seconds — in_progress, return, estimate, bill_it —
+    // one per tap of the old disposition bar, the last one having quietly
+    // doubled the minutes. INTEGRATIVE CENTER holds two identical 1-hour rows
+    // two minutes apart. Twelve such clusters, 29.3 hours.
+    //
+    // A blanket unique index would be wrong — BG Automotive really was two
+    // separate 30-minute visits on 07-09, and that has to stay legal. What is
+    // never real is the SAME tech logging the SAME event twice inside a few
+    // minutes. So: inside the window, update the row that is already there.
+    // Outside it, a second visit is a second row, as it should be.
+    const DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+    if (payload.calendar_event_id && payload.tech_email) {
+      const since = new Date(Date.now() - DEDUPE_WINDOW_MS).toISOString();
+      const { data: recent } = await supabase
+        .from('time_entries')
+        .select('id')
+        .eq('calendar_event_id', payload.calendar_event_id)
+        .eq('tech_email', payload.tech_email)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (recent && recent[0]) {
+        const { data: updated, error: upErr } = await supabase
+          .from('time_entries')
+          .update(payload)
+          .eq('id', recent[0].id)
+          .select()
+          .single();
+        if (upErr) throw upErr;
+        return updated;
+      }
+    }
+
     const { data, error } = await supabase.from('time_entries').insert([payload]).select().single();
     if (error) throw error;
     return data;

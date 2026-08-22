@@ -947,7 +947,23 @@ export default function Unbilled({ onBack, userEmail }) {
         )}
 
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-          {BUCKETS.map(b => {
+          {/* ── AN EMPTY BUCKET IS NOT A DOOR ────────────────────────────────
+              Eleven tabs, six of them reading 0.0h · 0. Every one was added for
+              a real case and none was ever taken away when the case emptied, so
+              the screen grew a row of tabs that answer "nothing" and pushed the
+              five that matter off the edge on a laptop.
+              "We have got to get better about not just building and building
+               and not removing when it stops being used."
+              A bucket with nothing in it is noise. It comes back the moment
+              something lands in it — nothing is deleted, it just stops taking
+              up a tab. Ready to bill always shows: it is where the screen opens
+              and an empty one is the answer you want to see. The bucket you are
+              standing in stays visible too, so clearing the last row out of a
+              tab does not yank it from under you. */}
+          {BUCKETS.filter(b => {
+            const d = byBucket[b.key] || { visits: 0 };
+            return d.visits > 0 || b.key === 'ready' || b.key === tab;
+          }).map(b => {
             const d = byBucket[b.key] || { hours: 0, visits: 0 };
             const on = tab === b.key;
             return (

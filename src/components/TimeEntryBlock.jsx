@@ -29,7 +29,33 @@ function parseManualHours(v) {
   // "1h 30m"
   m = s.match(/^(\d+)\s*h\s*(\d+)\s*m$/);
   if (m) return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) * 60000;
+  // "1:30" — an hour and a half, written the way a clock writes it and the way
+  // most people type it. It matched nothing here, so it parsed to null, and a
+  // null manual value falls through to a total of ZERO. Three test entries went
+  // in at 0.0h that way in one evening.
+  m = s.match(/^(\d+):([0-5]\d)$/);
+  if (m) return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) * 60000;
   return null;
+}
+
+// Text is present but means nothing we can turn into minutes. Distinct from
+// EMPTY, which is a tech who has not filled it in yet — one is a typo to catch,
+// the other is a decision to confirm.
+export function timeEntryUnreadable(v, baseDate) {
+  if (!v) return false;
+  const typed = String(v.manualHours || '').trim();
+  const inTyped = String(v.timeIn || '').trim();
+  const outTyped = String(v.timeOut || '').trim();
+  if (!typed && !inTyped && !outTyped) return false;          // empty, not unreadable
+  return totalMinutes(v, baseDate) <= 0;
+}
+
+// Nothing typed anywhere.
+export function timeEntryEmpty(v) {
+  if (!v) return true;
+  return !String(v.manualHours || '').trim()
+      && !String(v.timeIn || '').trim()
+      && !String(v.timeOut || '').trim();
 }
 
 function parseClockOnDate(clock, baseDate) {

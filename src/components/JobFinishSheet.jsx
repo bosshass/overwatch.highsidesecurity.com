@@ -35,7 +35,8 @@ import { useState, useEffect } from 'react';
 import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TextButton, { clientTemplates, textTargets } from './TextButton.jsx';
-import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
+import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload,
+                         timeEntryUnreadable, timeEntryEmpty } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
 import { uploadPhoto } from '../services/photos.js';
@@ -143,6 +144,19 @@ export default function JobFinishSheet({
   // still shown and still gets saved when present; it just can't block
   // finishing a job anymore.
   const canFinish     = notesValid && !acting;
+  // HOURS WERE NEVER GATED, AND A ZERO SAVES AS QUIETLY AS A NUMBER.
+  // canFinish asked for notes and nothing else, and the block is mounted with
+  // required={false}, so Finish wrote total_minutes: 0 and the row looked done.
+  // Three entries went in at 0.0h in one evening and nothing anywhere said so.
+  //
+  // Two different states, two different answers:
+  //   UNREADABLE — something is typed that cannot become minutes ("1:3", "8ish").
+  //                That is a typo. Block it and say what could not be read.
+  //   EMPTY      — nobody filled it in. That is sometimes right (no-access trips,
+  //                estimates) so it is a WARNING you confirm, the same shape as
+  //                the future-date warning below it. Never a silent zero.
+  const hoursUnreadable = timeEntryUnreadable(timeEntry, eventDate);
+  const hoursEmpty      = timeEntryEmpty(timeEntry);
 
   // ── Calendar PATCH ────────────────────────────────────────────────
   // APPENDS the tech's notes/materials to the event DESCRIPTION so the worker's
@@ -371,10 +385,31 @@ export default function JobFinishSheet({
       // Adopt-on-disposition: ensure a jobs row exists for THIS event and
       // move it to the right status — for every disposition, not just estimate.
       // This captures appointments booked directly on Google Calendar.
+      let adoptedJobId = null;
       try {
-        await ensureJobForEvent(disposition);
+        adoptedJobId = await ensureJobForEvent(disposition);
       } catch (err) {
         console.warn('adopt-on-disposition failed (time entry still saved):', err);
+      }
+
+      // ── STAMP THE JOB ON THE ENTRY THAT CAME FIRST ────────────────────────
+      // writeTimeEntry() runs BEFORE the job is adopted, so on an event that was
+      // not yet on the board it resolves nothing and writes job_id: null. The
+      // job is created a line later and its id was thrown away — so the hours
+      // existed, the card existed, and nothing joined them. The board showed no
+      // time against a visit a tech had just closed out.
+      //
+      // Only ever fills a NULL. An entry that already resolved to a job is not
+      // repointed at whatever adopt happened to return.
+      if (adoptedJobId && entry?.id && !entry.job_id) {
+        try {
+          await supabase.from('time_entries')
+            .update({ job_id: adoptedJobId })
+            .eq('id', entry.id)
+            .is('job_id', null);
+        } catch (err) {
+          console.warn('could not stamp job_id on the time entry:', err);
+        }
       }
 
       if (disposition === 'return') {
@@ -418,7 +453,10 @@ export default function JobFinishSheet({
   // to be deliberate.
   const eventInFuture = event?.start && new Date(event.start) > new Date();
   const [futureOk, setFutureOk] = useState(false);
+  const [zeroOk, setZeroOk]     = useState(false);
   const readyToFinish  = canFinish && !!effectiveDispo && reasonOk
+                         && !hoursUnreadable
+                         && (!hoursEmpty || zeroOk)
                          && (!eventInFuture || futureOk);
 
   const handleFinish = () => {
@@ -975,6 +1013,38 @@ export default function JobFinishSheet({
       )}
 
 
+      {hoursEmpty && !zeroOk && (
+        <div style={{ background:'#fff1f2', border:'1px solid #fca5a5', borderRadius:10,
+                      padding:'12px 14px', marginBottom:10 }}>
+          <div style={{ color:'#b91c1c', fontSize:13.5, fontWeight:800, marginBottom:5 }}>
+            No hours on this one
+          </div>
+          <div style={{ color:'#9f1239', fontSize:12.5, lineHeight:1.45, marginBottom:10 }}>
+            Finishing now records 0.0 hours against this visit. There is nothing to
+            bill and nothing to show for the trip. If that is right — no access, a
+            quick look, an estimate — say so and carry on.
+          </div>
+          <button onClick={() => setZeroOk(true)}
+            style={{ background:'transparent', border:'1px solid #ef4444', borderRadius:8,
+                     color:'#b91c1c', fontSize:12.5, fontWeight:800, padding:'8px 14px',
+                     cursor:'pointer', fontFamily:'inherit' }}>
+            No hours on this one — finish anyway
+          </button>
+        </div>
+      )}
+
+      {hoursUnreadable && (
+        <div style={{ background:'#fff1f2', border:'1px solid #fca5a5', borderRadius:10,
+                      padding:'12px 14px', marginBottom:10 }}>
+          <div style={{ color:'#b91c1c', fontSize:13.5, fontWeight:800, marginBottom:5 }}>
+            Can't read those hours
+          </div>
+          <div style={{ color:'#9f1239', fontSize:12.5, lineHeight:1.45 }}>
+            Try 1.5, 1:30, 1h30m or 90m — or use time in and time out.
+          </div>
+        </div>
+      )}
+
       {eventInFuture && !futureOk && (
         <div style={{ background:'#2a1f08', border:'1px solid #f59e0b', borderRadius:10,
                       padding:'12px 14px', marginBottom:10 }}>
@@ -1002,6 +1072,8 @@ export default function JobFinishSheet({
         <button onClick={handleFinish} disabled={!readyToFinish} style={btnFinish(readyToFinish)}>
           {acting ? 'Saving…'
             : !effectiveDispo ? 'Pick an outcome first'
+            : hoursUnreadable ? "Can't read those hours"
+            : hoursEmpty && !zeroOk ? 'No hours entered'
             : eventInFuture && !futureOk ? "This visit hasn't happened yet"
             : !notesValid ? 'Add notes to finish'
             : needsReason && !reasonOk ? 'Add a return reason'

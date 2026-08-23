@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { supabase } from '../services/supabase.js';
-import { isSendable, formatPhone } from '../services/sms.js';
+import { dispo } from '../utils/billing.js';
+import { isSendable } from '../services/sms.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -48,6 +49,16 @@ const HARD_SKIP = ['[BILLED]', '[IGNORED]', '[IGNORE]'];
 function cleanTitle(title) {
   return (title || '').replace(/\s*\[.*?\]/g, '').trim();
 }
+
+// A disposition lands in time_entries. THAT is the record of a visit being
+// closed out — not the calendar title, which Overwatch stopped tagging.
+const TAB_FOR_DISPO = {
+  bill_it:     'billit',
+  return:      'return',
+  estimate:    'estimate',
+  in_progress: 'new',    // "Still Scheduled" — deliberately still on the day
+  blocked:     'new',    // couldn't do it — still needs somebody's attention
+};
 
 function getTab(title) {
   const t = (title || '').toUpperCase();
@@ -97,6 +108,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // Until it answers the map is empty, so the extra lines simply have not
   // appeared yet — the card starts as today's card and fills in.
   const [jobByEvent, setJobByEvent] = useState({});
+  // event id -> the time entry that closed it out, if there is one.
+  const [entryByEvent, setEntryByEvent] = useState({});
 
 
   // Single tech calendar OR all techs for operators
@@ -225,7 +238,33 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       ids.add(e.id);
       if (e.id.includes('_')) ids.add(e.id.split('_')[0]);
     });
-    if (ids.size === 0) { setJobByEvent({}); return; }
+    if (ids.size === 0) { setJobByEvent({}); setEntryByEvent({}); return; }
+
+    // ── DID SOMEBODY ALREADY CLOSE THIS OUT? ─────────────────────────────
+    // Today decided that from the event TITLE — [BILL IT], [RETURN] and so on.
+    // JobFinishSheet stopped writing those tags, so after a refresh a visit a
+    // tech had just dispositioned came back untagged, read as 'new', and sat on
+    // the day looking untouched. The tab moved in local state and nowhere else.
+    //
+    // The disposition is a row in time_entries. Read that.
+    try {
+      const { data: entries } = await supabase
+        .from('time_entries')
+        .select('id, calendar_event_id, disposition, total_minutes, created_at')
+        .in('calendar_event_id', [...ids])
+        .or('archived.is.null,archived.eq.false')
+        .order('created_at', { ascending: true });
+      const byEvent = {};
+      (entries || []).forEach(e => {
+        // Last one wins: a visit dispositioned twice is described by its
+        // most recent answer, not its first.
+        if (e.calendar_event_id) byEvent[e.calendar_event_id] = e;
+      });
+      setEntryByEvent(byEvent);
+    } catch (e) {
+      console.warn('closed-out lookup failed', e);
+      setEntryByEvent({});
+    }
     const list = [...ids].join(',');
     const COLS = 'id, issue, status, customer_id, customer_name, customer_phone, ' +
                  'customer_address, calendar_event_id, scheduled_event_id, tentative_event_id';
@@ -298,6 +337,16 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     if (!ev?.id) return null;
     return jobByEvent[ev.id] || (ev.id.includes('_') ? jobByEvent[ev.id.split('_')[0]] : null) || null;
   };
+  const entryFor = (ev) => {
+    if (!ev?.id) return null;
+    return entryByEvent[ev.id] || (ev.id.includes('_') ? entryByEvent[ev.id.split('_')[0]] : null) || null;
+  };
+  // The entry wins over the title. The title is legacy and only still read
+  // because years of events carry the old tags.
+  const tabFor = (ev) => {
+    const d = entryFor(ev)?.disposition;
+    return (d && TAB_FOR_DISPO[d]) || ev.tab;
+  };
 
   // The first tab ("Today") shows the tech's WHOLE day — every scheduled job
   // that isn't already billed/completed, including ones tagged [RETURN] or
@@ -305,8 +354,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // hidden from the tech just because it carries a return/estimate tag.
   // Return / Estimate / Bill It remain filtered views of the same day.
   const events = activeTab === 'new'
-    ? allEvents.filter(e => e.tab !== 'billit')
-    : allEvents.filter(e => e.tab === activeTab);
+    ? allEvents.filter(e => tabFor(e) !== 'billit')
+    : allEvents.filter(e => tabFor(e) === activeTab);
 
   const openDetail = (ev) => {
     setSelected(ev);
@@ -354,9 +403,9 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const telHref = (raw) => 'tel:' + String(raw || '').replace(/[^0-9+]/g, '');
 
   const tabCounts   = {};
-  TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
+  TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => tabFor(e) === t.key).length; });
   // "Today" shows everything not yet billed, so its badge counts that.
-  tabCounts.new = allEvents.filter(e => e.tab !== 'billit').length;
+  tabCounts.new = allEvents.filter(e => tabFor(e) !== 'billit').length;
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
@@ -497,6 +546,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           const calLoc    = String(ev.location || '').trim();
           const addrShown = address || calLoc;
           const issue     = issueLine(job?.issue);
+          // Closed out already? Say so. "Still Scheduled" and "Couldn't do it"
+          // both keep a visit on the day on purpose, and without this they look
+          // exactly like a visit nobody has touched.
+          const entry     = entryFor(ev);
+          const doneLabel = entry ? (dispo(entry.disposition)?.label || entry.disposition) : null;
+          const doneHrs   = entry && entry.total_minutes
+            ? `${(entry.total_minutes / 60).toFixed(1)}h`
+            : entry ? '0.0h' : null;
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
           const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : null;
@@ -524,6 +581,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       borderRadius: 4 
                     }}>
                       {ev.techName}
+                    </span>
+                  )}
+                  {doneLabel && (
+                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: 10, fontWeight: 800,
+                                   padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase',
+                                   letterSpacing: 0.4 }}>
+                      ✓ {doneLabel} · {doneHrs}
                     </span>
                   )}
                   {ev.tab === 'return' && (

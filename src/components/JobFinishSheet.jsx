@@ -573,6 +573,17 @@ export default function JobFinishSheet({
         </div>
       )}
 
+      {/* CUSTOMER LINK — optional, saved when set. It belongs on THIS step, with
+          the warning that tells you to use it. Splitting the sheet in two put it
+          behind Next, which left the warning pointing at a control on another
+          page and took the customer picker off the screen a tech actually reads. */}
+      <CustomerLookup
+        event={event}
+        accessToken={accessToken}
+        value={linkedCustomer}
+        onChange={setLinkedCust}
+      />
+
       {/* WHO TO ASK FOR. On-site contact and access, from migration 047. These
           were three lines of prose inside `issue` until 9.82.0, so a tech
           hunting for a phone number had to read a form skeleton to find it —
@@ -843,14 +854,6 @@ export default function JobFinishSheet({
         onChange={setTimeEntry}
         eventDate={eventDate}
         required={false}
-      />
-
-      {/* Customer link — optional, saved when set */}
-      <CustomerLookup
-        event={event}
-        accessToken={accessToken}
-        value={linkedCustomer}
-        onChange={setLinkedCust}
       />
 
       {eventInFuture && !futureOk && (

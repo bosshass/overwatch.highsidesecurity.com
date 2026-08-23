@@ -740,34 +740,153 @@ export default function JobFinishSheet({
         </button>
       )}
 
-      {/* Return reason — only when Return is the pick */}
-      {needsReason && (
-        <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, padding: 10, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-            Why is a return visit needed?
-          </div>
-          <textarea
-            value={returnReason}
-            onChange={e => setReturnReason(e.target.value)}
-            placeholder="Missing part, customer not home, needs follow-up…"
-            autoFocus
-            style={{
-              width: '100%', padding: 8, fontSize: 15, color: '#1B2A4A',
-              background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
-              resize: 'none', height: 54, boxSizing: 'border-box', fontFamily: 'inherit',
-            }}
-          />
-        </div>
-      )}
-
+      {/* TODAY, THEN THE RETURN. On a return visit the order is what happened
+          today — hours, what you did, what you used — and only then what the
+          next person walks into. Every other outcome keeps the order it had. */}
+      {needsReason ? (
+        <>
+      <TimeEntryBlock
+        value={timeEntry}
+        onChange={setTimeEntry}
+        eventDate={eventDate}
+        required={false}
+      />
       {/* Notes (required — blocks finish until filled) */}
       <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        📝 Notes — required {notesValid ? '✓' : ''}
+        {needsReason ? '📝 What you did today' : '📝 Notes'} — required {notesValid ? '✓' : ''}
       </div>
       <textarea
         value={notes}
         onChange={e => setNotes(e.target.value)}
-        placeholder="What was done / what's needed — required to finish"
+        placeholder={needsReason
+          ? 'What you actually did on site today — required to finish'
+          : "What was done / what's needed — required to finish"}
+        style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
+      />
+
+      {/* Materials */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        🔧 Materials {needsReason ? 'used today' : ''}
+      </div>
+      <textarea
+        value={materials}
+        onChange={e => setMaterials(e.target.value)}
+        placeholder="Parts, supplies, equipment used or needed..."
+        style={{ ...textareaStyle, background: '#fffbeb', border: '1px solid #fcd34d', height: 56 }}
+      />
+
+      {/* Time entry */}
+      {/* Photos — TWO doors, because there are two real cases.
+          A single input with capture="environment" jumped straight to the rear
+          camera and gave no way to attach a picture already on the phone: a
+          shot taken before the sheet was open, something the customer sent, a
+          screenshot of a panel code. That is a common case and it was
+          unreachable.
+          Dropping `capture` entirely would fix it and break the other one — a
+          tech standing in front of the panel would get a file browser instead
+          of a camera. So: two buttons, one input each, same handler.
+          The pictures go with the visit, so they are still findable when the
+          invoice is queried in November. */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px' }}>
+        📷 Photos {photos.length ? `(${photos.length})` : ''}
+      </div>
+
+      {photos.length > 0 && (
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
+          {photos.map((u, i) => (
+            <div key={u} style={{ position: 'relative' }}>
+              <img src={u} alt="" style={{ width: 74, height: 74, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }} />
+              <button
+                onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                aria-label="Remove photo"
+                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11,
+                         border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 800,
+                         lineHeight: '20px', cursor: 'pointer', padding: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <label
+          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+          {uploading ? 'Uploading…' : '📷 Take photo'}
+          {/* capture= keeps the one-tap path to the rear camera for a tech
+              standing in front of the work. */}
+          <input type="file" accept="image/*" capture="environment" multiple
+            disabled={uploading}
+            onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+            style={{ display: 'none' }} />
+        </label>
+
+        <label
+          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+          {uploading ? 'Uploading…' : '🖼 Choose photo'}
+          {/* NO capture attribute — this is what opens the phone's library and
+              file browser, for a picture that already exists. */}
+          <input type="file" accept="image/*" multiple
+            disabled={uploading}
+            onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+            style={{ display: 'none' }} />
+        </label>
+      </div>
+
+      {photoErr && (
+        <div style={{ fontSize: 12, color: '#dc2626', marginTop: -8, marginBottom: 12 }}>{photoErr}</div>
+      )}
+
+      {/* RETURN VISIT — the handover. Sara's words, because they are the ones
+          that get the information out of a tech: the next person walks in cold,
+          and what is not written here is not known. Shown only when Return is
+          the outcome, so nobody else reads a wall of instructions meant for a
+          case they are not in. */}
+      {needsReason && (
+        <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12,
+                      padding: '12px 14px', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+            Give the next tech a fighting chance.
+          </div>
+          <div style={{ fontSize: 12.5, color: '#a16207', lineHeight: 1.5, marginBottom: 10 }}>
+            Tell us what still needs to be done, what parts are needed, and anything
+            they should know before they walk in the door. You might win the lottery
+            tomorrow. You might get hit by a bus. Either way, someone else should be
+            able to pick up where you left off. And don't forget the photos — a
+            picture is worth 1,000 notes.
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase',
+                        letterSpacing: 0.5, marginBottom: 4 }}>
+            What do we need to do when we return? — required
+          </div>
+          <textarea
+            value={returnReason}
+            onChange={e => setReturnReason(e.target.value)}
+            placeholder="What is left, what to bring, what to know before walking in…"
+            style={{
+              width: '100%', padding: 10, fontSize: 15, color: '#1B2A4A',
+              background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
+              resize: 'vertical', height: 96, boxSizing: 'border-box', fontFamily: 'inherit',
+            }}
+          />
+        </div>
+      )}
+        </>
+      ) : (
+        <>
+      {/* Notes (required — blocks finish until filled) */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        {needsReason ? '📝 What you did today' : '📝 Notes'} — required {notesValid ? '✓' : ''}
+      </div>
+      <textarea
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+        placeholder={needsReason
+          ? 'What you actually did on site today — required to finish'
+          : "What was done / what's needed — required to finish"}
         style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
@@ -836,7 +955,7 @@ export default function JobFinishSheet({
 
       {/* Materials */}
       <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        🔧 Materials
+        🔧 Materials {needsReason ? 'used today' : ''}
       </div>
       <textarea
         value={materials}
@@ -852,6 +971,9 @@ export default function JobFinishSheet({
         eventDate={eventDate}
         required={false}
       />
+        </>
+      )}
+
 
       {eventInFuture && !futureOk && (
         <div style={{ background:'#2a1f08', border:'1px solid #f59e0b', borderRadius:10,

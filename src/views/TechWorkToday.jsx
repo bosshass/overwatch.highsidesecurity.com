@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { supabase } from '../services/supabase.js';
+import { isSendable, formatPhone } from '../services/sms.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -92,6 +93,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  // event id -> the board job it belongs to. Filled by loadJobsForEvents().
+  // Until it answers the map is empty, so the extra lines simply have not
+  // appeared yet — the card starts as today's card and fills in.
+  const [jobByEvent, setJobByEvent] = useState({});
 
 
   // Single tech calendar OR all techs for operators
@@ -195,6 +200,105 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   useEffect(() => { load(); }, [load]);
 
+  // ── THE BOARD, FOR THE WHOLE DAY, IN ONE READ ─────────────────────────────
+  // This card has always been a pure calendar reader. The phone under it was a
+  // regex over the event DESCRIPTION — first ten-digit-looking string wins, so
+  // a gate code written 970-555-0142 gets handed to a tech as the client's
+  // number. The address was event.location chopped at the first comma. Both are
+  // Google's COPY of what Overwatch wrote at booking (services/schedule.js:211,
+  // calendarSync.js:408) and neither is the board.
+  //
+  // resolveJobForEvent() is the one canonical event -> job lookup, and the
+  // finish sheet already calls it — but only AFTER you tap a card. This runs
+  // the same resolution across the whole day in one pass, so the card can show
+  // the client's real number, their real address, and what the job IS.
+  //
+  // RECURRING INSTANCES: Google hands one occurrence the id
+  // "<baseId>_20260708T183000Z" while the job stored the BASE id. Both forms go
+  // into the lookup or every recurring visit reads as an orphan.
+  const loadJobsForEvents = useCallback(async (items) => {
+    const ids = new Set();
+    (items || []).forEach(e => {
+      // PostgREST in-lists are built by string concatenation below. Google event
+      // ids are [A-Za-z0-9_-]; anything else is dropped rather than escaped.
+      if (!e?.id || !/^[A-Za-z0-9_-]+$/.test(e.id)) return;
+      ids.add(e.id);
+      if (e.id.includes('_')) ids.add(e.id.split('_')[0]);
+    });
+    if (ids.size === 0) { setJobByEvent({}); return; }
+    const list = [...ids].join(',');
+    const COLS = 'id, issue, status, customer_id, customer_name, customer_phone, ' +
+                 'customer_address, calendar_event_id, scheduled_event_id, tentative_event_id';
+    try {
+      const [jobsRes, assignRes] = await Promise.all([
+        supabase.from('jobs').select(COLS).or(
+          `calendar_event_id.in.(${list}),scheduled_event_id.in.(${list}),tentative_event_id.in.(${list})`
+        ),
+        supabase.from('job_assignments').select('job_id, calendar_event_id').in('calendar_event_id', [...ids]),
+      ]);
+      const jobs = jobsRes.data || [];
+      const seen = new Set(jobs.map(j => j.id));
+
+      // Assignment rows point back at the job — the third home an event id
+      // lives in, and the one a tech booking from their own calendar hits.
+      const assignByEvent = {};
+      const missing = [];
+      (assignRes.data || []).forEach(a => {
+        if (!a.job_id) return;
+        assignByEvent[a.calendar_event_id] = a.job_id;
+        if (!seen.has(a.job_id)) { seen.add(a.job_id); missing.push(a.job_id); }
+      });
+      if (missing.length > 0) {
+        const { data: extra } = await supabase.from('jobs').select(COLS).in('id', missing);
+        (extra || []).forEach(j => jobs.push(j));
+      }
+
+      // Hydrate a blank phone/address off the customer record — jobs carry a
+      // COPY taken at intake, and the copy is often empty. Same shape as
+      // supabase.js:914. The customer record is the number we can text.
+      const needs = jobs.filter(j => j.customer_id && (!j.customer_phone || !j.customer_address));
+      if (needs.length > 0) {
+        const custIds = [...new Set(needs.map(j => j.customer_id))];
+        const { data: customers } = await supabase.from('customers').select('id, phone, address').in('id', custIds);
+        const byId = {};
+        (customers || []).forEach(c => { byId[c.id] = c; });
+        jobs.forEach(j => {
+          const c = byId[j.customer_id];
+          if (!c) return;
+          if (!j.customer_phone && c.phone)     j.customer_phone   = c.phone;
+          if (!j.customer_address && c.address) j.customer_address = c.address;
+        });
+      }
+
+      const byId = Object.fromEntries(jobs.map(j => [j.id, j]));
+      const index = {};
+      jobs.forEach(j => {
+        [j.calendar_event_id, j.scheduled_event_id, j.tentative_event_id].forEach(eid => {
+          if (eid && ids.has(eid)) index[eid] = j;
+        });
+      });
+      Object.entries(assignByEvent).forEach(([eid, jid]) => {
+        if (!index[eid] && byId[jid]) index[eid] = byId[jid];
+      });
+      setJobByEvent(index);
+    } catch (e) {
+      // A failed board read must never blank the day. The cards fall back to
+      // calendar-only and say so.
+      console.warn('board lookup for the day failed', e);
+      // Cards fall back to the calendar's address and say nothing more.
+      setJobByEvent({});
+    }
+  }, []);
+
+  useEffect(() => { loadJobsForEvents(allEvents); }, [allEvents, loadJobsForEvents]);
+
+  // The card's one way to ask "what job is this?" — instance id first, then the
+  // recurring base.
+  const jobFor = (ev) => {
+    if (!ev?.id) return null;
+    return jobByEvent[ev.id] || (ev.id.includes('_') ? jobByEvent[ev.id.split('_')[0]] : null) || null;
+  };
+
   // The first tab ("Today") shows the tech's WHOLE day — every scheduled job
   // that isn't already billed/completed, including ones tagged [RETURN] or
   // [ESTIMATE]. This is the safety fix: a scheduled appointment can never be
@@ -239,10 +343,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // [IN PROGRESS] / [ESTIMATE] tags.
 
   const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  const extractPhone = (desc) => {
-    const m = (desc || '').match(/(?:Phone|Ph|Tel|Call)?:?\s*(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/i);
-    return m ? m[1] : null;
+  // jobs.issue carries appended field notes behind a series of 📝 markers
+  // (see components/FieldVisits.jsx). Raw, that dumps months of history onto a
+  // card. The issue is what comes BEFORE the first note.
+  const issueLine = (issue) => {
+    const head = String(issue || '').split('📝')[0];
+    return head.replace(/\s+/g, ' ').trim();
   };
+
+  const telHref = (raw) => 'tel:' + String(raw || '').replace(/[^0-9+]/g, '');
 
   const tabCounts   = {};
   TABS.forEach(t => { tabCounts[t.key] = allEvents.filter(e => e.tab === t.key).length; });
@@ -380,7 +489,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
         {!loading && events.map((ev, i) => {
           const name  = cleanTitle(ev.title);
-          const phone = extractPhone(ev.description);
+          // The board first, always. The calendar is downstream of it.
+          const job       = jobFor(ev);
+          const phone     = job?.customer_phone || null;
+          const callable  = phone && isSendable(phone);
+          const address   = String(job?.customer_address || '').trim();
+          const calLoc    = String(ev.location || '').trim();
+          const addrShown = address || calLoc;
+          const issue     = issueLine(job?.issue);
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
           const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : null;
@@ -422,9 +538,50 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                 </div>
                 <div style={{ fontSize: 14, color: '#6b7280' }}>
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
-                  {ev.location && ' · ' + ev.location.split(',')[0]}
                 </div>
-                {phone && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>📞 {phone}</div>}
+
+                {/* WHAT ARE WE DOING HERE. jobs.issue, first two lines, notes
+                    stripped. An event with no job simply has none to show. */}
+                {issue && (
+                  <div style={{ fontSize: 13, color: '#374151', marginTop: 5, lineHeight: 1.35,
+                                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden' }}>
+                    {issue}
+                  </div>
+                )}
+
+                {/* Address in full — it used to be chopped at the first comma,
+                    which took the city off every card. Navigate is a link, not a
+                    tap target that also opens the sheet. */}
+                {addrShown && (
+                  <div style={{ fontSize: 13, color: '#6b7280', marginTop: 5, display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ flex: '1 1 auto', minWidth: 0 }}>📍 {addrShown}</span>
+                    <a href={'https://maps.google.com/?q=' + encodeURIComponent(addrShown)}
+                      target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      style={{ flexShrink: 0, color: '#2563eb', fontWeight: 700, textDecoration: 'none' }}>
+                      Navigate →
+                    </a>
+                  </div>
+                )}
+
+                {/* THE NUMBER WE CAN TEXT — jobs.customer_phone, hydrated off the
+                    customer record when the job's copy is blank. Red means the job
+                    is on the board and carries no reachable number. An event with
+                    no job behind it shows no phone line at all — the tech's card
+                    says exactly what it says today, and the unlinked warning stays
+                    where it already lives, inside the finish sheet. */}
+                {callable && (
+                  <a href={telHref(phone)} onClick={e => e.stopPropagation()}
+                    style={{ display: 'inline-block', fontSize: 15, fontWeight: 700, color: '#16a34a', textDecoration: 'none', marginTop: 6 }}>
+                    📞 {phone}
+                  </a>
+                )}
+                {!callable && job && (
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginTop: 6 }}>
+                    📞 {phone ? `${phone} — cannot be dialed` : 'No number on file'}
+                  </div>
+                )}
               </div>
               <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>
             </div>
@@ -447,24 +604,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 12 }}>
               {selected.isAllDay ? 'All day' : fmtTime(selected.start) + ' – ' + fmtTime(selected.end)}
             </div>
-
-            {(selected.location || extractPhone(selected.description)) && (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                {selected.location && (
-                  <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
-                    target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, color: '#2563eb', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
-                    🗺️ Navigate
-                  </a>
-                )}
-                {extractPhone(selected.description) && (
-                  <a href={'tel:' + (extractPhone(selected.description) || '').replace(/\D/g, '')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, color: '#16a34a', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
-                    📞 Call
-                  </a>
-                )}
-              </div>
-            )}
 
             {/* Finish form — customer link, time entry, notes, materials, disposition buttons.
                 Lives in src/components/JobFinishSheet.jsx and is the SINGLE canonical

@@ -80,6 +80,15 @@ export default function JobFinishSheet({
   // buttons were buried under Notes+Materials and doubled as the submit,
   // so the tech had to scroll past everything to say what happened.
   const [selectedDispo, setSelectedDispo] = useState(null);
+  // TWO STEPS, NOT ONE LONG CARD. Step 1 answers "what happened"; step 2 is the
+  // paperwork. The sheet used to be one scroll — scope, history, five stacked
+  // buttons, then notes, photos, materials, hours — and the outcome buttons sat
+  // in the middle of it, which is where a tech stops reading.
+  const [step, setStep] = useState(1);
+  // Scope and history are reference material: needed sometimes, in the way
+  // always. Closed until asked for.
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [histOpen, setHistOpen]   = useState(false);
 
   // ── THE JOB BEHIND THIS EVENT ──────────────────────────────────────
   // The sheet used to know NOTHING about the card. "Scope of work" was built
@@ -452,13 +461,13 @@ export default function JobFinishSheet({
   // move had three names depending on which screen you were standing in.
   // `means` is the question the tech is actually answering.
   const DISPOS = [
-    { key: 'bill_it',     label: '✅ Done — To Bill',     accent: '#166534', tint: '#f0fdf4',
+    { key: 'bill_it',     icon: '✅', label: 'Done — To Bill',   accent: '#166534', tint: '#f0fdf4',
       means: 'Finished. Hours go to Billing.' },
-    { key: 'return',      label: '🔄 Return Visit',       accent: '#d97706', tint: '#fffbeb',
+    { key: 'return',      icon: '🔄', label: 'Return Visit',     accent: '#d97706', tint: '#fffbeb',
       means: 'Work started — I have to come back. Asks why.' },
-    { key: 'in_progress', label: '📅 Still Scheduled',    accent: '#1d4ed8', tint: '#eff6ff',
+    { key: 'in_progress', icon: '📅', label: 'Still Scheduled',  accent: '#1d4ed8', tint: '#eff6ff',
       means: 'Multi-day job. Not finished, still booked.' },
-    { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',
+    { key: 'estimate',    icon: '📋', label: 'Estimates',        accent: '#7e22ce', tint: '#faf5ff',
       means: 'Scope changed — this needs pricing.' },
     // THE LABEL WAS "📝 New / Notes" — a board lane, not an outcome.
     // A tech scanning five buttons reads the LABELS; `means` is small print
@@ -468,13 +477,86 @@ export default function JobFinishSheet({
     //
     // Named for what happened, and the billing consequence is on the face of
     // it, because that is the part a tech would otherwise assume is lost.
-    { key: 'blocked',     label: "🚫 Couldn't do it",     accent: '#b91c1c', tint: '#fef2f2',
+    { key: 'blocked',     icon: '🚫', label: "Couldn't do it",  accent: '#b91c1c', tint: '#fef2f2',
       means: 'Nobody there, no access, wrong parts. The trip still bills.' },
   ];
+  const DONE_DISPO = DISPOS[0];                 // the one outcome that finishes the job
+  const BACK_DISPOS = DISPOS.slice(1);          // the four that mean "not finished"
+  const pickDispo = (key) => {
+    setSelectedDispo(key);
+    setError('');
+    if (key !== 'return') setReturnReason('');
+  };
+  const chosen = DISPOS.find(d => d.key === selectedDispo) || null;
 
-  // ── The actual form content (customer + time + notes + materials + buttons) ──
-  const formContent = (
+  // A section header that is also its own open/close control.
+  const discloseBtn = (color) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+    fontFamily: 'inherit', fontSize: 11, fontWeight: 700, color,
+    textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'left',
+  });
+
+  const dispoBtn = (d, on, wide) => ({
+    display: 'flex', flexDirection: 'column',
+    alignItems: wide ? 'flex-start' : 'center',
+    justifyContent: 'center', textAlign: wide ? 'left' : 'center',
+    width: '100%', padding: wide ? '14px 14px' : '14px 8px',
+    borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit',
+    background: on ? d.tint : '#ffffff',
+    border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
+    color: on ? d.accent : '#475569',
+  });
+
+  // ── NAVIGATE · CALL · TEXT ────────────────────────────────────────────────
+  // Three things a tech does standing at a door, so three buttons of equal
+  // weight in one row. They used to be two rows: Navigate and Call came from
+  // the Work Today sheet, and Text came from a block further down that also
+  // repeated the phone number — a wide pill reading "Text NATE KVAMME" under
+  // two half-width buttons. Same three actions, two rows, three visual weights.
+  //
+  // The address is the board's, falling back to the calendar's copy; the number
+  // is jobs.customer_phone. Both are what the card above them shows, because a
+  // sheet that disagrees with the card that opened it is worse than either.
+  const actAddr  = String(linkedJob?.customer_address || event?.location || '').trim();
+  const actPhone = linkedJob?.customer_phone || null;
+  const ACT_BTN  = {
+    flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 6, padding: '14px 8px', borderRadius: 12, fontSize: 15, fontWeight: 700,
+    textDecoration: 'none', fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: 'pointer',
+  };
+
+  const actionRow = (actAddr || actPhone) ? (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      {actAddr && (
+        <a href={'https://maps.google.com/?q=' + encodeURIComponent(actAddr)}
+          target="_blank" rel="noopener noreferrer"
+          style={{ ...ACT_BTN, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb' }}>
+          🗺️ Navigate
+        </a>
+      )}
+      {actPhone && (
+        <a href={`tel:${String(actPhone).replace(/[^0-9+]/g, '')}`}
+          style={{ ...ACT_BTN, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a' }}>
+          📞 Call
+        </a>
+      )}
+      <TextButton
+        to={actPhone}
+        name={linkedJob?.customer_name || 'the client'}
+        accessToken={accessToken}
+        templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob?.scheduled_date })}
+        logTo={{ jobId: linkedJob?.id, customerId: linkedJob?.customer_id, userEmail }}
+        label="📱 Text"
+        style={{ ...ACT_BTN, background: '#f5f0ff', border: '1px solid #ddd0ff', color: '#7c3aed', borderRadius: 12 }}
+      />
+    </div>
+  ) : null;
+
+  // ── STEP 1 — what a tech needs in front of them before they answer ──
+  const contextBlocks = (
     <>
+      {actionRow}
       {/* NOT LINKED TO A CUSTOMER — loud, first, and never blocking.
           Blocking a tech in the field creates worse problems than a dirty row,
           so they can still finish. But this job stays flagged on the Board and
@@ -525,7 +607,9 @@ export default function JobFinishSheet({
               in, nobody home. Until now the only way to text from Overwatch was
               a control buried in the office-side job card, which a tech in the
               field never opens. A tel: link was the whole toolkit.
-              Both numbers get a button because they are two different people. */}
+              The CLIENT's Text button is in the Navigate/Call/Text row at the
+              top of the sheet; this one is the on-site contact, who is a
+              different person standing at a different phone. */}
           <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
             <TextButton
               to={linkedJob.site_contact_phone}
@@ -534,58 +618,52 @@ export default function JobFinishSheet({
               templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
               logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
             />
-            <TextButton
-              to={linkedJob.customer_phone}
-              name={linkedJob.customer_name || 'the client'}
-              accessToken={accessToken}
-              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            />
           </div>
         </div>
       )}
 
-      {/* AND WHEN THERE IS NO ON-SITE CONTACT, the client's number still has to
-          be reachable. The block above only renders when site contact or access
-          was recorded, which is most jobs — so without this the tech has a
-          phone number on the card and no way to text it. */}
-      {!(linkedJob?.site_contact_name || linkedJob?.site_contact_phone ||
-         linkedJob?.access_permission === true || linkedJob?.access_permission === false)
-        && linkedJob?.customer_phone && (
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap',
-                      background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12,
-                      padding:'10px 12px', marginBottom:12 }}>
-          <a href={`tel:${String(linkedJob.customer_phone).replace(/[^0-9+]/g, '')}`}
-             style={{ fontSize:14, color:'#2563eb', fontWeight:700, textDecoration:'none' }}>
-            📞 {linkedJob.customer_phone}
-          </a>
-          <TextButton
-            to={linkedJob.customer_phone}
-            name={linkedJob.customer_name || 'the client'}
-            accessToken={accessToken}
-            templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-            logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            style={{ marginLeft: 'auto' }}
-          />
+      {/* SCOPE OF WORK, then HISTORY — both closed. Scope is first because it
+          is what the job IS; history is what was said about it. Opened on a tap,
+          because the phone number and address in the calendar-written scope text
+          are already up in the Navigate/Call/Text row, and a wall of repeated
+          detail between the tech and the outcome buttons is what pushed the
+          buttons off the screen. */}
+      {scope && (
+        <div style={scopeBox}>
+          <button type="button" onClick={() => setScopeOpen(v => !v)} style={discloseBtn('#1e40af')}>
+            <span>📋 Scope of work</span>
+            <span style={{ fontSize: 13 }}>{scopeOpen ? '▲' : '▼'}</span>
+          </button>
+          {scopeOpen && (
+            <>
+              <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap', marginTop: 8 }}>
+                {scope}
+              </div>
+              {/* Access details and gate codes often live only on the calendar
+                  event, so show that block too when it says something the issue
+                  does not. */}
+              {extraFromEvent && (
+                <div style={{ fontSize: 12.5, color: '#3b5aa0', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                              marginTop: 8, paddingTop: 8, borderTop: '1px solid #bfdbfe' }}>
+                  {extraFromEvent}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
-      {/* WHAT WAS ALREADY SAID. Prior notes on this job — office notes, status
-          history and earlier field notes, all via notesApi.getAllForJob. Until
-          now these were readable in exactly one screen, so a tech walked in
-          without the last three things anybody wrote about the job. Newest
-          first, capped at four so it informs without burying the form. */}
       {jobNotes.length > 0 && (
         <div style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12,
                       padding:'10px 12px', marginBottom:12 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase',
-                        letterSpacing:0.5, marginBottom:6 }}>
-            🗒 History {jobNotes.length > 4 ? `(latest 4 of ${jobNotes.length})` : ''}
-          </div>
-          {jobNotes.slice(0, 4).map(n => (
+          <button type="button" onClick={() => setHistOpen(v => !v)} style={discloseBtn('#475569')}>
+            <span>🗒 History {jobNotes.length > 4 ? `(latest 4 of ${jobNotes.length})` : `(${jobNotes.length})`}</span>
+            <span style={{ fontSize: 13 }}>{histOpen ? '▲' : '▼'}</span>
+          </button>
+          {histOpen && jobNotes.slice(0, 4).map(n => (
             <div key={n.id} style={{ fontSize:13, color:'#334155', lineHeight:1.45,
-                                     paddingBottom:6, marginBottom:6,
-                                     borderBottom:'1px solid #eef2f6' }}>
+                                     paddingTop:8, marginTop:8,
+                                     borderTop:'1px solid #eef2f6' }}>
               <div style={{ fontSize:10.5, color:'#94a3b8', fontWeight:700 }}>
                 {n.created_by || 'Someone'}
                 {n.created_at ? ` · ${new Date(n.created_at).toLocaleDateString('en-US',
@@ -598,78 +676,80 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* SCOPE OF WORK — the hero. Full text, no truncation, no "Show more". */}
-      {scope && (
-        <div style={scopeBox}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
-            📋 Scope of work
-          </div>
-          <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-            {scope}
-          </div>
-          {/* Access details and gate codes often live only on the calendar
-              event, so show that block too when it says something the issue
-              does not. */}
-          {extraFromEvent && (
-            <div style={{ fontSize: 12.5, color: '#3b5aa0', lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                          marginTop: 8, paddingTop: 8, borderTop: '1px solid #bfdbfe' }}>
-              {extraFromEvent}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* HOW DID IT END — moved ABOVE notes. Pick first, then write. */}
+      {/* HOW DID IT END. Done is the answer most visits get, so it is one
+          full-width button; the four ways of "I have to come back" sit under it
+          as a 2×2 block. Picking one selects it — Next is what moves. Tapping a
+          tile used to be the only way forward, which meant a mis-tap navigated. */}
       {mode === 'full' && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
             How did it end? {selectedDispo ? '✓' : '— required'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 10 }}>
-            {DISPOS.map(d => {
-              const on = selectedDispo === d.key;
-              return (
-                <button key={d.key}
-                  onClick={() => { setSelectedDispo(d.key); setError(''); if (d.key !== 'return') setReturnReason(''); }}
-                  style={{
-                    padding: '13px 8px', borderRadius: 12, cursor: 'pointer',
-                    background: on ? d.tint : '#ffffff',
-                    border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
-                    color: on ? d.accent : '#475569',
-                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'left',
-                  }}>
-                  <span style={{ display: 'block' }}>{d.label}</span>
-                  {/* The question the tech is answering, in their words. A label
-                      alone made them guess which button meant "couldn't get in". */}
-                  <span style={{ display: 'block', fontSize: 11, fontWeight: 500,
-                                 color: on ? d.accent : '#94a3b8', marginTop: 3, lineHeight: 1.3 }}>
-                    {d.means}
-                  </span>
-                </button>
-              );
-            })}
+
+          <button onClick={() => pickDispo(DONE_DISPO.key)} style={dispoBtn(DONE_DISPO, selectedDispo === DONE_DISPO.key, true)}>
+            <span style={{ fontSize: 15, fontWeight: 800 }}>{DONE_DISPO.icon} {DONE_DISPO.label}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 500, opacity: 0.85, marginTop: 2 }}>{DONE_DISPO.means}</span>
+          </button>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '8px 0 12px' }}>
+            {BACK_DISPOS.map(d => (
+              <button key={d.key} onClick={() => pickDispo(d.key)} style={dispoBtn(d, selectedDispo === d.key, false)}>
+                <span style={{ fontSize: 20, lineHeight: 1 }}>{d.icon}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, marginTop: 5 }}>{d.label}</span>
+                {/* The question the tech is answering, in their words. A label
+                    alone made them guess which button meant "couldn't get in". */}
+                <span style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.8, marginTop: 3, lineHeight: 1.3 }}>
+                  {d.means}
+                </span>
+              </button>
+            ))}
           </div>
 
-          {/* Return reason — only when Return is the pick */}
-          {needsReason && (
-            <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                Why is a return visit needed?
-              </div>
-              <textarea
-                value={returnReason}
-                onChange={e => setReturnReason(e.target.value)}
-                placeholder="Missing part, customer not home, needs follow-up…"
-                autoFocus
-                style={{
-                  width: '100%', padding: 8, fontSize: 15, color: '#1B2A4A',
-                  background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
-                  resize: 'none', height: 54, boxSizing: 'border-box', fontFamily: 'inherit',
-                }}
-              />
-            </div>
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button onClick={() => selectedDispo && setStep(2)} disabled={!selectedDispo}
+              style={btnFinish(!!selectedDispo)}>
+              {selectedDispo ? 'Next →' : 'Pick an outcome'}
+            </button>
+            <button onClick={onCancel} style={btnCancel}>Cancel</button>
+          </div>
         </>
+      )}
+    </>
+  );
+
+  // ── STEP 2 — the paperwork, exactly as it has always looked ──
+  const finishForm = (
+    <>
+      {mode === 'full' && (
+        <button onClick={() => setStep(1)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginBottom: 12,
+                   background: chosen?.tint || '#f8fafc', border: `1.5px solid ${chosen?.accent || '#e2e8f0'}`,
+                   borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                   color: chosen?.accent || '#475569', fontSize: 14, fontWeight: 800, textAlign: 'left' }}>
+          <span style={{ fontSize: 16 }}>←</span>
+          <span style={{ flex: 1 }}>{chosen ? `${chosen.icon} ${chosen.label}` : 'Outcome'}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.75 }}>Change</span>
+        </button>
+      )}
+
+      {/* Return reason — only when Return is the pick */}
+      {needsReason && (
+        <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, padding: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Why is a return visit needed?
+          </div>
+          <textarea
+            value={returnReason}
+            onChange={e => setReturnReason(e.target.value)}
+            placeholder="Missing part, customer not home, needs follow-up…"
+            autoFocus
+            style={{
+              width: '100%', padding: 8, fontSize: 15, color: '#1B2A4A',
+              background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
+              resize: 'none', height: 54, boxSizing: 'border-box', fontFamily: 'inherit',
+            }}
+          />
+        </div>
       )}
 
       {/* Notes (required — blocks finish until filled) */}
@@ -799,7 +879,7 @@ export default function JobFinishSheet({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
         <button onClick={handleFinish} disabled={!readyToFinish} style={btnFinish(readyToFinish)}>
           {acting ? 'Saving…'
-            : !effectiveDispo ? 'Pick an outcome above'
+            : !effectiveDispo ? 'Pick an outcome first'
             : eventInFuture && !futureOk ? "This visit hasn't happened yet"
             : !notesValid ? 'Add notes to finish'
             : needsReason && !reasonOk ? 'Add a return reason'
@@ -809,6 +889,12 @@ export default function JobFinishSheet({
       </div>
     </>
   );
+
+  // Two steps only where there is an outcome to pick. In 'bill-only' mode the
+  // disposition is forced, so there is nothing to choose and nothing to split.
+  const formContent = mode !== 'full'
+    ? <>{contextBlocks}{finishForm}</>
+    : step === 1 ? contextBlocks : finishForm;
 
   // Inline mode — caller (e.g. TechWorkToday) provides its own overlay/sheet/header.
   if (inline) return formContent;

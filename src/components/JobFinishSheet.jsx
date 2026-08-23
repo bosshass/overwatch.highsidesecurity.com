@@ -34,7 +34,7 @@
 import { useState, useEffect } from 'react';
 import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
-import TextButton, { clientTemplates } from './TextButton.jsx';
+import TextButton, { clientTemplates, textTargets } from './TextButton.jsx';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
@@ -520,6 +520,14 @@ export default function JobFinishSheet({
   // sheet that disagrees with the card that opened it is worse than either.
   const actAddr  = String(linkedJob?.customer_address || event?.location || '').trim();
   const actPhone = linkedJob?.customer_phone || null;
+  // ONE Text button, every number behind it. The on-site contact is the only
+  // number that carries a name, because somebody typed that name against that
+  // number. The client's field is free text and often holds two numbers; those
+  // are offered as digits, unlabelled. One number and the picker never appears.
+  const actTargets = textTargets({
+    named: [{ phone: linkedJob?.site_contact_phone, name: linkedJob?.site_contact_name }],
+    pools: [linkedJob?.customer_phone],
+  });
   const ACT_BTN  = {
     flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
     gap: 6, padding: '14px 8px', borderRadius: 12, fontSize: 15, fontWeight: 700,
@@ -542,7 +550,7 @@ export default function JobFinishSheet({
         </a>
       )}
       <TextButton
-        to={actPhone}
+        targets={actTargets}
         name={linkedJob?.customer_name || 'the client'}
         accessToken={accessToken}
         templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob?.scheduled_date })}
@@ -613,23 +621,12 @@ export default function JobFinishSheet({
             <div style={{ fontSize:13, color:'#b45309', marginTop:4 }}>🔒 Client must be present</div>
           )}
 
-          {/* THE TEXT BUTTONS BELONG HERE MOST OF ALL. This sheet is what a
-              tech has open while standing at the door — running late, can't get
-              in, nobody home. Until now the only way to text from Overwatch was
-              a control buried in the office-side job card, which a tech in the
-              field never opens. A tel: link was the whole toolkit.
-              The CLIENT's Text button is in the Navigate/Call/Text row at the
-              top of the sheet; this one is the on-site contact, who is a
-              different person standing at a different phone. */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
-            <TextButton
-              to={linkedJob.site_contact_phone}
-              name={linkedJob.site_contact_name || 'on-site contact'}
-              accessToken={accessToken}
-              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            />
-          </div>
+          {/* NO SECOND TEXT BUTTON HERE. This block used to carry a pill as wide
+              as the caretaker's name — the same "two buttons and a long thing"
+              shape that was cleaned out of the action row, left alive one block
+              further down. The one Text button at the top offers this number and
+              the client's, with this person's name on theirs, so there is one
+              control and no guessing about who is on the other end. */}
         </div>
       )}
 

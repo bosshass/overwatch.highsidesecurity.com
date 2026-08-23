@@ -524,7 +524,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       </div>
 
       {/* List */}
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {/* THE LAST CARDS WERE UNDER THE NAV. The global bottom nav is position:
+          fixed with zIndex 150, so it sits on top of the final ~70px of any
+          screen. Every other view reserves that space — OpsHome:294 pads 100,
+          TaskStack:384 pads 70 — and this one never did. The cards were there
+          and rendered; they were just underneath the tab bar, and on a day that
+          was about one screenful there was nothing to scroll to at all.
+          env(safe-area-inset-bottom) covers the home indicator on an iPhone. */}
+      <div style={{ padding: '12px 16px', paddingBottom: 'calc(96px + env(safe-area-inset-bottom))',
+                    display: 'flex', flexDirection: 'column', gap: 1 }}>
         {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (

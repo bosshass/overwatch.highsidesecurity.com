@@ -58,6 +58,12 @@ const BOARD_TILES = [
   { key:'ready',     label:'Ready to Schedule', color:'#22d16f', lane:'ready'     },
   { key:'scheduled', label:'Scheduled',         color:'#a855f7', lane:'scheduled' },
   { key:'returns',   label:'Return Trips',      color:'#f5a524', lane:'ready'     },
+  // BLOCKED HAD NOWHERE TO BE SEEN. "Couldn't do it" writes status 'blocked',
+  // which renders in exactly one place — the board's blocked lane — and 9.77.1
+  // took it out of the New count on the way past. So a tech drove out, got no
+  // access, said so, and Home showed nothing at all. The trip still bills; a
+  // number nobody can see does not get billed.
+  { key:'blocked',   label:'Blocked',           color:'#ef4444', lane:'blocked'   },
   { key:'tobill',    label:'To Bill',           color:'#16c7df', lane:null        },
 ];
 
@@ -184,6 +190,7 @@ export default function OpsHome({
                      const d = Math.floor((Date.now() - new Date(j.created_at).getTime()) / 86400000);
                      return d > max ? d : max;
                    }, 0),
+        blocked:   count('blocked'),
         ready:     count('ready_to_schedule'),
         scheduled: count('scheduled'),
         estimates: count('needs_estimate', 'estimate_sent'),
@@ -458,7 +465,7 @@ export default function OpsHome({
             {/* auto-FILL held 132px tracks open across the whole width, so on a
                 tablet the tiles stranded mid-row and on a desktop they sat in a
                 thin line with dead space beside them. auto-FIT collapses the
-                empty tracks and lets the six stretch to share the row. */}
+                empty tracks and lets them stretch to share the row. */}
             <div style={{ display:'grid', gap:9,
                           gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))' }}>
               {BOARD_TILES.map(t => {

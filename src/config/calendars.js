@@ -29,6 +29,15 @@ export const CALENDARS = {
   SERVICE_URGENT:        'de3d433f5c6c6a85f5474648e005cac43529d5bed542b74675a37a30cf0ece91@group.calendar.google.com',
   COMPLETED:             'c_a095f8a75a8e3fb1bb4b0f3a2232962af3ab55f05a49ced1e4338abcc865d3e9@group.calendar.google.com',
   INSTALLATIONS:         'c_c84c0a24e2a7386cb519b21569fbb4b17a19214ce33744a63e06394f8c57339f@group.calendar.google.com',
+  // TREVOR HAS HIS OWN CALENDAR AND THIS FILE DID NOT KNOW IT.
+  // `techs` has carried the correct id since the row was made — active, with
+  // this exact calendar — so the scheduler could book him all along. Every
+  // other surface reads THIS file, and here he was mapped to Installations, so
+  // his own calendar was invisible to the calendar view, the availability
+  // check, the Event Audit and the orphan scan. Anything booked on it was work
+  // Overwatch could not see at all: the Aug 14 Jeanneret day sat on it, and to
+  // Overwatch that event had no card and no tech.
+  TREVOR:                'c_a5b141d2a4936b6e90c779694ce3ca7e01031bd8f7454cd0c98ba4a4157e8872@group.calendar.google.com',
   SHANA:                 'shanaparks@drhsecurityservices.com',
   SUBS:                  'c_ef1cf02ebba19919b78be38a9c5d2603ef52a838ac4bb37253fd69d718cdcb5c@group.calendar.google.com',
 };
@@ -92,6 +101,16 @@ export const SYNC_CALENDARS = [
     type: 'tech',
     // Brian sees his own; Austin also sees Brian's per request
     visibleTo: [...BRIAN_EMAILS, ...AUSTIN_EMAILS],
+  },
+  {
+    // Same shape as Austin and JR — a tech with his own calendar, scanned like
+    // theirs. It is `tech`, not `installations`: Installations is a shared
+    // queue several people work out of, and treating Trevor's personal
+    // calendar as that queue is what hid him.
+    id: CALENDARS.TREVOR,
+    name: 'Trevor',
+    type: 'tech',
+    visibleTo: TREVOR_EMAILS,
   },
   {
     id: CALENDARS.SHANA,
@@ -200,7 +219,13 @@ export function getWorkViewCalendars(email) {
   }
   if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
   if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
-  if (TREVOR_EMAILS.includes(e)) return [{ id: CALENDARS.INSTALLATIONS, name: 'Installations' }];
+  // His own first, then Installations — he works out of both, the same way
+  // Austin sees his own plus Brian's and Subs'. Installations alone meant he
+  // could not see his own day.
+  if (TREVOR_EMAILS.includes(e)) return [
+    { id: CALENDARS.TREVOR,        name: 'Trevor' },
+    { id: CALENDARS.INSTALLATIONS, name: 'Installations' },
+  ];
   if (SUBS_EMAILS.includes(e))   return [{ id: CALENDARS.SUBS, name: 'Subs' }];
 
   return [];
@@ -218,7 +243,10 @@ export const TECH_CALENDAR_MAP = {
   'admin@jnbservice.com':               CALENDARS.SALES_ACCOUNTING,
   'sara@drhsecurityservices.com':       CALENDARS.SALES_ACCOUNTING,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
-  'trevor@drhsecurityservices.com':     CALENDARS.INSTALLATIONS,
+  // WAS INSTALLATIONS. Booking Trevor wrote the event onto a shared queue
+  // calendar instead of his, so it never appeared on his day and his own
+  // calendar stayed empty in Overwatch's eyes.
+  'trevor@drhsecurityservices.com':     CALENDARS.TREVOR,
   'subs@drhsecurityservices.com':       CALENDARS.SUBS,
 };
 

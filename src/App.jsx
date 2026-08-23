@@ -80,7 +80,11 @@ const USER_CONFIG = {
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
-  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Installations', defaultView: 'work' },
+  // defaultCalendar was 'Installations' — the shared install queue — so Trevor
+  // signed in and landed on everyone's work instead of his own day. Austin
+  // lands on Austin; Trevor lands on Trevor. He still SEES Installations
+  // (config/calendars.js gives him both), it is just no longer where he starts.
+  'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Trevor', defaultView: 'work' },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
   'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'board', superAdmin: true },
   // Sara on the DRH domain, as a TECH profile: her own calendar, My Day as the
@@ -105,6 +109,7 @@ const CALENDAR_OPTIONS = [
   { key: 'Brian', label: 'Brian' },
   { key: 'Sara', label: 'Sara' },
   { key: 'Shana', label: 'Shana' },
+  { key: 'Trevor', label: 'Trevor' },
   { key: 'Subs', label: 'Subs' },
   { key: 'Service Queue', label: 'Service Queue' },
   { key: 'Installations', label: 'Installations' },

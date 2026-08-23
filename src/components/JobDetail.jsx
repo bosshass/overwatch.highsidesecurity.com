@@ -296,7 +296,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
           try {
             const techCalendars = [
               CALENDARS.DRH_TECH_1, CALENDARS.JR_APPOINTMENT, CALENDARS.TECH3, CALENDARS.SUBS,
-              CALENDARS.SHANA, CALENDARS.INSTALLATIONS, CALENDARS.SARA_TASKS, CALENDARS.SERVICE_QUEUE
+              CALENDARS.SHANA, CALENDARS.INSTALLATIONS, CALENDARS.SARA_TASKS, CALENDARS.SERVICE_QUEUE,
+              // Trevor's own calendar — missing here, so an event of his could
+              // never be moved to Completed when its job was billed.
+              CALENDARS.TREVOR
             ];
             for (const srcCal of techCalendars) {
               try {

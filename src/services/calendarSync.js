@@ -239,7 +239,6 @@ function noteSearchCalendars() {
   return [
     CALENDARS.AUSTIN,
     CALENDARS.JR,
-    CALENDARS.TECH3,
     CALENDARS.SHANA,
     CALENDARS.SUBS,
     CALENDARS.INSTALLATIONS,

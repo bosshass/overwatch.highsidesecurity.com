@@ -32,7 +32,6 @@ const PRIORITIES = {
 const TECHS = [
   { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6', hoursPerWeek: 32 },
   { id: 'jr',     name: 'JR',     calendarId: CALENDARS.JR,     color: '#22c55e', hoursPerWeek: 20 },
-  { id: 'brian',  name: 'Brian',  calendarId: CALENDARS.TECH3,  color: '#3F51B5', hoursPerWeek: 32 },
 ];
 
 // Tags to exclude from ready queue — accepts canonical [BILL IT] and legacy synonyms.
@@ -170,7 +169,6 @@ export default function Scheduler({ accessToken, onBack }) {
       const [austinEvents, jrEvents, brianEvents] = await Promise.all([
         fetchCalendarEvents(CALENDARS.AUSTIN, twoWeeksAgo, twoWeeksOut),
         fetchCalendarEvents(CALENDARS.JR,     twoWeeksAgo, twoWeeksOut),
-        fetchCalendarEvents(CALENDARS.TECH3,  twoWeeksAgo, twoWeeksOut),
       ]);
 
       // All events from all calendars
@@ -494,7 +492,6 @@ export default function Scheduler({ accessToken, onBack }) {
   const totalBacklogHours = backlogItems.reduce((sum, item) => sum + item.estimatedHours, 0);
   const austinAvail = getTechAvailability('austin');
   const jrAvail     = getTechAvailability('jr');
-  const brianAvail  = getTechAvailability('brian');
 
   if (loading) {
     return (
@@ -556,11 +553,6 @@ export default function Scheduler({ accessToken, onBack }) {
           <div style={{ color: '#22c55e', fontSize: 24, fontWeight: 700 }}>{jrAvail.availableHours}h</div>
           <div style={{ color: '#cbd5e1', fontSize: 11 }}>{jrAvail.utilization}% booked</div>
         </div>
-        <div style={{ background: '#1e293b', borderRadius: 12, padding: 16 }}>
-          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>Brian Available</div>
-          <div style={{ color: '#3F51B5', fontSize: 24, fontWeight: 700 }}>{brianAvail.availableHours}h</div>
-          <div style={{ color: '#cbd5e1', fontSize: 11 }}>{brianAvail.utilization}% booked</div>
-        </div>
       </div>
 
       {/* Forecast Toggle */}
@@ -598,12 +590,11 @@ export default function Scheduler({ accessToken, onBack }) {
           <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Total Available Capacity</span>
-              <span style={{ color: '#22c55e', fontSize: 15, fontWeight: 700 }}>{austinAvail.availableHours + jrAvail.availableHours + brianAvail.availableHours}h</span>
+              <span style={{ color: '#22c55e', fontSize: 15, fontWeight: 700 }}>{austinAvail.availableHours + jrAvail.availableHours}h</span>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#cbd5e1' }}>
               <span>Austin: {austinAvail.availableHours}h</span>
               <span>JR: {jrAvail.availableHours}h</span>
-              <span>Brian: {brianAvail.availableHours}h</span>
             </div>
           </div>
 
@@ -682,7 +673,7 @@ export default function Scheduler({ accessToken, onBack }) {
                 </span>
               </div>
               <div style={{ color: '#cbd5e1', fontSize: 10, textAlign: 'right' }}>
-                {Math.round(((forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours + forecastData.blocked.hours + (forecastData.serviceCalls.count * 4)) / (austinAvail.availableHours + jrAvail.availableHours + brianAvail.availableHours)) * 100)}% of 2-week capacity
+                {Math.round(((forecastData.projects.hours + forecastData.serviceCalls.hours + forecastData.returns.hours + forecastData.blocked.hours + (forecastData.serviceCalls.count * 4)) / (austinAvail.availableHours + jrAvail.availableHours)) * 100)}% of 2-week capacity
               </div>
             </div>
           </div>

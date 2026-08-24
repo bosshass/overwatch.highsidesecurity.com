@@ -440,7 +440,6 @@ function TodaySchedule({ stats }) {
 const TECHS = [
   { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6', hoursPerWeek: 32 },
   { id: 'jr',     name: 'JR',     calendarId: CALENDARS.JR,     color: '#22c55e', hoursPerWeek: 20 },
-  { id: 'brian',  name: 'Brian',  calendarId: CALENDARS.TECH3,  color: '#3F51B5', hoursPerWeek: 32 },
   { id: 'subs',   name: 'Subs',   calendarId: CALENDARS.SUBS,   color: '#EC4899', hoursPerWeek: 40 },
 ];
 
@@ -519,7 +518,6 @@ function CalendarStatsWidget({ accessToken, onStatsLoaded }) {
         fetchCalendarEvents(CALENDARS.RETURN_VISITS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.AUSTIN, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.JR, ninetyDaysBack, sixtyDaysOut),
-        fetchCalendarEvents(CALENDARS.TECH3, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.SUBS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.INSTALLATIONS, ninetyDaysBack, sixtyDaysOut),
         fetchCalendarEvents(CALENDARS.COMPLETED, ninetyDaysBack, sixtyDaysOut),

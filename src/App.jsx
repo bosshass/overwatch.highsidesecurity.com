@@ -76,7 +76,6 @@ const USER_CONFIG = {
   // on this login. That is the unresolved question from earlier: info@ makes
   // him an operator, jr@ makes him a tech, and it's the same person.
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'my' },
-  'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
   'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
   'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
   'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
@@ -106,7 +105,6 @@ const CALENDAR_OPTIONS = [
   { key: null, label: 'All Calendars' },
   { key: 'Austin', label: 'Austin' },
   { key: 'JR', label: 'JR' },
-  { key: 'Brian', label: 'Brian' },
   { key: 'Sara', label: 'Sara' },
   { key: 'Shana', label: 'Shana' },
   { key: 'Trevor', label: 'Trevor' },
@@ -720,7 +718,7 @@ export default function App() {
   // RESTRICTED = a field tech. No board, no billing, no roll-ups, no calendar
   // filter row — just their own calendar and their own work. This is the list
   // that actually locks the app down; USER_CONFIG role 'tech' alone does not.
-  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com', 'sara@drhsecurityservices.com'];
+  const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com', 'sara@drhsecurityservices.com'];
   // THE ADDRESS EVERY SCREEN READS AS.
   // Declared HERE, above the role flags, because they use it. In 9.67.0 this
   // lived 85 lines further down: legal JavaScript, compiles clean, and dies the

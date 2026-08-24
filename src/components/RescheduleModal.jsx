@@ -77,7 +77,6 @@ async function findEventCalendar(accessToken, eventId) {
   const calendarsToSearch = [
     CALENDARS.DRH_TECH_1,
     CALENDARS.JR_APPOINTMENT,
-    CALENDARS.TECH3,
     CALENDARS.SUBS,
     CALENDARS.SHANA,
     CALENDARS.INSTALLATIONS,

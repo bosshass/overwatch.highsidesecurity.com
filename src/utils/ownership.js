@@ -24,7 +24,6 @@ export const ASSIGNEES = [
   { email: 'shanaparks@drhsecurityservices.com', name: 'Shana',  phone: '8087474948' },
   { email: 'jr@drhsecurityservices.com',          name: 'JR',    phone: '8088541757' },
   { email: 'austin@drhsecurityservices.com',      name: 'Austin', phone: null },
-  { email: 'brian@drhsecurityservices.com',       name: 'Brian',  phone: null },
   { email: 'trevor@drhsecurityservices.com',      name: 'Trevor', phone: null },
   { email: 'admin@jnbservice.com',                name: 'Sara',   phone: '7207500063' },
   // ⚠ SAME NUMBER AS SARA, deliberately left in place rather than silently

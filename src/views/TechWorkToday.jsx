@@ -36,8 +36,6 @@ const TECH_CAL_MAP = {
   'austin@drhsecurityservices.com': CALENDARS.AUSTIN,
   'JR':  CALENDARS.JR, 'jr':  CALENDARS.JR,
   'jr@drhsecurityservices.com':     CALENDARS.JR,
-  'Brian': CALENDARS.TECH3, 'brian': CALENDARS.TECH3,
-  'brian@drhsecurityservices.com':  CALENDARS.TECH3,
   'Shana': CALENDARS.SHANA, 'shana': CALENDARS.SHANA,
   'shanaparks@drhsecurityservices.com': CALENDARS.SHANA,
   'Subs': CALENDARS.SUBS, 'subs': CALENDARS.SUBS,
@@ -163,8 +161,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     });
 
     // Per-user list: which tech calendars show up in this user's Work view.
-    // Operators see Austin + JR + Brian. Austin sees his own + Brian's.
-    // JR sees JR. Brian sees Brian. (Defined in config/calendars.js)
+    // Operators see Austin + JR + Subs. Austin sees his own + Subs.
+    // JR sees JR. (Defined in config/calendars.js)
     const workCals = getWorkViewCalendars(userEmail);
     // Fallback: if no rule matched (unknown user), show their own tech calendar
     const techCalendars = workCals.length > 0
@@ -408,7 +406,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   tabCounts.new = allEvents.filter(e => tabFor(e) !== 'billit').length;
   const activeTabObj = TABS.find(t => t.key === activeTab);
   
-  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
+  const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Subs)" : `${userName}'s Jobs`;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
@@ -564,7 +562,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             : entry ? '0.0h' : null;
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
-          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : null;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Subs' ? '#EC4899' : null;
 
           return (
             <div key={ev.id} onClick={() => openDetail(ev)}

@@ -123,7 +123,6 @@ export async function fetchStuckAlerts(accessToken) {
     const techCals = [
       { id: CALENDARS.AUSTIN, name: 'Austin' },
       { id: CALENDARS.JR,     name: 'JR'     },
-      { id: CALENDARS.TECH3,  name: 'Brian'  },
     ];
 
     await Promise.all(techCals.map(async cal => {

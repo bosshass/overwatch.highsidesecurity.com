@@ -28,7 +28,6 @@ const COMPLETED_FROM = new Date('2026-06-01T00:00:00');
 const SWEEP = [
   { id: CALENDARS.AUSTIN,                name: 'Austin' },
   { id: CALENDARS.JR,                    name: 'JR' },
-  { id: CALENDARS.TECH3,                 name: 'Brian' },
   { id: CALENDARS.SUBS,                  name: 'Subs' },
   { id: CALENDARS.INSTALLATIONS,         name: 'Installations' },
   { id: CALENDARS.RETURN_VISITS,         name: 'Returns' },

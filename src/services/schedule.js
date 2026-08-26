@@ -223,15 +223,59 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
 
   // Mirror onto each helper's calendar. Non-fatal per-helper: a failed mirror
   // must not unwind a booking that already exists.
+  //
+  // AND REMEMBER THE ID IT COMES BACK WITH. This loop created the event and
+  // threw the id away, so a helper's copy of the job existed on their phone and
+  // matched nothing in the database. resolveJobForEvent looks in four places
+  // for an event id and the mirrored id was in none of them, so when the helper
+  // dispositioned it the sheet found no job — and either adopted a brand-new
+  // duplicate or claimed somebody else's by same-customer-same-day.
+  //
+  // That is why a second tech on a job could never log time against it, and it
+  // is a large part of why one customer has fourteen job rows.
+  //
+  // job_assignments is built for exactly this: one row per tech per job, each
+  // carrying its own calendar_event_id, and jobResolve.js:63 already reads that
+  // column. Nothing had ever written it except NewJobModal. Now the mirror does,
+  // and both techs' events resolve to the one job.
   for (const h of helpers) {
     if (!h?.calendar_id) continue;
     try {
-      await createEventOnCalendar(accessToken, h.calendar_id, {
+      const mirrored = await createEventOnCalendar(accessToken, h.calendar_id, {
         title: buildEventTitle(job),
         description: buildEventDescription(job, latestNote, { scheduledBy: byEmail }) + `\n👥 Riding with ${tech.name}`,
         location: job.customer_address,
         startTime: start, endTime: end,
       });
+
+      if (mirrored?.id && h.id) {
+        // Rebooking re-mirrors, so match on (job, tech) and update rather than
+        // stacking a second row every time somebody moves the day.
+        const { data: existing } = await supabase
+          .from('job_assignments')
+          .select('id')
+          .eq('job_id', job.id)
+          .eq('tech_id', h.id)
+          .limit(1);
+
+        const row = {
+          calendar_event_id: mirrored.id,
+          calendar_id:       h.calendar_id,
+          scheduled_for:     start.toISOString(),
+          calendar_synced_at: new Date().toISOString(),
+        };
+
+        if (existing && existing[0]) {
+          await supabase.from('job_assignments').update(row).eq('id', existing[0].id);
+        } else {
+          await supabase.from('job_assignments').insert({
+            ...row,
+            job_id:     job.id,
+            tech_id:    h.id,
+            created_by: byEmail || null,
+          });
+        }
+      }
     } catch (e) { console.warn(`helper mirror failed for ${h.name} (non-fatal)`, e.message); }
   }
 

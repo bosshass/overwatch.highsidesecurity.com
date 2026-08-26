@@ -32,6 +32,10 @@ const PRIORITIES = {
 const TECHS = [
   { id: 'austin', name: 'Austin', calendarId: CALENDARS.AUSTIN, color: '#3b82f6', hoursPerWeek: 32 },
   { id: 'jr',     name: 'JR',     calendarId: CALENDARS.JR,     color: '#22c55e', hoursPerWeek: 20 },
+  // hoursPerWeek 32 is a PLACEHOLDER copied from Austin. Nobody has said what
+  // Trevor's week is, and this number drives the availability and capacity
+  // figures on this screen — correct it rather than trust it.
+  { id: 'trevor', name: 'Trevor', calendarId: CALENDARS.TREVOR, color: '#8E24AA', hoursPerWeek: 32 },
 ];
 
 // Tags to exclude from ready queue — accepts canonical [BILL IT] and legacy synonyms.

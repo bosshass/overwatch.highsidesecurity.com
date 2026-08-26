@@ -193,9 +193,13 @@ export function getVisibleCalendars(email, viewingAs) {
 export function getWorkViewCalendars(email) {
   if (!email) return [];
   const e = email.toLowerCase();
+  // Trevor was missing here too, so an operator opening Today saw Austin, JR and
+  // Subs and no Trevor — his work was invisible to the people who schedule it as
+  // well as to him.
   const ALL_TECHS = [
     { id: CALENDARS.AUSTIN, name: 'Austin' },
     { id: CALENDARS.JR,     name: 'JR' },
+    { id: CALENDARS.TREVOR, name: 'Trevor' },
     { id: CALENDARS.SUBS,   name: 'Subs' },
   ];
 

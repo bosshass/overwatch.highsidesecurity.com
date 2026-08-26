@@ -562,7 +562,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             : entry ? '0.0h' : null;
           const now   = new Date();
           const isNow = ev.start <= now && ev.end >= now;
-          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Subs' ? '#EC4899' : null;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Trevor' ? '#8E24AA' : ev.techName === 'Subs' ? '#EC4899' : null;
 
           return (
             <div key={ev.id} onClick={() => openDetail(ev)}

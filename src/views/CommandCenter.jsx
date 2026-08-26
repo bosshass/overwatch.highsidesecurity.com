@@ -17,10 +17,17 @@ const SOURCE_CALS = [
   { id: CALENDARS.TENTATIVELY_SCHEDULED, name: 'Tentatively Scheduled', color: '#ef4444' },
 ];
 
-// Tech calendars available for scheduling
+// Tech calendars available for scheduling.
+// TREVOR AND SUBS WERE NOT ON THIS LIST. Anyone scheduling from here could only
+// pick Austin or JR, so Trevor's work was booked onto somebody else's calendar —
+// there is an assignment sitting on JR's right now — and Trevor's own day stayed
+// empty. An empty day is nothing to disposition, which is why he has never
+// logged a single hour.
 const TECH_CALS = [
   { name: 'Austin', id: CALENDARS.AUSTIN, color: '#F4511E' },
   { name: 'JR',     id: CALENDARS.JR,     color: '#0B8043' },
+  { name: 'Trevor', id: CALENDARS.TREVOR, color: '#8E24AA' },
+  { name: 'Subs',   id: CALENDARS.SUBS,   color: '#EC4899' },
 ];
 
 const TASK_TYPES = [

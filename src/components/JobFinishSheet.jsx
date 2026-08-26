@@ -236,9 +236,52 @@ export default function JobFinishSheet({
   };
   // was a private label map — a fourth copy. utils/billing.js owns this.
   const DISPO_LABEL = Object.fromEntries(DISPO_KEYS.map(k => [k, dispo(k).label]));
+  // ── NOT FINISHED WINS ─────────────────────────────────────────────────────
+  // Two techs on one job now resolve to one card (services/schedule.js mirrors
+  // the helper's event into job_assignments). So both disposition it, and the
+  // second tap decides the lane.
+  //
+  // If Trevor says Done and JR says Return, the honest answer is Return. "I have
+  // to come back" is new information; "I'm finished" is only that tech's half of
+  // the day. Letting Done land last puts the card in To Bill with an open return
+  // card attached, which is a return trip nobody is ever shown again.
+  //
+  // Scoped to THE SAME VISIT — same job, same calendar day, another tech's entry.
+  // A job that has been sitting in return_pending since a PREVIOUS visit must
+  // still be closable: that is a tech going back and finishing it, which is
+  // exactly what returns are for.
+  const notFinishedOverride = async (jobId, disposition) => {
+    if (disposition !== 'bill_it' || !jobId || !event?.start) return null;
+    try {
+      const day = new Date(event.start);
+      const from = new Date(day); from.setHours(0, 0, 0, 0);
+      const to   = new Date(day); to.setHours(23, 59, 59, 999);
+      const { data: siblings } = await supabase
+        .from('time_entries')
+        .select('disposition, tech_name')
+        .eq('job_id', jobId)
+        .gte('event_start', from.toISOString())
+        .lte('event_start', to.toISOString())
+        .in('disposition', ['return', 'blocked']);
+      if (!siblings || siblings.length === 0) return null;
+      // Couldn't-do-it outranks come-back: if anyone was stopped outright, the
+      // card should say so.
+      const blocked = siblings.find(x => x.disposition === 'blocked');
+      const chosen  = blocked || siblings[0];
+      return {
+        status: blocked ? JOB_STATUS.BLOCKED : JOB_STATUS.RETURN_PENDING,
+        who:    chosen.tech_name || 'another tech',
+        what:   blocked ? "couldn't do it" : 'a return visit',
+      };
+    } catch (e) {
+      console.warn('co-tech disposition check failed (non-fatal):', e?.message || e);
+      return null;
+    }
+  };
+
   const ensureJobForEvent = async (disposition) => {
     const base = cleanTitle(event.title);
-    const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
+    let target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
     // ONE resolver, shared with Unbilled and the home tile. See utils/jobResolve.
     //
     // PREFER THE JOB WE ALREADY FOUND ON OPEN. The sheet resolves the card when
@@ -256,9 +299,15 @@ export default function JobFinishSheet({
     if (existing) {
       // Already tracked — move it to the disposition's status AND put the
       // tech's real field notes on the card (job_history), not just a stub.
-      const histNote = notes.trim()
+      const override = await notFinishedOverride(existing.id, disposition);
+      let histNote = notes.trim()
         ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
         : `${disposition} disposition from Work Today`;
+      if (override) {
+        target = override.status;
+        histNote += ` — kept as ${override.status}: ${override.who} logged ${override.what} on this visit.`;
+        setError(`Saved. ${override.who} logged ${override.what} on this job today, so the card stays there rather than going to billing. Your hours are recorded either way.`);
+      }
       await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
       return existing.id;
     }

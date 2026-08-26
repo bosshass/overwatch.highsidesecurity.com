@@ -379,8 +379,29 @@ export default function JobFinishSheet({
     setError('');
     try {
       const base = cleanTitle(event.title);
-      await appendFieldNotes();
+
+      // ── THE TIME ENTRY IS THE RECORD. THE CALENDAR NOTE IS A COURTESY. ────
+      // appendFieldNotes() PATCHes the Google event to append the tech's note,
+      // and threw on any non-OK response. It ran FIRST and was awaited without a
+      // catch, so a 403 from Google killed the whole disposition before a single
+      // row was written: no time entry, no status move, no return card. Just an
+      // error, and hours that never existed.
+      //
+      // A tech with READ-ONLY access to the calendar his own work sits on hits
+      // that 403 every single time. Trevor has never logged an hour.
+      //
+      // So the entry goes in first, and the calendar is told afterwards. If
+      // Google refuses, the visit is still closed out and the tech is told the
+      // note did not reach the calendar — which is a permissions job for the
+      // office, not a reason to lose the hours.
       const entry = await writeTimeEntry(disposition);
+      let calendarNoteFailed = null;
+      try {
+        await appendFieldNotes();
+      } catch (err) {
+        calendarNoteFailed = err?.message || 'Calendar note failed';
+        console.warn('field notes did not reach the calendar:', calendarNoteFailed);
+      }
 
       // Adopt-on-disposition: ensure a jobs row exists for THIS event and
       // move it to the right status — for every disposition, not just estimate.
@@ -425,6 +446,12 @@ export default function JobFinishSheet({
           reason:               extra.reason || null,
           time_entry_id:        entry?.id || null,
         });
+      }
+
+      // Saved. If Google would not take the note, say so plainly — the hours
+      // are safe either way, and somebody needs to fix that sharing setting.
+      if (calendarNoteFailed) {
+        setError(`Saved. Your note could not be added to the calendar event (${calendarNoteFailed}) — ask the office for edit access to that calendar.`);
       }
 
       // No second argument any more — the title is unchanged, so there is

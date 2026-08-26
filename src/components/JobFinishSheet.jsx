@@ -34,7 +34,7 @@
 import { useState, useEffect } from 'react';
 import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
-import TextButton, { clientTemplates } from './TextButton.jsx';
+import TextButton, { clientTemplates, textTargets } from './TextButton.jsx';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
@@ -80,6 +80,15 @@ export default function JobFinishSheet({
   // buttons were buried under Notes+Materials and doubled as the submit,
   // so the tech had to scroll past everything to say what happened.
   const [selectedDispo, setSelectedDispo] = useState(null);
+  // TWO STEPS, NOT ONE LONG CARD. Step 1 answers "what happened"; step 2 is the
+  // paperwork. The sheet used to be one scroll — scope, history, five stacked
+  // buttons, then notes, photos, materials, hours — and the outcome buttons sat
+  // in the middle of it, which is where a tech stops reading.
+  const [step, setStep] = useState(1);
+  // Scope and history are reference material: needed sometimes, in the way
+  // always. Closed until asked for.
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [histOpen, setHistOpen]   = useState(false);
 
   // ── THE JOB BEHIND THIS EVENT ──────────────────────────────────────
   // The sheet used to know NOTHING about the card. "Scope of work" was built
@@ -356,6 +365,7 @@ export default function JobFinishSheet({
     setError('');
     try {
       const base = cleanTitle(event.title);
+
       await appendFieldNotes();
       const entry = await writeTimeEntry(disposition);
 
@@ -452,13 +462,13 @@ export default function JobFinishSheet({
   // move had three names depending on which screen you were standing in.
   // `means` is the question the tech is actually answering.
   const DISPOS = [
-    { key: 'bill_it',     label: '✅ Done — To Bill',     accent: '#166534', tint: '#f0fdf4',
+    { key: 'bill_it',     icon: '✅', label: 'Done — To Bill',   accent: '#166534', tint: '#f0fdf4',
       means: 'Finished. Hours go to Billing.' },
-    { key: 'return',      label: '🔄 Return Visit',       accent: '#d97706', tint: '#fffbeb',
+    { key: 'return',      icon: '🔄', label: 'Return Visit',     accent: '#d97706', tint: '#fffbeb',
       means: 'Work started — I have to come back. Asks why.' },
-    { key: 'in_progress', label: '📅 Still Scheduled',    accent: '#1d4ed8', tint: '#eff6ff',
+    { key: 'in_progress', icon: '📅', label: 'Still Scheduled',  accent: '#1d4ed8', tint: '#eff6ff',
       means: 'Multi-day job. Not finished, still booked.' },
-    { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',
+    { key: 'estimate',    icon: '📋', label: 'Estimates',        accent: '#7e22ce', tint: '#faf5ff',
       means: 'Scope changed — this needs pricing.' },
     // THE LABEL WAS "📝 New / Notes" — a board lane, not an outcome.
     // A tech scanning five buttons reads the LABELS; `means` is small print
@@ -468,13 +478,94 @@ export default function JobFinishSheet({
     //
     // Named for what happened, and the billing consequence is on the face of
     // it, because that is the part a tech would otherwise assume is lost.
-    { key: 'blocked',     label: "🚫 Couldn't do it",     accent: '#b91c1c', tint: '#fef2f2',
+    { key: 'blocked',     icon: '🚫', label: "Couldn't do it",  accent: '#b91c1c', tint: '#fef2f2',
       means: 'Nobody there, no access, wrong parts. The trip still bills.' },
   ];
+  const DONE_DISPO = DISPOS[0];                 // the one outcome that finishes the job
+  const BACK_DISPOS = DISPOS.slice(1);          // the four that mean "not finished"
+  const pickDispo = (key) => {
+    setSelectedDispo(key);
+    setError('');
+    if (key !== 'return') setReturnReason('');
+  };
+  const chosen = DISPOS.find(d => d.key === selectedDispo) || null;
 
-  // ── The actual form content (customer + time + notes + materials + buttons) ──
-  const formContent = (
+  // A section header that is also its own open/close control.
+  const discloseBtn = (color) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+    fontFamily: 'inherit', fontSize: 11, fontWeight: 700, color,
+    textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'left',
+  });
+
+  const dispoBtn = (d, on, wide) => ({
+    display: 'flex', flexDirection: 'column',
+    alignItems: wide ? 'flex-start' : 'center',
+    justifyContent: 'center', textAlign: wide ? 'left' : 'center',
+    width: '100%', padding: wide ? '14px 14px' : '14px 8px',
+    borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit',
+    background: on ? d.tint : '#ffffff',
+    border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
+    color: on ? d.accent : '#475569',
+  });
+
+  // ── NAVIGATE · CALL · TEXT ────────────────────────────────────────────────
+  // Three things a tech does standing at a door, so three buttons of equal
+  // weight in one row. They used to be two rows: Navigate and Call came from
+  // the Work Today sheet, and Text came from a block further down that also
+  // repeated the phone number — a wide pill reading "Text NATE KVAMME" under
+  // two half-width buttons. Same three actions, two rows, three visual weights.
+  //
+  // The address is the board's, falling back to the calendar's copy; the number
+  // is jobs.customer_phone. Both are what the card above them shows, because a
+  // sheet that disagrees with the card that opened it is worse than either.
+  const actAddr  = String(linkedJob?.customer_address || event?.location || '').trim();
+  const actPhone = linkedJob?.customer_phone || null;
+  // ONE Text button, every number behind it. The on-site contact is the only
+  // number that carries a name, because somebody typed that name against that
+  // number. The client's field is free text and often holds two numbers; those
+  // are offered as digits, unlabelled. One number and the picker never appears.
+  const actTargets = textTargets({
+    named: [{ phone: linkedJob?.site_contact_phone, name: linkedJob?.site_contact_name }],
+    pools: [linkedJob?.customer_phone],
+  });
+  const ACT_BTN  = {
+    flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 6, padding: '14px 8px', borderRadius: 12, fontSize: 15, fontWeight: 700,
+    textDecoration: 'none', fontFamily: 'inherit', whiteSpace: 'nowrap', cursor: 'pointer',
+  };
+
+  const actionRow = (actAddr || actPhone) ? (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      {actAddr && (
+        <a href={'https://maps.google.com/?q=' + encodeURIComponent(actAddr)}
+          target="_blank" rel="noopener noreferrer"
+          style={{ ...ACT_BTN, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb' }}>
+          🗺️ Navigate
+        </a>
+      )}
+      {actPhone && (
+        <a href={`tel:${String(actPhone).replace(/[^0-9+]/g, '')}`}
+          style={{ ...ACT_BTN, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a' }}>
+          📞 Call
+        </a>
+      )}
+      <TextButton
+        targets={actTargets}
+        name={linkedJob?.customer_name || 'the client'}
+        accessToken={accessToken}
+        templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob?.scheduled_date })}
+        logTo={{ jobId: linkedJob?.id, customerId: linkedJob?.customer_id, userEmail }}
+        label="📱 Text"
+        style={{ ...ACT_BTN, background: '#f5f0ff', border: '1px solid #ddd0ff', color: '#7c3aed', borderRadius: 12 }}
+      />
+    </div>
+  ) : null;
+
+  // ── STEP 1 — what a tech needs in front of them before they answer ──
+  const contextBlocks = (
     <>
+      {actionRow}
       {/* NOT LINKED TO A CUSTOMER — loud, first, and never blocking.
           Blocking a tech in the field creates worse problems than a dirty row,
           so they can still finish. But this job stays flagged on the Board and
@@ -490,6 +581,17 @@ export default function JobFinishSheet({
           </div>
         </div>
       )}
+
+      {/* CUSTOMER LINK — optional, saved when set. It belongs on THIS step, with
+          the warning that tells you to use it. Splitting the sheet in two put it
+          behind Next, which left the warning pointing at a control on another
+          page and took the customer picker off the screen a tech actually reads. */}
+      <CustomerLookup
+        event={event}
+        accessToken={accessToken}
+        value={linkedCustomer}
+        onChange={setLinkedCust}
+      />
 
       {/* WHO TO ASK FOR. On-site contact and access, from migration 047. These
           were three lines of prose inside `issue` until 9.82.0, so a tech
@@ -520,72 +622,57 @@ export default function JobFinishSheet({
             <div style={{ fontSize:13, color:'#b45309', marginTop:4 }}>🔒 Client must be present</div>
           )}
 
-          {/* THE TEXT BUTTONS BELONG HERE MOST OF ALL. This sheet is what a
-              tech has open while standing at the door — running late, can't get
-              in, nobody home. Until now the only way to text from Overwatch was
-              a control buried in the office-side job card, which a tech in the
-              field never opens. A tel: link was the whole toolkit.
-              Both numbers get a button because they are two different people. */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
-            <TextButton
-              to={linkedJob.site_contact_phone}
-              name={linkedJob.site_contact_name || 'on-site contact'}
-              accessToken={accessToken}
-              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            />
-            <TextButton
-              to={linkedJob.customer_phone}
-              name={linkedJob.customer_name || 'the client'}
-              accessToken={accessToken}
-              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            />
-          </div>
+          {/* NO SECOND TEXT BUTTON HERE. This block used to carry a pill as wide
+              as the caretaker's name — the same "two buttons and a long thing"
+              shape that was cleaned out of the action row, left alive one block
+              further down. The one Text button at the top offers this number and
+              the client's, with this person's name on theirs, so there is one
+              control and no guessing about who is on the other end. */}
         </div>
       )}
 
-      {/* AND WHEN THERE IS NO ON-SITE CONTACT, the client's number still has to
-          be reachable. The block above only renders when site contact or access
-          was recorded, which is most jobs — so without this the tech has a
-          phone number on the card and no way to text it. */}
-      {!(linkedJob?.site_contact_name || linkedJob?.site_contact_phone ||
-         linkedJob?.access_permission === true || linkedJob?.access_permission === false)
-        && linkedJob?.customer_phone && (
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap',
-                      background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12,
-                      padding:'10px 12px', marginBottom:12 }}>
-          <a href={`tel:${String(linkedJob.customer_phone).replace(/[^0-9+]/g, '')}`}
-             style={{ fontSize:14, color:'#2563eb', fontWeight:700, textDecoration:'none' }}>
-            📞 {linkedJob.customer_phone}
-          </a>
-          <TextButton
-            to={linkedJob.customer_phone}
-            name={linkedJob.customer_name || 'the client'}
-            accessToken={accessToken}
-            templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-            logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            style={{ marginLeft: 'auto' }}
-          />
+      {/* SCOPE OF WORK, then HISTORY — both closed. Scope is first because it
+          is what the job IS; history is what was said about it. Opened on a tap,
+          because the phone number and address in the calendar-written scope text
+          are already up in the Navigate/Call/Text row, and a wall of repeated
+          detail between the tech and the outcome buttons is what pushed the
+          buttons off the screen. */}
+      {scope && (
+        <div style={scopeBox}>
+          <button type="button" onClick={() => setScopeOpen(v => !v)} style={discloseBtn('#1e40af')}>
+            <span>📋 Scope of work</span>
+            <span style={{ fontSize: 13 }}>{scopeOpen ? '▲' : '▼'}</span>
+          </button>
+          {scopeOpen && (
+            <>
+              <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap', marginTop: 8 }}>
+                {scope}
+              </div>
+              {/* Access details and gate codes often live only on the calendar
+                  event, so show that block too when it says something the issue
+                  does not. */}
+              {extraFromEvent && (
+                <div style={{ fontSize: 12.5, color: '#3b5aa0', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                              marginTop: 8, paddingTop: 8, borderTop: '1px solid #bfdbfe' }}>
+                  {extraFromEvent}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
-      {/* WHAT WAS ALREADY SAID. Prior notes on this job — office notes, status
-          history and earlier field notes, all via notesApi.getAllForJob. Until
-          now these were readable in exactly one screen, so a tech walked in
-          without the last three things anybody wrote about the job. Newest
-          first, capped at four so it informs without burying the form. */}
       {jobNotes.length > 0 && (
         <div style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12,
                       padding:'10px 12px', marginBottom:12 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase',
-                        letterSpacing:0.5, marginBottom:6 }}>
-            🗒 History {jobNotes.length > 4 ? `(latest 4 of ${jobNotes.length})` : ''}
-          </div>
-          {jobNotes.slice(0, 4).map(n => (
+          <button type="button" onClick={() => setHistOpen(v => !v)} style={discloseBtn('#475569')}>
+            <span>🗒 History {jobNotes.length > 4 ? `(latest 4 of ${jobNotes.length})` : `(${jobNotes.length})`}</span>
+            <span style={{ fontSize: 13 }}>{histOpen ? '▲' : '▼'}</span>
+          </button>
+          {histOpen && jobNotes.slice(0, 4).map(n => (
             <div key={n.id} style={{ fontSize:13, color:'#334155', lineHeight:1.45,
-                                     paddingBottom:6, marginBottom:6,
-                                     borderBottom:'1px solid #eef2f6' }}>
+                                     paddingTop:8, marginTop:8,
+                                     borderTop:'1px solid #eef2f6' }}>
               <div style={{ fontSize:10.5, color:'#94a3b8', fontWeight:700 }}>
                 {n.created_by || 'Someone'}
                 {n.created_at ? ` · ${new Date(n.created_at).toLocaleDateString('en-US',
@@ -598,88 +685,209 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* SCOPE OF WORK — the hero. Full text, no truncation, no "Show more". */}
-      {scope && (
-        <div style={scopeBox}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
-            📋 Scope of work
-          </div>
-          <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-            {scope}
-          </div>
-          {/* Access details and gate codes often live only on the calendar
-              event, so show that block too when it says something the issue
-              does not. */}
-          {extraFromEvent && (
-            <div style={{ fontSize: 12.5, color: '#3b5aa0', lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                          marginTop: 8, paddingTop: 8, borderTop: '1px solid #bfdbfe' }}>
-              {extraFromEvent}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* HOW DID IT END — moved ABOVE notes. Pick first, then write. */}
+      {/* HOW DID IT END. Done is the answer most visits get, so it is one
+          full-width button; the four ways of "I have to come back" sit under it
+          as a 2×2 block. Picking one selects it — Next is what moves. Tapping a
+          tile used to be the only way forward, which meant a mis-tap navigated. */}
       {mode === 'full' && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
             How did it end? {selectedDispo ? '✓' : '— required'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 10 }}>
-            {DISPOS.map(d => {
-              const on = selectedDispo === d.key;
-              return (
-                <button key={d.key}
-                  onClick={() => { setSelectedDispo(d.key); setError(''); if (d.key !== 'return') setReturnReason(''); }}
-                  style={{
-                    padding: '13px 8px', borderRadius: 12, cursor: 'pointer',
-                    background: on ? d.tint : '#ffffff',
-                    border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
-                    color: on ? d.accent : '#475569',
-                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'left',
-                  }}>
-                  <span style={{ display: 'block' }}>{d.label}</span>
-                  {/* The question the tech is answering, in their words. A label
-                      alone made them guess which button meant "couldn't get in". */}
-                  <span style={{ display: 'block', fontSize: 11, fontWeight: 500,
-                                 color: on ? d.accent : '#94a3b8', marginTop: 3, lineHeight: 1.3 }}>
-                    {d.means}
-                  </span>
-                </button>
-              );
-            })}
+
+          <button onClick={() => pickDispo(DONE_DISPO.key)} style={dispoBtn(DONE_DISPO, selectedDispo === DONE_DISPO.key, true)}>
+            <span style={{ fontSize: 15, fontWeight: 800 }}>{DONE_DISPO.icon} {DONE_DISPO.label}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 500, opacity: 0.85, marginTop: 2 }}>{DONE_DISPO.means}</span>
+          </button>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '8px 0 12px' }}>
+            {BACK_DISPOS.map(d => (
+              <button key={d.key} onClick={() => pickDispo(d.key)} style={dispoBtn(d, selectedDispo === d.key, false)}>
+                <span style={{ fontSize: 20, lineHeight: 1 }}>{d.icon}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, marginTop: 5 }}>{d.label}</span>
+                {/* The question the tech is answering, in their words. A label
+                    alone made them guess which button meant "couldn't get in". */}
+                <span style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.8, marginTop: 3, lineHeight: 1.3 }}>
+                  {d.means}
+                </span>
+              </button>
+            ))}
           </div>
 
-          {/* Return reason — only when Return is the pick */}
-          {needsReason && (
-            <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                Why is a return visit needed?
-              </div>
-              <textarea
-                value={returnReason}
-                onChange={e => setReturnReason(e.target.value)}
-                placeholder="Missing part, customer not home, needs follow-up…"
-                autoFocus
-                style={{
-                  width: '100%', padding: 8, fontSize: 15, color: '#1B2A4A',
-                  background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
-                  resize: 'none', height: 54, boxSizing: 'border-box', fontFamily: 'inherit',
-                }}
-              />
-            </div>
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button onClick={() => selectedDispo && setStep(2)} disabled={!selectedDispo}
+              style={btnFinish(!!selectedDispo)}>
+              {selectedDispo ? 'Next →' : 'Pick an outcome'}
+            </button>
+            <button onClick={onCancel} style={btnCancel}>Cancel</button>
+          </div>
         </>
       )}
+    </>
+  );
 
+  // ── STEP 2 — the paperwork, exactly as it has always looked ──
+  const finishForm = (
+    <>
+      {mode === 'full' && (
+        <button onClick={() => setStep(1)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginBottom: 12,
+                   background: chosen?.tint || '#f8fafc', border: `1.5px solid ${chosen?.accent || '#e2e8f0'}`,
+                   borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                   color: chosen?.accent || '#475569', fontSize: 14, fontWeight: 800, textAlign: 'left' }}>
+          <span style={{ fontSize: 16 }}>←</span>
+          <span style={{ flex: 1 }}>{chosen ? `${chosen.icon} ${chosen.label}` : 'Outcome'}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.75 }}>Change</span>
+        </button>
+      )}
+
+      {/* TODAY, THEN THE RETURN. On a return visit the order is what happened
+          today — hours, what you did, what you used — and only then what the
+          next person walks into. Every other outcome keeps the order it had. */}
+      {needsReason ? (
+        <>
+      <TimeEntryBlock
+        value={timeEntry}
+        onChange={setTimeEntry}
+        eventDate={eventDate}
+        required={false}
+      />
       {/* Notes (required — blocks finish until filled) */}
       <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        📝 Notes — required {notesValid ? '✓' : ''}
+        {needsReason ? '📝 What you did today' : '📝 Notes'} — required {notesValid ? '✓' : ''}
       </div>
       <textarea
         value={notes}
         onChange={e => setNotes(e.target.value)}
-        placeholder="What was done / what's needed — required to finish"
+        placeholder={needsReason
+          ? 'What you actually did on site today — required to finish'
+          : "What was done / what's needed — required to finish"}
+        style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
+      />
+
+      {/* Materials */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        🔧 Materials {needsReason ? 'used today' : ''}
+      </div>
+      <textarea
+        value={materials}
+        onChange={e => setMaterials(e.target.value)}
+        placeholder="Parts, supplies, equipment used or needed..."
+        style={{ ...textareaStyle, background: '#fffbeb', border: '1px solid #fcd34d', height: 56 }}
+      />
+
+      {/* Time entry */}
+      {/* Photos — TWO doors, because there are two real cases.
+          A single input with capture="environment" jumped straight to the rear
+          camera and gave no way to attach a picture already on the phone: a
+          shot taken before the sheet was open, something the customer sent, a
+          screenshot of a panel code. That is a common case and it was
+          unreachable.
+          Dropping `capture` entirely would fix it and break the other one — a
+          tech standing in front of the panel would get a file browser instead
+          of a camera. So: two buttons, one input each, same handler.
+          The pictures go with the visit, so they are still findable when the
+          invoice is queried in November. */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px' }}>
+        📷 Photos {photos.length ? `(${photos.length})` : ''}
+      </div>
+
+      {photos.length > 0 && (
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
+          {photos.map((u, i) => (
+            <div key={u} style={{ position: 'relative' }}>
+              <img src={u} alt="" style={{ width: 74, height: 74, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }} />
+              <button
+                onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                aria-label="Remove photo"
+                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11,
+                         border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 800,
+                         lineHeight: '20px', cursor: 'pointer', padding: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <label
+          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+          {uploading ? 'Uploading…' : '📷 Take photo'}
+          {/* capture= keeps the one-tap path to the rear camera for a tech
+              standing in front of the work. */}
+          <input type="file" accept="image/*" capture="environment" multiple
+            disabled={uploading}
+            onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+            style={{ display: 'none' }} />
+        </label>
+
+        <label
+          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+          {uploading ? 'Uploading…' : '🖼 Choose photo'}
+          {/* NO capture attribute — this is what opens the phone's library and
+              file browser, for a picture that already exists. */}
+          <input type="file" accept="image/*" multiple
+            disabled={uploading}
+            onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
+            style={{ display: 'none' }} />
+        </label>
+      </div>
+
+      {photoErr && (
+        <div style={{ fontSize: 12, color: '#dc2626', marginTop: -8, marginBottom: 12 }}>{photoErr}</div>
+      )}
+
+      {/* RETURN VISIT — the handover. Sara's words, because they are the ones
+          that get the information out of a tech: the next person walks in cold,
+          and what is not written here is not known. Shown only when Return is
+          the outcome, so nobody else reads a wall of instructions meant for a
+          case they are not in. */}
+      {needsReason && (
+        <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12,
+                      padding: '12px 14px', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+            Give the next tech a fighting chance.
+          </div>
+          <div style={{ fontSize: 12.5, color: '#a16207', lineHeight: 1.5, marginBottom: 10 }}>
+            Tell us what still needs to be done, what parts are needed, and anything
+            they should know before they walk in the door. You might win the lottery
+            tomorrow. You might get hit by a bus. Either way, someone else should be
+            able to pick up where you left off. And don't forget the photos — a
+            picture is worth 1,000 notes.
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase',
+                        letterSpacing: 0.5, marginBottom: 4 }}>
+            What do we need to do when we return? — required
+          </div>
+          <textarea
+            value={returnReason}
+            onChange={e => setReturnReason(e.target.value)}
+            placeholder="What is left, what to bring, what to know before walking in…"
+            style={{
+              width: '100%', padding: 10, fontSize: 15, color: '#1B2A4A',
+              background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
+              resize: 'vertical', height: 96, boxSizing: 'border-box', fontFamily: 'inherit',
+            }}
+          />
+        </div>
+      )}
+        </>
+      ) : (
+        <>
+      {/* Notes (required — blocks finish until filled) */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        {needsReason ? '📝 What you did today' : '📝 Notes'} — required {notesValid ? '✓' : ''}
+      </div>
+      <textarea
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+        placeholder={needsReason
+          ? 'What you actually did on site today — required to finish'
+          : "What was done / what's needed — required to finish"}
         style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
       />
 
@@ -748,7 +956,7 @@ export default function JobFinishSheet({
 
       {/* Materials */}
       <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        🔧 Materials
+        🔧 Materials {needsReason ? 'used today' : ''}
       </div>
       <textarea
         value={materials}
@@ -764,14 +972,9 @@ export default function JobFinishSheet({
         eventDate={eventDate}
         required={false}
       />
+        </>
+      )}
 
-      {/* Customer link — optional, saved when set */}
-      <CustomerLookup
-        event={event}
-        accessToken={accessToken}
-        value={linkedCustomer}
-        onChange={setLinkedCust}
-      />
 
       {eventInFuture && !futureOk && (
         <div style={{ background:'#2a1f08', border:'1px solid #f59e0b', borderRadius:10,
@@ -809,6 +1012,12 @@ export default function JobFinishSheet({
       </div>
     </>
   );
+
+  // Two steps only where there is an outcome to pick. In 'bill-only' mode the
+  // disposition is forced, so there is nothing to choose and nothing to split.
+  const formContent = mode !== 'full'
+    ? <>{contextBlocks}{finishForm}</>
+    : step === 1 ? contextBlocks : finishForm;
 
   // Inline mode — caller (e.g. TechWorkToday) provides its own overlay/sheet/header.
   if (inline) return formContent;

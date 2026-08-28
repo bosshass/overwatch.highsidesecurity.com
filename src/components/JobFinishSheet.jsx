@@ -32,14 +32,14 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
-import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
+import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, techsApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TextButton, { clientTemplates } from './TextButton.jsx';
 import TimeEntryBlock, { emptyTimeEntry, isValidTimeEntry, timeEntryToPayload } from './TimeEntryBlock.jsx';
 import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
 import { uploadPhoto } from '../services/photos.js';
-import { ASSIGNEES } from '../utils/ownership.js';
+import { assigneeOf, canonicalEmail, canonicalName, EMAIL_BY_NAME } from '../utils/ownership.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -213,6 +213,43 @@ export default function JobFinishSheet({
   };
   // was a private label map — a fourth copy. utils/billing.js owns this.
   const DISPO_LABEL = Object.fromEntries(DISPO_KEYS.map(k => [k, dispo(k).label]));
+  // ── WHOSE VISIT IS THIS ───────────────────────────────────────────
+  // The adopt read event.techName and NOTHING else. Exactly one caller fills
+  // that field in (TechWorkToday). TechCalendar's complete modal and the
+  // "Open in Overwatch" deep link in App.jsx both build their event object
+  // without it, so a disposition from either adopted a job with tech_name,
+  // assigned_to AND tech_assigned all null: a card in return_pending or
+  // to_bill in nobody's lane. That is where Trevor's Aug 27 Jenerette,
+  // VRC TTC and TTC VRC cards went — the hours were logged, the cards were
+  // made, and no screen that groups by tech could show them to anyone.
+  //
+  // Same precedence the time entry already uses (event.techName || userName),
+  // so the card and the hours can never name two different people. Then the
+  // techs row, because tech_assigned is a techs.id and the adopt never wrote
+  // that column on ANY surface.
+  const resolveSubmitter = async () => {
+    const byName = canonicalName(event?.techName) || canonicalName(userName) || null;
+    const signedIn = canonicalEmail(userEmail) || null;
+    const rosterEmail = EMAIL_BY_NAME[(byName || '').toLowerCase()] || signedIn || null;
+    let row = null;
+    try {
+      if (rosterEmail) row = await techsApi.getByEmail(rosterEmail);
+      // Last resort: the calendar the event lives on belongs to somebody.
+      if (!row && event?.calendarId) row = await techsApi.getByCalendarId(event.calendarId);
+    } catch (e) {
+      console.warn('tech lookup failed — falling back to the roster', e?.message || e);
+    }
+    const name = byName || canonicalName(row?.name) || null;
+    return {
+      techId: row?.id || undefined,
+      name:   name || undefined,
+      // The techs row first: it is a real person's address. rosterEmail can be
+      // a shared mailbox (info@) when the signed-in account is one, and a card
+      // assigned to a mailbox is a card assigned to nobody.
+      email:  row?.email || rosterEmail || undefined,
+    };
+  };
+
   const ensureJobForEvent = async (disposition) => {
     const base = cleanTitle(event.title);
     const target = DISPOSITION_STATUS[disposition] || JOB_STATUS.SCHEDULED;
@@ -237,6 +274,20 @@ export default function JobFinishSheet({
         ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
         : `${disposition} disposition from Work Today`;
       await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
+      // THE CARD CAN BE FOUND BY EVENT ID NEXT TIME. resolveJobForEvent also
+      // answers from job_assignments, so a job whose own columns hold no event
+      // id at all still resolves here — and then stays unreconcilable to the
+      // calendar forever, because nothing ever writes the id back. Cafe
+      // Mexicali (Aug 27) moved to to_bill with calendar_event_id and
+      // scheduled_event_id both null for exactly this reason. Only ever fills
+      // a blank; never overwrites an id that is already there.
+      try {
+        const { data: cols } = await supabase.from('jobs')
+          .select('calendar_event_id, scheduled_event_id').eq('id', existing.id).maybeSingle();
+        if (cols && !cols.calendar_event_id && !cols.scheduled_event_id) {
+          await supabase.from('jobs').update({ calendar_event_id: event.id }).eq('id', existing.id);
+        }
+      } catch (e) { console.warn('could not stamp the event id back onto the card', e?.message || e); }
       return existing.id;
     }
     // LAST CHANCE before we manufacture a duplicate. An event that was moved
@@ -249,7 +300,8 @@ export default function JobFinishSheet({
         const day = new Date(event.start);
         const from = new Date(day); from.setHours(0, 0, 0, 0);
         const to   = new Date(day); to.setHours(23, 59, 59, 999);
-        let q = supabase.from('jobs').select('id, status')
+        let q = supabase.from('jobs')
+          .select('id, status, tech_name, assigned_to, calendar_event_id, scheduled_event_id')
           .gte('scheduled_date', from.toISOString())
           .lte('scheduled_date', to.toISOString())
           .not('status', 'in', '(billed,archived,dead,lost)')
@@ -259,20 +311,52 @@ export default function JobFinishSheet({
           : q.ilike('customer_name', `%${(base || '').slice(0, 24)}%`);
         const { data: near } = await q;
         if (near && near[0]) {
+          const cand = near[0];
+          // IS THIS ACTUALLY MY VISIT?
+          // This fallback exists for ONE case: the event was moved between
+          // calendars or recreated by hand, so its Google id changed and the
+          // id lookups miss a card that is really the same visit. But it
+          // matches on customer + day only, and so does a RIDE-ALONG — two
+          // techs at one address on one day, each with their own calendar
+          // copy. On Aug 27 that is exactly what happened: Trevor's copy of
+          // the Nate Kvamme visit matched AUSTIN's card, bound Trevor's event
+          // id onto it and flipped Austin's card to return_pending, while
+          // Austin's own entry for the same job sat in_progress.
+          //
+          // A card already bound to a DIFFERENT event and carrying someone
+          // else's name is not this visit. Keep the hours on it — the entry
+          // links to this job, so the work still lands on the right customer's
+          // card — but do not rebind its event id and do not move its lane.
+          // Only the tech whose card it is gets to say what happened to it.
+          const boundElsewhere =
+            (cand.calendar_event_id  && cand.calendar_event_id  !== event.id) ||
+            (cand.scheduled_event_id && cand.scheduled_event_id !== event.id);
+          const owner = assigneeOf(cand);
+          const submitter = await resolveSubmitter();
+          if (boundElsewhere && owner && submitter.name && owner !== submitter.name) {
+            await jobsApi.logHistory(
+              cand.id, cand.status, cand.status, userEmail,
+              `${submitter.name} logged a visit on their own calendar copy of this job` +
+              `${notes.trim() ? `: ${notes.trim()}` : ''} — hours attached, card left in ${cand.status} ` +
+              `because it is ${owner}'s to move.`,
+            );
+            return cand.id;
+          }
           // Found it. Bind this event id on so the miss can't repeat, then
           // move it — do NOT create a second row.
           await supabase.from('jobs')
-            .update({ calendar_event_id: event.id }).eq('id', near[0].id);
+            .update({ calendar_event_id: event.id }).eq('id', cand.id);
           const histNote = notes.trim()
             ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
             : `${disposition} disposition from Work Today`;
-          await jobsApi.changeStatus(near[0].id, target, userEmail, histNote);
-          return near[0].id;
+          await jobsApi.changeStatus(cand.id, target, userEmail, histNote);
+          return cand.id;
         }
       } catch (e) { console.warn('ensureJobForEvent: same-day match failed', e); }
     }
 
     // Genuinely untracked — adopt the calendar event into a new jobs row.
+    const submitter = await resolveSubmitter();
     const created = await jobsApi.create({
       customer_name:     linkedCustomer?.name || base,
       customer_id:       linkedCustomer?.id || undefined,
@@ -282,12 +366,15 @@ export default function JobFinishSheet({
       scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
       calendar_event_id: event.id,
       scheduled_event_id: event.id,   // both, so the next lookup cannot miss
-      // The event knows whose calendar it came from — the adopt just never
-      // carried it, so every adopted job landed with no tech on it. That is
-      // how Chris Hare's second install day became an unowned job: a machine
-      // made it, and machines were not filling this in.
-      tech_name: event.techName || undefined,
-      assigned_to: ASSIGNEES.find(a => a.name === event.techName)?.email || undefined,
+      // WHO WAS THERE — all three columns, because three different screens
+      // read three different ones. The board reads assigned_to (falling back
+      // to tech_name), the scheduler writes tech_assigned, and reports group
+      // by tech_name. Filling one and not the others is how a card ends up
+      // visible on one screen and missing from the next. resolveSubmitter()
+      // answers even when the caller never passed event.techName.
+      tech_name:     submitter.name,
+      assigned_to:   submitter.email,
+      tech_assigned: submitter.techId,
     }, `${userEmail} · adopted from calendar`);
     return created?.id || null;
   };
@@ -362,10 +449,39 @@ export default function JobFinishSheet({
       // Adopt-on-disposition: ensure a jobs row exists for THIS event and
       // move it to the right status — for every disposition, not just estimate.
       // This captures appointments booked directly on Google Calendar.
+      let jobId = null;
       try {
-        await ensureJobForEvent(disposition);
+        jobId = await ensureJobForEvent(disposition);
       } catch (err) {
         console.warn('adopt-on-disposition failed (time entry still saved):', err);
+      }
+
+      // ── THE HOURS GO ON THE CARD THIS CLICK JUST MADE ────────────────
+      // writeTimeEntry runs FIRST and resolves the job by event id — which,
+      // on an event that has no card yet, can only come back null. Then
+      // ensureJobForEvent creates the card a fraction of a second later and
+      // nothing ever went back to tell the entry about it. So the adopt path
+      // wrote its own orphan every time: four of Trevor's six Aug 27 entries
+      // carry job_id null, and hours with no job_id are invisible to Billing,
+      // to the card, and to every per-job total in the app.
+      //
+      // Stamp it now. Same for the customer: an adopted card that got linked
+      // to one is the only thing that knows.
+      if (entry?.id && jobId && !entry.job_id) {
+        try {
+          const patch = { job_id: jobId };
+          if (!entry.customer_id) {
+            const { data: j } = await supabase.from('jobs')
+              .select('customer_id, customer_name').eq('id', jobId).maybeSingle();
+            if (j?.customer_id) {
+              patch.customer_id = j.customer_id;
+              if (!entry.customer_name_raw && j.customer_name) patch.customer_name_raw = j.customer_name;
+            }
+          }
+          await timeEntriesApi.update(entry.id, patch);
+        } catch (err) {
+          console.warn('could not link the time entry to its job:', err?.message || err);
+        }
       }
 
       if (disposition === 'return') {

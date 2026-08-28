@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { CALENDARS, TECH_COLORS } from './config/calendars.js';
+import { CALENDARS, TECH_COLORS, techNameForCalendar } from './config/calendars.js';
 import { supabase } from './services/supabase.js';
 import { emailsFor } from './utils/ownership.js';
 import TechCalendar from './views/TechCalendar.jsx';
@@ -1476,6 +1476,11 @@ function DeepLinkFinish({ calendarId, eventId, accessToken, userEmail, userName,
           end: data.end?.dateTime || data.end?.date,
           description: data.description || '',
           location: data.location || '',
+          // WHOSE DAY THIS IS. The sheet stamps tech_name / assigned_to /
+          // tech_assigned from this field when it has to adopt the event into
+          // a new card. Built without it, every job adopted through the
+          // "Open in Overwatch" link landed in nobody's lane.
+          techName: techNameForCalendar(calendarId),
         });
       })
       .catch(e => setError(e.message || 'Could not load job'));

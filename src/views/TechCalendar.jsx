@@ -1330,6 +1330,10 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             end: eventPreview.end,
             description: eventPreview.description || '',
             location: eventPreview.location || '',
+            // Only a TECH calendar names a person. calendarName on a queue is
+            // 'Installations' or 'Tentatively Scheduled' — passing that would
+            // assign the card to a calendar instead of to whoever worked it.
+            techName: eventPreview.calendarType === 'tech' ? eventPreview.calendarName : undefined,
           }}
           accessToken={accessToken}
           userEmail={userEmail}

@@ -250,6 +250,17 @@ export const TECH_CALENDAR_MAP = {
   'subs@drhsecurityservices.com':       CALENDARS.SUBS,
 };
 
+// ── Read-back map: calendar id → the tech whose calendar it is ───────────────
+// The inverse of TECH_CALENDAR_MAP, and the answer to "who was standing at the
+// door" for any screen that has an event but not a tech. Only 'tech' calendars
+// answer: Installations, Tent and Service Urgent are shared queues, and naming
+// a queue as the tech is how a job ends up assigned to nobody real.
+export function techNameForCalendar(calendarId) {
+  if (!calendarId) return null;
+  const hit = SYNC_CALENDARS.find(c => c.id === calendarId && c.type === 'tech');
+  return hit ? hit.name : null;
+}
+
 export function getTechCalendarId(techOrEmail) {
   if (typeof techOrEmail === 'string') {
     return TECH_CALENDAR_MAP[techOrEmail.toLowerCase()] || null;

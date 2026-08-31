@@ -92,6 +92,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
 
 
   // Single tech calendar OR all techs for operators
@@ -218,6 +219,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // Called by JobFinishSheet after a successful disposition.
   // Optimistically updates the local list so the just-finished item flips
   // tabs immediately, then closes the sheet.
+  const DISPO_CONFIRM = {
+    bill_it:     { msg: '✅ Marked to bill — entry saved.',           color: '#166534', bg: '#f0fdf4' },
+    return:      { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
+    in_progress: { msg: '📅 Still in progress — entry saved.',        color: '#1e40af', bg: '#eff6ff' },
+    estimate:    { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
+    blocked:     { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
+  };
   const onFinished = (disposition) => {
     const newTab =
       disposition === 'bill_it'     ? 'billit' :
@@ -228,6 +236,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     // events, so there is no new title to swap in. Only the tab moves.
     setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, tab: newTab } : e));
     closeSheet();
+    // Brief confirmation so the tech knows the disposition actually landed.
+    // Without this, the sheet just closed — identical to a cancel — and
+    // there was no way to tell if anything was saved.
+    const confirm = DISPO_CONFIRM[disposition];
+    if (confirm) {
+      setDoneToast(confirm);
+      setTimeout(() => setDoneToast(null), 4000);
+    }
   };
 
   // Customer link is rendered inside the rich detail header AND fed to JobFinishSheet
@@ -254,6 +270,24 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
+
+      {/* Disposition confirmation toast — tells the tech their entry actually
+          landed. The sheet closing looked identical whether it saved or was
+          cancelled, so there was no way to tell. */}
+      {doneToast && (
+        <div style={{
+          position: 'fixed', bottom: 'calc(24px + env(safe-area-inset-bottom))', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 300,
+          background: doneToast.bg, border: `1.5px solid ${doneToast.color}`,
+          borderRadius: 12, padding: '12px 20px',
+          fontSize: 14, fontWeight: 700, color: doneToast.color,
+          boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
+          maxWidth: 340, width: 'calc(100vw - 40px)', textAlign: 'center',
+          pointerEvents: 'none',
+        }}>
+          {doneToast.msg}
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>

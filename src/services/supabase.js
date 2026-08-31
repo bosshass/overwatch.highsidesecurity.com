@@ -1117,6 +1117,10 @@ export const returnCardsApi = {
       original_calendar_id: card.original_calendar_id,
       original_event_title: card.original_event_title || null,
       original_location: card.original_location || null,
+      // The date of the original visit, not the date the card was created.
+      // created_at was the only reference before, which always showed today
+      // even when the card was raised for last Friday's blocked trip.
+      original_event_date: card.original_event_date || null,
       flagged_by_email: card.flagged_by_email || null,
       flagged_by_name: card.flagged_by_name || null,
       reason: card.reason || null,

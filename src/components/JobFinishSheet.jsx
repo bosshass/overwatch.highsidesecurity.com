@@ -354,20 +354,20 @@ export default function JobFinishSheet({
     if (!canFinish || !event) return;
     setActing(true);
     setError('');
+    // Track whether time entry landed so the error message can tell the
+    // tech exactly what did and did not make it — "time entry saved ✓ but
+    // board card not updated" is far more useful than a generic failure.
+    let entrySaved = false;
     try {
       const base = cleanTitle(event.title);
       await appendFieldNotes();
       const entry = await writeTimeEntry(disposition);
+      entrySaved = true;
 
-      // Adopt-on-disposition: ensure a jobs row exists for THIS event and
-      // move it to the right status — for every disposition, not just estimate.
-      // This captures appointments booked directly on Google Calendar.
-      try {
-        await ensureJobForEvent(disposition);
-      } catch (err) {
-        console.warn('adopt-on-disposition failed (time entry still saved):', err);
-      }
-
+      // Write the return card BEFORE updating the board so it is always
+      // persisted even when the board update fails. original_event_date
+      // carries WHEN the visit actually was (e.g. last Friday) — without it
+      // the scheduler only has created_at (today) and sorts accordingly.
       if (disposition === 'return') {
         await returnCardsApi.create({
           customer_id:          linkedCustomer?.id || null,
@@ -376,6 +376,7 @@ export default function JobFinishSheet({
           original_calendar_id: event.calendarId,
           original_event_title: event.title,
           original_location:    event.location || null,
+          original_event_date:  event.start ? new Date(event.start).toISOString() : null,
           flagged_by_email:     userEmail || null,
           flagged_by_name:      event.techName || userName || null,
           reason:               extra.reason || null,
@@ -383,12 +384,28 @@ export default function JobFinishSheet({
         });
       }
 
+      // Adopt-on-disposition: ensure a jobs row exists for THIS event and
+      // move it to the right status — for every disposition, not just estimate.
+      // This captures appointments booked directly on Google Calendar.
+      //
+      // NOT wrapped in its own try/catch. The previous inner catch silently
+      // swallowed every failure here, so the tech closed the sheet thinking
+      // everything worked while the board card was never updated. Errors now
+      // surface as "Time entry saved ✓ — board card not updated" instead of
+      // disappearing.
+      await ensureJobForEvent(disposition);
+
       // No second argument any more — the title is unchanged, so there is
       // nothing for the caller to swap in. See appendFieldNotes().
       onFinished?.(disposition);
     } catch (e) {
       console.error(`${disposition} failed:`, e);
-      setError(e.message || 'Failed to save — try again.');
+      setError(
+        entrySaved
+          ? `Time entry saved ✓ — board card not updated: ${e.message || 'unknown error'}. ` +
+            `Your entry is in Unbilled. Let the office know so they can update the board.`
+          : (e.message || 'Failed to save — try again.')
+      );
       setActing(false);
     }
   };
@@ -472,9 +489,34 @@ export default function JobFinishSheet({
       means: 'Nobody there, no access, wrong parts. The trip still bills.' },
   ];
 
+  // True when the event's calendar date differs from the local calendar date
+  // today — i.e. the tech is logging against a past (or future) visit.
+  const visitDateIsToday = eventDate.toDateString() === new Date().toDateString();
+
   // ── The actual form content (customer + time + notes + materials + buttons) ──
   const formContent = (
     <>
+      {/* VISIT DATE — shown whenever the event is NOT today so the tech
+          knows which day they are logging against. Without this, a tech
+          finishing Friday's job on Sunday has no indication that their
+          entry is stamped for Friday — and the concern "am I closing the
+          right thing?" has no answer on screen. */}
+      {!visitDateIsToday && (
+        <div style={{ background: '#f0f9ff', border: '1.5px solid #38bdf8', borderRadius: 12,
+                      padding: '10px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>📅</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#0c4a6e' }}>
+              Logging against:{' '}
+              {eventDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+            </div>
+            <div style={{ fontSize: 12, color: '#0369a1', marginTop: 1 }}>
+              Not today — this will be saved with the original visit date.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NOT LINKED TO A CUSTOMER — loud, first, and never blocking.
           Blocking a tech in the field creates worse problems than a dirty row,
           so they can still finish. But this job stays flagged on the Board and

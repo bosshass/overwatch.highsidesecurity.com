@@ -106,6 +106,14 @@ export default function JobFinishSheet({
         });
         if (dead) return;
         setLinkedJob(j || null);
+        // Auto-populate the customer from the resolved job so the "not linked"
+        // warning doesn't fire on cards that ARE properly linked. The tech
+        // should not see a red alarm for a job the system already knows the
+        // customer for. prefillCustomer (passed by a parent) takes precedence
+        // if it was already set — don't overwrite a deliberate selection.
+        if (j?.customer_id && j?.customer_name && !prefillCustomer) {
+          setLinkedCust({ id: j.customer_id, name: j.customer_name });
+        }
         if (!j?.id) return;
         // Notes were readable in exactly one place. notesApi.getAllForJob
         // merges job_history, completion notes and prior field notes — the

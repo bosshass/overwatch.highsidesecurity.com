@@ -171,7 +171,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     const results = await Promise.all(fetches);
     const merged  = results.flat();
 
-    const items = merged.filter(ev => {
+    let items = merged.filter(ev => {
       if (ev.status === 'cancelled') return false;
       // Skip events with no title or empty title
       if (!ev.summary || !ev.summary.trim()) return false;
@@ -189,6 +189,47 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       isAllDay: !ev.start?.dateTime,
       tab: getTab(ev.summary || ''),
     })).sort((a, b) => a.start - b.start);
+
+    // ── Database-driven disposition override ──────────────────────────
+    // The calendar title is never tagged with [BILL IT] / [RETURN] / etc.
+    // (Sara's explicit rule: status lives in the database, not in calendar
+    // titles). That means getTab() above can only return 'new' for every
+    // event on a fresh load, so a disposed event re-appears in Today after
+    // any refresh. Cross-reference time_entries to get the real disposition
+    // and move the event to the correct tab, matching what the tech saw
+    // immediately after they saved.
+    if (items.length > 0) {
+      try {
+        const eventIds = items.map(e => e.id);
+        const { data: entries } = await supabase
+          .from('time_entries')
+          .select('calendar_event_id, disposition')
+          .in('calendar_event_id', eventIds)
+          .eq('archived', false);
+        if (entries?.length) {
+          // Most-recent-first: if the same event has two entries (e.g. a
+          // correction), take the last one written. The query returns them in
+          // insertion order; iterate reverse so the last write wins.
+          const dispoByEventId = {};
+          for (const e of [...entries].reverse()) {
+            if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
+          }
+          items = items.map(ev => {
+            const d = dispoByEventId[ev.id];
+            if (!d) return ev;
+            const tab =
+              d === 'bill_it'  ? 'billit'   :
+              d === 'return'   ? 'return'   :
+              d === 'estimate' ? 'estimate' :
+              ev.tab; // in_progress and blocked stay in Today
+            return { ...ev, tab };
+          });
+        }
+      } catch (e) {
+        // Non-fatal — the calendar-only view is still usable.
+        console.warn('TechWorkToday: disposition cross-reference failed', e);
+      }
+    }
 
     setAll(items);
     setLoading(false);
@@ -226,7 +267,11 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     estimate:    { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
     blocked:     { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
   };
-  const onFinished = (disposition) => {
+  // JobFinishSheet passes the calendar event id as the second argument so the
+  // update doesn't have to rely on `selected` being current in the closure.
+  // `selected?.id` is the fallback for callers that haven't been updated yet.
+  const onFinished = (disposition, eventId) => {
+    const targetId = eventId ?? selected?.id;
     const newTab =
       disposition === 'bill_it'     ? 'billit' :
       disposition === 'return'      ? 'return' :
@@ -234,7 +279,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       'new'; // in_progress and blocked stay in 'new' tab
     // The TITLE is deliberately not touched — Overwatch no longer tags calendar
     // events, so there is no new title to swap in. Only the tab moves.
-    setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, tab: newTab } : e));
+    setAll(prev => prev.map(e => e.id === targetId ? { ...e, tab: newTab } : e));
     closeSheet();
     // Brief confirmation so the tech knows the disposition actually landed.
     // Without this, the sheet just closed — identical to a cancel — and

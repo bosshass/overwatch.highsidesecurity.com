@@ -287,7 +287,11 @@ export default function JobFinishSheet({
       customer_name:     linkedCustomer?.name || base,
       customer_id:       linkedCustomer?.id || undefined,
       status:            target,
-      issue:             notes.trim() || base || '',
+      // NEVER use the tech's finish notes as the job's scope of work. The title
+      // of the calendar event (base) is the best available scope for an orphaned
+      // event. Using notes.trim() caused "Test cant do — Materials: Test" to
+      // appear as the board card's scope of work on every orphaned adoption.
+      issue:             base || '',
       customer_address:  event.location || '',
       scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
       calendar_event_id: event.id,
@@ -375,7 +379,13 @@ export default function JobFinishSheet({
     let entrySaved = false;
     try {
       const base = cleanTitle(event.title);
-      await appendFieldNotes();
+      // appendFieldNotes() was writing tech finish notes back to the Google
+      // Calendar event description on every disposition, accumulating lines
+      // like "📝 [8/30 7:55p Trevor] Test" each time the sheet was used.
+      // Sara, 2026-08-20: "we are not to update calendar events with [name]
+      // to reflect status in the app." Notes are saved in Supabase (time_entries
+      // + job_history) — writing them to Google Calendar is redundant and causes
+      // the accumulation. Removed.
       const entry = await writeTimeEntry(disposition);
       entrySaved = true;
 

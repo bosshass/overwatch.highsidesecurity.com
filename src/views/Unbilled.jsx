@@ -913,7 +913,7 @@ export default function Unbilled({ onBack, userEmail }) {
     }
   };
 
-  const page = { minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', paddingBottom: 160 };
+  const page = { minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', paddingBottom: 'calc(160px + env(safe-area-inset-bottom))' };
   const card = { background: '#1a1a2e', border: '1px solid #1e293b', borderRadius: 12, padding: 12, marginBottom: 10 };
 
   if (loading) return <div style={{ ...page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading unbilled work…</div>;
@@ -1316,7 +1316,7 @@ export default function Unbilled({ onBack, userEmail }) {
 
       {/* Selection bar — everything ticked, across every customer */}
       {sel.rows.length > 0 && (
-        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 64, background: '#1a1a2e', borderTop: '2px solid #22c55e', padding: '12px 14px', zIndex: 20 }}>
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(56px + env(safe-area-inset-bottom))', background: '#1a1a2e', borderTop: '2px solid #22c55e', padding: '12px 14px', zIndex: 20 }}>
           <div style={{ maxWidth: 900, margin: '0 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: '#22c55e' }}>

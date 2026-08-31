@@ -301,7 +301,13 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
         // strips '' but keeps `false`, so "client must be present" survives.
         access_permission: form.access_permission,
         gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id,
-        status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW
+        status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW,
+        // When adopting an orphan calendar event, stamp the event id so
+        // resolveJobForEvent can find this job later. Without it, a tech
+        // dispositioning the same event via the finish sheet falls through to
+        // Pass 3 and creates a duplicate card.
+        calendar_event_id: prefill?.sourceEventId || undefined,
+        scheduled_event_id: prefill?.sourceEventId || undefined,
       }, userEmail);
       if (assignedTo && job?.id) {
         const scheduledFor = willSchedule ? `${scheduleDate}T${scheduleTime}:00` : null;

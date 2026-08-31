@@ -269,7 +269,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
 
       {/* Disposition confirmation toast — tells the tech their entry actually
           landed. The sheet closing looked identical whether it saved or was
@@ -289,8 +289,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>
+      {/* Header — fixed at top; list scrolls below it. No sticky needed. */}
+      <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', flexShrink: 0, zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px 0' }}>
           <button onClick={onBack}
             style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
@@ -399,8 +399,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         </div>
       </div>
 
-      {/* List */}
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {/* List — takes remaining height and scrolls; header stays pinned above */}
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
         {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (

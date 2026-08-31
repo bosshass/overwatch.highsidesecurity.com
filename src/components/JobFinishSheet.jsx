@@ -32,6 +32,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TextButton, { clientTemplates } from './TextButton.jsx';
@@ -60,6 +61,7 @@ export default function JobFinishSheet({
   mode = 'full',
   inline = false,
 }) {
+  const navigate = useNavigate();
   const [notes, setNotes]               = useState('');
   const [materials, setMaterials]       = useState('');
   // photoLink was state with no input rendered anywhere — a tech was meant to
@@ -106,6 +108,14 @@ export default function JobFinishSheet({
         });
         if (dead) return;
         setLinkedJob(j || null);
+        // Auto-populate the customer from the resolved job so the "not linked"
+        // warning doesn't fire on cards that ARE properly linked. The tech
+        // should not see a red alarm for a job the system already knows the
+        // customer for. prefillCustomer (passed by a parent) takes precedence
+        // if it was already set — don't overwrite a deliberate selection.
+        if (j?.customer_id && j?.customer_name && !prefillCustomer) {
+          setLinkedCust({ id: j.customer_id, name: j.customer_name });
+        }
         if (!j?.id) return;
         // Notes were readable in exactly one place. notesApi.getAllForJob
         // merges job_history, completion notes and prior field notes — the
@@ -286,8 +296,11 @@ export default function JobFinishSheet({
       // carried it, so every adopted job landed with no tech on it. That is
       // how Chris Hare's second install day became an unowned job: a machine
       // made it, and machines were not filling this in.
-      tech_name: event.techName || undefined,
-      assigned_to: ASSIGNEES.find(a => a.name === event.techName)?.email || undefined,
+      // Use the signed-in user as the tech — whoever is logged in is the one
+      // doing the work. The calendar event id already ties this job to the right
+      // event; we don't need to infer the tech from the calendar owner.
+      tech_name: userName || undefined,
+      assigned_to: userEmail || undefined,
     }, `${userEmail} · adopted from calendar`);
     return created?.id || null;
   };
@@ -324,7 +337,9 @@ export default function JobFinishSheet({
       event_title:        event.title,
       event_start:        event.start ? new Date(event.start).toISOString() : null,
       tech_email:         userEmail || null,
-      tech_name:          event.techName || userName || null,
+      // Signed-in user is always the tech. The calendar event id carries "what
+      // job"; the session carries "who did it". No ASSIGNEES lookup needed.
+      tech_name:          userName || null,
       time_in:            payload.time_in,
       time_out:           payload.time_out,
       total_minutes:      payload.total_minutes,
@@ -517,20 +532,32 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* NOT LINKED TO A CUSTOMER — loud, first, and never blocking.
-          Blocking a tech in the field creates worse problems than a dirty row,
-          so they can still finish. But this job stays flagged on the Board and
-          lands in JR's alert panel until someone matches it. */}
-      {!linkedCustomer && (
-        <div style={{ background:'#fffbeb', border:'2px solid #f59e0b', borderRadius:12, padding:'10px 12px', marginBottom:12 }}>
-          <div style={{ fontSize:14, fontWeight:800, color:'#92400e', marginBottom:2 }}>
-            ⚠️ Not linked to a customer
-          </div>
-          <div style={{ fontSize:13, color:'#a16207', lineHeight:1.45 }}>
-            Pick the client below so this bills correctly. If they aren't in the
-            system yet, finish anyway — it'll be flagged for the office.
-          </div>
-        </div>
+      {/* CUSTOMER — always at the top.
+          When no customer is linked, CustomerLookup shows a yellow search panel
+          so the tech can pick one before doing anything else. When linked, it
+          shows a green card with the customer's name, phone, recent visits and a
+          "Change customer" button. The old separate "not linked" warning banner
+          is gone — the CustomerLookup panel itself communicates both states. */}
+      <CustomerLookup
+        event={event}
+        accessToken={accessToken}
+        value={linkedCustomer}
+        onChange={setLinkedCust}
+      />
+      {/* View full history — only shown when customer is known */}
+      {linkedCustomer?.id && (
+        <button
+          onClick={() => navigate(`/customers?customerId=${linkedCustomer.id}`)}
+          style={{
+            display: 'block', width: '100%', textAlign: 'center',
+            padding: '8px 0', marginTop: -8, marginBottom: 12,
+            background: 'none', border: 'none',
+            color: '#16a34a', fontSize: 12, fontWeight: 700,
+            cursor: 'pointer', textDecoration: 'underline',
+          }}
+        >
+          View full client history →
+        </button>
       )}
 
       {/* WHO TO ASK FOR. On-site contact and access, from migration 047. These
@@ -805,14 +832,6 @@ export default function JobFinishSheet({
         onChange={setTimeEntry}
         eventDate={eventDate}
         required={false}
-      />
-
-      {/* Customer link — optional, saved when set */}
-      <CustomerLookup
-        event={event}
-        accessToken={accessToken}
-        value={linkedCustomer}
-        onChange={setLinkedCust}
       />
 
       {eventInFuture && !futureOk && (

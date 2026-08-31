@@ -23,7 +23,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
-import { canBill } from '../utils/ownership.js';
+import { canBill, canSeeBillingFields } from '../utils/ownership.js';
 import ProjectPanel from '../components/ProjectPanel.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
@@ -167,6 +167,7 @@ export default function Unbilled({ onBack, userEmail }) {
   const [openKey, setOpenKey] = useState(null);
   const [picked, setPicked] = useState(() => new Set());
   const [invoiceRef, setInvoiceRef] = useState('');
+  const [invoiceAmount, setInvoiceAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [search, setSearch] = useState('');
@@ -180,6 +181,10 @@ export default function Unbilled({ onBack, userEmail }) {
   // open this screen can read it and can CLEAR a row with a reason — that is
   // bookkeeping hygiene. Only billing can assert that an invoice went out.
   const mayBill = canBill(userEmail);
+  // Billing field visibility — invoice #, dollar amount, tech. Broader than
+  // mayBill: JR and info@ can fill in billing fields for review without being
+  // the person who stamps entries billed.
+  const maySeeBillingFields = canSeeBillingFields(userEmail);
   // "I show Jeanneret as a client in my to bill — I want to select the time
   // entry and merge it into the job." Two things that had no control anywhere
   // in the app: attaching loose hours to a card, and saying that a job's hours
@@ -194,7 +199,7 @@ export default function Unbilled({ onBack, userEmail }) {
     try {
       const { data: entries, error } = await supabase
         .from('time_entries')
-        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, billed_at, invoice_ref, archived, archive_reason, billable, non_billable_reason, resolved_at, resolution_reason, job_id, calendar_event_id')
+        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, billed_at, invoice_ref, invoice_amount, archived, archive_reason, billable, non_billable_reason, resolved_at, resolution_reason, job_id, calendar_event_id')
         .or('billed.is.null,billed.eq.false')
         // resolved_at is the ONE switch that takes a visit off this screen for
         // good. 193 pre-July entries were closed out in migration 042; without
@@ -468,10 +473,12 @@ export default function Unbilled({ onBack, userEmail }) {
   // Everything currently ticked, across every customer
   const sel = useMemo(() => {
     const rows = groups.flatMap(g => g.visits.filter(v => picked.has(v.id)).map(v => ({ ...v, _g: g })));
+    const techSet = new Set(rows.map(v => v.tech_name).filter(Boolean));
     return {
       rows,
       hours: rows.reduce((s, v) => s + hrs(v.total_minutes), 0),
       materials: rows.filter(v => v.materials && v.materials.trim()).map(v => v.materials.trim()),
+      techs: [...techSet],
     };
   }, [groups, picked]);
 
@@ -730,12 +737,14 @@ export default function Unbilled({ onBack, userEmail }) {
     if (!window.confirm(`Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed?\n\nThey will leave this queue. This does not create an invoice — do that in QuickBooks.`)) return;
     setSaving(true);
     try {
+      const amtRaw = invoiceAmount.trim().replace(/[$,\s]/g, '');
       const { error } = await supabase
         .from('time_entries')
         .update({
           billed: true,
           billed_at: new Date().toISOString(),
           invoice_ref: invoiceRef.trim() || null,
+          invoice_amount: amtRaw ? parseFloat(amtRaw) : null,
         })
         .in('id', sel.rows.map(r => r.id));
       if (error) throw error;
@@ -1153,6 +1162,12 @@ export default function Unbilled({ onBack, userEmail }) {
                             {fmtD(v.event_start)} · {v.tech_name || 'unknown tech'}
                             {v.disposition && <span style={{ color: '#94a3b8', fontWeight: 400 }}> · {v.disposition.replace('_', ' ')}</span>}
                           </div>
+                          {maySeeBillingFields && (v.invoice_ref || v.invoice_amount != null) && (
+                            <div style={{ fontSize: 11.5, color: '#7dd3fc', marginTop: 2 }}>
+                              {v.invoice_ref && <span>Inv: {v.invoice_ref}</span>}
+                              {v.invoice_amount != null && <span style={{ color: '#4ade80' }}>{v.invoice_ref ? ' · ' : ''}${Number(v.invoice_amount).toFixed(2)}</span>}
+                            </div>
+                          )}
                           {v.event_title && <div style={{ fontSize: 12, color: '#94a3b8' }}>{v.event_title}</div>}
                           {v.notes && <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 3, whiteSpace: 'pre-wrap' }}>{v.notes}</div>}
                           {v.materials && v.materials.trim() && (
@@ -1322,9 +1337,17 @@ export default function Unbilled({ onBack, userEmail }) {
               <span style={{ fontSize: 15, fontWeight: 800, color: '#22c55e' }}>
                 {sel.rows.length} visit{sel.rows.length > 1 ? 's' : ''} · {fmtH(sel.hours)}
               </span>
-              {mayBill && (
+              {maySeeBillingFields && (
               <input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="invoice # (optional)"
                 style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 13, width: 150 }} />)}
+              {maySeeBillingFields && (
+              <input value={invoiceAmount} onChange={e => setInvoiceAmount(e.target.value)} placeholder="$ amount (optional)"
+                inputMode="decimal"
+                style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 13, width: 140 }} />)}
+              {maySeeBillingFields && sel.techs.length > 0 && (
+              <span style={{ fontSize: 12.5, color: '#7dd3fc', background: '#0c2540', border: '1px solid #1e3a5f', borderRadius: 8, padding: '7px 11px', whiteSpace: 'nowrap' }}>
+                Tech: {sel.techs.join(', ')}
+              </span>)}
               <button onClick={() => setPicked(new Set())}
                 style={{ background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>Clear</button>
               <button onClick={() => setArchiving(true)} disabled={saving}

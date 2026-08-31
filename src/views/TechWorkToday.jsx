@@ -267,7 +267,11 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     estimate:    { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
     blocked:     { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
   };
-  const onFinished = (disposition) => {
+  // JobFinishSheet passes the calendar event id as the second argument so the
+  // update doesn't have to rely on `selected` being current in the closure.
+  // `selected?.id` is the fallback for callers that haven't been updated yet.
+  const onFinished = (disposition, eventId) => {
+    const targetId = eventId ?? selected?.id;
     const newTab =
       disposition === 'bill_it'     ? 'billit' :
       disposition === 'return'      ? 'return' :
@@ -275,7 +279,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       'new'; // in_progress and blocked stay in 'new' tab
     // The TITLE is deliberately not touched — Overwatch no longer tags calendar
     // events, so there is no new title to swap in. Only the tab moves.
-    setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, tab: newTab } : e));
+    setAll(prev => prev.map(e => e.id === targetId ? { ...e, tab: newTab } : e));
     closeSheet();
     // Brief confirmation so the tech knows the disposition actually landed.
     // Without this, the sheet just closed — identical to a cancel — and

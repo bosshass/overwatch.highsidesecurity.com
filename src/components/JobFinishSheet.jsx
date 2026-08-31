@@ -428,9 +428,10 @@ export default function JobFinishSheet({
         }
       }
 
-      // No second argument any more — the title is unchanged, so there is
-      // nothing for the caller to swap in. See appendFieldNotes().
-      onFinished?.(disposition);
+      // Pass event.id as the second argument so callers (e.g. TechWorkToday)
+      // can update local state by event id rather than relying on a closure
+      // over `selected` that may be stale by the time the async finish() resolves.
+      onFinished?.(disposition, event.id);
     } catch (e) {
       console.error(`${disposition} failed:`, e);
       setError(

@@ -106,6 +106,14 @@ export default function JobFinishSheet({
         });
         if (dead) return;
         setLinkedJob(j || null);
+        // Auto-populate the customer from the resolved job so the "not linked"
+        // warning doesn't fire on cards that ARE properly linked. The tech
+        // should not see a red alarm for a job the system already knows the
+        // customer for. prefillCustomer (passed by a parent) takes precedence
+        // if it was already set — don't overwrite a deliberate selection.
+        if (j?.customer_id && j?.customer_name && !prefillCustomer) {
+          setLinkedCust({ id: j.customer_id, name: j.customer_name });
+        }
         if (!j?.id) return;
         // Notes were readable in exactly one place. notesApi.getAllForJob
         // merges job_history, completion notes and prior field notes — the
@@ -286,8 +294,11 @@ export default function JobFinishSheet({
       // carried it, so every adopted job landed with no tech on it. That is
       // how Chris Hare's second install day became an unowned job: a machine
       // made it, and machines were not filling this in.
-      tech_name: event.techName || undefined,
-      assigned_to: ASSIGNEES.find(a => a.name === event.techName)?.email || undefined,
+      // Use the signed-in user as the tech — whoever is logged in is the one
+      // doing the work. The calendar event id already ties this job to the right
+      // event; we don't need to infer the tech from the calendar owner.
+      tech_name: userName || undefined,
+      assigned_to: userEmail || undefined,
     }, `${userEmail} · adopted from calendar`);
     return created?.id || null;
   };
@@ -324,7 +335,9 @@ export default function JobFinishSheet({
       event_title:        event.title,
       event_start:        event.start ? new Date(event.start).toISOString() : null,
       tech_email:         userEmail || null,
-      tech_name:          event.techName || userName || null,
+      // Signed-in user is always the tech. The calendar event id carries "what
+      // job"; the session carries "who did it". No ASSIGNEES lookup needed.
+      tech_name:          userName || null,
       time_in:            payload.time_in,
       time_out:           payload.time_out,
       total_minutes:      payload.total_minutes,

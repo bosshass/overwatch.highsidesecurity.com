@@ -189,22 +189,23 @@ export function getVisibleCalendars(email, viewingAs) {
 // tech calendars appear in the Work To Do view per user.
 //
 // Rules (per product spec):
-//   - Operators (info@, Sara, admin)  → Austin + JR + Brian (Tech3) + Subs
+//   - Operators (info@, Sara, admin)  → Austin + JR + Brian (Tech3) + Trevor + Subs
 //   - Austin (restricted)             → Austin + Brian (Tech3) + Subs
 //   - Brian (restricted)              → Brian (Tech3) only
 //   - JR (restricted)                 → JR only
-//   - Trevor (restricted)             → Installations only
+//   - Trevor (restricted)             → Trevor + Installations
 //   - Subs (restricted)               → Subs only
-//   - Shana (operator role)           → Austin + JR + Brian + Subs (same as operators)
+//   - Shana (operator role)           → Austin + JR + Brian + Trevor + Subs (same as operators)
 //   - Anyone else                     → empty (caller should fall back to default)
 export function getWorkViewCalendars(email) {
   if (!email) return [];
   const e = email.toLowerCase();
   const ALL_TECHS = [
-    { id: CALENDARS.AUSTIN, name: 'Austin' },
-    { id: CALENDARS.JR,     name: 'JR' },
-    { id: CALENDARS.TECH3,  name: 'Brian' },
-    { id: CALENDARS.SUBS,   name: 'Subs' },
+    { id: CALENDARS.AUSTIN,  name: 'Austin' },
+    { id: CALENDARS.JR,      name: 'JR' },
+    { id: CALENDARS.TECH3,   name: 'Brian' },
+    { id: CALENDARS.TREVOR,  name: 'Trevor' },
+    { id: CALENDARS.SUBS,    name: 'Subs' },
   ];
 
   if (OPERATOR_EMAILS.includes(e)) return ALL_TECHS;

@@ -32,6 +32,7 @@
 //                   inside an existing sheet (e.g. TechWorkToday's rich detail sheet).
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { timeEntriesApi, returnCardsApi, jobsApi, notesApi, supabase, JOB_STATUS } from '../services/supabase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 import TextButton, { clientTemplates } from './TextButton.jsx';
@@ -60,6 +61,7 @@ export default function JobFinishSheet({
   mode = 'full',
   inline = false,
 }) {
+  const navigate = useNavigate();
   const [notes, setNotes]               = useState('');
   const [materials, setMaterials]       = useState('');
   // photoLink was state with no input rendered anywhere — a tech was meant to
@@ -488,20 +490,32 @@ export default function JobFinishSheet({
   // ── The actual form content (customer + time + notes + materials + buttons) ──
   const formContent = (
     <>
-      {/* NOT LINKED TO A CUSTOMER — loud, first, and never blocking.
-          Blocking a tech in the field creates worse problems than a dirty row,
-          so they can still finish. But this job stays flagged on the Board and
-          lands in JR's alert panel until someone matches it. */}
-      {!linkedCustomer && (
-        <div style={{ background:'#fffbeb', border:'2px solid #f59e0b', borderRadius:12, padding:'10px 12px', marginBottom:12 }}>
-          <div style={{ fontSize:14, fontWeight:800, color:'#92400e', marginBottom:2 }}>
-            ⚠️ Not linked to a customer
-          </div>
-          <div style={{ fontSize:13, color:'#a16207', lineHeight:1.45 }}>
-            Pick the client below so this bills correctly. If they aren't in the
-            system yet, finish anyway — it'll be flagged for the office.
-          </div>
-        </div>
+      {/* CUSTOMER — always at the top.
+          When no customer is linked, CustomerLookup shows a yellow search panel
+          so the tech can pick one before doing anything else. When linked, it
+          shows a green card with the customer's name, phone, recent visits and a
+          "Change customer" button. The old separate "not linked" warning banner
+          is gone — the CustomerLookup panel itself communicates both states. */}
+      <CustomerLookup
+        event={event}
+        accessToken={accessToken}
+        value={linkedCustomer}
+        onChange={setLinkedCust}
+      />
+      {/* View full history — only shown when customer is known */}
+      {linkedCustomer?.id && (
+        <button
+          onClick={() => navigate(`/customers?customerId=${linkedCustomer.id}`)}
+          style={{
+            display: 'block', width: '100%', textAlign: 'center',
+            padding: '8px 0', marginTop: -8, marginBottom: 12,
+            background: 'none', border: 'none',
+            color: '#16a34a', fontSize: 12, fontWeight: 700,
+            cursor: 'pointer', textDecoration: 'underline',
+          }}
+        >
+          View full client history →
+        </button>
       )}
 
       {/* WHO TO ASK FOR. On-site contact and access, from migration 047. These
@@ -776,14 +790,6 @@ export default function JobFinishSheet({
         onChange={setTimeEntry}
         eventDate={eventDate}
         required={false}
-      />
-
-      {/* Customer link — optional, saved when set */}
-      <CustomerLookup
-        event={event}
-        accessToken={accessToken}
-        value={linkedCustomer}
-        onChange={setLinkedCust}
       />
 
       {eventInFuture && !futureOk && (

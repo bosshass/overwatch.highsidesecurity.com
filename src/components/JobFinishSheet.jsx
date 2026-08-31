@@ -408,7 +408,25 @@ export default function JobFinishSheet({
       // everything worked while the board card was never updated. Errors now
       // surface as "Time entry saved ✓ — board card not updated" instead of
       // disappearing.
-      await ensureJobForEvent(disposition);
+      const ensuredJobId = await ensureJobForEvent(disposition);
+
+      // ── Writeback: link the time entry to the job ──────────────────
+      // writeTimeEntry runs BEFORE ensureJobForEvent so hours are never lost
+      // even when the board update fails. The downside is that on the adopt
+      // path (no pre-existing job), writeTimeEntry has nothing to resolve and
+      // the entry lands with job_id = null. Patch it now that we have the id.
+      if (entry?.id && ensuredJobId && !entry.job_id) {
+        try {
+          await supabase
+            .from('time_entries')
+            .update({ job_id: ensuredJobId })
+            .eq('id', entry.id);
+        } catch (patchErr) {
+          // Non-fatal — the entry is saved, the job is saved. They're just
+          // not linked yet. Office can reconcile via the Unbilled view.
+          console.warn('job_id writeback failed', patchErr);
+        }
+      }
 
       // No second argument any more — the title is unchanged, so there is
       // nothing for the caller to swap in. See appendFieldNotes().

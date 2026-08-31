@@ -459,12 +459,25 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       case JOB_STATUS.NEEDS_DETAILS:
         actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
       case JOB_STATUS.NEEDS_PARTS:
-        actions.push(ACTIONS.SCHEDULE, ACTIONS.MATERIALS_IN); break;
+        // Parts ordered — waiting on delivery. Materials In moves it straight
+        // to Ready so it hits the scheduling queue the moment parts arrive.
+        actions.push(ACTIONS.MATERIALS_IN, ACTIONS.SCHEDULE); break;
+      case JOB_STATUS.PENDING_MATERIALS:
+        // Parts on-site or invoice pending. Same exit: received → ready.
+        actions.push(ACTIONS.MATERIALS_IN, ACTIONS.NEEDS_PARTS); break;
       case JOB_STATUS.PENDING_DECISION:
         actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY, ACTIONS.NEEDS_PARTS, ACTIONS.COMPLETE_SALES); break;
+      case JOB_STATUS.BLOCKED:
+        // Tech couldn't finish — office decides what happens next.
+        // BILL_MATERIALS = pending invoice for materials (parts cost goes on invoice first).
+        // NEEDS_PARTS    = parts ordered, waiting on delivery.
+        // MARK_READY     = unblocked, no parts needed — put it back in the queue.
+        actions.push(ACTIONS.BILL_MATERIALS, ACTIONS.NEEDS_PARTS, ACTIONS.MARK_READY); break;
       case JOB_STATUS.READY_TO_SCHEDULE:
         actions.push(ACTIONS.SCHEDULE); break;
-      case JOB_STATUS.SCHEDULED: break;
+      case JOB_STATUS.SCHEDULED:
+        // Parts needed discovered during the job.
+        actions.push(ACTIONS.NEEDS_PARTS); break;
       // MARK BILLED IS BILLING'S BUTTON. Offering it to a tech is offering
       // them the decision; hiding it is the honest version of a rule the app
       // was only half enforcing. Everything else about the card stays exactly
@@ -483,6 +496,9 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         actions.push(ACTIONS.MARK_WON, ACTIONS.MARK_LOST); break;
       case JOB_STATUS.WON:
         actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY); break;
+      case JOB_STATUS.LOST:
+        // Customer said no — revise and try again, or kill it.
+        actions.push(ACTIONS.NEEDS_ESTIMATE, ACTIONS.MARK_DEAD); break;
       case JOB_STATUS.RETURN_PENDING:
         actions.push(ACTIONS.SCHEDULE, ACTIONS.MARK_READY); break;
       case JOB_STATUS.BILLED:

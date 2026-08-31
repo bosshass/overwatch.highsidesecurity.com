@@ -10,6 +10,7 @@ import { JOB_STATUS } from '../services/supabase.js';
 const FLOW_ORDER = [
   JOB_STATUS.READY_TO_SCHEDULE,
   JOB_STATUS.SCHEDULED,
+  JOB_STATUS.BLOCKED,
   JOB_STATUS.NEEDS_PARTS,
   JOB_STATUS.PENDING_MATERIALS,
   JOB_STATUS.PENDING_DECISION,
@@ -46,6 +47,7 @@ export const ACTIONS = {
   COMPLETE_FIXED: { label: '✅ All Fixed', toStatus: JOB_STATUS.TO_BILL, color: '#22c55e' },
   COMPLETE_RETURN: { label: '🔄 Return Needed', toStatus: JOB_STATUS.RETURN_PENDING, color: '#f59e0b' },
   COMPLETE_SALES: { label: '💰 Sales Opportunity', toStatus: JOB_STATUS.NEEDS_ESTIMATE, color: '#eab308' },
+  NEEDS_ESTIMATE: { label: '📋 Revise Estimate', toStatus: JOB_STATUS.NEEDS_ESTIMATE, color: '#f59e0b' },
   COMPLETE_NC: { label: '🚫 No Charge', toStatus: JOB_STATUS.BILLED, color: '#6b7280' },
   COMPLETE_PARTS: { label: '📦 Pending Parts', toStatus: JOB_STATUS.NEEDS_PARTS, color: '#eab308' },
   MARK_BILLED: { label: '💰 Billed', toStatus: JOB_STATUS.BILLED, color: '#8b5cf6' },

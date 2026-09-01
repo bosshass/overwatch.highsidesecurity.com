@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { customersApi } from '../services/supabase.js';
 import { createEventOnCalendar } from '../services/calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
+import { htmlToText } from '../utils/statusMachine.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -385,7 +386,7 @@ function EventCard({ event, onAction }) {
           {event.location && <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>📍 {event.location}</div>}
           {event.description && (
             <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, lineHeight: 1.4, maxHeight: 40, overflow: 'hidden' }}>
-              {event.description.replace(/📱 Open in JUC-E:.*/g, '').trim().slice(0, 120)}
+              {htmlToText(event.description).replace(/📱.*|Open in (JUC-E|Overwatch).*/g, '').trim().slice(0, 120)}
             </div>
           )}
         </div>

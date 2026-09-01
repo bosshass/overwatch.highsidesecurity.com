@@ -157,6 +157,39 @@ export function stripIntakeTemplate(text) {
   return text.replace(INTAKE_TEMPLATE_RE, '').trim();
 }
 
+// Google Calendar returns event descriptions as HTML. Every consumer that
+// renders a description as plain text needs to run it through here first,
+// or <br> and <a ...> tags show up literally on screen.
+//
+// Order matters:
+//  1. Block-level tags → newlines BEFORE stripping (otherwise two paragraphs
+//     get fused into one long run-on line).
+//  2. Strip all remaining tags.
+//  3. Decode the handful of entities Google actually uses.
+//  4. Collapse excessive blank lines.
+export function htmlToText(html) {
+  if (!html) return html;
+  return html
+    // Block-level closers and explicit line-break tags → newline
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    // Strip every remaining tag (open, close, self-closing)
+    .replace(/<[^>]+>/g, '')
+    // Common HTML entities
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    // Collapse 3+ consecutive blank lines to 2
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // Customer phone fields often hold more than one number in one string, e.g.
 // "(800) 787-0545 , Mobile:(970) 282-6985" — a main line plus a labeled
 // mobile. Passing that WHOLE string straight into a tel: link produces

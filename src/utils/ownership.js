@@ -216,3 +216,21 @@ export const BILLING_EMAILS = [
 
 export const canBill = (email) =>
   BILLING_EMAILS.includes(String(email || '').toLowerCase().trim());
+
+// ── WHO GETS TO SEE BILLING FIELDS ───────────────────────────────────────────
+// Invoice number, dollar amount, and tech attribution are visible to everyone
+// who reviews or creates invoices — JR and the shared info@ mailbox included.
+// "Seeing" is not the same as "stamping as billed": canBill is still the gate
+// for the Mark Billed action; these fields are read/fill for review purposes.
+//
+// The distinction matters because info@ is JR's primary login. He needs to
+// enter the invoice number and dollar amount; he is NOT the one who decides
+// that the invoice went out.
+export const BILLING_FIELD_EMAILS = [
+  ...BILLING_EMAILS,
+  'jr@drhsecurityservices.com',
+  'info@drhsecurityservices.com',
+];
+
+export const canSeeBillingFields = (email) =>
+  BILLING_FIELD_EMAILS.includes(String(email || '').toLowerCase().trim());

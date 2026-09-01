@@ -10,8 +10,13 @@ import { createClient } from '@supabase/supabase-js';
 // cannot actually be code-split is just a slower static one.
 import { TECH_CALENDAR_MAP } from '../config/calendars.js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://wolhqelloeypafmmvapn.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvbGhxZWxsb2V5cGFmbW12YXBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxODUsImV4cCI6MjA4NDg2MDE4NX0.wQZ14FMQ03A8cBYXBMS1-pII4lKhTL7VNPl9zBCs-EM';
+// Keys come exclusively from env vars — no hardcoded fallbacks.
+// Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel before deploying.
+// A missing key throws at startup (createClient will reject an empty string),
+// which is the correct failure mode: a silent wrong-database bug is worse than
+// a fast crash with a clear env-var error in the logs.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 

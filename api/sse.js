@@ -570,8 +570,9 @@ async function handleTool(name, args) {
 // ── MCP Protocol Handler ────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS — restrict to the production origin; wildcard lets any site make
+  // credentialed SSE requests against this endpoint.
+  res.setHeader('Access-Control-Allow-Origin', 'https://overwatch.highsidesecurity.com');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   

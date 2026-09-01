@@ -11,7 +11,7 @@ import { assignmentsApi, jobsApi, queries, JOB_STATUS, techsApi, supabase } from
 import { scanForOrphans, ignoreOrphan, ignoreAllOrphans, syncIgnoredOrphansFromSupabase } from '../services/calendarSync.js';
 import { fetchCalendarEvents as gcalFetchEvents } from '../services/calendarApi.js';
 import { TECH_COLORS, getVisibleCalendars, CALENDARS } from '../config/calendars.js';
-import { JOB_TYPE_INFO, getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
+import { JOB_TYPE_INFO, getJobAge, getAgeUrgency, htmlToText } from '../utils/statusMachine.js';
 import usePullToRefresh from '../utils/usePullToRefresh.jsx';
 import JobCard from '../components/JobCard.jsx';
 import JobDetail from '../components/JobDetail.jsx';
@@ -1261,7 +1261,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             {eventPreview.location && <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>📍 {eventPreview.location}</div>}
             {eventPreview.description && (
               <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 12, maxHeight: 80, overflow: 'auto', lineHeight: 1.4 }}>
-                {eventPreview.description.slice(0, 300)}
+                {htmlToText(eventPreview.description).slice(0, 300)}
               </div>
             )}
             <div style={{ background: '#0f1729', borderRadius: 10, padding: '10px 14px', marginBottom: 16, border: '1px solid #334155' }}>

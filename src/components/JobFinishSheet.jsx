@@ -41,6 +41,7 @@ import CustomerLookup from './CustomerLookup.jsx';
 import { dispo, DISPO_KEYS } from '../utils/billing.js';
 import { uploadPhoto } from '../services/photos.js';
 import { ASSIGNEES } from '../utils/ownership.js';
+import { htmlToText } from '../utils/statusMachine.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -480,7 +481,7 @@ export default function JobFinishSheet({
   // field notes (📝 lines). Shown IN FULL — no "Show more" truncation. This
   // is the single most important thing on the screen and it used to be
   // collapsed behind a link.
-  const eventScope = (event.description || '')
+  const eventScope = htmlToText(event.description || '')
     .replace(/📱.*|Open in (JUC-E|Overwatch).*/g, '')
     .replace(/CUSTOMER_ID:\s*[A-Za-z0-9\-_]+\s*/g, '')
     .split('\n')
@@ -490,8 +491,9 @@ export default function JobFinishSheet({
   // jobs.issue WINS. It is the live answer to "what are we doing here" and it
   // is what the office typed on the card. The event description is a snapshot
   // of it and can be stale, empty, or hand-edited — so it is the fallback,
-  // never the source.
-  const issueText = (linkedJob?.issue || '').trim();
+  // never the source. Also run through htmlToText in case it was populated by
+  // pasting from Google Calendar before this fix landed.
+  const issueText = htmlToText((linkedJob?.issue || '').trim());
   const scope     = issueText || eventScope;
   // Show the calendar block too when it says something the issue does not —
   // gate codes and access notes often live only there.

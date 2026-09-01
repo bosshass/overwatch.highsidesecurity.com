@@ -665,7 +665,9 @@ export default function Unbilled({ onBack, userEmail }) {
   const openMerge = async (g) => {
     setMergeOpen(g);
     setMergeJobs(null);
-    setMergeQ('');
+    // Pre-seed the search with the orphan's customer name so the matching job
+    // is already the first result — one tap to confirm instead of typing.
+    setMergeQ(g?.orphan ? (g.name || '') : '');
     setNewProj(null);
     // Their OPEN jobs first — that is the answer nine times out of ten. The
     // search box below covers the tenth.

@@ -43,7 +43,7 @@ export const BUCKETS = [
   { key: 'sales',    label: '💬 Sales / pre-sale',     color: '#0ea5e9',
     blurb: 'Estimates and sales calls. Time spent winning the work, not delivering it. Never invoiceable.' },
   { key: 'absorbed', label: '🧾 Absorbed cost',        color: '#64748b',
-    blurb: 'Warranty, goodwill, duplicate or contract work already archived with a reason. Real cost with zero revenue — kept visible so profitability stays honest.' },
+    blurb: 'Warranty, goodwill, or contract work archived with a reason. Real cost with zero revenue. These are typically cleared by archiving — if you see entries here they were archived before this was fixed and can be ignored.' },
   { key: 'return',   label: '🔄 Waiting on a return',  color: '#ec4899',
     blurb: 'You CANNOT bill these until someone goes back. The customer is waiting, and every day this sits is a day of unbilled work AND a day of bad service.' },
   { key: 'progress', label: '🚧 Still in progress',    color: '#3b82f6',
@@ -704,22 +704,22 @@ export default function Unbilled({ onBack, userEmail }) {
     if (!t) return;
     setSaving(true);
     try {
+      const now = new Date().toISOString();
+      const archivePatch = {
+        archived: true, archived_at: now, archived_by: userEmail,
+        archive_reason: reason,
+        resolved_at: now, resolution_reason: `archived — ${reason}`,
+      };
       if (t.kind === 'orphan') {
         const ids = t.group.visits.map(v => v.id).filter(Boolean);
-        const { error } = await supabase.from('time_entries').update({
-          archived: true, archived_at: new Date().toISOString(),
-          archived_by: userEmail, archive_reason: reason,
-        }).in('id', ids);
+        const { error } = await supabase.from('time_entries').update(archivePatch).in('id', ids);
         if (error) throw error;
       } else {
         await jobsApi.changeStatus(t.group.job.id, 'archived', userEmail,
           `Cleared from Billing — ${reasonLabel(reason)}`);
         const ids = (t.group.visits || []).map(v => v.id).filter(Boolean);
         if (ids.length) {
-          await supabase.from('time_entries').update({
-            archived: true, archived_at: new Date().toISOString(),
-            archived_by: userEmail, archive_reason: reason,
-          }).in('id', ids);
+          await supabase.from('time_entries').update(archivePatch).in('id', ids);
         }
       }
       setToast(`${t.group.name} — ${reasonLabel(reason)}`);
@@ -886,13 +886,19 @@ export default function Unbilled({ onBack, userEmail }) {
   const doArchive = async (reason) => {
     try {
       const rows = sel.rows;
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from('time_entries')
         .update({
           archived: true,
-          archived_at: new Date().toISOString(),
+          archived_at: now,
           archived_by: userEmail || null,
           archive_reason: reason,
+          // resolved_at removes the entry from the Unbilled query entirely.
+          // Without this, absorbed/sales entries parked in the absorbed tab
+          // and never left the screen no matter how many times you archived them.
+          resolved_at: now,
+          resolution_reason: `archived — ${reason}`,
         })
         .in('id', rows.map(r => r.id));
       if (error) throw error;
@@ -917,8 +923,11 @@ export default function Unbilled({ onBack, userEmail }) {
       await load();
       setTimeout(() => setToast(''), 3500);
     } catch (e) {
-      alert('Could not archive: ' + (e.message || e) + '\n\nIf this says the column does not exist, run migration 023 first.');
+      alert('Could not archive: ' + (e.message || e));
       setArchiving(false);
+      // Still refresh — the DB update may have succeeded before the throw,
+      // and the UI must reflect whatever actually landed.
+      await load().catch(() => {});
     }
   };
 

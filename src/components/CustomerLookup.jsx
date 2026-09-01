@@ -162,6 +162,28 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
         event.location,
         customer
       );
+
+      // ── WRITE-THROUGH TO SUPABASE ──────────────────────────────
+      // Tagging the GCal event description is the durable record, but
+      // calendar sync runs in the background. Any time entry Trevor logged
+      // before sync runs carries a null customer_id and shows as an orphan
+      // on the Billing screen. Stamp both tables immediately so the link is
+      // live from the moment the office confirms it, not from the next sync.
+      if (event.id) {
+        // 1. The job card (may link through calendar_event_id OR scheduled_event_id)
+        await supabase.from('jobs')
+          .update({ customer_id: customer.id, customer_name: customer.name })
+          .or(`calendar_event_id.eq.${event.id},scheduled_event_id.eq.${event.id}`)
+          .catch(e => console.warn('CustomerLookup: job write-through failed', e));
+
+        // 2. All time entries for this event that are not yet resolved
+        await supabase.from('time_entries')
+          .update({ customer_id: customer.id, customer_name_raw: customer.name })
+          .eq('calendar_event_id', event.id)
+          .is('resolved_at', null)
+          .catch(e => console.warn('CustomerLookup: time_entries write-through failed', e));
+      }
+
       onChange(customer);
       setMode('idle');
       setResults([]);
@@ -194,6 +216,18 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
         event.location,
         created
       );
+      // Write-through — same as link() above
+      if (event.id) {
+        await supabase.from('jobs')
+          .update({ customer_id: created.id, customer_name: created.name })
+          .or(`calendar_event_id.eq.${event.id},scheduled_event_id.eq.${event.id}`)
+          .catch(e => console.warn('CustomerLookup: job write-through (create) failed', e));
+        await supabase.from('time_entries')
+          .update({ customer_id: created.id, customer_name_raw: created.name })
+          .eq('calendar_event_id', event.id)
+          .is('resolved_at', null)
+          .catch(e => console.warn('CustomerLookup: time_entries write-through (create) failed', e));
+      }
       onChange(created);
       setMode('idle');
       setCreateForm({ name: '', phone: '', address: '', email: '' });

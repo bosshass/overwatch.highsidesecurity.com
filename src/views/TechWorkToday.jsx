@@ -92,7 +92,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
-  const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
 
 
   // Single tech calendar OR all techs for operators
@@ -171,7 +170,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     const results = await Promise.all(fetches);
     const merged  = results.flat();
 
-    let items = merged.filter(ev => {
+    const items = merged.filter(ev => {
       if (ev.status === 'cancelled') return false;
       // Skip events with no title or empty title
       if (!ev.summary || !ev.summary.trim()) return false;
@@ -189,47 +188,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       isAllDay: !ev.start?.dateTime,
       tab: getTab(ev.summary || ''),
     })).sort((a, b) => a.start - b.start);
-
-    // ── Database-driven disposition override ──────────────────────────
-    // The calendar title is never tagged with [BILL IT] / [RETURN] / etc.
-    // (Sara's explicit rule: status lives in the database, not in calendar
-    // titles). That means getTab() above can only return 'new' for every
-    // event on a fresh load, so a disposed event re-appears in Today after
-    // any refresh. Cross-reference time_entries to get the real disposition
-    // and move the event to the correct tab, matching what the tech saw
-    // immediately after they saved.
-    if (items.length > 0) {
-      try {
-        const eventIds = items.map(e => e.id);
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('calendar_event_id, disposition')
-          .in('calendar_event_id', eventIds)
-          .eq('archived', false);
-        if (entries?.length) {
-          // Most-recent-first: if the same event has two entries (e.g. a
-          // correction), take the last one written. The query returns them in
-          // insertion order; iterate reverse so the last write wins.
-          const dispoByEventId = {};
-          for (const e of [...entries].reverse()) {
-            if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
-          }
-          items = items.map(ev => {
-            const d = dispoByEventId[ev.id];
-            if (!d) return ev;
-            const tab =
-              d === 'bill_it'  ? 'billit'   :
-              d === 'return'   ? 'return'   :
-              d === 'estimate' ? 'estimate' :
-              ev.tab; // in_progress and blocked stay in Today
-            return { ...ev, tab };
-          });
-        }
-      } catch (e) {
-        // Non-fatal — the calendar-only view is still usable.
-        console.warn('TechWorkToday: disposition cross-reference failed', e);
-      }
-    }
 
     setAll(items);
     setLoading(false);
@@ -260,18 +218,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // Called by JobFinishSheet after a successful disposition.
   // Optimistically updates the local list so the just-finished item flips
   // tabs immediately, then closes the sheet.
-  const DISPO_CONFIRM = {
-    bill_it:     { msg: '✅ Marked to bill — entry saved.',           color: '#166534', bg: '#f0fdf4' },
-    return:      { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
-    in_progress: { msg: '📅 Still in progress — entry saved.',        color: '#1e40af', bg: '#eff6ff' },
-    estimate:    { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
-    blocked:     { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
-  };
-  // JobFinishSheet passes the calendar event id as the second argument so the
-  // update doesn't have to rely on `selected` being current in the closure.
-  // `selected?.id` is the fallback for callers that haven't been updated yet.
-  const onFinished = (disposition, eventId) => {
-    const targetId = eventId ?? selected?.id;
+  const onFinished = (disposition) => {
     const newTab =
       disposition === 'bill_it'     ? 'billit' :
       disposition === 'return'      ? 'return' :
@@ -279,16 +226,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       'new'; // in_progress and blocked stay in 'new' tab
     // The TITLE is deliberately not touched — Overwatch no longer tags calendar
     // events, so there is no new title to swap in. Only the tab moves.
-    setAll(prev => prev.map(e => e.id === targetId ? { ...e, tab: newTab } : e));
+    setAll(prev => prev.map(e => e.id === selected?.id ? { ...e, tab: newTab } : e));
     closeSheet();
-    // Brief confirmation so the tech knows the disposition actually landed.
-    // Without this, the sheet just closed — identical to a cancel — and
-    // there was no way to tell if anything was saved.
-    const confirm = DISPO_CONFIRM[disposition];
-    if (confirm) {
-      setDoneToast(confirm);
-      setTimeout(() => setDoneToast(null), 4000);
-    }
   };
 
   // Customer link is rendered inside the rich detail header AND fed to JobFinishSheet
@@ -314,28 +253,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const headerTitle = showAllTechs ? "Tech Jobs (Austin + JR + Brian + Subs)" : `${userName}'s Jobs`;
 
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: '#f8f9fa', color: '#1B2A4A', fontFamily: "'Inter', -apple-system, sans-serif" }}>
 
-      {/* Disposition confirmation toast — tells the tech their entry actually
-          landed. The sheet closing looked identical whether it saved or was
-          cancelled, so there was no way to tell. */}
-      {doneToast && (
-        <div style={{
-          position: 'fixed', bottom: 'calc(24px + env(safe-area-inset-bottom))', left: '50%',
-          transform: 'translateX(-50%)', zIndex: 300,
-          background: doneToast.bg, border: `1.5px solid ${doneToast.color}`,
-          borderRadius: 12, padding: '12px 20px',
-          fontSize: 14, fontWeight: 700, color: doneToast.color,
-          boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
-          maxWidth: 340, width: 'calc(100vw - 40px)', textAlign: 'center',
-          pointerEvents: 'none',
-        }}>
-          {doneToast.msg}
-        </div>
-      )}
-
-      {/* Header — fixed at top; list scrolls below it. No sticky needed. */}
-      <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', flexShrink: 0, zIndex: 20 }}>
+      {/* Header */}
+      <div style={{ background: '#ffffff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px 0' }}>
           <button onClick={onBack}
             style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}>
@@ -444,8 +365,9 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         </div>
       </div>
 
-      {/* List — takes remaining height and scrolls; header stays pinned above */}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {/* List — paddingBottom clears the fixed nav bar so the last card
+          is never hidden behind it. */}
+      <div style={{ padding: '12px 16px calc(80px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 1 }}>
         {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (

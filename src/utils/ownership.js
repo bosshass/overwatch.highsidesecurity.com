@@ -214,23 +214,26 @@ export const BILLING_EMAILS = [
   'sara@jnbservice.com',
 ];
 
-export const canBill = (email) =>
-  BILLING_EMAILS.includes(String(email || '').toLowerCase().trim());
+// canBill and canSeeBillingFields BOTH resolve through canonicalEmail first so
+// that Sara using the shared info@ mailbox (with "Sara" picked as her identity)
+// gets her own billing rights. JR picking his identity on info@ resolves to
+// jr@drhsecurityservices.com, which is NOT in BILLING_EMAILS — so he still
+// cannot mark things billed, which is correct.
+export const canBill = (email) => {
+  const resolved = canonicalEmail(email) || String(email || '').toLowerCase().trim();
+  return BILLING_EMAILS.includes(resolved);
+};
 
 // ── WHO GETS TO SEE BILLING FIELDS ───────────────────────────────────────────
-// Invoice number, dollar amount, and tech attribution are visible to everyone
-// who reviews or creates invoices — JR and the shared info@ mailbox included.
-// "Seeing" is not the same as "stamping as billed": canBill is still the gate
-// for the Mark Billed action; these fields are read/fill for review purposes.
-//
-// The distinction matters because info@ is JR's primary login. He needs to
-// enter the invoice number and dollar amount; he is NOT the one who decides
-// that the invoice went out.
+// Invoice number, dollar amount, and tech. Broader than canBill: JR and the
+// shared info@ mailbox are included so they can fill fields for review.
 export const BILLING_FIELD_EMAILS = [
   ...BILLING_EMAILS,
   'jr@drhsecurityservices.com',
   'info@drhsecurityservices.com',
 ];
 
-export const canSeeBillingFields = (email) =>
-  BILLING_FIELD_EMAILS.includes(String(email || '').toLowerCase().trim());
+export const canSeeBillingFields = (email) => {
+  const resolved = canonicalEmail(email) || String(email || '').toLowerCase().trim();
+  return BILLING_FIELD_EMAILS.includes(resolved);
+};

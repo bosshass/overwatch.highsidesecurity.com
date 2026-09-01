@@ -445,7 +445,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       </div>
 
       {/* List — takes remaining height and scrolls; header stays pinned above */}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px calc(80px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 1 }}>
         {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (

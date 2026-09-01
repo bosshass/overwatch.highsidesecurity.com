@@ -153,7 +153,14 @@ export function unbilledBucket(job, entry = null) {
     if (job?.is_fixed_fee)                      return 'project';
     if (entry.disposition === 'estimate')       return 'sales';
     if (entry.disposition === 'in_progress')    return 'progress';
-    if (entry.disposition === 'return')         return 'return';
+    // An entry parked as 'return' (waiting for a return visit) stays in the
+    // return bucket UNLESS the linked job has since moved to to_bill or complete
+    // — meaning the return trip happened and all hours for this job are now
+    // ready to invoice together. Let the job status pull them back.
+    if (entry.disposition === 'return') {
+      const s = job?.status;
+      return (s === 'to_bill' || s === 'complete') ? 'ready' : 'return';
+    }
     // 'bill_it' HAD NO CASE. Four dispositions, three branches — so an entry the
     // tech marked "bill it" fell through to the job-status block below and was
     // bucketed by whatever the CARD said. A bill_it entry on a job still sitting

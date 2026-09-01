@@ -193,6 +193,11 @@ export default function Unbilled({ onBack, userEmail }) {
   const [mergeJobs, setMergeJobs] = useState(null);   // null = loading
   const [mergeQ, setMergeQ] = useState('');
   const [newProj, setNewProj] = useState(null);   // {name, hours} while typing
+  // Return-trip flag — move selected bill_it entries back to waiting-on-return.
+  // Optionally create a new board card if no job is linked.
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnNote, setReturnNote] = useState('');
+  const [returnCreateCard, setReturnCreateCard] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -660,7 +665,9 @@ export default function Unbilled({ onBack, userEmail }) {
   const openMerge = async (g) => {
     setMergeOpen(g);
     setMergeJobs(null);
-    setMergeQ('');
+    // Pre-seed the search with the orphan's customer name so the matching job
+    // is already the first result — one tap to confirm instead of typing.
+    setMergeQ(g?.orphan ? (g.name || '') : '');
     setNewProj(null);
     // Their OPEN jobs first — that is the answer nine times out of ten. The
     // search box below covers the tenth.
@@ -693,6 +700,71 @@ export default function Unbilled({ onBack, userEmail }) {
       setPicked(new Set());
       await load();
     } catch (e) { setToast('Could not merge: ' + (e.message || e)); }
+    setSaving(false);
+  };
+
+  // ── PARK AS RETURN TRIP ─────────────────────────────────────────────────────
+  // Moves bill_it entries Sara can't yet invoice back to the waiting-on-return
+  // bucket. If the entry is linked to a job, that job goes back to
+  // return_pending on the board (the existing card — no new card needed).
+  // If there is no linked job, the user can opt in to creating one.
+  //
+  // When the return trip later closes (job → to_bill), unbilledBucket lifts the
+  // 'return' disposition override and all hours for that client come together in
+  // Ready to Bill automatically.
+  const flagReturn = async () => {
+    const ids = sel.rows.map(r => r.id).filter(Boolean);
+    if (!ids.length) return;
+    setSaving(true);
+    try {
+      // Park the entries in the return bucket.
+      const { error: entryErr } = await supabase.from('time_entries')
+        .update({ disposition: 'return' })
+        .in('id', ids);
+      if (entryErr) throw entryErr;
+
+      // Move linked jobs back to return_pending so they surface on the board.
+      const jobIds = [...new Set(sel.rows.map(r => r.job_id || r._job?.id).filter(Boolean))];
+      let createdNew = false;
+      if (jobIds.length > 0) {
+        for (const jid of jobIds) {
+          await jobsApi.changeStatus(
+            jid, 'return_pending', userEmail,
+            returnNote.trim() ? `Needs return trip: ${returnNote.trim()}` : 'Needs return trip — flagged from billing'
+          );
+        }
+      } else if (returnCreateCard) {
+        // No linked job — create a new return card if the user opted in.
+        const custId = sel.rows.map(r => r.customer_id || r._g?.customerId).find(Boolean) || null;
+        const custName = sel.rows.map(r => r._g?.name || r.customer_name_raw).find(Boolean) || 'Unknown';
+        const created = await jobsApi.create({
+          customer_name: custName,
+          customer_id: custId || undefined,
+          job_type: 'return_trip',
+          status: 'return_pending',
+          issue: returnNote.trim() || 'Return trip needed — flagged from billing.',
+        }, userEmail);
+        createdNew = !!created?.id;
+        if (created?.id) {
+          await jobsApi.logHistory(created.id, null, null, userEmail,
+            `Return card created from billing — ${ids.length} visit${ids.length === 1 ? '' : 's'} (${fmtH(sel.hours)}) waiting on this`)
+            .catch(() => {});
+        }
+      }
+
+      const msg = jobIds.length > 0
+        ? `${ids.length} visit${ids.length === 1 ? '' : 's'} parked · job back to Return Pending`
+        : createdNew
+          ? `${ids.length} visit${ids.length === 1 ? '' : 's'} parked · new return card created`
+          : `${ids.length} visit${ids.length === 1 ? '' : 's'} parked in return bucket`;
+      setToast(msg);
+      setTimeout(() => setToast(''), 3200);
+      setReturnOpen(false);
+      setReturnNote('');
+      setReturnCreateCard(false);
+      setPicked(new Set());
+      await load();
+    } catch (e) { setToast('Could not flag return trip: ' + (e.message || e)); }
     setSaving(false);
   };
 
@@ -1338,6 +1410,54 @@ export default function Unbilled({ onBack, userEmail }) {
         />
       )}
 
+      {/* Park as Return Trip modal */}
+      {returnOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', zIndex: 50,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, width: '100%', maxWidth: 420,
+                        border: '1px solid #ec4899', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#f9a8d4' }}>🔄 Park as return trip</div>
+            <div style={{ fontSize: 13.5, color: '#94a3b8', lineHeight: 1.6 }}>
+              {sel.rows.some(r => r.job_id || r._job?.id)
+                ? 'These hours move to the waiting-on-return bucket. The linked job goes back to Return Pending on the board. When the return visit closes, all hours for this client will come together in Ready to Bill.'
+                : 'These hours move to the waiting-on-return bucket. No linked job was found.'}
+            </div>
+            <textarea
+              value={returnNote}
+              onChange={e => setReturnNote(e.target.value)}
+              placeholder="What still needs to happen? (optional)"
+              rows={3}
+              style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8,
+                       color: '#f1f5f9', fontSize: 13, padding: '10px 12px', resize: 'vertical',
+                       fontFamily: 'inherit' }}
+            />
+            {/* Only offer to create a new card when there is no linked job */}
+            {sel.rows.every(r => !r.job_id && !r._job?.id) && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                              color: '#94a3b8', cursor: 'pointer' }}>
+                <input type="checkbox" checked={returnCreateCard}
+                  onChange={e => setReturnCreateCard(e.target.checked)} />
+                Create a new return card on the board
+              </label>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={flagReturn} disabled={saving}
+                style={{ flex: 1, background: '#ec4899', border: 'none', borderRadius: 8,
+                         color: '#fff', fontSize: 14, fontWeight: 800, padding: '11px 0',
+                         cursor: saving ? 'wait' : 'pointer' }}>
+                {saving ? 'Saving…' : 'Park in return bucket'}
+              </button>
+              <button onClick={() => { setReturnOpen(false); setReturnNote(''); setReturnCreateCard(false); }}
+                style={{ background: 'none', border: '1px solid #334155', borderRadius: 8,
+                         color: '#94a3b8', fontSize: 13, fontWeight: 700,
+                         padding: '11px 16px', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Selection bar — everything ticked, across every customer */}
       {sel.rows.length > 0 && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(56px + env(safe-area-inset-bottom))', background: '#1a1a2e', borderTop: '2px solid #22c55e', padding: '12px 14px', zIndex: 20 }}>
@@ -1382,6 +1502,11 @@ export default function Unbilled({ onBack, userEmail }) {
                 title="Point these hours at the job they belong to."
                 style={{ background: 'none', border: '1px solid #7c3aed', color: '#c4b5fd', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
                 🔗 Merge into a job
+              </button>
+              <button onClick={() => setReturnOpen(true)} disabled={saving}
+                title="Can't invoice yet — park these hours as waiting on a return trip."
+                style={{ background: 'none', border: '1px solid #ec4899', color: '#f9a8d4', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                🔄 Park as return
               </button>
               <button onClick={markFixedFee} disabled={saving}
                 title="These hours are cost against an agreed price, not billed by the hour."

@@ -17,7 +17,7 @@ export default function UpdateBanner() {
         const res = await fetch('/version.json', { cache: 'no-store' });
         if (!res.ok) return null;
         const data = await res.json();
-        return data?.build || null;
+        return data?.version || data?.build || null;
       } catch {
         return null;
       }

@@ -38,7 +38,6 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import { jobDeepLink, APP_BASE } from './config/appBase.js';
 import SmsSetup from './views/SmsSetup.jsx';
-import UtilizationView from './views/UtilizationView.jsx';
 import { APP_VERSION } from './version.js';
 
 // APP_VERSION lives in src/version.js and version.json is generated from it.
@@ -1159,7 +1158,7 @@ export default function App() {
           <ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
         } />
 
-        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} /></ViewShell>} />
+        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} defaultTab={urlParams.get('tab') === 'utilization' ? 'tasks' : undefined} /></ViewShell>} />
 
         <Route path="/work" element={
           <TechWorkToday 
@@ -1232,9 +1231,6 @@ export default function App() {
         <Route path="/customers" element={<ViewShell><CustomerHistory onBack={() => navigate(urlParams.get('returnTo') || '/')} accessToken={accessToken} userEmail={userEmail} initialCustomerId={urlParams.get('customerId')} /></ViewShell>} />
         <Route path="/audit" element={<OperatorOnly><ViewShell><CustomerAudit onBack={() => navigate('/')} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
         <Route path="/recap" element={<OperatorOnly><WeeklyRecap onBack={() => navigate('/')} userEmail={userEmail} /></OperatorOnly>} />
-        {/* Utilization — hours this week per tech. Operators see everyone;
-            restricted techs see only themselves. Linked from Today tab. */}
-        <Route path="/utilization" element={<ViewShell><UtilizationView userEmail={userEmail} userName={effectiveName} isOperator={isOperator} onBack={() => navigate('/work')} /></ViewShell>} />
         <Route path="/j/:code" element={<ShortLink accessToken={accessToken} userEmail={userEmail} userRole={getUserConfig(userEmail).role} onUpdate={() => {}} />} />
         {/* Texting setup. Reachable by typing /sms — the status endpoint's own
             advice was "sign in and open this from Overwatch", which pointed at

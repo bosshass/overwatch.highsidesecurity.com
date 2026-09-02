@@ -89,7 +89,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
 
       const [{ data: te }, { data: jobs }, { data: hist }] = await Promise.all([
         supabase.from('time_entries')
-          .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, job_id, archived')
+          .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, total_minutes, job_id, archived')
           .gte('event_start', startIso).lt('event_start', endIso)
           .order('event_start', { ascending: true }).limit(1000),
         supabase.from('jobs').select('id, job_type, customer_name'),

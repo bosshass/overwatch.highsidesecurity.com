@@ -92,7 +92,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
           .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, total_minutes, job_id, archived')
           .gte('event_start', startIso).lt('event_start', endIso)
           .order('event_start', { ascending: true }).limit(1000),
-        supabase.from('jobs').select('id, job_type, customer_name'),
+        supabase.from('jobs').select('id, job_type, customer_name, invoiced_amount, estimate_amount'),
         // The recap markers logged by schedule.js — job_history rows with the
         // "📅 RECAP:" prefix. Nothing before this build has these; that's
         // expected, not a bug.
@@ -151,6 +151,19 @@ export default function WeeklyRecap({ userEmail, onBack }) {
     e.customer_id || (e.job?.customer_name || e.customer_name_raw || e.event_title || '').trim().toLowerCase()
   ).filter(Boolean));
   const sumH = (rows) => Math.round((rows.reduce((t, e) => t + (e.total_minutes || 0), 0) / 60) * 10) / 10;
+
+  // INVOICED THIS WEEK — sum invoiced_amount for unique jobs that have
+  // bill_it entries during the week. "Invoiced" here means the dollars
+  // the job carries, not that the invoice was sent precisely this week —
+  // it answers "what's the dollar value of the work we completed?"
+  const invoicedJobIds = [...new Set(completed.map(e => e.job_id).filter(Boolean))];
+  const invoicedTotal = invoicedJobIds.reduce((sum, jid) => {
+    const j = entries.find(e => e.job_id === jid)?.job;
+    return sum + (Number(j?.invoiced_amount) || 0);
+  }, 0);
+  const fmtDollars = (n) => n > 0
+    ? '$' + Math.round(n).toLocaleString('en-US')
+    : null;
   // SERVICE CALLS IS GONE. It guessed — job_type 'service' OR no job at all —
   // and "no job at all" is not a service call, it is an unlinked entry. There
   // is no service-call flag today, so the card was counting a thing that does
@@ -183,7 +196,8 @@ export default function WeeklyRecap({ userEmail, onBack }) {
     const lines = [];
     lines.push(`Weekly Recap — ${fmt(weekStart)} to ${fmt(new Date(weekEnd - 86400000))}`);
     lines.push('');
-    lines.push(`✅ ${completed.length} complete work  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers`);
+    const invoicedStr = fmtDollars(invoicedTotal);
+    lines.push(`✅ ${completed.length} complete work  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers${invoicedStr ? `  ·  💰 ${invoicedStr} invoiced` : ''}`);
     if (wk) lines.push(`⏱ ${wk.total}h logged — ${wk.project}h project · ${wk.returns}h return · ${wk.billable}h to bill · ${wk.other}h in progress`);
     if (hasAnyScheduleData) {
       const fmtCounts = (obj) => Object.entries(obj).map(([k, v]) => `${k.split('@')[0]}: ${v}`).join(', ') || '—';
@@ -255,6 +269,8 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 { n: sched ? sched.booked : '—', label: 'scheduled',
                   sub: sched ? `${sched.logged} logged · ${sched.missing} not` : null,
                   color: sched && sched.missing ? C.amber : C.muted, to: '/calendar' },
+                { n: fmtDollars(invoicedTotal) || '—', label: 'invoiced', color: C.green,
+                  to: '/unbilled?tab=ready' },
               ].map((s, i) => (
                 <button key={i} onClick={() => s.to && navigate(s.to)}
                   style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,

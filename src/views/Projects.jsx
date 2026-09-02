@@ -529,7 +529,10 @@ function FinField({ label, value, jobId, field, onSave, color, bold }) {
   }
 
   return (
-    <div onClick={editing ? undefined : startEdit} style={{ cursor: jobId ? 'text' : 'default' }}>
+    /* cursor:pointer is required for onClick to fire on iOS Safari — cursor:text silently breaks mobile tap */
+    <div onClick={editing ? undefined : startEdit}
+      role={jobId ? 'button' : undefined}
+      style={{ cursor: jobId ? 'pointer' : 'default', userSelect: 'none', WebkitTapHighlightColor: 'transparent' }}>
       <div style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 1 }}>{label}</div>
       {editing ? (
         <input
@@ -539,11 +542,13 @@ function FinField({ label, value, jobId, field, onSave, color, bold }) {
           onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
           onClick={e => e.stopPropagation()}
-          style={{ width: 72, background: '#0f172a', border: `1px solid ${C.teal}`, borderRadius: 5, color: C.teal, padding: '2px 6px', fontSize: 13, fontWeight: 800, outline: 'none', fontFamily: 'inherit' }}
+          autoFocus
+          inputMode="decimal"
+          style={{ width: 80, background: '#0f172a', border: `1px solid ${C.teal}`, borderRadius: 5, color: C.teal, padding: '4px 8px', fontSize: 15, fontWeight: 800, outline: 'none', fontFamily: 'inherit' }}
         />
       ) : (
-        <div style={{ fontSize: 13, fontWeight: bold ? 900 : 600, color: value != null ? color : C.muted, fontVariantNumeric: 'tabular-nums' }}>
-          {value != null ? fmt$(value) : jobId ? <span style={{ fontSize: 11, color: '#475569' }}>tap to set</span> : '—'}
+        <div style={{ fontSize: 14, fontWeight: bold ? 900 : 700, color: value != null ? color : C.muted, fontVariantNumeric: 'tabular-nums', padding: '2px 0' }}>
+          {value != null ? fmt$(value) : jobId ? <span style={{ fontSize: 12, color: '#38bdf8', textDecoration: 'underline dotted' }}>tap to enter</span> : '—'}
         </div>
       )}
     </div>

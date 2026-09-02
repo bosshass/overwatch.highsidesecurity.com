@@ -36,7 +36,7 @@
 // gated — that is scoping, decided when the job was sold, and the person
 // running the work is who knows it.
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { supabase, jobsApi, JOB_STATUS } from '../services/supabase.js';
 import { canBill } from '../utils/ownership.js';
 
@@ -44,7 +44,14 @@ const C = {
   card: '#111f34', line: '#1d2f48', line2: '#263a55',
   text: '#edf4ff', muted: '#8ea0b8',
   under: '#22d16f', over: '#ff4f5e', budget: '#8b5cf6',
-  stamp: '#38bdf8', done: '#64748b',
+  stamp: '#38bdf8', done: '#64748b', amber: '#f59e0b', teal: '#5eead4',
+};
+
+const fmt$ = (n) => {
+  const v = Number(n) || 0;
+  return v >= 1000
+    ? `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`
+    : `$${v.toLocaleString()}`;
 };
 
 const hrs = (n) => {
@@ -67,6 +74,9 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
 
+  // Dollar field overrides — kept locally until blur, then saved
+  const [dollarOverrides, setDollarOverrides] = useState({});
+
   if (!job) return null;
 
   const mayBill = canBill(userEmail);
@@ -80,6 +90,35 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
   const pct = budget > 0 ? Math.min(100, (logged / budget) * 100) : 0;
   const invoiced = Number(job.progress_invoice_count) || 0;
   const complete = job.is_complete === true;
+
+  // Dollar fields — live values from overrides or DB
+  const contractVal  = dollarOverrides.estimate_amount  !== undefined ? dollarOverrides.estimate_amount  : (Number(job.estimate_amount)  || null);
+  const invoicedVal  = dollarOverrides.invoiced_amount  !== undefined ? dollarOverrides.invoiced_amount  : (Number(job.invoiced_amount)  || null);
+  const remainingVal = dollarOverrides.remaining_amount !== undefined ? dollarOverrides.remaining_amount
+    : (Number(job.remaining_amount) || (contractVal != null && invoicedVal != null ? contractVal - invoicedVal : null));
+
+  const saveDollar = async (field, raw) => {
+    const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+    if (isNaN(num)) return;
+    setDollarOverrides(prev => ({ ...prev, [field]: num }));
+    setBusy(true);
+    try {
+      // Also recalculate remaining when contract or invoiced changes
+      const updates = { [field]: num, updated_by: userEmail };
+      if (field === 'estimate_amount' || field === 'invoiced_amount') {
+        const newContract = field === 'estimate_amount' ? num : contractVal;
+        const newInvoiced = field === 'invoiced_amount' ? num : invoicedVal;
+        if (newContract != null && newInvoiced != null) {
+          updates.remaining_amount = newContract - newInvoiced;
+          setDollarOverrides(prev => ({ ...prev, remaining_amount: newContract - newInvoiced }));
+        }
+      }
+      const { error } = await supabase.from('jobs').update(updates).eq('id', job.id);
+      if (error) throw error;
+      onChanged?.();
+    } catch (e) { setErr(e.message || String(e)); }
+    setBusy(false);
+  };
 
   const saveBudget = async () => {
     const v = draft.trim() === '' ? null : Number(draft);
@@ -222,6 +261,7 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
     </button>
   );
 
+
   return (
     <div style={{ background: C.card, border: `1px solid ${complete ? C.line : C.line2}`,
                   borderRadius: 14, padding: compact ? '11px 13px' : '14px 15px',
@@ -276,7 +316,44 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
         </div>
       )}
 
-      {/* What billing has said so far. Dates and counts. No amounts, ever. */}
+      {/* ── Dollar section: contract value / invoiced to date / remaining ── */}
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+          <DollarField
+            label="Contract value"
+            value={contractVal}
+            onSave={v => saveDollar('estimate_amount', v)}
+            color={C.text}
+            disabled={!mayBill && contractVal != null}
+          />
+          <DollarField
+            label="Invoiced to date"
+            value={invoicedVal}
+            onSave={v => saveDollar('invoiced_amount', v)}
+            color={C.stamp}
+            disabled={!mayBill}
+          />
+          <div>
+            <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, letterSpacing: '.06em' }}>REMAINING</div>
+            <div style={{ fontSize: 17, fontWeight: 900,
+              color: remainingVal == null ? C.muted : remainingVal <= 0 ? C.under : C.amber }}>
+              {remainingVal != null ? fmt$(remainingVal) : '—'}
+            </div>
+          </div>
+        </div>
+        {contractVal != null && invoicedVal != null && (
+          <div style={{ marginTop: 7, height: 6, borderRadius: 3, overflow: 'hidden', background: '#0b1628' }}>
+            <div style={{
+              width: `${Math.min(100, Math.round((invoicedVal / contractVal) * 100))}%`,
+              height: '100%',
+              background: invoicedVal >= contractVal ? C.under : C.teal,
+              transition: 'width 0.4s'
+            }} />
+          </div>
+        )}
+      </div>
+
+      {/* What billing has said so far. Dates and counts. */}
       {(invoiced > 0 || complete) && (
         <div style={{ marginTop: 9, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
           {invoiced > 0 && (
@@ -331,6 +408,62 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
                      fontFamily: 'inherit', outline: 'none' }} />
           <Btn onClick={saveBudget} tone={C.under}>{busy ? 'Saving…' : 'Save'}</Btn>
           <Btn onClick={() => { setEditing(false); setErr(''); }} tone={C.muted}>Cancel</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INLINE-EDITABLE DOLLAR FIELD
+// ─────────────────────────────────────────────────────────────────────────────
+function DollarField({ label, value, onSave, color, disabled }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState('');
+  const inputRef              = useRef(null);
+
+  function startEdit(e) {
+    e.stopPropagation();
+    if (disabled) return;
+    setDraft(value != null ? String(value) : '');
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+  function commit() {
+    setEditing(false);
+    const num = parseFloat(draft.replace(/[^0-9.]/g, ''));
+    if (!isNaN(num)) onSave(num);
+  }
+  return (
+    /* cursor:pointer required for onClick to fire on iOS — cursor:text silently breaks mobile tap */
+    <div onClick={editing ? undefined : startEdit}
+      role={!disabled ? 'button' : undefined}
+      style={{ cursor: disabled ? 'default' : 'pointer', userSelect: 'none', WebkitTapHighlightColor: 'transparent', minWidth: 80 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, letterSpacing: '.06em' }}>
+        {label.toUpperCase()}
+      </div>
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+          onClick={e => e.stopPropagation()}
+          autoFocus
+          inputMode="decimal"
+          style={{ width: 90, background: '#0f1729', border: `1px solid ${C.teal}`, borderRadius: 5,
+                   color: C.teal, padding: '4px 8px', fontSize: 15, fontWeight: 800,
+                   outline: 'none', fontFamily: 'inherit' }}
+        />
+      ) : (
+        <div style={{ fontSize: 17, fontWeight: 900, color: value != null ? color : C.muted,
+                      fontVariantNumeric: 'tabular-nums' }}>
+          {value != null
+            ? fmt$(value)
+            : disabled
+              ? '—'
+              : <span style={{ fontSize: 13, color: '#38bdf8', textDecoration: 'underline dotted' }}>tap to enter</span>}
         </div>
       )}
     </div>

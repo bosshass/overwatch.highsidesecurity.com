@@ -96,7 +96,7 @@ function FixedFeeProjects({ userEmail }) {
   // is a question the person running the work needs answered too.
   const load = useCallback(async () => {
     const { data: js } = await supabase.from('jobs')
-      .select('id, customer_name, status, is_fixed_fee, job_type, hours_budget, estimated_hours, is_complete, completed_at, progress_invoice_count, progress_invoiced_at')
+      .select('id, customer_name, status, is_fixed_fee, job_type, hours_budget, estimated_hours, estimate_amount, invoiced_amount, remaining_amount, is_complete, completed_at, progress_invoice_count, progress_invoiced_at')
       .or('is_fixed_fee.eq.true,job_type.eq.project')
       .not('status', 'in', '(dead,archived,lost)')
       // CLOSED MEANS GONE FROM HERE. "It needs to completely go away in the

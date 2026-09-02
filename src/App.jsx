@@ -1158,7 +1158,7 @@ export default function App() {
           <ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
         } />
 
-        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} /></ViewShell>} />
+        <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} defaultTab={urlParams.get('tab') === 'utilization' ? 'tasks' : undefined} /></ViewShell>} />
 
         <Route path="/work" element={
           <TechWorkToday 

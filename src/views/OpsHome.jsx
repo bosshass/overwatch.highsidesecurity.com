@@ -78,6 +78,46 @@ export default function OpsHome({
   const [stranded, setStranded] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
+  // ── Weekly utilization summary ─────────────────────────────────────────────
+  // Loaded separately so it doesn't block the main people/board query.
+  // Shows on the operator home as a quick % of target hours logged this week;
+  // tapping navigates to /calendar?tab=utilization (the existing Utilization tab).
+  const [weekUtil, setWeekUtil] = useState(null); // null=loading, { pct, totalH }
+
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        const now = new Date();
+        const dow = now.getDay();
+        const daysToMon = dow === 0 ? -6 : 1 - dow;
+        const mon = new Date(now); mon.setDate(now.getDate() + daysToMon); mon.setHours(0,0,0,0);
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999);
+
+        const { data } = await supabase
+          .from('time_entries')
+          .select('total_minutes, tech_name')
+          .gte('event_start', mon.toISOString())
+          .lte('event_start', sun.toISOString())
+          .not('total_minutes', 'is', null)
+          .gt('total_minutes', 0)
+          .limit(500);
+
+        const totalMins = (data || []).reduce((s, e) => s + (e.total_minutes || 0), 0);
+        const totalH = totalMins / 60;
+        // Target: 3 techs × 40h. Days elapsed Mon–today (max 5) scales the target
+        // so Tuesday shows 80h target, not 200h.
+        const daysElapsed = Math.min(Math.max(dow === 0 ? 5 : dow, 1), 5);
+        const target = 3 * 8 * daysElapsed;
+        const pct = target > 0 ? Math.round((totalH / target) * 100) : 0;
+        if (!dead) setWeekUtil({ pct, totalH: Math.round(totalH * 10) / 10 });
+      } catch (e) {
+        console.warn('util load failed', e);
+        if (!dead) setWeekUtil({ pct: 0, totalH: 0 });
+      }
+    })();
+    return () => { dead = true; };
+  }, []);
 
   const go = path => onNavigate(path);
 
@@ -413,6 +453,17 @@ export default function OpsHome({
               // here made six doors where there were four and buried the two
               // that are actually actionable. They are cards on /recap now,
               // each one clickable into the Billing bucket it counts.
+              {
+                path: '/calendar?tab=utilization',
+                icon: '⏱️',
+                label: 'Utilization',
+                // Live % from time_entries; taps into the existing Cal > Utilization tab.
+                sub: weekUtil == null ? 'Loading…'
+                   : weekUtil.pct >= 80 ? `${weekUtil.pct}% — strong week`
+                   : weekUtil.pct >= 50 ? `${weekUtil.pct}% — on pace`
+                   : `${weekUtil.pct}% — ${weekUtil.totalH}h logged`,
+                hot: weekUtil != null && weekUtil.pct < 50,
+              },
             ] : []),
           ].map(t => (
             <button key={t.key || t.path}

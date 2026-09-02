@@ -94,7 +94,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
 
-
   // Single tech calendar OR all techs for operators
   const techCalId = TECH_CAL_MAP[userEmail?.toLowerCase()] || TECH_CAL_MAP[userName] || CALENDARS.AUSTIN;
 

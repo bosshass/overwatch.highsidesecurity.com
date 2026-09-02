@@ -587,6 +587,12 @@ export default function App() {
           const lifeMs = (Number(resp.expires_in) || 3600) * 1000;
           localStorage.setItem('juce_v4_token', resp.access_token);
           localStorage.setItem('juce_v4_token_expiry', new Date(Date.now() + lifeMs).toISOString());
+          // Also extend the 36-hour session so the session-expiry check doesn't
+          // re-raise the modal minutes after a successful silent refresh. If
+          // Google can silently provide a fresh token, the user is still signed
+          // in — there's no reason to let the Overwatch session clock expire
+          // independently.
+          localStorage.setItem('juce_v4_expiry', new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString());
           setAccessToken(resp.access_token);
           done(true);
         } else done(false);

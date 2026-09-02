@@ -212,7 +212,8 @@ export default function CalendarTechDay({
   const [editCap, setEditCap] = useState(false);
   const [savingCap, setSaving] = useState(false);
   const [now, setNow]         = useState(new Date());
-  const [logged, setLogged]   = useState({});   // calendar_event_id -> { hrs, billed, billable }
+  const [logged, setLogged]       = useState({});   // calendar_event_id -> { hrs, billed, billable }
+  const [techDayHrs, setTechDayHrs] = useState({});  // tech_name -> { 'YYYY-MM-DD': hrs } from all time_entries
 
   // The now-line only means anything while you are looking at it.
   useEffect(() => {
@@ -266,7 +267,37 @@ export default function CalendarTechDay({
       setLogged(map);
     })();
     return () => { cancelled = true; };
-  }, [dayEventIds.join(',')]);    
+  }, [dayEventIds.join(',')]);
+
+  // WEEK-LEVEL FALLBACK: pull ALL time_entries for the displayed week keyed by
+  // tech_name + date. Used in weekCols so that hours logged without a matching
+  // calendar_event_id still count as actual work — the delta vs booked hours
+  // is what matters for utilisation, not whether the join succeeded.
+  useEffect(() => {
+    if (!weekDates?.length) return;
+    let cancelled = false;
+    (async () => {
+      const wStart = new Date(weekDates[0]); wStart.setHours(0, 0, 0, 0);
+      const wEnd   = new Date(weekDates[weekDates.length - 1]); wEnd.setHours(23, 59, 59, 999);
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select('tech_name, total_minutes, event_start')
+        .gte('event_start', wStart.toISOString())
+        .lte('event_start', wEnd.toISOString())
+        .eq('archived', false);
+      if (cancelled || error) { if (error) console.warn('techDayHrs load:', error.message); return; }
+      const map = {};
+      for (const t of data || []) {
+        const name = t.tech_name;
+        if (!name || !t.event_start) continue;
+        const dateKey = new Date(t.event_start).toLocaleDateString('en-CA'); // 'YYYY-MM-DD' local
+        if (!map[name]) map[name] = {};
+        map[name][dateKey] = (map[name][dateKey] || 0) + (t.total_minutes || 0) / 60;
+      }
+      if (!cancelled) setTechDayHrs(map);
+    })();
+    return () => { cancelled = true; };
+  }, [weekDates?.map(d => d.toISOString().slice(0, 10)).join(',')]);
 
   const sameDay = useCallback((d) => {
     const a = new Date(d);
@@ -327,19 +358,19 @@ export default function CalendarTechDay({
               && a.getDate() === d.getDate();
         });
         const booked = mine.reduce((s, e) => s + hoursOf(e), 0);
-        // NEVER LOGGED ONLY APPLIES TO THE PAST.
-        // This counted any booked hour with no time entry as missing, with no
-        // check on whether the work had happened yet — so a week that had not
-        // started read "39.0h never logged" for hours nobody could possibly
-        // have logged. Only an event that has already ENDED can be missing its
-        // hours; anything still ahead is simply booked.
-        const log = mine.reduce((acc, e) => {
-          const t = logged[e.id];
-          if (t) acc.hrs += t.hrs;
-          else if (new Date(e.end) < now) acc.missing += hoursOf(e);
-          return acc;
-        }, { hrs: 0, missing: 0 });
-        return { date: d, booked, ...log,
+        // ACTUAL HOURS: use ALL time_entries for this tech+date (not just
+        // event-ID-matched ones). Entries logged without a linked calendar
+        // event still represent real work — the delta vs booked is what
+        // drives the "never logged" signal, not the join success rate.
+        const dateKey     = d.toLocaleDateString('en-CA');
+        const entryHrs    = techDayHrs[cal.name]?.[dateKey] || 0;
+        // Event-matched hours are a subset; take the higher value.
+        const matchedHrs  = mine.reduce((s, e) => s + (logged[e.id]?.hrs || 0), 0);
+        const actualHrs   = Math.max(entryHrs, matchedHrs);
+        // Only past calendar blocks can be "missing" — future work hasn't happened yet.
+        const pastBooked  = mine.filter(e => new Date(e.end) < now).reduce((s, e) => s + hoursOf(e), 0);
+        const missing     = Math.max(0, pastBooked - actualHrs);
+        return { date: d, booked, hrs: actualHrs, missing,
                  titles: mine.map(e => (e.summary || '').split('—')[0].trim()).filter(Boolean) };
       });
       // CAPACITY IS ONLY THE DAYS THAT HAVE HAPPENED.
@@ -375,7 +406,7 @@ export default function CalendarTechDay({
         missing: perDay.reduce((s, d) => s + d.missing, 0),
       };
     });
-  }, [calendars, events, weekDates, caps, logged, now]);
+  }, [calendars, events, weekDates, caps, logged, techDayHrs, now]);
 
   // The shop line has to sum the SAME set the rows below it show. It was
   // summing every column — hence "21.0 of 80h" with ten calendars counted as

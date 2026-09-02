@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { supabase } from '../services/supabase.js';
@@ -80,6 +81,7 @@ const TABS = [
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
+  const navigate = useNavigate();
   const today = dayStart(new Date());
   const [offset, setOffset]     = useState(0);
   // Everything still sitting in `scheduled` past its deadline. This is the
@@ -94,6 +96,52 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
 
+  // ── Weekly utilization widget ───────────────────────────────────────────────
+  // Loaded once on mount; refreshed with the rest of the view. Appears at the
+  // top of the scrollable list so techs can see their week at a glance without
+  // navigating away.
+  const [weekHours, setWeekHours] = useState(null); // null = loading, number = minutes
+
+  useEffect(() => {
+    async function loadWeekHours() {
+      try {
+        const now = new Date();
+        const dow = now.getDay();
+        const daysToMon = dow === 0 ? -6 : 1 - dow;
+        const mon = new Date(now);
+        mon.setDate(now.getDate() + daysToMon);
+        mon.setHours(0, 0, 0, 0);
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        sun.setHours(23, 59, 59, 999);
+
+        let q = supabase
+          .from('time_entries')
+          .select('total_minutes, tech_name, tech_email')
+          .gte('event_start', mon.toISOString())
+          .lte('event_start', sun.toISOString())
+          .not('total_minutes', 'is', null)
+          .gt('total_minutes', 0);
+
+        // Scope to signed-in tech (operators see this too but just their own
+        // quick-view; the full breakdown is at /utilization)
+        if (userEmail) q = q.or(`tech_email.eq.${userEmail},tech_name.ilike.${userName}`);
+
+        const { data } = await q.limit(200);
+        const total = (data || []).reduce((s, e) => s + (e.total_minutes || 0), 0);
+        setWeekHours(total);
+      } catch (e) {
+        console.warn('week hours load failed', e);
+        setWeekHours(0);
+      }
+    }
+    loadWeekHours();
+  }, [userEmail, userName]);
+
+  const weekHoursDisplay = weekHours === null ? '…'
+    : weekHours === 0 ? '0h'
+    : weekHours % 60 === 0 ? `${weekHours / 60}h`
+    : `${(weekHours / 60).toFixed(1)}h`;
 
   // Single tech calendar OR all techs for operators
   const techCalId = TECH_CAL_MAP[userEmail?.toLowerCase()] || TECH_CAL_MAP[userName] || CALENDARS.AUSTIN;
@@ -446,6 +494,45 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
       {/* List — takes remaining height and scrolls; header stays pinned above */}
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px calc(80px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 1 }}>
+
+        {/* ── Weekly utilization widget ─────────────────────────────────────
+            Shows hours logged this week with a tap-through to the full
+            calendar breakdown view (/utilization). Appears only on the
+            Today tab to avoid cluttering the To-Bill flow. */}
+        {activeTab === 'new' && (
+          <button
+            onClick={() => navigate('/utilization')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: '#e6f7f7', border: '1.5px solid #1a8a8a',
+              borderRadius: 10, padding: '11px 14px', cursor: 'pointer',
+              fontFamily: 'inherit', width: '100%',
+              marginBottom: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>⏱️</span>
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#1a8a8a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  This Week
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>
+                  Tap for day-by-day breakdown
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                fontSize: 20, fontWeight: 900, color: '#1B2A4A',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {weekHoursDisplay}
+              </span>
+              <span style={{ fontSize: 16, color: '#9ca3af' }}>›</span>
+            </div>
+          </button>
+        )}
+
         {loading && <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af' }}>Loading...</div>}
 
         {!loading && events.length === 0 && (

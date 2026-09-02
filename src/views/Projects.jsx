@@ -120,7 +120,7 @@ export default function Projects({ accessToken, onBack }) {
         // 1. Jobs with a P-number
         const { data: jobs, error: jErr } = await supabase
           .from('jobs')
-          .select('id, p_number, customer_name, customer_address, status, qbo_estimate_status, estimate_amount, invoiced_amount, remaining_amount, created_at, scheduled_date')
+          .select('id, p_number, customer_name, customer_address, status, qbo_estimate_status, estimate_amount, invoiced_amount, remaining_amount, hours_budget, estimated_hours, created_at, scheduled_date')
           .not('p_number', 'is', null);
         if (jErr) throw jErr;
         const jobByRef = {};
@@ -211,7 +211,10 @@ export default function Projects({ accessToken, onBack }) {
           const billed    = Number(job?.invoiced_amount)  || null;
           const remaining = Number(job?.remaining_amount) || (budget != null && billed != null ? budget - billed : null);
 
-          const isTerminal = ['Lost', 'Billed', 'billed', 'lost', 'archived'].includes(job?.status || '');
+          // Hours burn — approved hours budget vs total logged
+          const hBudget = Number(job?.hours_budget ?? job?.estimated_hours) || null;
+
+          const isTerminal = ['Lost', 'Billed', 'billed', 'lost', 'archived', 'dead', 'Dead', 'closed', 'Closed'].includes(job?.status || '');
 
           return {
             ref, job, entries: es, scheduled: scheduledOnly,
@@ -219,7 +222,7 @@ export default function Projects({ accessToken, onBack }) {
             customerName,
             address: job?.customer_address || '',
             status: job?.qbo_estimate_status || job?.status || null,
-            budget, billed, remaining,
+            budget, billed, remaining, hBudget,
             isTerminal,
             wonAt: job?.created_at || null,
             firstScheduled,
@@ -344,11 +347,22 @@ function ProjectCard({ row, overrides, onSave, expanded, onToggle }) {
 
   const pctBilled = budget && billed ? Math.min(Math.round((billed / budget) * 100), 100) : null;
 
+  // Hours burn derived values
+  const hBudget  = row.hBudget;
+  const hLogged  = row.totalMins / 60;
+  const hLeft    = hBudget != null ? hBudget - hLogged : null;
+  const hPct     = hBudget ? Math.min(Math.round((hLogged / hBudget) * 100), 100) : null;
+  const hOver    = hBudget != null && hLogged > hBudget;
+
+  // Only show status badge for meaningful operational statuses, not internal DB values
+  const STATUS_SHOW = { scheduled: 'Scheduled', in_progress: 'In Progress', return_pending: 'Return Pending', new: 'New', 'estimate sent': 'Est. Sent', approved: 'Approved' };
+  const statusLabel = row.status ? STATUS_SHOW[row.status] || STATUS_SHOW[row.status?.toLowerCase()] || null : null;
+
   return (
     <div style={{ background: C.card, borderRadius: 12, borderLeft: `3px solid ${borderColor}`, opacity: row.isTerminal ? 0.55 : 1, overflow: 'hidden' }}>
 
-      {/* ── Top summary row (always visible) ─────────────────────────── */}
-      <div onClick={onToggle} style={{ padding: '14px 16px', cursor: 'pointer' }}>
+      {/* ── Clickable header — tap to expand/collapse ─────────────────── */}
+      <div onClick={onToggle} style={{ padding: '14px 16px 10px', cursor: 'pointer' }}>
 
         {/* Row 1: ref badge + customer + age */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
@@ -364,11 +378,9 @@ function ProjectCard({ row, overrides, onSave, expanded, onToggle }) {
           )}
         </div>
 
-        {/* Row 2: Won → Scheduled gap */}
-        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: C.muted, marginBottom: 8, flexWrap: 'wrap' }}>
-          {row.wonAt && (
-            <span>Won {fmtDay(row.wonAt)}</span>
-          )}
+        {/* Row 2: Won → Scheduled gap + status badge */}
+        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: C.muted, flexWrap: 'wrap', alignItems: 'center' }}>
+          {row.wonAt && <span>Won {fmtDay(row.wonAt)}</span>}
           {row.firstScheduled && schedGap != null && (
             <span style={{ color: schedGap > 14 ? C.amber : C.muted }}>
               → Scheduled {fmtDay(row.firstScheduled)} <span style={{ fontWeight: 700, color: schedGap > 14 ? C.amber : C.teal }}>({schedGap}d gap)</span>
@@ -380,69 +392,60 @@ function ProjectCard({ row, overrides, onSave, expanded, onToggle }) {
           {!row.firstScheduled && !row.firstWorked && (
             <span style={{ color: C.amber }}>Not yet scheduled</span>
           )}
+          {statusLabel && <span style={{ color: C.muted, background: '#33415540', padding: '2px 6px', borderRadius: 4 }}>{statusLabel}</span>}
+          {!row.job && <span style={{ color: C.amber, fontSize: 10, background: '#78350f40', padding: '2px 6px', borderRadius: 4 }}>NO JOB ROW</span>}
         </div>
 
-        {/* Row 3: Financial strip */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-          <FinField
-            label="Budget"
-            value={budget}
-            jobId={row.job?.id}
-            field="estimate_amount"
-            onSave={onSave}
-            color={C.text}
-          />
-          <span style={{ color: C.line, fontSize: 12 }}>·</span>
-          <FinField
-            label="Billed"
-            value={billed}
-            jobId={row.job?.id}
-            field="invoiced_amount"
-            onSave={onSave}
-            color={C.green}
-          />
-          <span style={{ color: C.line, fontSize: 12 }}>·</span>
-          <FinField
-            label="Remaining"
-            value={remaining}
-            jobId={row.job?.id}
-            field="remaining_amount"
-            onSave={onSave}
-            color={remaining > 0 ? C.amber : C.muted}
-            bold={remaining > 0}
-          />
-        </div>
+        {/* Row 3: Hours summary badges */}
+        {(row.unbilledMins > 0 || row.billedMins > 0 || row.scheduled.length > 0) && (
+          <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+            {row.unbilledMins > 0 && (
+              <span style={{ background: '#f59e0b18', color: C.amber, border: `1px solid ${C.amber}40`, padding: '2px 7px', borderRadius: 5, fontWeight: 700 }}>
+                {fmtH(row.unbilledMins)} unbilled
+              </span>
+            )}
+            {row.billedMins > 0 && <span style={{ color: C.green, fontWeight: 600 }}>{fmtH(row.billedMins)} billed</span>}
+            {Object.entries(row.techs).map(([t, m]) => (
+              <span key={t} style={{ color: C.muted }}>{t} {fmtH(m)}</span>
+            ))}
+            {row.scheduled.length > 0 && <span style={{ color: C.blue }}>📅 {row.scheduled.length} upcoming</span>}
+          </div>
+        )}
+      </div>
 
-        {/* Budget progress bar */}
-        {pctBilled != null && (
-          <div style={{ height: 4, background: '#1d2f48', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{ width: `${pctBilled}%`, height: '100%', background: pctBilled >= 100 ? C.green : C.teal, borderRadius: 2, transition: 'width 0.4s' }} />
+      {/* ── Financial section — NOT inside the toggle click area ─────── */}
+      {/* Tapping here edits numbers, never expands/collapses the card   */}
+      <div style={{ padding: '0 16px 14px', borderTop: `1px solid ${C.line}20` }}>
+
+        {/* Hours burn row */}
+        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: C.muted, marginTop: 10, marginBottom: hPct != null ? 4 : 8 }}>
+          <span><span style={{ color: C.text, fontWeight: 700 }}>{hBudget != null ? `${hBudget}h` : '—'}</span> approved</span>
+          <span><span style={{ color: hOver ? C.red : C.text, fontWeight: 700 }}>{hLogged.toFixed(1)}h</span> logged</span>
+          {hLeft != null && (
+            <span><span style={{ color: hOver ? C.red : C.amber, fontWeight: 700 }}>{hOver ? `${Math.abs(hLeft).toFixed(1)}h over budget` : `${hLeft.toFixed(1)}h left`}</span></span>
+          )}
+        </div>
+        {hPct != null && (
+          <div style={{ height: 3, background: '#1d2f48', borderRadius: 2, overflow: 'hidden', marginBottom: 10 }}>
+            <div style={{ width: `${hPct}%`, height: '100%', background: hOver ? C.red : hPct > 80 ? C.amber : C.blue, borderRadius: 2, transition: 'width 0.4s' }} />
           </div>
         )}
 
-        {/* Row 4: Hours summary */}
-        <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap', alignItems: 'center' }}>
-          {row.unbilledMins > 0 && (
-            <span style={{ background: '#f59e0b18', color: C.amber, border: `1px solid ${C.amber}40`, padding: '2px 7px', borderRadius: 5, fontWeight: 700 }}>
-              {fmtH(row.unbilledMins)} unbilled
-            </span>
-          )}
-          {row.billedMins > 0 && (
-            <span style={{ color: C.green, fontWeight: 600 }}>{fmtH(row.billedMins)} billed</span>
-          )}
-          {Object.entries(row.techs).map(([t, m]) => (
-            <span key={t} style={{ color: C.muted }}>{t} {fmtH(m)}</span>
-          ))}
-          {row.scheduled.length > 0 && (
-            <span style={{ color: C.blue }}>📅 {row.scheduled.length} upcoming</span>
-          )}
-          {row.status && (
-            <span style={{ color: C.muted, background: '#33415540', padding: '2px 6px', borderRadius: 4 }}>{row.status}</span>
-          )}
-          {!row.job && (
-            <span style={{ color: C.amber, fontSize: 10, background: '#78350f40', padding: '2px 6px', borderRadius: 4 }}>NO JOB ROW</span>
-          )}
+        {/* Dollar strip: Budget · Billed · Remaining — inline editable */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+          <FinField label="Budget $"   value={budget}    jobId={row.job?.id} field="estimate_amount"  onSave={onSave} color={C.text} />
+          <span style={{ color: C.line, fontSize: 12 }}>·</span>
+          <FinField label="Billed"     value={billed}    jobId={row.job?.id} field="invoiced_amount"  onSave={onSave} color={C.green} />
+          <span style={{ color: C.line, fontSize: 12 }}>·</span>
+          <FinField label="Remaining"  value={remaining} jobId={row.job?.id} field="remaining_amount" onSave={onSave} color={remaining > 0 ? C.amber : C.muted} bold={remaining > 0} />
         </div>
+
+        {/* $ progress bar */}
+        {pctBilled != null && (
+          <div style={{ height: 4, background: '#1d2f48', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ width: `${pctBilled}%`, height: '100%', background: pctBilled >= 100 ? C.green : C.teal, borderRadius: 2, transition: 'width 0.4s' }} />
+          </div>
+        )}
       </div>
 
       {/* ── Expanded detail ───────────────────────────────────────────── */}

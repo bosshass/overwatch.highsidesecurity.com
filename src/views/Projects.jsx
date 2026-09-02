@@ -120,7 +120,7 @@ export default function Projects({ accessToken, onBack }) {
         // 1. Jobs with a P-number
         const { data: jobs, error: jErr } = await supabase
           .from('jobs')
-          .select('id, p_number, customer_name, customer_address, status, qbo_estimate_status, estimate_amount, invoiced_amount, remaining_amount, created_at, scheduled_date')
+          .select('id, p_number, customer_name, customer_address, status, qbo_estimate_status, estimate_amount, invoiced_amount, remaining_amount, hours_budget, estimated_hours, created_at, scheduled_date')
           .not('p_number', 'is', null);
         if (jErr) throw jErr;
         const jobByRef = {};
@@ -211,6 +211,9 @@ export default function Projects({ accessToken, onBack }) {
           const billed    = Number(job?.invoiced_amount)  || null;
           const remaining = Number(job?.remaining_amount) || (budget != null && billed != null ? budget - billed : null);
 
+          // Hours burn — approved hours budget vs total logged
+          const hBudget = Number(job?.hours_budget ?? job?.estimated_hours) || null;
+
           const isTerminal = ['Lost', 'Billed', 'billed', 'lost', 'archived'].includes(job?.status || '');
 
           return {
@@ -219,7 +222,7 @@ export default function Projects({ accessToken, onBack }) {
             customerName,
             address: job?.customer_address || '',
             status: job?.qbo_estimate_status || job?.status || null,
-            budget, billed, remaining,
+            budget, billed, remaining, hBudget,
             isTerminal,
             wonAt: job?.created_at || null,
             firstScheduled,
@@ -382,7 +385,32 @@ function ProjectCard({ row, overrides, onSave, expanded, onToggle }) {
           )}
         </div>
 
-        {/* Row 3: Financial strip */}
+        {/* Row 3: Hours burn */}
+        {(() => {
+          const hBudget = row.hBudget;
+          const hLogged = row.totalMins / 60;
+          const hLeft   = hBudget != null ? hBudget - hLogged : null;
+          const hPct    = hBudget ? Math.min(Math.round((hLogged / hBudget) * 100), 100) : null;
+          const hOver   = hBudget != null && hLogged > hBudget;
+          return (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 16, fontSize: 11, color: C.muted, marginBottom: hPct != null ? 4 : 0 }}>
+                <span><span style={{ color: C.text, fontWeight: 700 }}>{hBudget != null ? `${hBudget}h` : '—'}</span> approved</span>
+                <span><span style={{ color: hOver ? C.red : C.text, fontWeight: 700 }}>{hLogged.toFixed(1)}h</span> logged</span>
+                {hLeft != null && (
+                  <span><span style={{ color: hOver ? C.red : C.amber, fontWeight: 700 }}>{hOver ? `${Math.abs(hLeft).toFixed(1)}h over` : `${hLeft.toFixed(1)}h left`}</span></span>
+                )}
+              </div>
+              {hPct != null && (
+                <div style={{ height: 3, background: '#1d2f48', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ width: `${hPct}%`, height: '100%', background: hOver ? C.red : hPct > 80 ? C.amber : C.blue, borderRadius: 2, transition: 'width 0.4s' }} />
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Row 4: Financial strip */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
           <FinField
             label="Budget"

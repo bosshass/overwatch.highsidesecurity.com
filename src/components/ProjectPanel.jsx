@@ -435,8 +435,10 @@ function DollarField({ label, value, onSave, color, disabled }) {
     if (!isNaN(num)) onSave(num);
   }
   return (
+    /* cursor:pointer required for onClick to fire on iOS — cursor:text silently breaks mobile tap */
     <div onClick={editing ? undefined : startEdit}
-      style={{ cursor: disabled ? 'default' : 'text', minWidth: 80 }}>
+      role={!disabled ? 'button' : undefined}
+      style={{ cursor: disabled ? 'default' : 'pointer', userSelect: 'none', WebkitTapHighlightColor: 'transparent', minWidth: 80 }}>
       <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, letterSpacing: '.06em' }}>
         {label.toUpperCase()}
       </div>
@@ -448,8 +450,10 @@ function DollarField({ label, value, onSave, color, disabled }) {
           onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
           onClick={e => e.stopPropagation()}
+          autoFocus
+          inputMode="decimal"
           style={{ width: 90, background: '#0f1729', border: `1px solid ${C.teal}`, borderRadius: 5,
-                   color: C.teal, padding: '2px 6px', fontSize: 14, fontWeight: 800,
+                   color: C.teal, padding: '4px 8px', fontSize: 15, fontWeight: 800,
                    outline: 'none', fontFamily: 'inherit' }}
         />
       ) : (
@@ -459,7 +463,7 @@ function DollarField({ label, value, onSave, color, disabled }) {
             ? fmt$(value)
             : disabled
               ? '—'
-              : <span style={{ fontSize: 12, color: '#475569' }}>tap to set</span>}
+              : <span style={{ fontSize: 13, color: '#38bdf8', textDecoration: 'underline dotted' }}>tap to enter</span>}
         </div>
       )}
     </div>

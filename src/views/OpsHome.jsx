@@ -444,7 +444,6 @@ export default function OpsHome({
             // here was rendering for everybody.
             ...(isOperator ? [
               { path:'/unbilled',  icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
-              { path:'/projects',  icon:'🏗️', label:'Projects',  sub:'Budget · billed · remaining by project' },
               { path:'/recap',     icon:'📊', label:'This week', sub:'What actually got done' },
               // THE HOURS CARDS LIVE ON THIS WEEK, NOT HERE.
               // Project hours, Return hours and Scheduled-vs-logged were built

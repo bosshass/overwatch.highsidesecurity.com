@@ -219,8 +219,12 @@ export default function WeeklyRecap({ userEmail, onBack }) {
           <button onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
             disabled={weekEnd > new Date()}
             style={{ background: 'none', border: `1px solid ${C.line}`, color: weekEnd > new Date() ? '#3a4658' : C.text, borderRadius: 8, padding: '6px 12px', cursor: weekEnd > new Date() ? 'default' : 'pointer' }}>→</button>
+          <button onClick={() => navigate('/projects')}
+            style={{ marginLeft: 'auto', background: C.panel, border: `1px solid ${C.line}`, color: C.text, fontWeight: 700, borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13 }}>
+            📊 Projects
+          </button>
           <button onClick={copyRecap}
-            style={{ marginLeft: 'auto', background: C.accent, border: 'none', color: '#08121f', fontWeight: 800, borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13 }}>
+            style={{ background: C.accent, border: 'none', color: '#08121f', fontWeight: 800, borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13 }}>
             📋 Copy recap
           </button>
         </div>

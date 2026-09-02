@@ -443,8 +443,9 @@ export default function OpsHome({
             // reason to see unbilled totals for the whole shop, and every tile
             // here was rendering for everybody.
             ...(isOperator ? [
-              { path:'/unbilled', icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
-              { path:'/recap',    icon:'📊', label:'This week', sub:'What actually got done' },
+              { path:'/unbilled',  icon:'💵', label:'Billing',   sub:'Unbilled hours and materials' },
+              { path:'/projects',  icon:'🏗️', label:'Projects',  sub:'Budget · billed · remaining by project' },
+              { path:'/recap',     icon:'📊', label:'This week', sub:'What actually got done' },
               // THE HOURS CARDS LIVE ON THIS WEEK, NOT HERE.
               // Project hours, Return hours and Scheduled-vs-logged were built
               // as home tiles first. They are not home: home is "what do I do

@@ -1077,32 +1077,6 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               />
             </div>
           )}
-          <div style={{
-            margin: '10px 12px 0', padding: '10px 14px', borderRadius: 10,
-            background: 'repeating-linear-gradient(45deg, rgba(245,158,11,0.12) 0 12px, rgba(26,18,0,0.9) 12px 24px)',
-            border: '1px solid #f59e0b', display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <span style={{ fontSize: 16 }}>🚧</span>
-            <div>
-              <div style={{ color: '#f59e0b', fontWeight: 800, fontSize: 13 }}>Under Construction</div>
-              <div style={{ color: '#fbbf24', fontSize: 11, opacity: 0.85 }}>Scheduling from tasks is still being built — use the Board to schedule for now.</div>
-            </div>
-          </div>
-          <div style={{
-            display: 'flex', gap: '0', borderBottom: '1px solid #1e293b',
-            position: 'sticky', top: '94px', background: '#0f1729', zIndex: 49
-          }}>
-            {['today', 'tomorrow', 'week'].map(t => (
-              <button key={t} onClick={() => setTaskTab(t)} style={{
-                flex: 1, padding: '10px', background: 'none', border: 'none',
-                color: taskTab === t ? '#00c8e8' : '#64748b',
-                fontSize: '13px', fontWeight: taskTab === t ? '700' : '400', cursor: 'pointer', textTransform: 'capitalize',
-                borderBottom: taskTab === t ? '2px solid #00c8e8' : '2px solid transparent'
-              }}>
-                {t === 'today' ? `Today (${sortedScheduled.filter(j => { const d = new Date(j.scheduled_for); return d.toDateString() === new Date().toDateString(); }).length})` : t === 'tomorrow' ? 'Tomorrow' : 'This Week'}
-              </button>
-            ))}
-          </div>
           <div style={{ padding: '12px' }}>
             {/* New job/task button */}
             <button onClick={() => { setAdoptingOrphan(null); setShowNewJob(true); }} style={{

@@ -484,16 +484,20 @@ export default function CalendarTechDay({
 
       {showUtilization && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     marginBottom: 8, padding: '0 2px' }}>
-        <div style={{ fontSize: 12.5, color: '#94a3b8' }}>
-          <b style={{ color: '#e2e8f0', fontSize: 15 }}>
-            {totalCap ? Math.round((totalBooked / totalCap) * 100) : 0}%
-          </b>{' '}
-          booked · {totalBooked.toFixed(1)} of {totalCap}h
-          {' · '}
-          <span style={{ color: totalMissing > 0.25 ? '#ff4f5e' : '#22d16f' }}>
-            {totalLogged.toFixed(1)}h logged
-            {totalMissing > 0.25 && ` · ${totalMissing.toFixed(1)}h unlogged`}
-          </span>
+        <div style={{ fontSize: 12.5, color: '#94a3b8', lineHeight: 1.6 }}>
+          <div>
+            <span style={{ color: '#64748b' }}>Total available hours across all team members:</span>{' '}
+            <b style={{ color: '#e2e8f0' }}>{totalCap}h</b>
+          </div>
+          <div>
+            <span style={{ color: '#64748b' }}>Total calendar hours scheduled across all techs:</span>{' '}
+            <b style={{ color: totalMissing > 0.25 ? '#ff4f5e' : totalBooked > totalCap ? '#ff4f5e' : '#22d16f' }}>
+              {totalBooked.toFixed(1)}h
+            </b>
+            {totalMissing > 0.25 && (
+              <span style={{ color: '#ff4f5e' }}>{' · '}{totalMissing.toFixed(1)}h unlogged</span>
+            )}
+          </div>
         </div>
         <button onClick={() => setEditCap(v => !v)}
           style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 8,
@@ -537,35 +541,40 @@ export default function CalendarTechDay({
               <div key={cal.name}
                 style={{ background: '#111f34', border: '1px solid #1d2f48', borderRadius: 13,
                          padding: '13px 15px', marginBottom: 9 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 9 }}>
+                <div style={{ marginBottom: 9 }}>
                   <span style={{ fontSize: 15, fontWeight: 900 }}>{cal.name}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: tone }}>
-                    {/* No denominator for people you do not pay by the week —
-                        "0.0 / 40h" implied Subs owed you 40 hours. */}
-                    {cap > 0
-                      ? `${booked.toFixed(1)} / ${cap}h booked`
-                      : `${booked.toFixed(1)}h booked · no set capacity`}
-                  </span>
-                  {/* Say what the denominator IS. "21 of 30" and "21 of 18"
-                      are different stories and the number alone cannot tell
-                      them apart. */}
-                  <span style={{ fontSize: 11, color: '#64748b' }}>
-                    {weekHasToday
-                      ? `${countedDays} day${countedDays === 1 ? '' : 's'} in so far`
-                      : 'full week'}
-                  </span>
-                  <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800,
-                                 color: missing > 0.25 ? '#ff4f5e' : '#64748b' }}>
-                    {missing > 0.25
-                      ? `${missing.toFixed(1)}h never logged`
-                      : hrs > 0 && !weekHasToday && weekDates[0] > new Date()
-                        // Nothing stops the finish sheet writing hours against a
-                        // FUTURE event, so a week that has not happened can carry
-                        // logged time. Say so rather than letting it read as work
-                        // already done.
-                        ? `${hrs.toFixed(1)}h logged early`
-                        : `${hrs.toFixed(1)}h logged`}
-                  </span>
+                  {cap > 0 ? (
+                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, lineHeight: 1.7 }}>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Total hours available:</span>{' '}
+                        <b style={{ color: '#e2e8f0' }}>{cap}h</b>
+                        <span style={{ color: '#64748b', fontSize: 11 }}>
+                          {' '}({weekHasToday
+                            ? `${countedDays} day${countedDays === 1 ? '' : 's'} in so far`
+                            : 'full week'})
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Total booked this week:</span>{' '}
+                        <b style={{ color: tone }}>{booked.toFixed(1)}h</b>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Difference:</span>{' '}
+                        {booked > cap
+                          ? <b style={{ color: '#ff4f5e' }}>+{(booked - cap).toFixed(1)}h over capacity</b>
+                          : <b style={{ color: '#22d16f' }}>{(cap - booked).toFixed(1)}h open</b>
+                        }
+                        {missing > 0.25 && (
+                          <span style={{ color: '#ff4f5e' }}>{' · '}{missing.toFixed(1)}h unlogged</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                      <b style={{ color: tone }}>{booked.toFixed(1)}h booked</b>
+                      <span style={{ color: '#64748b' }}> · no set capacity</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* WHAT THE HOURS ARE. "40 of 40" told you a number and nothing

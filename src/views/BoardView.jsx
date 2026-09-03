@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
-import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
+import { LANES, CLEAR_LANE, BLOCKED_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -82,13 +82,22 @@ const EST_STAGES = [
 
 // Columns come from utils/lanes.js now. They used to be their own array that
 // drifted from LANE_MOVES — same card, two vocabularies.
-const COLUMNS = LANES.map(l => ({
+// BLOCKED is injected after Scheduled so jobs that cannot move are visually
+// separated from live work. It was defined in BLOCKED_LANE the whole time —
+// it just never appeared here.
+const _baseLanes = LANES.map(l => ({
   key: l.key,
   label: `${l.icon} ${l.label}`,
   color: l.color,
   statuses: l.statuses,
   virtual: l.virtual,
 }));
+const COLUMNS = [
+  ..._baseLanes.slice(0, 4),   // New/Notes, Ready, Tentative, Scheduled
+  { key: BLOCKED_LANE.key, label: `${BLOCKED_LANE.icon} ${BLOCKED_LANE.label}`,
+    color: BLOCKED_LANE.color, statuses: BLOCKED_LANE.statuses },
+  ..._baseLanes.slice(4),      // Estimates
+];
 
 const fmtMoney = n => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '';
 

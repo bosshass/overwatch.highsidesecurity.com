@@ -1189,6 +1189,37 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         </div>
       </div>
 
+      {/* ── Return urgency banner ───────────────────────────────────────────
+          If any return_pending jobs are 5+ days old without being rescheduled,
+          the scheduler needs to see that before anything else. Days are computed
+          from updated_at (when the card last moved) — a proxy for the wait.
+          5+ days = amber warning. 10+ = red alarm. Links to billing/return. */}
+      {(() => {
+        const returnJobs = jobs.filter(j => j.status === 'return_pending');
+        if (!returnJobs.length) return null;
+        const msPerDay = 86400000;
+        const daysWaiting = (j) => Math.floor((Date.now() - new Date(j.updated_at || j.created_at).getTime()) / msPerDay);
+        const maxDays = Math.max(...returnJobs.map(daysWaiting));
+        if (maxDays < 5) return null; // no urgency yet — banner stays quiet
+        const alarm = maxDays >= 10;
+        return (
+          <button onClick={() => navigate('/billing?tab=return')}
+            style={{ display:'flex', alignItems:'center', gap:10, width:'100%', textAlign:'left',
+                     background: alarm ? '#450a0a' : '#431407', border:'none',
+                     borderBottom: `2px solid ${alarm ? '#ef4444' : '#f59e0b'}`,
+                     padding:'10px 16px', cursor:'pointer', fontFamily:'inherit', color: alarm ? '#fca5a5' : '#fed7aa' }}>
+            <span style={{ fontSize:16 }}>{alarm ? '🔴' : '⚠️'}</span>
+            <span style={{ flex:1, fontSize:13, fontWeight:800 }}>
+              {returnJobs.length} return{returnJobs.length === 1 ? '' : 's'} waiting
+              — oldest {maxDays} day{maxDays === 1 ? '' : 's'} without a follow-up
+            </span>
+            <span style={{ fontSize:12, fontWeight:700, opacity:0.8, flexShrink:0 }}>
+              Go to Billing →
+            </span>
+          </button>
+        );
+      })()}
+
       <div style={{ display:'flex', gap:10, padding:'10px 16px', borderBottom:'1px solid #1e293b', flexWrap:'wrap', alignItems:'center' }}>
         {[
           { label:'open',     val:stats.total_open,       color:'#cbd5e1', col:null },

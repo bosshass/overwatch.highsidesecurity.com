@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { supabase } from '../services/supabase.js';
@@ -80,6 +81,7 @@ const TABS = [
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
+  const navigate = useNavigate();
   const today = dayStart(new Date());
   const [offset, setOffset]     = useState(0);
   // Everything still sitting in `scheduled` past its deadline. This is the
@@ -189,7 +191,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       tab: getTab(ev.summary || ''),
     })).sort((a, b) => a.start - b.start);
 
-    // ── Database-driven disposition override ──────────────────────────
+    // ── Database-driven disposition override + customer link data ────
     // The calendar title is never tagged with [BILL IT] / [RETURN] / etc.
     // (Sara's explicit rule: status lives in the database, not in calendar
     // titles). That means getTab() above can only return 'new' for every
@@ -197,36 +199,56 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     // any refresh. Cross-reference time_entries to get the real disposition
     // and move the event to the correct tab, matching what the tech saw
     // immediately after they saved.
+    // Also fetch customer_id via job_assignments so the tech can tap through
+    // to the customer's full history without having to search by name.
     if (items.length > 0) {
       try {
         const eventIds = items.map(e => e.id);
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('calendar_event_id, disposition')
-          .in('calendar_event_id', eventIds)
-          .eq('archived', false);
-        if (entries?.length) {
-          // Most-recent-first: if the same event has two entries (e.g. a
-          // correction), take the last one written. The query returns them in
-          // insertion order; iterate reverse so the last write wins.
-          const dispoByEventId = {};
-          for (const e of [...entries].reverse()) {
-            if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
-          }
-          items = items.map(ev => {
-            const d = dispoByEventId[ev.id];
-            if (!d) return ev;
-            const tab =
-              d === 'bill_it'  ? 'billit'   :
-              d === 'return'   ? 'return'   :
-              d === 'estimate' ? 'estimate' :
-              ev.tab; // in_progress and blocked stay in Today
-            return { ...ev, tab };
-          });
+
+        // Run both lookups in parallel — dispositions and customer IDs
+        const [{ data: entries }, { data: assignments }] = await Promise.all([
+          supabase
+            .from('time_entries')
+            .select('calendar_event_id, disposition')
+            .in('calendar_event_id', eventIds)
+            .eq('archived', false),
+          supabase
+            .from('job_assignments')
+            .select('calendar_event_id, job:job_id(customer_id)')
+            .in('calendar_event_id', eventIds)
+            .not('job_id', 'is', null),
+        ]);
+
+        // Most-recent-first: if the same event has two entries (e.g. a
+        // correction), take the last one written. The query returns them in
+        // insertion order; iterate reverse so the last write wins.
+        const dispoByEventId = {};
+        for (const e of [...(entries || [])].reverse()) {
+          if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
         }
+
+        const customerIdByEventId = {};
+        for (const a of assignments || []) {
+          if (a.calendar_event_id && a.job?.customer_id) {
+            customerIdByEventId[a.calendar_event_id] = a.job.customer_id;
+          }
+        }
+
+        items = items.map(ev => {
+          const d = dispoByEventId[ev.id];
+          const tab = d
+            ? (d === 'bill_it' ? 'billit' : d === 'return' ? 'return' : d === 'estimate' ? 'estimate' : ev.tab)
+            : ev.tab; // in_progress and blocked stay in Today tab
+          return {
+            ...ev,
+            tab,
+            disposition: d || null,
+            customerId: customerIdByEventId[ev.id] || null,
+          };
+        });
       } catch (e) {
         // Non-fatal — the calendar-only view is still usable.
-        console.warn('TechWorkToday: disposition cross-reference failed', e);
+        console.warn('TechWorkToday: DB cross-reference failed', e);
       }
     }
 
@@ -475,15 +497,15 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {isNow && <div style={{ color: '#1a8a8a', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>In Progress</div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                   {ev.techName && (
-                    <span style={{ 
-                      background: techColor + '20', 
-                      color: techColor, 
-                      fontSize: 11, 
-                      fontWeight: 700, 
-                      padding: '3px 8px', 
-                      borderRadius: 4 
+                    <span style={{
+                      background: techColor + '20',
+                      color: techColor,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 8px',
+                      borderRadius: 4
                     }}>
                       {ev.techName}
                     </span>
@@ -494,15 +516,51 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   {ev.tab === 'estimate' && (
                     <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
                   )}
-                  <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {name || '(no name)'}
-                  </span>
+                  {ev.disposition === 'in_progress' && (
+                    <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>⚙️ In Progress</span>
+                  )}
+                  {ev.customerId ? (
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      onClick={e => { e.stopPropagation(); navigate(`/customers?customerId=${ev.customerId}`); }}
+                      style={{ fontWeight: 700, fontSize: 17, color: '#1a8a8a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', textDecoration: 'underline dotted' }}>
+                      {name || '(no name)'}
+                    </span>
+                  ) : (
+                    <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {name || '(no name)'}
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 14, color: '#6b7280' }}>
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                   {ev.location && ' · ' + ev.location.split(',')[0]}
                 </div>
-                {phone && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>📞 {phone}</div>}
+                {/* Issue preview — first useful line from GCal description, never time_entries.notes */}
+                {(() => {
+                  const lines = (ev.description || '').split('\n').map(l => l.trim()).filter(l => {
+                    if (!l) return false;
+                    if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false; // phone line
+                    if (/^https?:\/\//i.test(l)) return false; // URL line
+                    return true;
+                  });
+                  const preview = lines.join(' ').slice(0, 80);
+                  if (!preview) return null;
+                  return (
+                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {preview}{lines.join(' ').length > 80 ? '…' : ''}
+                    </div>
+                  );
+                })()}
+                {phone && (
+                  <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <a href={'tel:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
+                      style={{ color: '#16a34a', fontWeight: 600, textDecoration: 'none' }}>📞 {phone}</a>
+                    <a href={'sms:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
+                      style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>💬 Text</a>
+                  </div>
+                )}
               </div>
               <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>
             </div>
@@ -535,12 +593,21 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     🗺️ Navigate
                   </a>
                 )}
-                {extractPhone(selected.description) && (
-                  <a href={'tel:' + (extractPhone(selected.description) || '').replace(/\D/g, '')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, color: '#16a34a', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
-                    📞 Call
-                  </a>
-                )}
+                {extractPhone(selected.description) && (() => {
+                  const p = (extractPhone(selected.description) || '').replace(/\D/g, '');
+                  return (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <a href={'tel:' + p}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, color: '#16a34a', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+                        📞 Call
+                      </a>
+                      <a href={'sms:' + p}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#2563eb', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+                        💬 Text
+                      </a>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

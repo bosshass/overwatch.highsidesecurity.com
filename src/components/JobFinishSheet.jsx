@@ -155,7 +155,15 @@ export default function JobFinishSheet({
   const assembleNotes = (dispo) => {
     switch (dispo) {
       case 'bill_it':     return billNotes.trim() || null;
-      case 'return':      return returnBillNotes.trim() || null;
+      case 'return': {
+        const parts = [
+          returnBillNotes.trim() && `This visit: ${returnBillNotes.trim()}`,
+          returnWhat.trim()      && `Next visit: ${returnWhat.trim()}`,
+          returnMaterials.trim() && `Materials: ${returnMaterials.trim()}`,
+          returnEstTime.trim()   && `Est. time: ${returnEstTime.trim()}`,
+        ].filter(Boolean);
+        return parts.join('\n') || null;
+      }
       case 'estimate': {
         const parts = [estimateWhat.trim(), estimateMats.trim() && `Materials: ${estimateMats.trim()}`].filter(Boolean);
         return parts.join('\n') || null;
@@ -175,7 +183,13 @@ export default function JobFinishSheet({
   const getDispoText = (dispo) => {
     switch (dispo) {
       case 'bill_it':     return { noteText: billNotes.trim(),       matText: '' };
-      case 'return':      return { noteText: returnBillNotes.trim(), matText: returnMaterials.trim() };
+      case 'return': {
+        const noteParts = [
+          returnBillNotes.trim(),
+          returnWhat.trim() && `Next: ${returnWhat.trim()}`,
+        ].filter(Boolean);
+        return { noteText: noteParts.join(' | '), matText: returnMaterials.trim() };
+      }
       case 'estimate':    return { noteText: estimateWhat.trim(),    matText: estimateMats.trim() };
       case 'in_progress': return { noteText: inProgressWhat.trim(),  matText: '' };
       case 'blocked': {
@@ -548,9 +562,11 @@ export default function JobFinishSheet({
   // pasting from Google Calendar before this fix landed.
   const issueText = htmlToText((linkedJob?.issue || '').trim());
   const scope     = issueText || eventScope;
-  // Show the calendar block too when it says something the issue does not —
-  // gate codes and access notes often live only there.
-  const extraFromEvent = issueText && eventScope && eventScope !== issueText ? eventScope : '';
+  // extraFromEvent REMOVED. Access codes and gate info now live in structured
+  // DB fields shown in the "👤 On site" block above. The GCal description also
+  // contains the issue text + Latest Note appends, so showing it here duplicated
+  // both the scope and the History section.
+  const extraFromEvent = '';
 
   // Same five destinations as the board and My Tasks, in the words a tech
   // would use. The labels used to be this sheet's own invention — "Needs

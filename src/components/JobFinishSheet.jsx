@@ -45,6 +45,16 @@ import { htmlToText } from '../utils/statusMachine.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
+// ── Color tokens — one source of truth per disposition ──────────────
+// Values from the Overwatch color system (artifact c2fb7e69).
+const DISPO_COLORS = {
+  bill_it:     { color: '#4ade80', bg: 'rgba(34,197,94,0.08)',   border: 'rgba(34,197,94,0.25)' },
+  return:      { color: '#fb923c', bg: 'rgba(249,115,22,0.08)',  border: 'rgba(249,115,22,0.25)' },
+  estimate:    { color: '#c084fc', bg: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.25)' },
+  in_progress: { color: '#38bdf8', bg: 'rgba(14,165,233,0.08)',  border: 'rgba(14,165,233,0.25)' },
+  blocked:     { color: '#fb7185', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)' },
+};
+
 // Strip LEGACY bracket tags out of a title so the bare customer name is left for
 // matching. Overwatch no longer writes these, but years of events still carry them.
 function cleanTitle(title) {
@@ -63,25 +73,26 @@ export default function JobFinishSheet({
   inline = false,
 }) {
   const navigate = useNavigate();
-  const [notes, setNotes]               = useState('');
-  const [materials, setMaterials]       = useState('');
-  // photoLink was state with no input rendered anywhere — a tech was meant to
-  // upload a picture somewhere else, copy the URL and paste it into a box that
-  // did not exist. Real upload instead: camera to Supabase Storage, attached
-  // to the visit, free.
+  // ── Panel-specific field state ─────────────────────────────────────
+  // Each disposition owns its own fields. No shared "notes" state — what
+  // goes into time_entries.notes is assembled per-dispo by assembleNotes().
+  const [billNotes,       setBillNotes]       = useState('');   // Bill It — billing notes (required)
+  const [returnWhat,      setReturnWhat]      = useState('');   // Return — what to do next visit
+  const [returnMaterials, setReturnMaterials] = useState('');   // Return — materials needed (→ return_cards.materials_needed)
+  const [returnEstTime,   setReturnEstTime]   = useState('');   // Return — estimated time (→ return_cards.estimated_time)
+  const [estimateWhat,    setEstimateWhat]    = useState('');   // Estimate — what needs estimating
+  const [estimateMats,    setEstimateMats]    = useState('');   // Estimate — materials
+  const [inProgressWhat,  setInProgressWhat]  = useState('');  // In Progress — what's happening next
+  const [blockedWhy,      setBlockedWhy]      = useState('');   // Blocked — why couldn't it be done (required)
+  const [blockedNext,     setBlockedNext]     = useState('');   // Blocked — what's next
+
   const [photos, setPhotos]             = useState([]);
   const [uploading, setUploading]       = useState(false);
   const [photoErr, setPhotoErr]         = useState('');
   const [timeEntry, setTimeEntry]       = useState(emptyTimeEntry());
   const [linkedCustomer, setLinkedCust] = useState(prefillCustomer);
-  const [returnReason, setReturnReason] = useState('');
-  const [returnExpanded, setRetExp]     = useState(false);
   const [acting, setActing]             = useState(false);
   const [error, setError]               = useState('');
-  // v9.4.0: disposition is now a SELECTION made up top (before notes), and a
-  // single "Finish job" button commits it. Previously the 4 disposition
-  // buttons were buried under Notes+Materials and doubled as the submit,
-  // so the tech had to scroll past everything to say what happened.
   const [selectedDispo, setSelectedDispo] = useState(null);
 
   // ── THE JOB BEHIND THIS EVENT ──────────────────────────────────────
@@ -136,15 +147,49 @@ export default function JobFinishSheet({
   // If the parent passes a different prefill customer mid-life, follow it.
   useEffect(() => { if (prefillCustomer) setLinkedCust(prefillCustomer); }, [prefillCustomer]);
 
-  const eventDate     = event?.start ? new Date(event.start) : new Date();
-  const timeValid     = isValidTimeEntry(timeEntry, eventDate);
-  const notesValid    = notes.trim().length >= 3;   // required: no blank completions
-  // Linking a customer is no longer a hard gate — that association should
-  // already exist upstream (calendar sync / registry match), and forcing
-  // the tech to do it manually every single time was pure friction. It's
-  // still shown and still gets saved when present; it just can't block
-  // finishing a job anymore.
-  const canFinish     = notesValid && !acting;
+  const eventDate = event?.start ? new Date(event.start) : new Date();
+  const timeValid = isValidTimeEntry(timeEntry, eventDate);
+
+  // ── assembleNotes — builds time_entries.notes from panel fields ────
+  const assembleNotes = (dispo) => {
+    switch (dispo) {
+      case 'bill_it':     return billNotes.trim() || null;
+      case 'return':      return returnWhat.trim() || null;
+      case 'estimate': {
+        const parts = [estimateWhat.trim(), estimateMats.trim() && `Materials: ${estimateMats.trim()}`].filter(Boolean);
+        return parts.join('\n') || null;
+      }
+      case 'in_progress': return inProgressWhat.trim() || null;
+      case 'blocked': {
+        const parts = [];
+        if (blockedWhy.trim())  parts.push(`Why: ${blockedWhy.trim()}`);
+        if (blockedNext.trim()) parts.push(`Next: ${blockedNext.trim()}`);
+        return parts.join('\n') || null;
+      }
+      default: return null;
+    }
+  };
+
+  // ── getDispoText — what gets appended to GCal description ─────────
+  const getDispoText = (dispo) => {
+    switch (dispo) {
+      case 'bill_it':     return { noteText: billNotes.trim(),       matText: '' };
+      case 'return':      return { noteText: returnWhat.trim(),      matText: returnMaterials.trim() };
+      case 'estimate':    return { noteText: estimateWhat.trim(),    matText: estimateMats.trim() };
+      case 'in_progress': return { noteText: inProgressWhat.trim(),  matText: '' };
+      case 'blocked': {
+        const parts = [];
+        if (blockedWhy.trim())  parts.push(`Why: ${blockedWhy.trim()}`);
+        if (blockedNext.trim()) parts.push(`Next: ${blockedNext.trim()}`);
+        return { noteText: parts.join(' | '), matText: '' };
+      }
+      default: return { noteText: '', matText: '' };
+    }
+  };
+
+  // canFinish: just "not already submitting" — per-panel validation
+  // is handled by panelValid() and gates readyToFinish, not canFinish.
+  const canFinish = !acting;
 
   // ── Calendar PATCH ────────────────────────────────────────────────
   // APPENDS the tech's notes/materials to the event DESCRIPTION so the worker's
@@ -162,11 +207,9 @@ export default function JobFinishSheet({
   // Status lives in the database. A calendar title is for a human to recognise
   // the appointment. Sara, 2026-08-20: "we are not to update calendar events
   // with [name] to reflect status in the app."
-  const appendFieldNotes = async () => {
+  const appendFieldNotes = async (noteText = '', matText = '') => {
     const body = {};
 
-    const noteText = notes.trim();
-    const matText  = materials.trim();
     if (noteText || matText) {
       const stamp = new Date()
         .toLocaleString('en-US', {
@@ -244,8 +287,9 @@ export default function JobFinishSheet({
     if (existing) {
       // Already tracked — move it to the disposition's status AND put the
       // tech's real field notes on the card (job_history), not just a stub.
-      const histNote = notes.trim()
-        ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
+      const assembled = assembleNotes(disposition);
+      const histNote = assembled
+        ? `${DISPO_LABEL[disposition] || disposition}: ${assembled}`
         : `${disposition} disposition from Work Today`;
       await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
       return existing.id;
@@ -274,8 +318,9 @@ export default function JobFinishSheet({
           // move it — do NOT create a second row.
           await supabase.from('jobs')
             .update({ calendar_event_id: event.id }).eq('id', near[0].id);
-          const histNote = notes.trim()
-            ? `${DISPO_LABEL[disposition] || disposition}: ${notes.trim()}`
+          const assembled2 = assembleNotes(disposition);
+          const histNote = assembled2
+            ? `${DISPO_LABEL[disposition] || disposition}: ${assembled2}`
             : `${disposition} disposition from Work Today`;
           await jobsApi.changeStatus(near[0].id, target, userEmail, histNote);
           return near[0].id;
@@ -288,7 +333,7 @@ export default function JobFinishSheet({
       customer_name:     linkedCustomer?.name || base,
       customer_id:       linkedCustomer?.id || undefined,
       status:            target,
-      issue:             notes.trim() || base || '',
+      issue:             assembleNotes(disposition) || base || '',
       customer_address:  event.location || '',
       scheduled_date:    event.start ? new Date(event.start).toISOString() : undefined,
       calendar_event_id: event.id,
@@ -346,10 +391,11 @@ export default function JobFinishSheet({
       total_minutes:      payload.total_minutes,
       entry_method:       payload.entry_method,
       disposition,
-      notes:              notes.trim() || null,
-      photos:             photos.length ? photos : null,
-
-      materials:          materials.trim() || null,
+      notes:     assembleNotes(disposition) || null,
+      photos:    photos.length ? photos : null,
+      materials: disposition === 'return'   ? returnMaterials.trim() || null
+               : disposition === 'estimate' ? estimateMats.trim() || null
+               : null,
     });
   };
 
@@ -366,7 +412,7 @@ export default function JobFinishSheet({
   };
 
   // ── Disposition handlers ──────────────────────────────────────────
-  const finish = async (disposition, extra = {}) => {
+  const finish = async (disposition) => {
     if (!canFinish || !event) return;
     setActing(true);
     setError('');
@@ -376,7 +422,8 @@ export default function JobFinishSheet({
     let entrySaved = false;
     try {
       const base = cleanTitle(event.title);
-      await appendFieldNotes();
+      const { noteText, matText } = getDispoText(disposition);
+      await appendFieldNotes(noteText, matText);
       const entry = await writeTimeEntry(disposition);
       entrySaved = true;
 
@@ -395,7 +442,9 @@ export default function JobFinishSheet({
           original_event_date:  event.start ? new Date(event.start).toISOString() : null,
           flagged_by_email:     userEmail || null,
           flagged_by_name:      event.techName || userName || null,
-          reason:               extra.reason || null,
+          reason:               returnWhat.trim() || null,
+          materials_needed:     returnMaterials.trim() || null,
+          estimated_time:       returnEstTime.trim() || null,
           time_entry_id:        entry?.id || null,
         });
       }
@@ -447,30 +496,32 @@ export default function JobFinishSheet({
 
   // Single commit path. In 'bill-only' mode the disposition is forced.
   const effectiveDispo = mode === 'full' ? selectedDispo : 'bill_it';
-  const needsReason    = effectiveDispo === 'return';
-  const reasonOk       = !needsReason || returnReason.trim().length > 0;
+
+  // Per-panel required-field check. Bill It needs billing notes; Blocked needs a reason.
+  // All other panels are optional — the dispo selection itself is the commitment.
+  const panelValid = () => {
+    if (!effectiveDispo) return false;
+    if (effectiveDispo === 'bill_it') return billNotes.trim().length >= 3;
+    if (effectiveDispo === 'blocked') return blockedWhy.trim().length >= 3;
+    return true;
+  };
+
   // YOU CANNOT SAY WHAT HAPPENED AT A VISIT THAT HAS NOT HAPPENED.
-  // Nothing checked the date, so an event on next Monday could be dispositioned
-  // "Bill it" today — which writes billable hours against work nobody has done
-  // and puts them in front of accounting as ready to invoice. That is how
-  // KING TECH TEST ended up with 6 hours logged on a future Monday and another
-  // row at 0.0h marked bill_it.
-  //
-  // A WARNING, NOT A BLOCK. Somebody finishing a job at 11pm whose event was
-  // logged for tomorrow morning is a real case, and so is testing. It just has
-  // to be deliberate.
+  // A WARNING, NOT A BLOCK — testing and late logging are real cases.
   const eventInFuture = event?.start && new Date(event.start) > new Date();
   const [futureOk, setFutureOk] = useState(false);
-  const readyToFinish  = canFinish && !!effectiveDispo && reasonOk
-                         && (!eventInFuture || futureOk);
+  const readyToFinish = canFinish && !!effectiveDispo && panelValid()
+                        && (!eventInFuture || futureOk);
 
   const handleFinish = () => {
     if (!effectiveDispo) { setError('Pick how the job ended first.'); return; }
-    if (needsReason && !returnReason.trim()) {
-      setError('Add a reason for the return visit.');
-      return;
+    if (effectiveDispo === 'bill_it' && billNotes.trim().length < 3) {
+      setError('Add billing notes to finish.'); return;
     }
-    finish(effectiveDispo, needsReason ? { reason: returnReason.trim() } : {});
+    if (effectiveDispo === 'blocked' && blockedWhy.trim().length < 3) {
+      setError("Add what happened — why couldn't it be done?"); return;
+    }
+    finish(effectiveDispo);
   };
 
   if (!event) return null;
@@ -505,24 +556,11 @@ export default function JobFinishSheet({
   // move had three names depending on which screen you were standing in.
   // `means` is the question the tech is actually answering.
   const DISPOS = [
-    { key: 'bill_it',     label: '✅ Done — To Bill',     accent: '#166534', tint: '#f0fdf4',
-      means: 'Finished. Hours go to Billing.' },
-    { key: 'return',      label: '🔄 Return Visit',       accent: '#d97706', tint: '#fffbeb',
-      means: 'Work started — I have to come back. Asks why.' },
-    { key: 'in_progress', label: '📅 Still Scheduled',    accent: '#1d4ed8', tint: '#eff6ff',
-      means: 'Multi-day job. Not finished, still booked.' },
-    { key: 'estimate',    label: '📋 Estimates',          accent: '#7e22ce', tint: '#faf5ff',
-      means: 'Scope changed — this needs pricing.' },
-    // THE LABEL WAS "📝 New / Notes" — a board lane, not an outcome.
-    // A tech scanning five buttons reads the LABELS; `means` is small print
-    // underneath. Nobody hunting for "I drove out and nobody was there" is
-    // going to pick "New / Notes", and nobody ever did: zero rows in 307 time
-    // entries since it shipped. The button existed and the option did not.
-    //
-    // Named for what happened, and the billing consequence is on the face of
-    // it, because that is the part a tech would otherwise assume is lost.
-    { key: 'blocked',     label: "🚫 Couldn't do it",     accent: '#b91c1c', tint: '#fef2f2',
-      means: 'Nobody there, no access, wrong parts. The trip still bills.' },
+    { key: 'bill_it',     label: '✅ Done — To Bill',   means: 'Finished. Hours go to Billing.' },
+    { key: 'return',      label: '🔄 Return Visit',     means: 'Work started — I have to come back.' },
+    { key: 'in_progress', label: '📅 Still Scheduled',  means: 'Multi-day job. Not finished, still booked.' },
+    { key: 'estimate',    label: '📋 Estimates',        means: 'Scope changed — this needs pricing.' },
+    { key: 'blocked',     label: "🚫 Couldn't do it",   means: 'Nobody there, no access, wrong parts. The trip still bills.' },
   ];
 
   // True when the event's calendar date differs from the local calendar date
@@ -709,69 +747,67 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* HOW DID IT END — moved ABOVE notes. Pick first, then write. */}
+      {/* HOW DID IT END — pick first, then fill the panel below. */}
       {mode === 'full' && (
         <>
-          <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
             How did it end? {selectedDispo ? '✓' : '— required'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 10 }}>
             {DISPOS.map(d => {
               const on = selectedDispo === d.key;
+              const dc = DISPO_COLORS[d.key];
               return (
                 <button key={d.key}
-                  onClick={() => { setSelectedDispo(d.key); setError(''); if (d.key !== 'return') setReturnReason(''); }}
+                  onClick={() => { setSelectedDispo(d.key); setError(''); }}
                   style={{
-                    padding: '13px 8px', borderRadius: 12, cursor: 'pointer',
-                    background: on ? d.tint : '#ffffff',
-                    border: on ? `2px solid ${d.accent}` : '1.5px solid #e5e7eb',
-                    color: on ? d.accent : '#475569',
-                    fontSize: 14, fontWeight: on ? 800 : 600, textAlign: 'left',
+                    padding: '11px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                    background: on ? dc.bg : 'rgba(100,116,139,0.04)',
+                    border: on ? `2px solid ${dc.border}` : '1.5px solid rgba(100,116,139,0.15)',
+                    borderLeft: on ? `4px solid ${dc.color}` : '4px solid transparent',
+                    color: on ? dc.color : '#475569',
+                    fontSize: 14, fontWeight: on ? 800 : 600,
+                    transition: 'all 0.12s',
                   }}>
                   <span style={{ display: 'block' }}>{d.label}</span>
-                  {/* The question the tech is answering, in their words. A label
-                      alone made them guess which button meant "couldn't get in". */}
                   <span style={{ display: 'block', fontSize: 11, fontWeight: 500,
-                                 color: on ? d.accent : '#94a3b8', marginTop: 3, lineHeight: 1.3 }}>
+                                 color: on ? dc.color : '#94a3b8', marginTop: 2, lineHeight: 1.3 }}>
                     {d.means}
                   </span>
                 </button>
               );
             })}
           </div>
-
-          {/* Return reason — only when Return is the pick */}
-          {needsReason && (
-            <div style={{ background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                Why is a return visit needed?
-              </div>
-              <textarea
-                value={returnReason}
-                onChange={e => setReturnReason(e.target.value)}
-                placeholder="Missing part, customer not home, needs follow-up…"
-                autoFocus
-                style={{
-                  width: '100%', padding: 8, fontSize: 15, color: '#1B2A4A',
-                  background: '#ffffff', border: '1px solid #fcd34d', borderRadius: 8,
-                  resize: 'none', height: 54, boxSizing: 'border-box', fontFamily: 'inherit',
-                }}
-              />
-            </div>
-          )}
         </>
       )}
 
-      {/* Notes (required — blocks finish until filled) */}
-      <div style={{ fontSize: 11, fontWeight: 700, color: notesValid ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        📝 Notes — required {notesValid ? '✓' : ''}
-      </div>
-      <textarea
-        value={notes}
-        onChange={e => setNotes(e.target.value)}
-        placeholder="What was done / what's needed — required to finish"
-        style={{ ...textareaStyle, background: notesValid ? '#f9fafb' : '#fef2f2', border: `1.5px solid ${notesValid ? '#e5e7eb' : '#fca5a5'}` }}
-      />
+      {/* Disposition panel — shown when a dispo is selected */}
+      {effectiveDispo && (() => {
+        const dc = DISPO_COLORS[effectiveDispo];
+        switch (effectiveDispo) {
+          case 'bill_it':
+            return <BillItPanel value={billNotes} onChange={setBillNotes} colors={dc} />;
+          case 'return':
+            return <ReturnPanel
+              what={returnWhat}      onWhat={setReturnWhat}
+              materials={returnMaterials} onMaterials={setReturnMaterials}
+              estTime={returnEstTime}    onEstTime={setReturnEstTime}
+              colors={dc} />;
+          case 'estimate':
+            return <EstimatePanel
+              what={estimateWhat}   onWhat={setEstimateWhat}
+              materials={estimateMats} onMaterials={setEstimateMats}
+              colors={dc} />;
+          case 'in_progress':
+            return <InProgressPanel value={inProgressWhat} onChange={setInProgressWhat} colors={dc} />;
+          case 'blocked':
+            return <BlockedPanel
+              why={blockedWhy}  onWhy={setBlockedWhy}
+              next={blockedNext} onNext={setBlockedNext}
+              colors={dc} />;
+          default: return null;
+        }
+      })()}
 
       {/* Photos — TWO doors, because there are two real cases.
           A single input with capture="environment" jumped straight to the rear
@@ -836,17 +872,6 @@ export default function JobFinishSheet({
         <div style={{ fontSize: 12, color: '#dc2626', marginTop: -8, marginBottom: 12 }}>{photoErr}</div>
       )}
 
-      {/* Materials */}
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        🔧 Materials
-      </div>
-      <textarea
-        value={materials}
-        onChange={e => setMaterials(e.target.value)}
-        placeholder="Parts, supplies, equipment used or needed..."
-        style={{ ...textareaStyle, background: '#fffbeb', border: '1px solid #fcd34d', height: 56 }}
-      />
-
       {/* Time entry */}
       <TimeEntryBlock
         value={timeEntry}
@@ -879,12 +904,22 @@ export default function JobFinishSheet({
 
       {/* Single commit button */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
-        <button onClick={handleFinish} disabled={!readyToFinish} style={btnFinish(readyToFinish)}>
+        <button onClick={handleFinish} disabled={!readyToFinish}
+          style={{
+            padding: 16, width: '100%', border: 'none', borderRadius: 12,
+            background: readyToFinish
+              ? (effectiveDispo ? DISPO_COLORS[effectiveDispo].color : '#1B2A4A')
+              : '#cbd5e1',
+            color: readyToFinish ? '#080f1e' : '#94a3b8',
+            fontSize: 16, fontWeight: 800,
+            cursor: readyToFinish ? 'pointer' : 'not-allowed',
+            transition: 'background 0.15s',
+          }}>
           {acting ? 'Saving…'
             : !effectiveDispo ? 'Pick an outcome above'
             : eventInFuture && !futureOk ? "This visit hasn't happened yet"
-            : !notesValid ? 'Add notes to finish'
-            : needsReason && !reasonOk ? 'Add a return reason'
+            : effectiveDispo === 'bill_it' && billNotes.trim().length < 3 ? 'Add billing notes to finish'
+            : effectiveDispo === 'blocked' && blockedWhy.trim().length < 3 ? 'Add what happened to finish'
             : 'Finish job'}
         </button>
         <button onClick={onCancel} style={btnCancel}>Cancel</button>
@@ -1041,8 +1076,150 @@ const scopeBox = {
   background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12,
   padding: '10px 12px', marginBottom: 12,
 };
-const btnFinish = (on) => ({
-  padding: 16, background: on ? '#1B2A4A' : '#cbd5e1', border: 'none',
-  borderRadius: 12, color: '#ffffff', fontSize: 16, fontWeight: 800,
-  cursor: on ? 'pointer' : 'not-allowed',
-});
+// (btnFinish is superseded by inline dispo-color style on the submit button)
+
+// ── Panel textarea base style ─────────────────────────────────────
+const panelTextarea = {
+  width: '100%', padding: 10,
+  background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8,
+  color: '#1B2A4A', fontSize: 15, resize: 'none', height: 68,
+  marginBottom: 8, boxSizing: 'border-box', fontFamily: 'inherit',
+};
+
+// ── Disposition panels ────────────────────────────────────────────
+// Each panel receives `colors` from DISPO_COLORS[dispo] and owns its
+// own fields. The parent holds the state and passes onChange callbacks.
+
+function BillItPanel({ value, onChange, colors }) {
+  const valid = value.trim().length >= 3;
+  return (
+    <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
+                  borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
+                  padding: '12px 14px', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
+                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        Billing notes — required
+      </div>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="What was done — required to finish"
+        autoFocus
+        style={{ ...panelTextarea, border: `1px solid ${valid ? '#e5e7eb' : '#fca5a5'}`,
+                 background: valid ? '#fff' : '#fef2f2' }}
+      />
+    </div>
+  );
+}
+
+function ReturnPanel({ what, onWhat, materials, onMaterials, estTime, onEstTime, colors }) {
+  return (
+    <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
+                  borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
+                  padding: '12px 14px', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
+                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        Next visit
+      </div>
+      <textarea
+        value={what}
+        onChange={e => onWhat(e.target.value)}
+        placeholder="What to do next visit…"
+        autoFocus
+        style={panelTextarea}
+      />
+      <textarea
+        value={materials}
+        onChange={e => onMaterials(e.target.value)}
+        placeholder="Materials needed…"
+        style={{ ...panelTextarea, height: 50 }}
+      />
+      <input
+        type="text"
+        value={estTime}
+        onChange={e => onEstTime(e.target.value)}
+        placeholder="Estimated time (e.g. 2 hours)"
+        style={{ width: '100%', padding: '8px 10px', fontSize: 14, color: '#1B2A4A',
+                 background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+                 boxSizing: 'border-box', fontFamily: 'inherit' }}
+      />
+    </div>
+  );
+}
+
+function EstimatePanel({ what, onWhat, materials, onMaterials, colors }) {
+  return (
+    <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
+                  borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
+                  padding: '12px 14px', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
+                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        Estimate details
+      </div>
+      <textarea
+        value={what}
+        onChange={e => onWhat(e.target.value)}
+        placeholder="What needs estimating?"
+        autoFocus
+        style={panelTextarea}
+      />
+      <textarea
+        value={materials}
+        onChange={e => onMaterials(e.target.value)}
+        placeholder="Materials…"
+        style={{ ...panelTextarea, height: 50 }}
+      />
+    </div>
+  );
+}
+
+function InProgressPanel({ value, onChange, colors }) {
+  return (
+    <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
+                  borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
+                  padding: '12px 14px', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
+                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        What's happening next?
+      </div>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="What's the plan for the next visit?"
+        autoFocus
+        style={panelTextarea}
+      />
+    </div>
+  );
+}
+
+function BlockedPanel({ why, onWhy, next, onNext, colors }) {
+  const valid = why.trim().length >= 3;
+  return (
+    <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
+                  borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
+                  padding: '12px 14px', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
+                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+        What happened? — required
+      </div>
+      <textarea
+        value={why}
+        onChange={e => onWhy(e.target.value)}
+        placeholder="Nobody there, no access, wrong parts…"
+        autoFocus
+        style={{ ...panelTextarea, border: `1px solid ${valid ? '#e5e7eb' : '#fca5a5'}`,
+                 background: valid ? '#fff' : '#fef2f2' }}
+      />
+      <div style={{ fontSize: 12, fontWeight: 600, color: colors.color, marginBottom: 4 }}>
+        What's next? <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span>
+      </div>
+      <textarea
+        value={next}
+        onChange={e => onNext(e.target.value)}
+        placeholder="What needs to happen before this can be rescheduled?"
+        style={{ ...panelTextarea, height: 50 }}
+      />
+    </div>
+  );
+}

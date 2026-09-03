@@ -92,8 +92,11 @@ const _baseLanes = LANES.map(l => ({
   statuses: l.statuses,
   virtual: l.virtual,
 }));
+// LANES order: [0] triage, [1] ready, [2] tentative (removed), [3] scheduled, [4] estimates
 const COLUMNS = [
-  ..._baseLanes.slice(0, 4),   // New/Notes, Ready, Tentative, Scheduled
+  _baseLanes[0],   // New/Notes
+  _baseLanes[1],   // Ready to Schedule
+  _baseLanes[3],   // Scheduled
   { key: BLOCKED_LANE.key, label: `${BLOCKED_LANE.icon} ${BLOCKED_LANE.label}`,
     color: BLOCKED_LANE.color, statuses: BLOCKED_LANE.statuses },
   ..._baseLanes.slice(4),      // Estimates
@@ -1092,20 +1095,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     return key(a) - key(b);
   };
 
+  // Tentative is not a column any more. Jobs with a tentative_date show in
+  // their status column (Ready, Scheduled, etc.) with the ✏️ tent chip on
+  // the card so the scheduler can still see the hold date at a glance.
   const buckets = COLUMNS.reduce((acc, col) => {
-    if (col.virtual === 'tentative') {
-      // Held but not yet booked. Sorted by the HELD DATE, soonest first —
-      // a hold three days out matters more than one in six weeks.
-      acc[col.key] = filtered
-        .filter(isHeld)
-        .sort((a, b) => new Date(a.tentative_date) - new Date(b.tentative_date));
-      return acc;
-    }
-    // A job with a hold shows in Tentative, not in its status column, so it
-    // isn't in two places at once.
     acc[col.key] = filtered
       .filter(j => col.statuses.includes(j.status))
-      .filter(j => !isHeld(j))
       .sort(col.statuses.includes('scheduled') ? byWhenItHappens
           : col.statuses.includes('return_pending') ? byLongestWaiting
           : byOldest);

@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
-import { LANES, CLEAR_LANE, BLOCKED_LANE, isHeld } from '../utils/lanes.js';
+import { LANES, RETURN_LANE, CLEAR_LANE, BLOCKED_LANE, isHeld } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -93,9 +93,16 @@ const _baseLanes = LANES.map(l => ({
   virtual: l.virtual,
 }));
 // LANES order: [0] triage, [1] ready, [2] tentative (removed), [3] scheduled, [4] estimates
+// BUILD 3 — lane order: New → Ready → Return Needed → Scheduled → Estimates → Blocked
+// return_pending was folded into the Ready column's statuses list. It is now its own
+// column (RETURN_LANE) so the scheduler sees all return-pending jobs in one place, and
+// cards whose operator drove there and has to go back again are visually distinct from
+// fresh work nobody has touched yet. Ready's statuses are narrowed accordingly.
 const COLUMNS = [
   _baseLanes[0],   // New/Notes
-  _baseLanes[1],   // Ready to Schedule
+  { ..._baseLanes[1], statuses: ['ready_to_schedule'] },   // Ready to Schedule — return_pending split out
+  { key: RETURN_LANE.key, label: `${RETURN_LANE.icon} ${RETURN_LANE.label}`,
+    color: RETURN_LANE.color, statuses: RETURN_LANE.statuses },
   _baseLanes[3],   // Scheduled
   { key: BLOCKED_LANE.key, label: `${BLOCKED_LANE.icon} ${BLOCKED_LANE.label}`,
     color: BLOCKED_LANE.color, statuses: BLOCKED_LANE.statuses },
@@ -1140,7 +1147,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         {[
           { label:'open',     val:stats.total_open,       color:'#cbd5e1', col:null },
           { label:'new/notes',val:buckets.triage?.length||0,    color:'#ef4444', col:'triage' },
-          { label:'returns',  val:stats.returns_pending,  color:'#ec4899', col:'ready' },
+          { label:'returns',  val:stats.returns_pending,  color:'#fb923c', col:'return' },
         ].map(s=>(
           <button key={s.label} onClick={() => s.col && focusColumn(s.col)}
             style={{ background: activeCol===s.col && s.col ? '#334155' : '#1e293b', padding:'6px 14px', borderRadius:8, border: activeCol===s.col && s.col ? `1px solid ${s.color}` : '1px solid transparent', cursor: s.col ? 'pointer' : 'default', textAlign:'left', fontFamily:'inherit' }}>

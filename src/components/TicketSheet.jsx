@@ -567,42 +567,9 @@ export default function TicketSheet({
           <Row label="CMS">{job.cms_account_id}</Row>
         </div>
 
-        {/* ── Owner — WHO IS DOING THIS. Above the issue, because an
-             unowned ticket is the failure mode, not an unread one. ── */}
-        <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 11 }}>
-            <span style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase',
-                           letterSpacing: 0.6 }}>Assigned to</span>
-            {ownerName
-              ? <span style={{ fontSize: 14, fontWeight: 800, color: '#60a5fa',
-                               background: '#1e3a8a44', padding: '3px 10px', borderRadius: 6 }}>{ownerName}</span>
-              : <span style={{ fontSize: 14, fontWeight: 800, color: '#fbbf24',
-                               background: '#78350f44', padding: '3px 10px', borderRadius: 6 }}>Unassigned</span>}
-            {saving && <span style={{ fontSize: 11, color: C.dim }}>saving…</span>}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-            {ASSIGNEES.map(a => {
-              const on = a.email === ownerEmail;
-              return (
-                <button key={a.email} onClick={() => assign(a.email)} disabled={saving || busy}
-                  style={{ background: on ? '#1d4ed8' : C.raised,
-                           border: `1px solid ${on ? '#60a5fa' : C.line}`,
-                           color: on ? '#fff' : C.text, borderRadius: 999,
-                           padding: '7px 14px', fontSize: 13, fontWeight: 700,
-                           cursor: 'pointer', fontFamily: 'inherit' }}>
-                  {a.name}
-                </button>
-              );
-            })}
-            <button onClick={() => assign(null)} disabled={saving || busy || !ownerName}
-              style={{ background: 'transparent', border: `1px dashed ${C.line}`,
-                       color: C.muted, borderRadius: 999, padding: '7px 14px',
-                       fontSize: 13, fontWeight: 700, cursor: ownerName ? 'pointer' : 'default',
-                       opacity: ownerName ? 1 : 0.45, fontFamily: 'inherit' }}>
-              Nobody
-            </button>
-          </div>
-        </div>
+        {/* Assigned-to person picker removed from the ticket — assignment is
+            a task-level concept. Job ownership (for board filtering) is set
+            when a task is created, not from the ticket header. ── */}
 
         {/* ── Issue — hidden until Ready to Schedule ─────────────────
             A quick task ("call customer", "order part") lives in the New/Notes
@@ -1028,7 +995,9 @@ export default function TicketSheet({
         </div>
 
         {/* ── Notes — same component, same place, every surface ── */}
-        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />
+        {/* hideFieldNotes: FieldVisits above already renders time_entry notes
+            as visit cards. Without this, the same note appears twice. */}
+        <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly hideFieldNotes />
 
         {/* ── Surface-specific tools (merge, UUID link) — deliberately LAST.
             They exist, they matter, and they are not the reason anyone opens

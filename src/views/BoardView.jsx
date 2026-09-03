@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
-import { LANES, RETURN_LANE, CLEAR_LANE, BLOCKED_LANE, isHeld } from '../utils/lanes.js';
+import { LANES, RETURN_LANE, CLEAR_LANE, BLOCKED_LANE, isHeld, movesFor } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
@@ -573,6 +573,11 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
   // one lane is a scheduling gesture, not a decision to invoice.
   const suggested = SUGGESTED_NEXT[job.status];
   const quickVerbs = (suggested && (suggested !== 'billed' || canBill(userEmail))) ? [suggested] : [];
+  // Expand state for the "move anywhere" accordion.
+  const [expandMoves, setExpandMoves] = useState(false);
+  // All reachable lanes for this card. Scheduler-gated lanes (Tentative, Scheduled)
+  // open the drawer instead of quick-moving — they need a date.
+  const allMoves = movesFor(job, { includeBilling: true, includeClear: false, mayBill: canBill(userEmail) });
 
   // 72h rule — see src/utils/staleness.js. A card nobody has touched in 3 days
   // gets an amber rail; a week gets red. The status chip used to be the loudest
@@ -687,7 +692,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
         )}
       </div>
 
-      {/* Status + money demoted to the quiet row */}
+      {/* Status + money + move controls */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
           <span style={{ fontSize:12, fontWeight:600, color:si.color||'#94a3b8', background:`${si.color||'#334155'}18`, padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
@@ -695,14 +700,55 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
           </span>
           {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
         </div>
-        {quickVerbs.length > 0 && (
-          <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-            title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-            style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
-            move → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+        <div style={{ display:'flex', gap:5, flexShrink:0, alignItems:'center' }}>
+          {quickVerbs.length > 0 && (
+            <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
+              title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
+              style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+              → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+            </button>
+          )}
+          {/* Escape hatch — any lane, without opening the drawer */}
+          <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
+            title="Move to any lane"
+            style={{ padding:'4px 7px', borderRadius:5, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1 }}>
+            {expandMoves ? '✕' : '⋯'}
           </button>
-        )}
+        </div>
       </div>
+
+      {/* All-lanes accordion — stays inside stopPropagation so opening it
+          doesn't also open the drawer */}
+      {expandMoves && (
+        <div onClick={e => e.stopPropagation()}
+          style={{ marginTop:8, display:'flex', flexDirection:'column', gap:4 }}>
+          {allMoves.map(lane => (
+            <button key={lane.key} disabled={moving}
+              onClick={e => {
+                e.stopPropagation();
+                if (lane.needsScheduler) {
+                  // Needs a date — open the drawer so they can use the scheduler
+                  setExpandMoves(false);
+                  onSelect(job);
+                  return;
+                }
+                onQuickMove(job, lane.target);
+                setExpandMoves(false);
+              }}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px',
+                       borderRadius:6, border:`1px solid ${lane.color}44`,
+                       background:`${lane.color}0f`, color:lane.color,
+                       fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'left',
+                       fontFamily:'inherit' }}>
+              <span>{lane.icon}</span>
+              <span style={{ flex:1 }}>{lane.label}</span>
+              {lane.needsScheduler && (
+                <span style={{ fontSize:10, color:'#64748b', fontWeight:400 }}>opens scheduler</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

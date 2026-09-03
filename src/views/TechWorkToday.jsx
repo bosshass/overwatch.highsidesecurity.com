@@ -585,32 +585,56 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               {selected.isAllDay ? 'All day' : fmtTime(selected.start) + ' – ' + fmtTime(selected.end)}
             </div>
 
-            {(selected.location || extractPhone(selected.description)) && (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                {selected.location && (
-                  <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
-                    target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, color: '#2563eb', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
-                    🗺️ Navigate
-                  </a>
-                )}
-                {extractPhone(selected.description) && (() => {
-                  const p = (extractPhone(selected.description) || '').replace(/\D/g, '');
-                  return (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <a href={'tel:' + p}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, color: '#16a34a', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
-                        📞 Call
-                      </a>
-                      <a href={'sms:' + p}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#2563eb', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
-                        💬 Text
-                      </a>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+            {(selected.location || extractPhone(selected.description)) && (() => {
+              const phone = (extractPhone(selected.description) || '').replace(/\D/g, '');
+              const hasBoth = selected.location && phone;
+              return (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: hasBoth ? '1.4fr 1fr 1fr' : selected.location ? '1fr' : '1fr 1fr',
+                  gap: 8,
+                  marginBottom: 16,
+                }}>
+                  {selected.location && (
+                    <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '18px 10px', borderRadius: 14, textDecoration: 'none',
+                        background: '#1e3a8a', color: '#fff',
+                        fontSize: 17, fontWeight: 800, letterSpacing: 0.2,
+                        boxShadow: '0 2px 8px rgba(30,58,138,0.3)',
+                      }}>
+                      🗺️ Navigate
+                    </a>
+                  )}
+                  {phone && (
+                    <a href={'tel:' + phone}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '18px 10px', borderRadius: 14, textDecoration: 'none',
+                        background: '#16a34a', color: '#fff',
+                        fontSize: 17, fontWeight: 800,
+                        boxShadow: '0 2px 8px rgba(22,163,74,0.3)',
+                      }}>
+                      📞 Call
+                    </a>
+                  )}
+                  {phone && (
+                    <a href={'sms:' + phone}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '18px 10px', borderRadius: 14, textDecoration: 'none',
+                        background: '#2563eb', color: '#fff',
+                        fontSize: 17, fontWeight: 800,
+                        boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+                      }}>
+                      💬 Text
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Finish form — customer link, time entry, notes, materials, disposition buttons.
                 Lives in src/components/JobFinishSheet.jsx and is the SINGLE canonical

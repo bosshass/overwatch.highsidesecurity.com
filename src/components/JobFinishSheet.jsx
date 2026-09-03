@@ -585,14 +585,12 @@ export default function JobFinishSheet({
   // today — i.e. the tech is logging against a past (or future) visit.
   const visitDateIsToday = eventDate.toDateString() === new Date().toDateString();
 
-  // ── The actual form content (customer + time + notes + materials + buttons) ──
+  // ── The actual form content ────────────────────────────────────────
+  // Layout order: customer → navigate/call/text → issue → notes →
+  //   photos → hours → how did it end → submit
   const formContent = (
     <>
-      {/* VISIT DATE — shown whenever the event is NOT today so the tech
-          knows which day they are logging against. Without this, a tech
-          finishing Friday's job on Sunday has no indication that their
-          entry is stamped for Friday — and the concern "am I closing the
-          right thing?" has no answer on screen. */}
+      {/* VISIT DATE — shown whenever the event is NOT today */}
       {!visitDateIsToday && (
         <div style={{ background: '#f0f9ff', border: '1.5px solid #38bdf8', borderRadius: 12,
                       padding: '10px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -609,296 +607,358 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* CUSTOMER — always at the top.
-          When no customer is linked, CustomerLookup shows a yellow search panel
-          so the tech can pick one before doing anything else. When linked, it
-          shows a green card with the customer's name, phone, recent visits and a
-          "Change customer" button. The old separate "not linked" warning banner
-          is gone — the CustomerLookup panel itself communicates both states. */}
-      <CustomerLookup
-        event={event}
-        accessToken={accessToken}
-        value={linkedCustomer}
-        onChange={setLinkedCust}
-      />
-      {/* View full history — only shown when customer is known */}
+      {/* CUSTOMER */}
+      <CustomerLookup event={event} accessToken={accessToken} value={linkedCustomer} onChange={setLinkedCust} />
       {linkedCustomer?.id && (
-        <button
-          onClick={() => navigate(`/customers?customerId=${linkedCustomer.id}`)}
-          style={{
-            display: 'block', width: '100%', textAlign: 'center',
-            padding: '8px 0', marginTop: -8, marginBottom: 12,
-            background: 'none', border: 'none',
-            color: '#16a34a', fontSize: 12, fontWeight: 700,
-            cursor: 'pointer', textDecoration: 'underline',
-          }}
-        >
+        <button onClick={() => navigate(`/customers?customerId=${linkedCustomer.id}`)}
+          style={{ display: 'block', width: '100%', textAlign: 'center', padding: '6px 0',
+                   marginTop: -6, marginBottom: 10, background: 'none', border: 'none',
+                   color: '#16a34a', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                   textDecoration: 'underline' }}>
           View full client history →
         </button>
       )}
 
-      {/* WHO TO ASK FOR. On-site contact and access, from migration 047. These
-          were three lines of prose inside `issue` until 9.82.0, so a tech
-          hunting for a phone number had to read a form skeleton to find it —
-          and on most cards it wasn't filled in at all. Rendered only when
-          somebody actually recorded something. */}
-      {(linkedJob?.site_contact_name || linkedJob?.site_contact_phone ||
-        linkedJob?.access_permission === true || linkedJob?.access_permission === false) && (
-        <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12,
-                      padding:'10px 12px', marginBottom:12 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#1e40af', textTransform:'uppercase',
-                        letterSpacing:0.5, marginBottom:6 }}>
-            👤 On site
+      {/* NAVIGATE / CALL / TEXT — three big action buttons.
+          Only in standalone mode; inline callers (TechWorkToday) show their own nav buttons
+          in the card header so we don't duplicate them here.
+          Navigate uses event.location (available immediately).
+          Call / Text use linkedJob phone (loads async, appear once ready). */}
+      {!inline && (() => {
+        const rawPhone = linkedJob?.site_contact_phone || linkedJob?.customer_phone || '';
+        const phone    = rawPhone.replace(/[^0-9+]/g, '');
+        const hasNav   = !!event?.location;
+        const hasPhone = !!phone;
+        if (!hasNav && !hasPhone) return null;
+        const cols = hasNav && hasPhone ? '1.4fr 1fr 1fr' : hasNav ? '1fr' : '1fr 1fr';
+        const btnBase = {
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', gap: 3, padding: '16px 10px', borderRadius: 14,
+          textDecoration: 'none', border: 'none', cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+        };
+        const contactName = linkedJob?.site_contact_name || linkedJob?.customer_name || 'Client';
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, marginBottom: 14 }}>
+            {hasNav && (
+              <a href={'https://maps.google.com/?q=' + encodeURIComponent(event.location)}
+                target="_blank" rel="noopener noreferrer"
+                style={{ ...btnBase, background: '#1e3a8a', color: '#fff' }}>
+                <span style={{ fontSize: 20 }}>🗺️</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>Navigate</span>
+                <span style={{ fontSize: 10, opacity: 0.8 }}>Get directions</span>
+              </a>
+            )}
+            {hasPhone && (
+              <a href={'tel:' + phone} style={{ ...btnBase, background: '#16a34a', color: '#fff' }}>
+                <span style={{ fontSize: 20 }}>📞</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>Call</span>
+                <span style={{ fontSize: 10, opacity: 0.8 }}>{contactName}</span>
+              </a>
+            )}
+            {hasPhone && (
+              <a href={'sms:' + phone} style={{ ...btnBase, background: '#2563eb', color: '#fff' }}>
+                <span style={{ fontSize: 20 }}>💬</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>Text</span>
+                <span style={{ fontSize: 10, opacity: 0.8 }}>Send a message</span>
+              </a>
+            )}
           </div>
+        );
+      })()}
+
+      {/* ACCESS — compact chip when recorded */}
+      {(linkedJob?.access_permission === true || linkedJob?.access_permission === false) && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px',
+                      borderRadius: 20, marginBottom: 10,
+                      background: linkedJob.access_permission ? '#f0fdf4' : '#fffbeb',
+                      border: `1px solid ${linkedJob.access_permission ? '#bbf7d0' : '#fde68a'}`,
+                      fontSize: 12, fontWeight: 700,
+                      color: linkedJob.access_permission ? '#166534' : '#92400e' }}>
+          {linkedJob.access_permission ? '🔓 May enter without client' : '🔒 Client must be present'}
           {linkedJob.site_contact_name && (
-            <div style={{ fontSize:14, color:'#1e3a8a', fontWeight:600 }}>{linkedJob.site_contact_name}</div>
+            <span style={{ fontWeight: 500 }}> — {linkedJob.site_contact_name}</span>
           )}
-          {linkedJob.site_contact_phone && (
-            <a href={`tel:${String(linkedJob.site_contact_phone).replace(/[^0-9+]/g, '')}`}
-               style={{ fontSize:14, color:'#2563eb', fontWeight:700, textDecoration:'none' }}>
-              📱 {linkedJob.site_contact_phone}
-            </a>
-          )}
-          {linkedJob.access_permission === true && (
-            <div style={{ fontSize:13, color:'#166534', marginTop:4 }}>🔓 May enter without the client present</div>
-          )}
-          {linkedJob.access_permission === false && (
-            <div style={{ fontSize:13, color:'#b45309', marginTop:4 }}>🔒 Client must be present</div>
-          )}
-
-          {/* THE TEXT BUTTONS BELONG HERE MOST OF ALL. This sheet is what a
-              tech has open while standing at the door — running late, can't get
-              in, nobody home. Until now the only way to text from Overwatch was
-              a control buried in the office-side job card, which a tech in the
-              field never opens. A tel: link was the whole toolkit.
-              Both numbers get a button because they are two different people. */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
-            <TextButton
-              to={linkedJob.site_contact_phone}
-              name={linkedJob.site_contact_name || 'on-site contact'}
-              accessToken={accessToken}
-              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            />
-            <TextButton
-              to={linkedJob.customer_phone}
-              name={linkedJob.customer_name || 'the client'}
-              accessToken={accessToken}
-              templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-              logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            />
-          </div>
         </div>
       )}
 
-      {/* AND WHEN THERE IS NO ON-SITE CONTACT, the client's number still has to
-          be reachable. The block above only renders when site contact or access
-          was recorded, which is most jobs — so without this the tech has a
-          phone number on the card and no way to text it. */}
-      {!(linkedJob?.site_contact_name || linkedJob?.site_contact_phone ||
-         linkedJob?.access_permission === true || linkedJob?.access_permission === false)
-        && linkedJob?.customer_phone && (
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap',
-                      background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12,
-                      padding:'10px 12px', marginBottom:12 }}>
-          <a href={`tel:${String(linkedJob.customer_phone).replace(/[^0-9+]/g, '')}`}
-             style={{ fontSize:14, color:'#2563eb', fontWeight:700, textDecoration:'none' }}>
-            📞 {linkedJob.customer_phone}
-          </a>
-          <TextButton
-            to={linkedJob.customer_phone}
-            name={linkedJob.customer_name || 'the client'}
-            accessToken={accessToken}
-            templates={clientTemplates({ when: event?.start, scheduledDate: linkedJob.scheduled_date })}
-            logTo={{ jobId: linkedJob.id, customerId: linkedJob.customer_id, userEmail }}
-            style={{ marginLeft: 'auto' }}
-          />
-        </div>
-      )}
-
-      {/* WHAT WAS ALREADY SAID. Prior notes on this job — office notes, status
-          history and earlier field notes, all via notesApi.getAllForJob. Until
-          now these were readable in exactly one screen, so a tech walked in
-          without the last three things anybody wrote about the job. Newest
-          first, capped at four so it informs without burying the form. */}
-      {jobNotes.length > 0 && (
-        <div style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12,
-                      padding:'10px 12px', marginBottom:12 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#475569', textTransform:'uppercase',
-                        letterSpacing:0.5, marginBottom:6 }}>
-            🗒 History {jobNotes.length > 4 ? `(latest 4 of ${jobNotes.length})` : ''}
-          </div>
-          {jobNotes.slice(0, 4).map(n => (
-            <div key={n.id} style={{ fontSize:13, color:'#334155', lineHeight:1.45,
-                                     paddingBottom:6, marginBottom:6,
-                                     borderBottom:'1px solid #eef2f6' }}>
-              <div style={{ fontSize:10.5, color:'#94a3b8', fontWeight:700 }}>
-                {n.created_by || 'Someone'}
-                {n.created_at ? ` · ${new Date(n.created_at).toLocaleDateString('en-US',
-                  { month:'short', day:'numeric' })}` : ''}
-                {n.to_status ? ` · ${n.to_status}` : ''}
-              </div>
-              <div style={{ whiteSpace:'pre-wrap' }}>{String(n.text || '').slice(0, 240)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* SCOPE OF WORK — the hero. Full text, no truncation, no "Show more". */}
+      {/* ISSUE — the hero. What the tech is walking into, from jobs.issue. */}
       {scope && (
         <div style={scopeBox}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
-            📋 Scope of work
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase',
+                        letterSpacing: 0.5, marginBottom: 5 }}>
+            📋 Issue
           </div>
           <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
             {scope}
           </div>
-          {/* Access details and gate codes often live only on the calendar
-              event, so show that block too when it says something the issue
-              does not. */}
-          {extraFromEvent && (
-            <div style={{ fontSize: 12.5, color: '#3b5aa0', lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                          marginTop: 8, paddingTop: 8, borderTop: '1px solid #bfdbfe' }}>
-              {extraFromEvent}
-            </div>
-          )}
         </div>
       )}
 
-      {/* HOW DID IT END — pick first, then fill the panel below. */}
-      {mode === 'full' && (
-        <>
-          <div style={{ fontSize: 11, fontWeight: 700, color: selectedDispo ? '#16a34a' : '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-            How did it end? {selectedDispo ? '✓' : '— required'}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 10 }}>
-            {DISPOS.map(d => {
-              const on = selectedDispo === d.key;
-              const dc = DISPO_COLORS[d.key];
-              return (
-                <button key={d.key}
-                  onClick={() => { setSelectedDispo(d.key); setError(''); }}
-                  style={{
-                    padding: '11px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-                    background: on ? dc.bg : 'rgba(100,116,139,0.04)',
-                    border: on ? `2px solid ${dc.border}` : '1.5px solid rgba(100,116,139,0.15)',
-                    borderLeft: on ? `4px solid ${dc.color}` : '4px solid transparent',
-                    color: on ? dc.color : '#475569',
-                    fontSize: 14, fontWeight: on ? 800 : 600,
-                    transition: 'all 0.12s',
-                  }}>
-                  <span style={{ display: 'block' }}>{d.label}</span>
-                  <span style={{ display: 'block', fontSize: 11, fontWeight: 500,
-                                 color: on ? dc.color : '#94a3b8', marginTop: 2, lineHeight: 1.3 }}>
-                    {d.means}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {/* Disposition panel — shown when a dispo is selected */}
-      {effectiveDispo && (() => {
-        const dc = DISPO_COLORS[effectiveDispo];
-        switch (effectiveDispo) {
-          case 'bill_it':
-            return <BillItPanel value={billNotes} onChange={setBillNotes} colors={dc} />;
-          case 'return':
-            return <ReturnPanel
-              billNotes={returnBillNotes} onBillNotes={setReturnBillNotes}
-              what={returnWhat}           onWhat={setReturnWhat}
-              materials={returnMaterials} onMaterials={setReturnMaterials}
-              estTime={returnEstTime}     onEstTime={setReturnEstTime}
-              colors={dc} />;
-          case 'estimate':
-            return <EstimatePanel
-              what={estimateWhat}   onWhat={setEstimateWhat}
-              materials={estimateMats} onMaterials={setEstimateMats}
-              colors={dc} />;
-          case 'in_progress':
-            return <InProgressPanel value={inProgressWhat} onChange={setInProgressWhat} colors={dc} />;
-          case 'blocked':
-            return <BlockedPanel
-              why={blockedWhy}  onWhy={setBlockedWhy}
-              next={blockedNext} onNext={setBlockedNext}
-              colors={dc} />;
-          default: return null;
-        }
-      })()}
-
-      {/* Photos — TWO doors, because there are two real cases.
-          A single input with capture="environment" jumped straight to the rear
-          camera and gave no way to attach a picture already on the phone: a
-          shot taken before the sheet was open, something the customer sent, a
-          screenshot of a panel code. That is a common case and it was
-          unreachable.
-          Dropping `capture` entirely would fix it and break the other one — a
-          tech standing in front of the panel would get a file browser instead
-          of a camera. So: two buttons, one input each, same handler.
-          The pictures go with the visit, so they are still findable when the
-          invoice is queried in November. */}
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px' }}>
-        📷 Photos {photos.length ? `(${photos.length})` : ''}
+      {/* NOTES — "what happened on this visit"
+          Shown BEFORE the outcome picker so the tech fills it in first.
+          Routes to the correct per-dispo state variable so assembleNotes /
+          panelValid / handleFinish are completely unchanged. */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                         letterSpacing: 0.5 }}>
+            📝 Notes
+          </span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            {!effectiveDispo
+              ? 'pick an outcome below, then add your notes'
+              : effectiveDispo === 'bill_it'
+              ? 'What happened? Appended to calendar + shown in board history.'
+              : effectiveDispo === 'return'
+              ? 'What happened on this visit?'
+              : effectiveDispo === 'estimate'
+              ? 'What are we bidding and why?'
+              : effectiveDispo === 'blocked'
+              ? "What happened — why couldn't it be done?"
+              : 'Where are things at? What happens next?'}
+          </span>
+        </div>
+        <textarea
+          value={
+            effectiveDispo === 'bill_it'       ? billNotes
+            : effectiveDispo === 'return'      ? returnBillNotes
+            : effectiveDispo === 'estimate'    ? estimateWhat
+            : effectiveDispo === 'blocked'     ? blockedWhy
+            : effectiveDispo === 'in_progress' ? inProgressWhat
+            : ''
+          }
+          onChange={e => {
+            if      (effectiveDispo === 'bill_it')      setBillNotes(e.target.value);
+            else if (effectiveDispo === 'return')       setReturnBillNotes(e.target.value);
+            else if (effectiveDispo === 'estimate')     setEstimateWhat(e.target.value);
+            else if (effectiveDispo === 'blocked')      setBlockedWhy(e.target.value);
+            else if (effectiveDispo === 'in_progress')  setInProgressWhat(e.target.value);
+          }}
+          disabled={!effectiveDispo}
+          placeholder={effectiveDispo
+            ? 'What happened on this visit…'
+            : 'Pick an outcome below first'}
+          rows={3}
+          style={{
+            width: '100%', padding: '12px 14px', boxSizing: 'border-box',
+            border: `1.5px solid ${effectiveDispo ? '#d1d5db' : '#e5e7eb'}`,
+            borderRadius: 12, background: effectiveDispo ? '#fff' : '#f8fafc',
+            fontSize: 15, color: '#1B2A4A', fontFamily: 'inherit',
+            resize: 'vertical', outline: 'none',
+            opacity: effectiveDispo ? 1 : 0.55,
+          }}
+        />
       </div>
 
+      {/* PHOTOS */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase',
+                    letterSpacing: 0.5, marginBottom: 6 }}>
+        📷 Photos {photos.length ? `(${photos.length})` : ''}
+      </div>
       {photos.length > 0 && (
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
           {photos.map((u, i) => (
             <div key={u} style={{ position: 'relative' }}>
-              <img src={u} alt="" style={{ width: 74, height: 74, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }} />
-              <button
-                onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+              <img src={u} alt="" style={{ width: 74, height: 74, objectFit: 'cover',
+                                           borderRadius: 8, border: '1px solid #e5e7eb' }} />
+              <button onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
                 aria-label="Remove photo"
-                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11,
-                         border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 800,
-                         lineHeight: '20px', cursor: 'pointer', padding: 0 }}>×</button>
+                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22,
+                         borderRadius: 11, border: 'none', background: '#dc2626', color: '#fff',
+                         fontSize: 13, fontWeight: 800, lineHeight: '20px', cursor: 'pointer', padding: 0 }}>×</button>
             </div>
           ))}
         </div>
       )}
-
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <label
-          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
-                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
-                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+        <label style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                        border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                        fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
           {uploading ? 'Uploading…' : '📷 Take photo'}
-          {/* capture= keeps the one-tap path to the rear camera for a tech
-              standing in front of the work. */}
-          <input type="file" accept="image/*" capture="environment" multiple
-            disabled={uploading}
+          <input type="file" accept="image/*" capture="environment" multiple disabled={uploading}
             onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
             style={{ display: 'none' }} />
         </label>
-
-        <label
-          style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
-                   border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
-                   fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
+        <label style={{ flex: 1, textAlign: 'center', padding: '12px 0', borderRadius: 10,
+                        border: '1.5px dashed #93c5fd', background: '#eff6ff', color: '#2563eb',
+                        fontSize: 14, fontWeight: 700, cursor: uploading ? 'wait' : 'pointer' }}>
           {uploading ? 'Uploading…' : '🖼 Choose photo'}
-          {/* NO capture attribute — this is what opens the phone's library and
-              file browser, for a picture that already exists. */}
-          <input type="file" accept="image/*" multiple
-            disabled={uploading}
+          <input type="file" accept="image/*" multiple disabled={uploading}
             onChange={e => { addPhotos(e.target.files); e.target.value = ''; }}
             style={{ display: 'none' }} />
         </label>
       </div>
-
       {photoErr && (
-        <div style={{ fontSize: 12, color: '#dc2626', marginTop: -8, marginBottom: 12 }}>{photoErr}</div>
+        <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{photoErr}</div>
       )}
 
-      {/* Time entry */}
-      <TimeEntryBlock
-        value={timeEntry}
-        onChange={setTimeEntry}
-        eventDate={eventDate}
-        required={false}
-      />
+      {/* HOURS — no clock in/out */}
+      <TimeEntryBlock value={timeEntry} onChange={setTimeEntry} eventDate={eventDate}
+        required={false} hideClock />
 
+      {/* HOW DID IT END — 2 primary, 2 secondary, 1 tertiary */}
+      {mode === 'full' && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 700,
+                        color: selectedDispo ? '#16a34a' : '#64748b',
+                        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+            How did it end? {selectedDispo ? '✓' : '— required'}
+          </div>
+
+          {/* PRIMARY: Done and Return */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            {[
+              { key: 'bill_it', emoji: '✅', label: 'Done — Bill It',  sub: 'Finished. Hours go to billing.' },
+              { key: 'return',  emoji: '🔄', label: 'Return Visit',    sub: 'Work started — have to come back.' },
+            ].map(d => {
+              const on = selectedDispo === d.key;
+              const dc = DISPO_COLORS[d.key];
+              return (
+                <button key={d.key}
+                  onClick={() => { setSelectedDispo(on ? null : d.key); setError(''); }}
+                  style={{ padding: '14px 10px', borderRadius: 12, cursor: 'pointer',
+                           textAlign: 'center', fontFamily: 'inherit',
+                           background: on ? dc.color : dc.bg, color: on ? '#fff' : dc.color,
+                           border: on ? `2px solid ${dc.color}` : `2px solid ${dc.border}` }}>
+                  <div style={{ fontSize: 22 }}>{d.emoji}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, marginTop: 3 }}>{d.label}</div>
+                  <div style={{ fontSize: 11, opacity: on ? 0.85 : 0.75, marginTop: 3, lineHeight: 1.3 }}>{d.sub}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Return details — inline below the button */}
+          {selectedDispo === 'return' && (
+            <div style={{ background: 'rgba(249,115,22,0.06)',
+                          border: '1.5px solid rgba(249,115,22,0.3)',
+                          borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#ea580c',
+                            textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+                Return details
+              </div>
+              <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+                What are we doing when we come back?
+              </div>
+              <textarea value={returnWhat} onChange={e => setReturnWhat(e.target.value)}
+                placeholder="What needs to happen on the return visit…" rows={2}
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                         border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
+                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                         resize: 'vertical', outline: 'none', marginBottom: 10 }} />
+              <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+                Need to buy anything?
+              </div>
+              <input value={returnMaterials} onChange={e => setReturnMaterials(e.target.value)}
+                placeholder="Parts, materials — or leave blank"
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                         border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
+                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                         outline: 'none', marginBottom: 10 }} />
+              <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+                How long should we plan on-site?
+              </div>
+              <input value={returnEstTime} onChange={e => setReturnEstTime(e.target.value)}
+                placeholder="e.g. 2h, half day"
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                         border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
+                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none' }} />
+            </div>
+          )}
+
+          {/* SECONDARY: Estimate and Can't Complete */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            {[
+              { key: 'estimate', emoji: '📋', label: 'Estimate',       sub: 'Scope changed — needs pricing.' },
+              { key: 'blocked',  emoji: '🚫', label: "Can't Complete", sub: 'No access / wrong parts. Trip bills.' },
+            ].map(d => {
+              const on = selectedDispo === d.key;
+              const dc = DISPO_COLORS[d.key];
+              return (
+                <button key={d.key}
+                  onClick={() => { setSelectedDispo(on ? null : d.key); setError(''); }}
+                  style={{ padding: '11px 10px', borderRadius: 12, cursor: 'pointer',
+                           textAlign: 'center', fontFamily: 'inherit',
+                           background: on ? dc.color : dc.bg, color: on ? '#fff' : dc.color,
+                           border: on ? `2px solid ${dc.color}` : `2px solid ${dc.border}` }}>
+                  <div style={{ fontSize: 18 }}>{d.emoji}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2 }}>{d.label}</div>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2, lineHeight: 1.3 }}>{d.sub}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Estimate extra: materials to bid */}
+          {selectedDispo === 'estimate' && (
+            <div style={{ background: 'rgba(168,85,247,0.05)',
+                          border: '1.5px solid rgba(168,85,247,0.25)',
+                          borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, marginBottom: 4 }}>
+                Materials to bid out
+              </div>
+              <textarea value={estimateMats} onChange={e => setEstimateMats(e.target.value)}
+                placeholder="Parts, equipment, subcontractors…" rows={2}
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                         border: '1px solid rgba(168,85,247,0.3)', borderRadius: 10, background: '#fff',
+                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                         resize: 'vertical', outline: 'none' }} />
+            </div>
+          )}
+
+          {/* Blocked extra: optional "what happens next" */}
+          {selectedDispo === 'blocked' && (
+            <div style={{ background: 'rgba(239,68,68,0.05)',
+                          border: '1.5px solid rgba(239,68,68,0.2)',
+                          borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700, marginBottom: 4 }}>
+                What happens next? (optional)
+              </div>
+              <input value={blockedNext} onChange={e => setBlockedNext(e.target.value)}
+                placeholder="Reschedule, waiting on parts, customer will call…"
+                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                         border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, background: '#fff',
+                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none' }} />
+            </div>
+          )}
+
+          {/* TERTIARY: Still Scheduled — quiet, multi-day work */}
+          {(() => {
+            const on = selectedDispo === 'in_progress';
+            const dc = DISPO_COLORS['in_progress'];
+            return (
+              <>
+                <button
+                  onClick={() => { setSelectedDispo(on ? null : 'in_progress'); setError(''); }}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+                           textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                           fontFamily: 'inherit',
+                           background: on ? dc.bg : 'rgba(100,116,139,0.04)',
+                           border: on ? `1.5px solid ${dc.border}` : '1.5px solid rgba(100,116,139,0.12)',
+                           color: on ? dc.color : '#94a3b8', marginBottom: on ? 8 : 4 }}>
+                  <span style={{ fontSize: 16 }}>📅</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Still Scheduled</div>
+                    <div style={{ fontSize: 11 }}>Multi-day job — not finished, still booked.</div>
+                  </div>
+                </button>
+                {on && (
+                  <textarea value={inProgressWhat} onChange={e => setInProgressWhat(e.target.value)}
+                    placeholder="Where are things at? What happens on the next day?"
+                    rows={2}
+                    style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                             border: `1px solid ${dc.border}`, borderRadius: 10, background: '#fff',
+                             fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                             resize: 'vertical', outline: 'none', marginBottom: 8 }} />
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* FUTURE EVENT WARNING */}
       {eventInFuture && !futureOk && (
         <div style={{ background:'#2a1f08', border:'1px solid #f59e0b', borderRadius:10,
                       padding:'12px 14px', marginBottom:10 }}>
@@ -921,7 +981,7 @@ export default function JobFinishSheet({
 
       {error && <div style={errorBox}>{error}</div>}
 
-      {/* Single commit button */}
+      {/* SUBMIT */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
         <button onClick={handleFinish} disabled={!readyToFinish}
           style={{
@@ -937,8 +997,9 @@ export default function JobFinishSheet({
           {acting ? 'Saving…'
             : !effectiveDispo ? 'Pick an outcome above'
             : eventInFuture && !futureOk ? "This visit hasn't happened yet"
-            : effectiveDispo === 'bill_it' && billNotes.trim().length < 3 ? 'Add billing notes to finish'
-            : effectiveDispo === 'blocked' && blockedWhy.trim().length < 3 ? 'Add what happened to finish'
+            : effectiveDispo === 'bill_it' && billNotes.trim().length < 3 ? 'Add notes to finish'
+            : effectiveDispo === 'return' && returnBillNotes.trim().length < 3 ? 'Add notes to finish'
+            : effectiveDispo === 'blocked' && blockedWhy.trim().length < 3 ? 'Add notes to finish'
             : 'Finish job'}
         </button>
         <button onClick={onCancel} style={btnCancel}>Cancel</button>

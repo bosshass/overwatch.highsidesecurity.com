@@ -50,6 +50,16 @@ const Row = ({ label, children }) => children == null || children === '' ? null 
   </div>
 );
 
+// Why a job is blocked. Structured tags so the office can scan the board fast;
+// free text below for detail. Tag is prepended to the note on move.
+const BLOCKED_REASONS = [
+  { key: 'pending_payment',    label: 'Pending Payment' },
+  { key: 'materials_needed',   label: 'Materials Needed' },
+  { key: 'no_access',          label: 'No Access' },
+  { key: 'customer_not_ready', label: 'Customer Not Ready' },
+  { key: 'waiting_on_sub',     label: 'Waiting on Sub' },
+];
+
 export default function TicketSheet({
   job,
   userEmail,
@@ -70,6 +80,8 @@ export default function TicketSheet({
   const [note, setNote] = useState('');
   const [clearing, setClearing] = useState(false);
   const [pending, setPending] = useState(null);
+  // Structured blocked-reason tag. Reset whenever the pending lane changes.
+  const [blockedTag, setBlockedTag] = useState(null);
   // Contract capture on the Won step.
   const [askContract, setAskContract] = useState(false);
   const [contractDone, setContractDone] = useState(false);
@@ -390,7 +402,7 @@ export default function TicketSheet({
       onOpenScheduler?.(lane.needsScheduler);
       return;
     }
-    if (pending?.key !== lane.key) { setPending(lane); return; }
+    if (pending?.key !== lane.key) { setPending(lane); setBlockedTag(null); setNote(''); return; }
 
     // WON IS WHERE A CONTRACT IS BORN.
     // Nothing in the app ever wrote estimate_amount, so no job knew it was
@@ -432,7 +444,13 @@ export default function TicketSheet({
       return;
     }
     try {
-      await onMove?.(target, note.trim() || null);
+      // For Blocked, prepend the structured tag to the free text so the audit log
+      // and board card both carry a scannable reason without requiring a separate column.
+      const tagLabel = pending.key === 'blocked' && blockedTag
+        ? BLOCKED_REASONS.find(r => r.key === blockedTag)?.label
+        : null;
+      const finalNote = [tagLabel, note.trim()].filter(Boolean).join(' — ') || null;
+      await onMove?.(target, finalNote);
       // The job is over — take its event off the tech calendar. Non-fatal: a
       // failed delete must not unwind a status move that already succeeded,
       // and the job row is the record either way.
@@ -440,7 +458,7 @@ export default function TicketSheet({
         try { await releaseCalendar({ job, accessToken }); }
         catch (e) { console.warn('calendar release failed (non-fatal)', e.message); }
       }
-      setPending(null); setNote('');
+      setPending(null); setNote(''); setBlockedTag(null);
     } catch (e) { setErr(e.message || 'Move failed'); }
   };
 
@@ -961,8 +979,34 @@ export default function TicketSheet({
 
           {pending && (
             <div style={{ marginTop: 11 }}>
+              {pending.key === 'blocked' && (
+                <>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.muted,
+                                textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                    Why is it blocked?
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {BLOCKED_REASONS.map(r => {
+                      const on = blockedTag === r.key;
+                      return (
+                        <button key={r.key}
+                          onClick={() => setBlockedTag(t => t === r.key ? null : r.key)}
+                          style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12,
+                                   fontWeight: 700, cursor: 'pointer', border: `1px solid ${on ? '#fb7185' : C.line}`,
+                                   background: on ? 'rgba(239,68,68,0.15)' : C.raised,
+                                   color: on ? '#fb7185' : C.muted }}>
+                          {r.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#fb7185', marginBottom: 6 }}>
+                    Say what is blocking it — that is the whole point of this lane.
+                  </div>
+                </>
+              )}
               <input value={note} onChange={e => setNote(e.target.value)}
-                placeholder={`Why is this moving to ${pending.label}? (optional)`}
+                placeholder={pending.key === 'blocked' ? 'More detail (optional)' : `Why is this moving to ${pending.label}? (optional)`}
                 style={{ width: '100%', boxSizing: 'border-box', background: C.bg,
                          border: `1px solid ${C.line}`, borderRadius: 9, color: C.text,
                          padding: '10px 12px', fontSize: 13, outline: 'none' }} />
@@ -973,7 +1017,7 @@ export default function TicketSheet({
                            cursor: 'pointer' }}>
                   {busy ? 'Moving…' : `Move to ${pending.label}`}
                 </button>
-                <button onClick={() => { setPending(null); setNote(''); }}
+                <button onClick={() => { setPending(null); setNote(''); setBlockedTag(null); }}
                   style={{ background: 'transparent', border: `1px solid ${C.line}`, borderRadius: 9,
                            color: C.muted, padding: '11px 16px', fontSize: 13, cursor: 'pointer' }}>
                   Cancel

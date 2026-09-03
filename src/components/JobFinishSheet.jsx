@@ -77,6 +77,7 @@ export default function JobFinishSheet({
   // Each disposition owns its own fields. No shared "notes" state — what
   // goes into time_entries.notes is assembled per-dispo by assembleNotes().
   const [billNotes,       setBillNotes]       = useState('');   // Bill It — billing notes (required)
+  const [returnBillNotes, setReturnBillNotes] = useState('');   // Return — billing notes for THIS visit (required)
   const [returnWhat,      setReturnWhat]      = useState('');   // Return — what to do next visit
   const [returnMaterials, setReturnMaterials] = useState('');   // Return — materials needed (→ return_cards.materials_needed)
   const [returnEstTime,   setReturnEstTime]   = useState('');   // Return — estimated time (→ return_cards.estimated_time)
@@ -154,7 +155,15 @@ export default function JobFinishSheet({
   const assembleNotes = (dispo) => {
     switch (dispo) {
       case 'bill_it':     return billNotes.trim() || null;
-      case 'return':      return returnWhat.trim() || null;
+      case 'return': {
+        const parts = [
+          returnBillNotes.trim() && `This visit: ${returnBillNotes.trim()}`,
+          returnWhat.trim()      && `Next visit: ${returnWhat.trim()}`,
+          returnMaterials.trim() && `Materials: ${returnMaterials.trim()}`,
+          returnEstTime.trim()   && `Est. time: ${returnEstTime.trim()}`,
+        ].filter(Boolean);
+        return parts.join('\n') || null;
+      }
       case 'estimate': {
         const parts = [estimateWhat.trim(), estimateMats.trim() && `Materials: ${estimateMats.trim()}`].filter(Boolean);
         return parts.join('\n') || null;
@@ -174,7 +183,13 @@ export default function JobFinishSheet({
   const getDispoText = (dispo) => {
     switch (dispo) {
       case 'bill_it':     return { noteText: billNotes.trim(),       matText: '' };
-      case 'return':      return { noteText: returnWhat.trim(),      matText: returnMaterials.trim() };
+      case 'return': {
+        const noteParts = [
+          returnBillNotes.trim(),
+          returnWhat.trim() && `Next: ${returnWhat.trim()}`,
+        ].filter(Boolean);
+        return { noteText: noteParts.join(' | '), matText: returnMaterials.trim() };
+      }
       case 'estimate':    return { noteText: estimateWhat.trim(),    matText: estimateMats.trim() };
       case 'in_progress': return { noteText: inProgressWhat.trim(),  matText: '' };
       case 'blocked': {
@@ -502,6 +517,7 @@ export default function JobFinishSheet({
   const panelValid = () => {
     if (!effectiveDispo) return false;
     if (effectiveDispo === 'bill_it') return billNotes.trim().length >= 3;
+    if (effectiveDispo === 'return')  return returnBillNotes.trim().length >= 3;
     if (effectiveDispo === 'blocked') return blockedWhy.trim().length >= 3;
     return true;
   };
@@ -546,9 +562,11 @@ export default function JobFinishSheet({
   // pasting from Google Calendar before this fix landed.
   const issueText = htmlToText((linkedJob?.issue || '').trim());
   const scope     = issueText || eventScope;
-  // Show the calendar block too when it says something the issue does not —
-  // gate codes and access notes often live only there.
-  const extraFromEvent = issueText && eventScope && eventScope !== issueText ? eventScope : '';
+  // extraFromEvent REMOVED. Access codes and gate info now live in structured
+  // DB fields shown in the "👤 On site" block above. The GCal description also
+  // contains the issue text + Latest Note appends, so showing it here duplicated
+  // both the scope and the History section.
+  const extraFromEvent = '';
 
   // Same five destinations as the board and My Tasks, in the words a tech
   // would use. The labels used to be this sheet's own invention — "Needs
@@ -789,9 +807,10 @@ export default function JobFinishSheet({
             return <BillItPanel value={billNotes} onChange={setBillNotes} colors={dc} />;
           case 'return':
             return <ReturnPanel
-              what={returnWhat}      onWhat={setReturnWhat}
+              billNotes={returnBillNotes} onBillNotes={setReturnBillNotes}
+              what={returnWhat}           onWhat={setReturnWhat}
               materials={returnMaterials} onMaterials={setReturnMaterials}
-              estTime={returnEstTime}    onEstTime={setReturnEstTime}
+              estTime={returnEstTime}     onEstTime={setReturnEstTime}
               colors={dc} />;
           case 'estimate':
             return <EstimatePanel
@@ -1112,37 +1131,60 @@ function BillItPanel({ value, onChange, colors }) {
   );
 }
 
-function ReturnPanel({ what, onWhat, materials, onMaterials, estTime, onEstTime, colors }) {
+function ReturnPanel({ billNotes, onBillNotes, what, onWhat, materials, onMaterials, estTime, onEstTime, colors }) {
+  // A return trip bills for the time on site AND needs a plan for the next trip.
+  // Both sections are required: billing notes say what was done (for the invoice);
+  // next-visit fields say what's still owed (for the scheduler).
+  const billValid = (billNotes || '').trim().length >= 3;
   return (
-    <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
-                  borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
-                  padding: '12px 14px', marginBottom: 10 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
-                    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-        Next visit
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* ── BILLING — what was done on THIS trip ────────────────── */}
+      <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+                    borderLeft: '4px solid #4ade80', borderRadius: 10,
+                    padding: '12px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#4ade80',
+                      textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+          Billing notes — required
+        </div>
+        <textarea
+          value={billNotes}
+          onChange={e => onBillNotes(e.target.value)}
+          placeholder="What was done this visit — required to finish"
+          autoFocus
+          style={{ ...panelTextarea, border: `1px solid ${billValid ? '#e5e7eb' : '#fca5a5'}`,
+                   background: billValid ? '#fff' : '#fef2f2' }}
+        />
       </div>
-      <textarea
-        value={what}
-        onChange={e => onWhat(e.target.value)}
-        placeholder="What to do next visit…"
-        autoFocus
-        style={panelTextarea}
-      />
-      <textarea
-        value={materials}
-        onChange={e => onMaterials(e.target.value)}
-        placeholder="Materials needed…"
-        style={{ ...panelTextarea, height: 50 }}
-      />
-      <input
-        type="text"
-        value={estTime}
-        onChange={e => onEstTime(e.target.value)}
-        placeholder="Estimated time (e.g. 2 hours)"
-        style={{ width: '100%', padding: '8px 10px', fontSize: 14, color: '#1B2A4A',
-                 background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
-                 boxSizing: 'border-box', fontFamily: 'inherit' }}
-      />
+      {/* ── NEXT VISIT — what needs to happen on the return trip ─── */}
+      <div style={{ background: colors.bg, border: `1px solid ${colors.border}`,
+                    borderLeft: `4px solid ${colors.color}`, borderRadius: 10,
+                    padding: '12px 14px', marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: colors.color,
+                      textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+          Next visit
+        </div>
+        <textarea
+          value={what}
+          onChange={e => onWhat(e.target.value)}
+          placeholder="What to do next visit…"
+          style={panelTextarea}
+        />
+        <textarea
+          value={materials}
+          onChange={e => onMaterials(e.target.value)}
+          placeholder="Materials needed…"
+          style={{ ...panelTextarea, height: 50 }}
+        />
+        <input
+          type="text"
+          value={estTime}
+          onChange={e => onEstTime(e.target.value)}
+          placeholder="Estimated time (e.g. 2 hours)"
+          style={{ width: '100%', padding: '8px 10px', fontSize: 14, color: '#1B2A4A',
+                   background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+                   boxSizing: 'border-box', fontFamily: 'inherit' }}
+        />
+      </div>
     </div>
   );
 }

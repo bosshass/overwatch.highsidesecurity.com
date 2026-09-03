@@ -59,6 +59,10 @@ export default function FieldVisits({ job }) {
   const [entries, setEntries] = useState([]);
   // The client's OTHER visits — never mixed into this job's list.
   const [others, setOthers] = useState([]);
+  // Return card details keyed by time_entry_id. JobFinishSheet writes the next-visit
+  // plan into return_cards (reason, materials_needed, estimated_time) — without an
+  // explicit fetch here those fields are invisible when viewing the ticket.
+  const [returnCardMap, setReturnCardMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
@@ -100,10 +104,26 @@ export default function FieldVisits({ job }) {
           if (!r.error) for (const row of (r.data || [])) if (!byId[row.id]) otherById[row.id] = row;
         }
       } catch { /* leave what we have */ }
+      // Fetch return_cards so next-visit plan (reason, materials, est. time) is
+      // visible on the ticket. Keyed by time_entry_id — the link JobFinishSheet writes.
+      const rcMap = {};
+      try {
+        const returnIds = Object.values(byId)
+          .filter(e => e.disposition === 'return')
+          .map(e => e.id);
+        if (returnIds.length) {
+          const { data: rcs } = await supabase
+            .from('return_cards')
+            .select('time_entry_id, reason, materials_needed, estimated_time')
+            .in('time_entry_id', returnIds);
+          for (const rc of (rcs || [])) rcMap[rc.time_entry_id] = rc;
+        }
+      } catch { /* show what we have */ }
       const bydate = (a, b) => new Date(b.event_start || b.created_at) - new Date(a.event_start || a.created_at);
       if (!cancelled) {
         setEntries(Object.values(byId).sort(bydate));
         setOthers(Object.values(otherById).sort(bydate));
+        setReturnCardMap(rcMap);
         setLoading(false);
       }
     })();
@@ -121,8 +141,8 @@ export default function FieldVisits({ job }) {
   // being filtered out entirely, so a tech who documented the job with pictures
   // and typed nothing left no trace on the ticket.
   const visitsWithNotes = useMemo(
-    () => entries.filter(e => e.notes || e.materials || (e.photos && e.photos.length)),
-    [entries]);
+    () => entries.filter(e => e.notes || e.materials || (e.photos && e.photos.length) || returnCardMap[e.id]),
+    [entries, returnCardMap]);
   const total = visitsWithNotes.length + issueNotes.length;
 
   const otherWithNotes = others.filter(e => e.notes || e.materials || (e.photos && e.photos.length));
@@ -184,6 +204,27 @@ export default function FieldVisits({ job }) {
             </div>
             {e.materials && <div style={{ fontSize: 12, color: '#fbbf24', marginBottom: 4 }}>🔧 {e.materials}</div>}
             {e.notes && <div style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{e.notes}</div>}
+            {/* Return card — next-visit plan. Written into return_cards by JobFinishSheet
+                (reason = what to do, materials_needed, estimated_time). These fields live
+                outside time_entries so a separate fetch is needed — see returnCardMap above. */}
+            {returnCardMap[e.id] && (() => {
+              const rc = returnCardMap[e.id];
+              if (!rc.reason && !rc.materials_needed && !rc.estimated_time) return null;
+              return (
+                <div style={{ marginTop: 8, background: 'rgba(249,115,22,0.08)',
+                              border: '1px solid rgba(249,115,22,0.3)',
+                              borderLeft: '3px solid #fb923c', borderRadius: 8,
+                              padding: '8px 10px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#fb923c',
+                                textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 5 }}>
+                    🔄 Next visit
+                  </div>
+                  {rc.reason          && <div style={{ fontSize: 12, color: '#fed7aa', marginBottom: 3 }}>{rc.reason}</div>}
+                  {rc.materials_needed && <div style={{ fontSize: 12, color: '#fbbf24' }}>🔧 {rc.materials_needed}</div>}
+                  {rc.estimated_time   && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>⏱ {rc.estimated_time}</div>}
+                </div>
+              );
+            })()}
             {/* Job photos. Uploaded from the finish sheet, and until now visible
                 nowhere in the app — the files were in Storage with nothing
                 pointing at them. Tap opens the full size in a new tab. */}

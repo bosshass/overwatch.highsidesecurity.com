@@ -604,17 +604,14 @@ export default function TicketSheet({
           </div>
         </div>
 
-        {/* ── Issue ── */}
-        {/* ── THE ISSUE, EDITABLE ──────────────────────────────────────
-            "What are we doing?" is the one thing on a card that everybody
-            needs and nobody could change. It was read-only here, so a scope
-            that arrived wrong stayed wrong — and 28 live cards had no issue at
-            all, which made a read-only box render nothing rather than offering
-            somewhere to fix it. Now it always renders, empty included.
-            Saving writes jobs.issue and then patches the linked calendar
-            events, replacing only the fenced issue region of the description —
-            the CUSTOMER_ID stamp, field notes and anything hand-typed are left
-            exactly as they are. See applyIssueToDescription. */}
+        {/* ── Issue — hidden until Ready to Schedule ─────────────────
+            A quick task ("call customer", "order part") lives in the New/Notes
+            lane. At that stage there is no issue yet — the scope gets written
+            when the job moves to Ready to Schedule. Showing the empty panel
+            earlier just adds noise and implies work that hasn't happened yet.
+            Once the job leaves the new-bucket the panel renders as normal. */}
+        {!['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision']
+            .includes(job.status) && (
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase',
@@ -670,6 +667,7 @@ export default function TicketSheet({
             </div>
           )}
         </div>
+        )} {/* end new-bucket gate */}
 
         {/* ── WHAT CAME BACK ───────────────────────────────────────────
             The issue above is why we went. This is what happened: the tech's

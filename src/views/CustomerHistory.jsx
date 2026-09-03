@@ -122,6 +122,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [editForm, setEditForm] = useState({});
   const [savingDetails, setSavingDetails] = useState(false);
   const [showJobModal, setShowJobModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
   const [saving, setSaving]         = useState(false);
 
   // load the master account list once
@@ -666,6 +667,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               <button style={actBtn('#5dcaa5')} onClick={() => setCreateMode(createMode === 'note' ? null : 'note')}>+ Note</button>
               <button style={actBtn('#7f77dd')} onClick={() => setCreateMode(createMode === 'task' ? null : 'task')}>+ Task</button>
               <button style={actBtn('#97c459')} onClick={() => setShowJobModal(true)}>+ New job</button>
+              <button style={actBtn('#8b5cf6')} onClick={() => setShowProjectModal(true)}>+ New project</button>
             </div>
 
             {/* create: note */}
@@ -881,6 +883,32 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
           onCreated={async (job) => {
             setShowJobModal(false);
             if (job?.id) { try { await jobsApi.update(job.id, { customer_id: selected.id }, me); } catch (_) {} }
+            refreshWork();
+          }}
+        />
+      )}
+
+      {/* Project modal — same as winning an estimate: creates a project job,
+          marks it won, and marks it fixed-fee so it lands in Project Hours
+          in billing. Budget/hours can be set from the billing screen via
+          "Change budget" after creation. */}
+      {showProjectModal && selected && (
+        <NewJobModal
+          accessToken={accessToken}
+          userEmail={me}
+          prefill={{ customerName: selected.name, address: selected.address || '', jobType: 'project' }}
+          onClose={() => setShowProjectModal(false)}
+          onCreated={async (job) => {
+            setShowProjectModal(false);
+            if (job?.id) {
+              try {
+                await jobsApi.update(job.id, {
+                  customer_id: selected.id,
+                  is_fixed_fee: true,
+                  status: 'won',
+                }, me);
+              } catch (_) {}
+            }
             refreshWork();
           }}
         />

@@ -126,6 +126,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   useEffect(() => { loadNeedNotes(); }, [loadNeedNotes]);
 
+
   // Jump the day nav to a specific date, so the event and the finish sheet are
   // right there instead of somewhere behind the < button.
   const goToDate = (scheduledDate) => {

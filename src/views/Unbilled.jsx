@@ -66,6 +66,16 @@ export const BUCKET_BY_KEY = Object.fromEntries(BUCKETS.map(b => [b.key, b]));
 
 const daysSince = (iso) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : 0;
 
+// Urgency tier for a return card based on days waiting.
+// 0-4 days: neutral pink — on the radar.
+// 5-9 days: amber — getting uncomfortable.
+// 10+ days: red — customer is actively waiting; this is bad service.
+const returnUrgency = (days) => {
+  if (days >= 10) return { color: '#ef4444', borderColor: '#ef4444', prefix: '🔴 ' };
+  if (days >= 5)  return { color: '#f59e0b', borderColor: '#f59e0b', prefix: '⚠️ ' };
+  return { color: '#ec4899', borderColor: null, prefix: '' };
+};
+
 // A single visit longer than this is almost certainly a tech who never clocked
 // out. Flag it — don't silently put it on an invoice.
 const SUSPICIOUS_HOURS = 12;
@@ -416,9 +426,9 @@ export default function Unbilled({ onBack, userEmail }) {
       b.visits += g.visits.length;
       b.groups.push(g);
     });
-    // Returns sorted by what they're COSTING you: hours held x days waiting.
-    // The most expensive, longest-ignored return is always at the top.
-    m.return.groups.sort((a, b) => (b.hours * (b.waitingDays + 1)) - (a.hours * (a.waitingDays + 1)));
+    // Returns sorted by days waiting descending — the longest-waiting customer
+    // is always first, regardless of hours. Tiebreak on hours (more = more urgent).
+    m.return.groups.sort((a, b) => b.waitingDays - a.waitingDays || b.hours - a.hours);
     return m;
   }, [groups]);
 
@@ -1099,19 +1109,25 @@ export default function Unbilled({ onBack, userEmail }) {
         {shown.map(g => {
           const open = openKey === g.key;
           const allPicked = g.visits.length > 0 && g.visits.every(v => picked.has(v.id));
+          const urgency = g.bucket === 'return' ? returnUrgency(g.waitingDays) : null;
+          const cardBorder = g.orphan ? '#f59e0b' : (urgency?.borderColor || '#1e293b');
           return (
-            <div key={g.key} style={{ ...card, borderColor: g.orphan ? '#f59e0b' : '#1e293b' }}>
+            <div key={g.key} style={{ ...card, borderColor: cardBorder,
+              ...(urgency && g.waitingDays >= 10 ? { boxShadow: `0 0 0 1px #ef444466, 0 2px 12px #ef444422` } : {}) }}>
               <div onClick={() => setOpenKey(open ? null : g.key)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                 <span style={{ color: '#64748b', fontSize: 13 }}>{open ? '▾' : '▸'}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {g.name} {g.shortCode && <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700 }}>{g.shortCode}</span>}
                   </div>
-                  {g.bucket === 'return' && (
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#ec4899', marginTop: 2 }}>
-                      Customer waiting {g.waitingDays} day{g.waitingDays === 1 ? '' : 's'} · {fmtH(g.hours)} of work you cannot invoice until someone goes back
-                    </div>
-                  )}
+                  {g.bucket === 'return' && (() => {
+                    const u = returnUrgency(g.waitingDays);
+                    return (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: u.color, marginTop: 2 }}>
+                        {u.prefix}Customer waiting {g.waitingDays} day{g.waitingDays === 1 ? '' : 's'} · {fmtH(g.hours)} of work you cannot invoice until someone goes back
+                      </div>
+                    );
+                  })()}
                   {g.noEntries && (
                     <div style={{ fontSize: 12.5, color: '#fdba74', marginTop: 3, lineHeight: 1.5 }}>
                       Marked done, but nobody logged time against it. There is nothing to put on an invoice.

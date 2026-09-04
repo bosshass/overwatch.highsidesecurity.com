@@ -30,7 +30,7 @@ const CALENDAR_COLORS = {
   'Installations': '#14b8a6',
 };
 
-const HOURS = Array.from({ length: 14 }, (_, i) => i + 6);
+const HOURS = Array.from({ length: 13 }, (_, i) => i + 7); // 7am–7pm
 
 function getWeekDates(offset = 0) {
   const now = new Date();
@@ -638,7 +638,7 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
             return dayEvents.map(e => {
               const startHour = e.start.getHours() + e.start.getMinutes() / 60;
               const endHour = e.end ? e.end.getHours() + e.end.getMinutes() / 60 : startHour + 2;
-              const top = (startHour - 6) * 50;
+              const top = (startHour - 7) * 50;
               const height = Math.max((endHour - startHour) * 50, 30);
               const colWidth = `calc((100% - 50px) / 7)`;
               const left = `calc(50px + ${dayIdx} * ${colWidth} + 3px)`;

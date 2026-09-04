@@ -86,8 +86,8 @@ export const SYNC_CALENDARS = [
     id: CALENDARS.AUSTIN,
     name: 'Austin',
     type: 'tech',
-    // Austin sees his own + Brian's + Subs per the work-view rule
-    visibleTo: AUSTIN_EMAILS,
+    // Austin sees his own + Brian's + Subs + Trevor (mutual visibility)
+    visibleTo: [...AUSTIN_EMAILS, ...TREVOR_EMAILS],
   },
   {
     id: CALENDARS.JR,
@@ -107,10 +107,11 @@ export const SYNC_CALENDARS = [
     // theirs. It is `tech`, not `installations`: Installations is a shared
     // queue several people work out of, and treating Trevor's personal
     // calendar as that queue is what hid him.
+    // Trevor also sees Austin's calendar (mutual visibility per product spec).
     id: CALENDARS.TREVOR,
     name: 'Trevor',
     type: 'tech',
-    visibleTo: TREVOR_EMAILS,
+    visibleTo: [...TREVOR_EMAILS, ...AUSTIN_EMAILS],
   },
   {
     id: CALENDARS.SHANA,
@@ -190,10 +191,10 @@ export function getVisibleCalendars(email, viewingAs) {
 //
 // Rules (per product spec):
 //   - Operators (info@, Sara, admin)  → Austin + JR + Brian (Tech3) + Trevor + Subs
-//   - Austin (restricted)             → Austin + Brian (Tech3) + Subs
+//   - Austin (restricted)             → Austin + Brian (Tech3) + Trevor + Subs
 //   - Brian (restricted)              → Brian (Tech3) only
 //   - JR (restricted)                 → JR only
-//   - Trevor (restricted)             → Trevor + Installations
+//   - Trevor (restricted)             → Trevor + Austin + Installations
 //   - Subs (restricted)               → Subs only
 //   - Shana (operator role)           → Austin + JR + Brian + Trevor + Subs (same as operators)
 //   - Anyone else                     → empty (caller should fall back to default)
@@ -213,18 +214,20 @@ export function getWorkViewCalendars(email) {
 
   if (AUSTIN_EMAILS.includes(e)) {
     return [
-      { id: CALENDARS.AUSTIN, name: 'Austin' },
-      { id: CALENDARS.TECH3,  name: 'Brian' },
-      { id: CALENDARS.SUBS,   name: 'Subs' },
+      { id: CALENDARS.AUSTIN,  name: 'Austin' },
+      { id: CALENDARS.TECH3,   name: 'Brian' },
+      { id: CALENDARS.TREVOR,  name: 'Trevor' },
+      { id: CALENDARS.SUBS,    name: 'Subs' },
     ];
   }
   if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
   if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
-  // His own first, then Installations — he works out of both, the same way
-  // Austin sees his own plus Brian's and Subs'. Installations alone meant he
-  // could not see his own day.
+  // His own first, then Austin (mutual visibility), then Installations.
+  // Installations alone meant he could not see his own day; now he also sees
+  // Austin's calendar so they can coordinate.
   if (TREVOR_EMAILS.includes(e)) return [
     { id: CALENDARS.TREVOR,        name: 'Trevor' },
+    { id: CALENDARS.AUSTIN,        name: 'Austin' },
     { id: CALENDARS.INSTALLATIONS, name: 'Installations' },
   ];
   if (SUBS_EMAILS.includes(e))   return [{ id: CALENDARS.SUBS, name: 'Subs' }];

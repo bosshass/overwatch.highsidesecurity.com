@@ -205,6 +205,32 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
 
     allEvents.sort((a, b) => a.start - b.start);
 
+    // ── Return brief enrichment ──────────────────────────────────────────────
+    // Fetch return_cards for all GCal event IDs so event tiles can show the
+    // plan for return visits without opening the ticket.
+    try {
+      const gcalEventIds = allEvents.map(e => e.id).filter(Boolean);
+      if (gcalEventIds.length) {
+        const { data: rcs } = await supabase
+          .from('return_cards')
+          .select('original_event_id, reason, materials_needed')
+          .in('original_event_id', gcalEventIds)
+          .order('created_at', { ascending: false });
+        const rcMap = {};
+        for (const rc of rcs || []) {
+          if (rc.original_event_id && !rcMap[rc.original_event_id]) rcMap[rc.original_event_id] = rc;
+        }
+        for (const ev of allEvents) {
+          const rc = rcMap[ev.id];
+          if (rc) {
+            ev.returnReason    = rc.reason || null;
+            ev.returnMaterials = rc.materials_needed || null;
+          }
+        }
+      }
+    } catch (e) { console.warn('TechCalendar: return_cards fetch failed', e); }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Also fetch Supabase assignments for hybrid coverage
     try {
       const { data: assignments } = await supabase
@@ -681,11 +707,18 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                   }}>
                     {e.summary}
                   </div>
-                  {/* Type label */}
-                  {height > 60 && typeLabel && (
-                    <div style={{ color: '#94a3b8', fontSize: 10 }}>
-                      {typeLabel}{isMultiDay ? ' • Multi-day' : ''}
+                  {/* Return brief snippet — shown in place of type label for return events */}
+                  {height > 60 && e.returnReason ? (
+                    <div style={{ color: '#fb923c', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      🔄 {e.returnReason.slice(0, 40)}{e.returnReason.length > 40 ? '…' : ''}
                     </div>
+                  ) : (
+                    /* Type label */
+                    height > 60 && typeLabel && (
+                      <div style={{ color: '#94a3b8', fontSize: 10 }}>
+                        {typeLabel}{isMultiDay ? ' • Multi-day' : ''}
+                      </div>
+                    )
                   )}
                 </div>
               );
@@ -781,9 +814,16 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
                           )}
                         </div>
                         {/* Type + time range */}
-                        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>
+                        <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: e.returnReason ? 6 : 8 }}>
                           {typeLabel} • {startTime}{endTime ? ` – ${endTime}` : ''}
                         </div>
+                        {/* Return brief — shown below the time range for return events */}
+                        {e.returnReason && (
+                          <div style={{ color: '#fb923c', fontSize: 12, marginBottom: 8, fontWeight: 600 }}>
+                            🔄 {e.returnReason}
+                            {e.returnMaterials && <span style={{ color: '#fbbf24' }}> · 🔧 {e.returnMaterials}</span>}
+                          </div>
+                        )}
                         {/* Tech pill */}
                         <span style={{
                           display: 'inline-block', background: color, color: '#fff',

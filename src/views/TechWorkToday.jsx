@@ -206,8 +206,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       try {
         const eventIds = items.map(e => e.id);
 
-        // Run both lookups in parallel — dispositions and customer IDs
-        const [{ data: entries }, { data: assignments }] = await Promise.all([
+        // Run all lookups in parallel — dispositions, customer IDs, return briefs
+        const [{ data: entries }, { data: assignments }, { data: returnCards }] = await Promise.all([
           supabase
             .from('time_entries')
             .select('calendar_event_id, disposition')
@@ -218,6 +218,11 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             .select('calendar_event_id, job:job_id(customer_id)')
             .in('calendar_event_id', eventIds)
             .not('job_id', 'is', null),
+          supabase
+            .from('return_cards')
+            .select('original_event_id, reason, materials_needed')
+            .in('original_event_id', eventIds)
+            .order('created_at', { ascending: false }),
         ]);
 
         // Most-recent-first: if the same event has two entries (e.g. a
@@ -235,16 +240,27 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           }
         }
 
+        // First return_card per event (already ordered newest-first)
+        const returnCardByEventId = {};
+        for (const rc of returnCards || []) {
+          if (rc.original_event_id && !returnCardByEventId[rc.original_event_id]) {
+            returnCardByEventId[rc.original_event_id] = rc;
+          }
+        }
+
         items = items.map(ev => {
           const d = dispoByEventId[ev.id];
           const tab = d
             ? (d === 'bill_it' ? 'billit' : d === 'return' ? 'return' : d === 'estimate' ? 'estimate' : ev.tab)
             : ev.tab; // in_progress and blocked stay in Today tab
+          const rc = returnCardByEventId[ev.id];
           return {
             ...ev,
             tab,
             disposition: d || null,
             customerId: customerIdByEventId[ev.id] || null,
+            returnReason: rc?.reason || null,
+            returnMaterials: rc?.materials_needed || null,
           };
         });
       } catch (e) {
@@ -538,22 +554,29 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                   {ev.location && ' · ' + ev.location.split(',')[0]}
                 </div>
-                {/* Issue preview — first useful line from GCal description, never time_entries.notes */}
-                {(() => {
-                  const lines = (ev.description || '').split('\n').map(l => l.trim()).filter(l => {
-                    if (!l) return false;
-                    if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false; // phone line
-                    if (/^https?:\/\//i.test(l)) return false; // URL line
-                    return true;
-                  });
-                  const preview = lines.join(' ').slice(0, 80);
-                  if (!preview) return null;
-                  return (
-                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {preview}{lines.join(' ').length > 80 ? '…' : ''}
-                    </div>
-                  );
-                })()}
+                {/* Return brief — shown instead of GCal description for return-tab events */}
+                {ev.tab === 'return' && ev.returnReason ? (
+                  <div style={{ fontSize: 12, color: '#b45309', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                    🔄 {ev.returnReason}{ev.returnMaterials ? ' · 🔧 ' + ev.returnMaterials : ''}
+                  </div>
+                ) : (
+                  /* Issue preview — first useful line from GCal description, never time_entries.notes */
+                  (() => {
+                    const lines = (ev.description || '').split('\n').map(l => l.trim()).filter(l => {
+                      if (!l) return false;
+                      if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false; // phone line
+                      if (/^https?:\/\//i.test(l)) return false; // URL line
+                      return true;
+                    });
+                    const preview = lines.join(' ').slice(0, 80);
+                    if (!preview) return null;
+                    return (
+                      <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {preview}{lines.join(' ').length > 80 ? '…' : ''}
+                      </div>
+                    );
+                  })()
+                )}
                 {phone && (
                   <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 10, alignItems: 'center' }}>
                     <a href={'tel:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
@@ -635,6 +658,29 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                 </div>
               );
             })()}
+
+            {/* Return brief — shown at the top of the sheet for return visits so the
+                tech knows the plan before scrolling to the finish form */}
+            {selected.tab === 'return' && (selected.returnReason || selected.returnMaterials) && (
+              <div style={{
+                background: 'rgba(251,146,60,0.08)',
+                border: '1px solid rgba(251,146,60,0.3)',
+                borderLeft: '3px solid #fb923c',
+                borderRadius: 10,
+                padding: '12px 14px',
+                marginBottom: 14,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+                  🔄 This return trip
+                </div>
+                {selected.returnReason && (
+                  <div style={{ fontSize: 13.5, color: '#92400e', lineHeight: 1.5 }}>{selected.returnReason}</div>
+                )}
+                {selected.returnMaterials && (
+                  <div style={{ fontSize: 13, color: '#b45309', marginTop: 4 }}>🔧 {selected.returnMaterials}</div>
+                )}
+              </div>
+            )}
 
             {/* Finish form — customer link, time entry, notes, materials, disposition buttons.
                 Lives in src/components/JobFinishSheet.jsx and is the SINGLE canonical

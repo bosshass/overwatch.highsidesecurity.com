@@ -148,6 +148,82 @@ export default function TicketSheet({
   const [issueLocal, setIssueLocal]   = useState(null);
   const [showMoves, setShowMoves] = useState(false);
 
+  // ── Return-trip plan (return_cards) ─────────────────────────────────
+  // Fetched and shown prominently when status is return_pending so the tech
+  // knows WHAT to do on the next trip, not just that one is needed.
+  const [returnCard, setReturnCard]       = useState(null);
+  const [rcEdit, setRcEdit]               = useState(false);
+  const [rcReason, setRcReason]           = useState('');
+  const [rcMaterials, setRcMaterials]     = useState('');
+  const [rcSaving, setRcSaving]           = useState(false);
+  const [rcMsg, setRcMsg]                 = useState('');
+
+  // Fetch the return_card for this job when it is return_pending.
+  // Tries three paths in order: event ids that JobFinishSheet wrote as
+  // original_event_id, then time_entries with disposition='return' + job_id.
+  // This is the SAME data FieldVisits already shows, just surfaced first.
+  useEffect(() => {
+    if (job?.status !== 'return_pending') { setReturnCard(null); return; }
+    let dead = false;
+    (async () => {
+      let rc = null;
+      const eventIds = [job?.scheduled_event_id, job?.calendar_event_id, job?.tentative_event_id].filter(Boolean);
+      if (eventIds.length) {
+        const { data } = await supabase.from('return_cards')
+          .select('id, reason, materials_needed, estimated_time')
+          .in('original_event_id', eventIds)
+          .order('created_at', { ascending: false }).limit(1);
+        rc = data?.[0] || null;
+      }
+      if (!rc && job?.id) {
+        const { data: entries } = await supabase.from('time_entries')
+          .select('id').eq('job_id', job.id).eq('disposition', 'return');
+        const ids = (entries || []).map(e => e.id);
+        if (ids.length) {
+          const { data } = await supabase.from('return_cards')
+            .select('id, reason, materials_needed, estimated_time')
+            .in('time_entry_id', ids)
+            .order('created_at', { ascending: false }).limit(1);
+          rc = data?.[0] || null;
+        }
+      }
+      if (!dead) setReturnCard(rc);
+    })();
+    return () => { dead = true; };
+  }, [job?.id, job?.status, job?.scheduled_event_id, job?.calendar_event_id, job?.tentative_event_id]);
+
+  const saveReturnCard = async () => {
+    setRcSaving(true); setRcMsg('');
+    try {
+      if (returnCard?.id) {
+        const { error } = await supabase.from('return_cards')
+          .update({ reason: rcReason.trim() || null, materials_needed: rcMaterials.trim() || null })
+          .eq('id', returnCard.id);
+        if (error) throw error;
+        setReturnCard(rc => ({ ...rc, reason: rcReason.trim() || null, materials_needed: rcMaterials.trim() || null }));
+      } else {
+        const eventId = job.scheduled_event_id || job.calendar_event_id || job.tentative_event_id;
+        const { data, error } = await supabase.from('return_cards').insert({
+          customer_id:          job.customer_id || null,
+          customer_name_raw:    job.customer_name || null,
+          original_event_id:    eventId || null,
+          original_calendar_id: job.scheduled_calendar_id || null,
+          original_event_title: job.customer_name || null,
+          original_location:    job.customer_address || null,
+          reason:               rcReason.trim() || null,
+          materials_needed:     rcMaterials.trim() || null,
+          flagged_by_email:     userEmail || null,
+          time_entry_id:        null,
+        }).select('id, reason, materials_needed, estimated_time').single();
+        if (error) throw error;
+        setReturnCard(data);
+      }
+      setRcEdit(false);
+      setRcMsg('Saved');
+    } catch (e) { setRcMsg(e.message || 'Could not save'); }
+    finally { setRcSaving(false); }
+  };
+
   // WHAT IS ALREADY OUT THERE. Without this the card happily lets you send a
   // third copy of the same ask to a third person, and none of them know about
   // each other.
@@ -570,6 +646,94 @@ export default function TicketSheet({
         {/* Assigned-to person picker removed from the ticket — assignment is
             a task-level concept. Job ownership (for board filtering) is set
             when a task is created, not from the ticket header. ── */}
+
+        {/* ── Return trip brief — THIS VISIT ONLY ─────────────────────
+            The Issue panel below is why we first went. This panel is why we
+            are coming back. Shown FIRST so the tech reads the brief for
+            today's trip before reading the original scope. Editable so the
+            office can fill it in when the tech left it blank on the finish
+            sheet. Data lives in return_cards.reason / materials_needed. */}
+        {job.status === 'return_pending' && (
+          <div style={{ background: 'rgba(249,115,22,0.1)',
+                        border: '1px solid rgba(249,115,22,0.4)',
+                        borderLeft: '4px solid #fb923c',
+                        borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: rcEdit ? 8 : (returnCard?.reason || returnCard?.materials_needed ? 6 : 0) }}>
+              <span style={{ fontSize: 10, fontWeight: 900, color: '#fb923c',
+                             textTransform: 'uppercase', letterSpacing: 0.7 }}>
+                🔄 This return trip — what are we doing?
+              </span>
+              {!rcEdit && (
+                <button
+                  onClick={() => { setRcEdit(true); setRcReason(returnCard?.reason || ''); setRcMaterials(returnCard?.materials_needed || ''); setRcMsg(''); }}
+                  style={{ marginLeft: 'auto', background: 'transparent', border: 'none',
+                           color: '#fb923c', fontSize: 12, fontWeight: 800,
+                           cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
+                  {returnCard?.reason || returnCard?.materials_needed ? 'Edit' : 'Add it'}
+                </button>
+              )}
+            </div>
+
+            {rcEdit ? (
+              <>
+                <textarea value={rcReason} onChange={e => setRcReason(e.target.value)} rows={3}
+                  placeholder="What are we doing this trip? e.g. Replace front door contact, re-program Z-wave module"
+                  style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                           border: '1px solid #fb923c88', borderRadius: 8, color: '#e2e8f0',
+                           padding: '9px 11px', fontSize: 13.5, lineHeight: 1.5,
+                           fontFamily: 'inherit', resize: 'vertical', outline: 'none', marginBottom: 6 }} />
+                <textarea value={rcMaterials} onChange={e => setRcMaterials(e.target.value)} rows={2}
+                  placeholder="Materials to bring (e.g. 2206L contact, Z-wave module)"
+                  style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                           border: '1px solid #fb923c88', borderRadius: 8, color: '#e2e8f0',
+                           padding: '9px 11px', fontSize: 13.5, lineHeight: 1.5,
+                           fontFamily: 'inherit', resize: 'vertical', outline: 'none', marginBottom: 8 }} />
+                <div style={{ display: 'flex', gap: 7 }}>
+                  <button onClick={saveReturnCard} disabled={rcSaving}
+                    style={{ flex: 2, background: '#fb923c', border: 'none', borderRadius: 8,
+                             padding: '9px 0', color: '#0f1729', fontSize: 13, fontWeight: 800,
+                             cursor: rcSaving ? 'default' : 'pointer', fontFamily: 'inherit',
+                             opacity: rcSaving ? 0.6 : 1 }}>
+                    {rcSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => { setRcEdit(false); setRcMsg(''); }} disabled={rcSaving}
+                    style={{ flex: 1, background: 'transparent', border: '1px solid #fb923c44',
+                             borderRadius: 8, padding: '9px 0', color: '#94a3b8', fontSize: 13,
+                             fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Cancel
+                  </button>
+                </div>
+                {rcMsg && (
+                  <div style={{ fontSize: 12, color: rcMsg.startsWith('Saved') ? '#fb923c' : '#ef4444', marginTop: 6 }}>
+                    {rcMsg}
+                  </div>
+                )}
+              </>
+            ) : returnCard?.reason || returnCard?.materials_needed ? (
+              <>
+                {returnCard.reason && (
+                  <div style={{ fontSize: 13.5, color: '#fed7aa', lineHeight: 1.55,
+                                whiteSpace: 'pre-wrap', marginBottom: returnCard.materials_needed ? 6 : 0 }}>
+                    {returnCard.reason}
+                  </div>
+                )}
+                {returnCard.materials_needed && (
+                  <div style={{ fontSize: 13, color: '#fbbf24' }}>🔧 {returnCard.materials_needed}</div>
+                )}
+                {returnCard.estimated_time && (
+                  <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 3 }}>⏱ {returnCard.estimated_time}</div>
+                )}
+                {rcMsg && (
+                  <div style={{ fontSize: 12, color: '#fb923c', marginTop: 6 }}>{rcMsg}</div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: '#f59e0b' }}>
+                No return brief yet — the tech will arrive without knowing the plan.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Issue — hidden until Ready to Schedule ─────────────────
             A quick task ("call customer", "order part") lives in the New/Notes

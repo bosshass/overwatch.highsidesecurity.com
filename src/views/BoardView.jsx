@@ -563,7 +563,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
-function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail }) {
+function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
@@ -703,21 +703,23 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail })
           </span>
           {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
         </div>
-        <div style={{ display:'flex', gap:5, flexShrink:0, alignItems:'center' }}>
-          {quickVerbs.length > 0 && (
-            <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-              title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-              style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
-              → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+        {!readOnly && (
+          <div style={{ display:'flex', gap:5, flexShrink:0, alignItems:'center' }}>
+            {quickVerbs.length > 0 && (
+              <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
+                title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
+                style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+                → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+              </button>
+            )}
+            {/* Escape hatch — any lane, without opening the drawer */}
+            <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
+              title="Move to any lane"
+              style={{ padding:'4px 7px', borderRadius:5, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1 }}>
+              {expandMoves ? '✕' : '⋯'}
             </button>
-          )}
-          {/* Escape hatch — any lane, without opening the drawer */}
-          <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
-            title="Move to any lane"
-            style={{ padding:'4px 7px', borderRadius:5, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1 }}>
-            {expandMoves ? '✕' : '⋯'}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* All-lanes accordion — stays inside stopPropagation so opening it
@@ -757,7 +759,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail })
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
-function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, accessToken, userEmail }) {
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ borderBottom: '1px solid #1e293b' }}>
@@ -780,7 +782,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
             ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
-            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} />)
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />)
           }
         </div>
       )}
@@ -788,7 +790,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
   );
 }
 
-function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, accessToken, userEmail }) {
+function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, accessToken, userEmail, readOnly }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ flex:1, minWidth:260, maxWidth:340, display:'flex', flexDirection:'column' }}>
@@ -803,7 +805,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
           ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
-          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} />)
+          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />)
         }
       </div>
     </div>
@@ -823,7 +825,7 @@ const STALE_PULSE_CSS = `
 // operator lands here now, so this is the walkthrough that matters most.
 // Spotlight walkthrough REMOVED 2026-08-20 — see src/App.jsx.
 
-export default function BoardView({ accessToken, onBack, userEmail, userName }) {
+export default function BoardView({ accessToken, onBack, userEmail, userName, readOnly }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
@@ -1304,7 +1306,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                 expanded={expandedCol===col.key}
                 onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
                 onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
-                accessToken={accessToken} userEmail={userEmail}
+                accessToken={accessToken} userEmail={userEmail} readOnly={readOnly}
               />
             </div>
           ))}
@@ -1313,7 +1315,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
             <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
-              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} accessToken={accessToken} userEmail={userEmail} />
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />
             </div>
           ))}
         </div>

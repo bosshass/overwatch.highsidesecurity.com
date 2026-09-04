@@ -93,6 +93,11 @@ const USER_CONFIG = {
   // and no task ownership, so adding a login here is only ONE of the six lists
   // that have to agree — see the others changed alongside this.
   'sara@drhsecurityservices.com':     { name: 'Sara',   role: 'tech',     defaultCalendar: 'Sara', defaultView: 'my' },
+  // ── VIEWER TIER ──────────────────────────────────────────────────────────────
+  // A viewer can sign in, see their own calendar, open the job dispo card from
+  // a booked event, and view the board in read-only mode.
+  // They CANNOT move cards, open the scheduler, or edit anything.
+  'whiting@drhsecurityservices.com':  { name: 'Whiting', role: 'viewer', defaultCalendar: 'Whiting', defaultView: 'calendar' },
 };
 
 // Identity options for shared logins like info@
@@ -773,6 +778,10 @@ export default function App() {
 
   const isOperator = getUserConfig(readAsEmail).role === 'operator';
 
+  // Viewer: own calendar + board read-only + dispo card. Can't move cards or
+  // open the scheduler. NOT in RESTRICTED_EMAILS (they'd lose the board entirely).
+  const isViewer = getUserConfig(readAsEmail).role === 'viewer';
+
   // Super admin + the lens they're currently looking through.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
 
@@ -1102,6 +1111,8 @@ export default function App() {
 
   // ── ROUTE GUARDS ────────────────────────────────────────────────────────
   const OperatorOnly = ({ children }) => isOperator ? children : <Navigate to="/" replace />;
+  // Viewers can reach the board in read-only mode; operators get it fully interactive.
+  const OperatorOrViewer = ({ children }) => (isOperator || isViewer) ? children : <Navigate to="/" replace />;
 
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
@@ -1251,7 +1262,7 @@ export default function App() {
             whole shop, every customer, every dollar figure. View-as Austin made
             that visible, but a tech on his own phone had the same access.
             OperatorOnly already existed and guards four other routes. */}
-        <Route path="/board" element={<OperatorOnly><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/board" element={<OperatorOrViewer><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} readOnly={isViewer && !isOperator} /></ViewShell></OperatorOrViewer>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}

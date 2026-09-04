@@ -39,6 +39,10 @@ export const CALENDARS = {
   // Overwatch that event had no card and no tech.
   TREVOR:                'c_a5b141d2a4936b6e90c779694ce3ca7e01031bd8f7454cd0c98ba4a4157e8872@group.calendar.google.com',
   SHANA:                 'shanaparks@drhsecurityservices.com',
+  // ⚠ Confirm this ID in Google Calendar → Whiting → Settings → Integrate calendar
+  // if events don't appear. The email-as-ID pattern works for primary calendars
+  // (same as Shana's above) but breaks for group calendars.
+  WHITING:               'whiting@drhsecurityservices.com',
   SUBS:                  'c_ef1cf02ebba19919b78be38a9c5d2603ef52a838ac4bb37253fd69d718cdcb5c@group.calendar.google.com',
 };
 
@@ -72,6 +76,7 @@ const SHANA_EMAILS   = ['shanaparks@drhsecurityservices.com'];
 const SARA_EMAILS    = ['sara@drhsecurityservices.com'];
 const TREVOR_EMAILS  = ['trevor@drhsecurityservices.com'];
 const SUBS_EMAILS    = ['subs@drhsecurityservices.com'];
+const WHITING_EMAILS = ['whiting@drhsecurityservices.com'];
 
 // All calendars — order determines display order in filter chips
 export const SYNC_CALENDARS = [
@@ -126,6 +131,13 @@ export const SYNC_CALENDARS = [
     type: 'tech',
     // Subs sees own; Austin also sees Subs
     visibleTo: [...SUBS_EMAILS, ...AUSTIN_EMAILS],
+  },
+  {
+    id: CALENDARS.WHITING,
+    name: 'Whiting',
+    type: 'tech',
+    // Viewer: Whiting sees his own calendar only
+    visibleTo: WHITING_EMAILS,
   },
   {
     id: CALENDARS.INSTALLATIONS,
@@ -231,7 +243,8 @@ export function getWorkViewCalendars(email) {
     { id: CALENDARS.JR,            name: 'JR' },
     { id: CALENDARS.INSTALLATIONS, name: 'Installations' },
   ];
-  if (SUBS_EMAILS.includes(e))   return [{ id: CALENDARS.SUBS, name: 'Subs' }];
+  if (SUBS_EMAILS.includes(e))     return [{ id: CALENDARS.SUBS, name: 'Subs' }];
+  if (WHITING_EMAILS.includes(e)) return [{ id: CALENDARS.WHITING, name: 'Whiting' }];
 
   return [];
 }
@@ -253,6 +266,7 @@ export const TECH_CALENDAR_MAP = {
   // calendar stayed empty in Overwatch's eyes.
   'trevor@drhsecurityservices.com':     CALENDARS.TREVOR,
   'subs@drhsecurityservices.com':       CALENDARS.SUBS,
+  'whiting@drhsecurityservices.com':    CALENDARS.WHITING,
 };
 
 export function getTechCalendarId(techOrEmail) {
@@ -274,4 +288,5 @@ export const TECH_COLORS = {
   'Trevor':               '#8E24AA',
   'Subs':                 '#EC4899',
   'Sales & Accounting':   '#039BE5',
+  'Whiting':              '#14b8a6',
 };

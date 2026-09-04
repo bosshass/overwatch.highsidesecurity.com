@@ -21,7 +21,7 @@ import { appendNoteToJobEvents } from '../services/calendarSync.js';
 // about the client belongs on the client, so the button navigates there
 // instead of writing here: deep-linked to the customer when the job has one,
 // and to the client search when it does not.
-export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null, readOnly = false }) {
+export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null, readOnly = false, hideFieldNotes = false }) {
   const navigate = useNavigate();
   const [notes, setNotes] = useState([]);
   const [activity, setActivity] = useState([]);
@@ -112,7 +112,10 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         return true;
       });
 
-      setNotes(deduped.filter(n => !isBookkeeping(n.text)));
+      // hideFieldNotes = FieldVisits already shows time_entry notes as visit
+      // cards on the same surface — showing them again here is the duplicate.
+      const nonBookkeeping = deduped.filter(n => !isBookkeeping(n.text));
+      setNotes(hideFieldNotes ? nonBookkeeping.filter(n => n.source !== 'field') : nonBookkeeping);
       setActivity(deduped.filter(n => isBookkeeping(n.text)));
     } catch (e) {
       console.error('Notes load error:', e);

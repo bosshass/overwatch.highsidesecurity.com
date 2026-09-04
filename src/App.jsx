@@ -580,7 +580,37 @@ export default function App() {
       const client = getTokenClient();
       if (!client) return resolve(false);
       const done = (ok) => { clearTimeout(timer); resolve(ok); };
-      const timer = setTimeout(() => done(false), 10000);
+      // On mobile, requestAccessToken opens a popup when Google can't
+      // satisfy the request from cookies. Popups are blocked by the OS outside
+      // a user gesture, so the callback never fires and the timer fires instead.
+      // Before giving up, verify the token with tokeninfo — a plain GET that
+      // works without a popup. If the token is still alive (common: the popup
+      // was blocked even though the token hadn't expired yet), extend our stored
+      // expiry and return true so callers don't raise the reconnect gate over a
+      // perfectly good session.
+      const timer = setTimeout(async () => {
+        const tok = localStorage.getItem('juce_v4_token');
+        if (tok) {
+          try {
+            const res = await fetch(
+              `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(tok)}`
+            );
+            if (res.ok) {
+              const info = await res.json();
+              const left = Number(info.expires_in);
+              if (Number.isFinite(left) && left > 60) {
+                // Token still valid — update the expiry so future checks are
+                // accurate, and report success without needing the popup.
+                localStorage.setItem('juce_v4_token_expiry',
+                  new Date(Date.now() + left * 1000).toISOString());
+                done(true);
+                return;
+              }
+            }
+          } catch { /* network error — fall through to done(false) */ }
+        }
+        done(false);
+      }, 10000);
       client.callback = (resp) => {
         if (resp?.access_token) {
           // Store the REAL lifetime Google gives us, not a made-up 36 hours.

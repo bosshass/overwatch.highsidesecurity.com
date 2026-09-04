@@ -116,7 +116,7 @@ export function timeEntryToPayload(v, baseDate) {
 export const emptyTimeEntry = () => ({ ...EMPTY });
 
 // ── component ──────────────────────────────────────────────────
-export default function TimeEntryBlock({ value, onChange, eventDate, required = true }) {
+export default function TimeEntryBlock({ value, onChange, eventDate, required = true, hideClock = false }) {
   const v = value || EMPTY;
   const set = (patch) => onChange({ ...v, ...patch });
 
@@ -170,16 +170,19 @@ export default function TimeEntryBlock({ value, onChange, eventDate, required = 
         style={inp}
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 2px' }}>
-        <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>or clock in / out</span>
-        <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <input value={v.timeIn}  onChange={e => set({ timeIn: e.target.value })}  placeholder="In · 9:30"   style={inp} />
-        <input value={v.timeOut} onChange={e => set({ timeOut: e.target.value })} placeholder="Out · 11:00" style={inp} />
-      </div>
+      {!hideClock && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 2px' }}>
+            <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>or clock in / out</span>
+            <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <input value={v.timeIn}  onChange={e => set({ timeIn: e.target.value })}  placeholder="In · 9:30"   style={inp} />
+            <input value={v.timeOut} onChange={e => set({ timeOut: e.target.value })} placeholder="Out · 11:00" style={inp} />
+          </div>
+        </>
+      )}
 
       {required && !valid && (
         <div style={{ marginTop: 10, fontSize: 13, color: '#b45309' }}>

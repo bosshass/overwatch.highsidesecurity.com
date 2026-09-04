@@ -621,19 +621,24 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
         </div>
       )}
 
-      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{stripIntakeTemplate(job.issue)||'no issue noted'}</div>
-
-      {/* THE STICKY LINE — who owns it, when it hit the board, how stale it is.
-          This never truncates and never collapses; it's the whole point of the card. */}
+      {/* THE STICKY LINE — added date, last-touched date, scheduled date, stale flag.
+          Description removed — the issue lives inside the ticket. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-        {/* assigneeOf(), NOT job.tech_name. Assigning writes assigned_to; this
-            line read tech_name, so every assignment made since migration 030
-            left the card still reading "Unassigned". Two columns, one meaning,
-            and the card was reading the wrong one. */}
         {(() => { const who = assigneeOf(job); return who
           ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
-          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>; })()}
-        <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
+          : null; })()}
+        <span style={{ fontSize:12, color:'#64748b' }}>added {ageLabel(job.created_at)}</span>
+        {(job.last_note_at || job.updated_at) && (() => {
+          const ts = job.last_note_at || job.updated_at;
+          const d  = new Date(ts);
+          const isToday = d.toDateString() === new Date().toDateString();
+          const label   = isToday
+            ? 'today'
+            : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          return (
+            <span style={{ fontSize:12, color:'#94a3b8' }}>· updated {label}</span>
+          );
+        })()}
         {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
             scheduled date — a hold is not a booking, and the day two crews turn
             up in one place is the day those two things looked alike. */}

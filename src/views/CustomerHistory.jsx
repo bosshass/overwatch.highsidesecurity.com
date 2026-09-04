@@ -365,14 +365,43 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     if (!taskTitle.trim() || !selected) return;
     setSaving(true); setErr('');
     try {
+      // Resolve the selected tech's email — ownership.assigneeOf() and TaskStack
+      // both use email strings, not integer IDs. Writing only to job_assignments
+      // (integer FK) left jobs.assigned_to null, so the board card showed no
+      // owner and TicketSheet locked the "Send task" button with "Nobody is
+      // assigned yet".
+      const assignedTech = taskAssignee ? techs.find(t => t.id === taskAssignee) : null;
+      const techEmail = assignedTech?.email || null;
+
       const job = await jobsApi.create({
         customer_name: selected.name, customer_address: selected.address || '',
         customer_id: selected.id, job_type: 'task', priority: 'normal',
         issue: taskTitle.trim(), status: JOB_STATUS.NEW,
+        assigned_to: techEmail,   // required by assigneeOf() + TicketSheet
       }, me);
+
       if (taskAssignee && job?.id) {
         await assignmentsApi.create({ job_id: job.id, tech_id: taskAssignee, scheduled_for: null }, me);
       }
+
+      // TaskStack queries the `notes` table (lane='todo', assigned_to IS NOT NULL).
+      // CustomerHistory tasks were invisible there because no notes row was ever
+      // created. Write one now, linked to the job, so the task surfaces in every
+      // view that uses the canonical notes path.
+      if (techEmail && job?.id) {
+        await supabase.from('notes').insert({
+          body: taskTitle.trim(),
+          job_id: job.id,
+          customer_id: selected.id,
+          author_email: me,
+          assigned_to: techEmail,
+          assigned_by: me,
+          lane: 'todo',
+          status: 'open',
+          on_customer_record: true,
+        });
+      }
+
       setTaskTitle(''); setTaskAssignee(''); setCreateMode(null); refreshWork();
     } catch (e) { setErr(e.message || 'Failed to create task'); }
     finally { setSaving(false); }

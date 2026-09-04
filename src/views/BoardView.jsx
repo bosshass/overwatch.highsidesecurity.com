@@ -621,8 +621,18 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
         </div>
       )}
 
-      {/* THE STICKY LINE — added date, last-touched date, scheduled date, stale flag.
-          Description removed — the issue lives inside the ticket. */}
+      {/* For note/task type jobs the issue text IS the card — there is no separate
+          ticket body the operator can open to read it. Show it capped at two lines
+          so the context is visible on the board without opening the drawer. */}
+      {(job.job_type === 'note' || job.job_type === 'task') && job.issue && (
+        <div style={{ fontSize:12, color:'#cbd5e1', marginBottom:6, lineHeight:1.4,
+                      overflow:'hidden', display:'-webkit-box',
+                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+          {job.issue}
+        </div>
+      )}
+
+      {/* THE STICKY LINE — added date, last-touched date, scheduled date, stale flag. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
         {(() => { const who = assigneeOf(job); return who
           ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>

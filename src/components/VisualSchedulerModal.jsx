@@ -97,6 +97,10 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // Second (third…) tech riding the same booking — "preferably two techs" is a
   // real request that used to require booking twice by hand.
   const [helperIds, setHelperIds] = useState([]);
+  // Return visits need a brief: "what are we doing?" so it lands in the GCal
+  // event description and the tech doesn't show up with no context.
+  const [returnBrief, setReturnBrief] = useState('');
+  const isReturn = job?.status === 'return_pending';
 
   const validTechs = (techs || []).filter(t => t.calendar_id);
 
@@ -278,6 +282,21 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
     setSaving(true); setErr('');
     try {
+      // For return visits: write the "what are we doing" brief as a job_history
+      // note BEFORE booking so it becomes the latest note in the GCal event
+      // description — otherwise the tech shows up with no context.
+      if (isReturn && returnBrief.trim()) {
+        try {
+          await supabase.from('job_history').insert({
+            job_id: job.id,
+            from_status: job.status,
+            to_status: job.status,
+            changed_by: userEmail || 'unknown',
+            notes: `🔄 Return visit: ${returnBrief.trim()}`,
+          });
+        } catch (e) { console.warn('return brief note failed (non-fatal):', e?.message); }
+      }
+
       // ONE write path (services/schedule.js). This modal used to hand-write
       // jobs + calendar + memory columns itself — one of several writers whose
       // subsets disagreed. Now everything that means "scheduled" changes
@@ -574,6 +593,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                     style={{ flex: 1, background: '#0b1420', border: '1px solid #2a3f5c', borderRadius: 8,
                              color: '#e2e8f0', padding: '9px 10px', fontSize: 14, outline: 'none' }} />
                 </div>
+
+                {/* Return brief — required context for return visits.
+                    Without this the tech shows up and has to call to find out
+                    what they're actually doing. The brief goes into the GCal
+                    event as the latest note. */}
+                {isReturn && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      🔄 What are we doing on this return?
+                    </div>
+                    <textarea
+                      value={returnBrief}
+                      onChange={e => setReturnBrief(e.target.value)}
+                      placeholder="e.g. Install the replacement panel board, check PIRs in back office"
+                      rows={2}
+                      style={{ width: '100%', background: '#0b1420', border: `1px solid ${returnBrief.trim() ? '#22c55e' : '#f59e0b'}`,
+                               borderRadius: 8, color: '#e2e8f0', padding: '8px 10px', fontSize: 13,
+                               outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                )}
 
                 {/* Riding along — optional extra techs. Primary owns the booking;
                     helpers get the same event mirrored to their calendars. */}

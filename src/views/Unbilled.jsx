@@ -27,6 +27,7 @@ import { canBill, canSeeBillingFields } from '../utils/ownership.js';
 import ProjectPanel from '../components/ProjectPanel.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
+import TicketSheet from '../components/TicketSheet.jsx';
 
 
 // ── BUCKETS ──────────────────────────────────────────────────────────
@@ -156,7 +157,30 @@ function FixedFeeProjects({ userEmail }) {
   );
 }
 
-export default function Unbilled({ onBack, userEmail }) {
+// Thin drawer shell — same pattern as DetailDrawer in BoardView.
+// No new logic. TicketSheet handles notes, tasks, history, status moves.
+function BillingDrawer({ job, userEmail, accessToken, onClose }) {
+  return (
+    <div onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.75)', zIndex:900,
+               display:'flex', justifyContent:'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width:'100%', maxWidth:560, background:'#0f1729', overflowY:'auto',
+                 borderLeft:'1px solid #2a3b56' }}>
+        <TicketSheet
+          job={job}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          onClose={onClose}
+          onMove={async () => {}}
+          onUpdated={() => {}}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // ── TECH FILTER ─────────────────────────────────────────────────────
   // Driven by ?tech= so the calendar can hand off directly: tapping a tech's
   // utilisation column lands here already scoped to their unbilled work,
@@ -208,6 +232,9 @@ export default function Unbilled({ onBack, userEmail }) {
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnNote, setReturnNote] = useState('');
   const [returnCreateCard, setReturnCreateCard] = useState(false);
+  // TicketSheet drawer — same shell as DetailDrawer in BoardView.
+  // Notes, tasks, history for the job linked to the expanded billing group.
+  const [drawerJob, setDrawerJob] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -1223,6 +1250,30 @@ export default function Unbilled({ onBack, userEmail }) {
 
               {open && !g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+                  {/* ── JOB CONTEXT ─────────────────────────────────────────────
+                      Show which board ticket this group belongs to. "Open ticket →"
+                      opens the same TicketSheet drawer the board uses — same component,
+                      same shell, no new code. Notes and tasks live there. */}
+                  {g.job && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px',
+                                  marginBottom:8, background:'#0d1f38', borderRadius:8,
+                                  border:'1px solid #1e3a5f' }}>
+                      <span style={{ fontSize:12, color:'#7dd3fc', fontWeight:700, flex:1,
+                                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        🎫 {g.job.customer_name}
+                        {g.shortCode && <span style={{ color:'#00c8e8', marginLeft:5 }}>{g.shortCode}</span>}
+                        <span style={{ color:'#475569', fontWeight:400, marginLeft:8 }}>
+                          · {STATUS_INFO[g.job.status]?.label || g.job.status}
+                        </span>
+                      </span>
+                      <button onClick={() => setDrawerJob(g.job)}
+                        style={{ background:'#1d4ed8', border:'none', borderRadius:7, color:'#fff',
+                                 fontSize:12, fontWeight:700, padding:'5px 11px', cursor:'pointer',
+                                 whiteSpace:'nowrap', fontFamily:'inherit' }}>
+                        Open ticket →
+                      </button>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
                     <button onClick={() => pickAll(g)}
                       style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
@@ -1278,6 +1329,36 @@ export default function Unbilled({ onBack, userEmail }) {
                       </div>
                     );
                   })}
+                  {/* ── PER-CARD ACTIONS ─────────────────────────────────────────
+                      Merge and FF are also in the global selection bar, but that bar
+                      only appears after you tick a row. These surface the same actions
+                      without requiring the checkbox dance when you know what group
+                      you want to act on. openMerge works off g.visits directly.
+                      "Create FF project" pre-selects the group so createProject sees
+                      the right sel.rows when the modal's submit fires. */}
+                  {g.job && (
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10,
+                                  paddingTop:8, borderTop:'1px solid #1e293b' }}>
+                      <button onClick={() => openMerge(g)} disabled={saving}
+                        style={{ background:'none', border:'1px solid #7c3aed', borderRadius:8,
+                                 color:'#c4b5fd', fontSize:12.5, fontWeight:700,
+                                 padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
+                        🔗 Merge into a job
+                      </button>
+                      <button
+                        onClick={() => {
+                          pickAll(g);
+                          setNewProj({ name: g.name === 'Unknown' ? '' : (g.name || ''), hours: '' });
+                          setMergeOpen(g);
+                        }}
+                        disabled={saving}
+                        style={{ background:'none', border:'1px solid #8b5cf6', borderRadius:8,
+                                 color:'#c4b5fd', fontSize:12.5, fontWeight:700,
+                                 padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
+                        📐 Create FF project
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1472,6 +1553,15 @@ export default function Unbilled({ onBack, userEmail }) {
             </div>
           </div>
         </div>
+      )}
+
+      {drawerJob && (
+        <BillingDrawer
+          job={drawerJob}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          onClose={() => setDrawerJob(null)}
+        />
       )}
 
       {/* Selection bar — everything ticked, across every customer */}

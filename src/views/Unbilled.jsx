@@ -27,6 +27,7 @@ import { canBill, canSeeBillingFields } from '../utils/ownership.js';
 import ProjectPanel from '../components/ProjectPanel.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
+import TicketSheet from '../components/TicketSheet.jsx';
 
 
 // ── BUCKETS ──────────────────────────────────────────────────────────
@@ -156,7 +157,30 @@ function FixedFeeProjects({ userEmail }) {
   );
 }
 
-export default function Unbilled({ onBack, userEmail }) {
+// Thin drawer shell — same pattern as DetailDrawer in BoardView.
+// No new logic. TicketSheet handles notes, tasks, history, status moves.
+function BillingDrawer({ job, userEmail, accessToken, onClose }) {
+  return (
+    <div onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.75)', zIndex:900,
+               display:'flex', justifyContent:'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width:'100%', maxWidth:560, background:'#0f1729', overflowY:'auto',
+                 borderLeft:'1px solid #2a3b56' }}>
+        <TicketSheet
+          job={job}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          onClose={onClose}
+          onMove={async () => {}}
+          onUpdated={() => {}}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // ── TECH FILTER ─────────────────────────────────────────────────────
   // Driven by ?tech= so the calendar can hand off directly: tapping a tech's
   // utilisation column lands here already scoped to their unbilled work,
@@ -208,6 +232,9 @@ export default function Unbilled({ onBack, userEmail }) {
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnNote, setReturnNote] = useState('');
   const [returnCreateCard, setReturnCreateCard] = useState(false);
+  // TicketSheet drawer — same shell as DetailDrawer in BoardView.
+  // Notes, tasks, history for the job linked to the expanded billing group.
+  const [drawerJob, setDrawerJob] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -1223,26 +1250,78 @@ export default function Unbilled({ onBack, userEmail }) {
 
               {open && !g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+                  {/* ── CUSTOMER TOTAL — the whole picture, not just this bucket ──
+                      A customer's unbilled hours live in multiple buckets by design.
+                      Show the full count first so you know what you're dealing with
+                      before you touch a single row. The grab-all button is the
+                      primary action: select everything at once, then decide. */}
+                  {(() => {
+                    const t = clientTotal(g);
+                    if (t.groups < 2) return null;
+                    // Which buckets hold this customer's other hours?
+                    const mine = groups.filter(x => g.customerId
+                      ? x.customerId === g.customerId
+                      : (x.name || '').toLowerCase() === (g.name || '').toLowerCase());
+                    const bucketSummary = mine
+                      .map(x => `${BUCKET_BY_KEY[x.bucket]?.label || x.bucket}: ${x.visits.length}`)
+                      .join(' · ');
+                    const allGrabbed = t.visits > 0 &&
+                      mine.flatMap(x => x.visits).every(v => picked.has(v.id));
+                    return (
+                      <div style={{ background:'#130e23', border:'1px solid #4c1d95',
+                                    borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
+                        <div style={{ fontSize:12, color:'#a78bfa', fontWeight:700, marginBottom:4 }}>
+                          {g.name} · {t.visits} total unbilled {t.visits === 1 ? 'entry' : 'entries'} · {fmtH(t.hours)}
+                        </div>
+                        <div style={{ fontSize:11, color:'#64748b', marginBottom:8, lineHeight:1.5 }}>
+                          {bucketSummary}
+                        </div>
+                        <button onClick={() => pickAllForClient(g)}
+                          style={{ background: allGrabbed ? '#4c1d95' : '#7c3aed', border:'none',
+                                   borderRadius:8, color:'#fff', fontSize:13, fontWeight:800,
+                                   padding:'8px 14px', cursor:'pointer', fontFamily:'inherit',
+                                   width:'100%', textAlign:'left' }}>
+                          {allGrabbed
+                            ? `✓ All ${t.visits} entries selected (${fmtH(t.hours)}) — pick an action below`
+                            : `Grab all ${t.visits} entries (${fmtH(t.hours)}) → then bill · merge · or clear`}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                  {/* ── JOB CONTEXT ─────────────────────────────────────────────
+                      Which board ticket these entries belong to.
+                      "Open ticket →" opens TicketSheet — same component as the board.
+                      Notes, tasks, and history live there. */}
+                  {g.job && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px',
+                                  marginBottom:8, background:'#0d1f38', borderRadius:8,
+                                  border:'1px solid #1e3a5f' }}>
+                      <span style={{ fontSize:12, color:'#7dd3fc', fontWeight:700, flex:1,
+                                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        🎫 {g.job.customer_name}
+                        {g.shortCode && <span style={{ color:'#00c8e8', marginLeft:5 }}>{g.shortCode}</span>}
+                        <span style={{ color:'#475569', fontWeight:400, marginLeft:8 }}>
+                          · {STATUS_INFO[g.job.status]?.label || g.job.status}
+                        </span>
+                      </span>
+                      <button onClick={() => setDrawerJob(g.job)}
+                        style={{ background:'#1d4ed8', border:'none', borderRadius:7, color:'#fff',
+                                 fontSize:12, fontWeight:700, padding:'5px 11px', cursor:'pointer',
+                                 whiteSpace:'nowrap', fontFamily:'inherit' }}>
+                        Open ticket →
+                      </button>
+                    </div>
+                  )}
+                  {/* This bucket's entries */}
+                  <div style={{ fontSize:11, color:'#475569', fontWeight:700, letterSpacing:'0.06em',
+                                textTransform:'uppercase', marginBottom:6 }}>
+                    {BUCKET_BY_KEY[g.bucket]?.label || g.bucket} — {g.visits.length} {g.visits.length === 1 ? 'entry' : 'entries'}
+                  </div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
                     <button onClick={() => pickAll(g)}
                       style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
-                      {allPicked ? 'Deselect all' : 'Select all visits'}
+                      {allPicked ? 'Deselect all' : 'Select these'}
                     </button>
-                    {/* "Grab all the hours of the client." A customer's unbilled
-                        time is split across buckets by design, so ticking one
-                        group at a time is how you miss the two sitting under a
-                        different heading — which are usually the ones a project
-                        is meant to gather up. Only shown when there ARE others. */}
-                    {(() => {
-                      const t = clientTotal(g);
-                      if (t.groups < 2) return null;
-                      return (
-                        <button onClick={() => pickAllForClient(g)}
-                          style={{ background: 'none', border: '1px solid #7c3aed', borderRadius: 6, color: '#c4b5fd', fontSize: 12, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          Grab all {t.visits} of {g.name}'s hours ({fmtH(t.hours)})
-                        </button>
-                      );
-                    })()}
                   </div>
 
                   {g.visits.map(v => {
@@ -1278,6 +1357,91 @@ export default function Unbilled({ onBack, userEmail }) {
                       </div>
                     );
                   })}
+                  {/* ── OTHER BUCKETS' ENTRIES FOR THIS CUSTOMER ─────────────────
+                      The current tab only shows one slice. If the same customer has
+                      entries in other buckets, show them here too — same visit rows,
+                      just labelled with their bucket. "I see the one of two" — both
+                      rows, visible in one place. */}
+                  {(() => {
+                    const others = groups.filter(x =>
+                      x.key !== g.key && !x.noEntries &&
+                      (g.customerId
+                        ? x.customerId === g.customerId
+                        : (x.name || '').toLowerCase() === (g.name || '').toLowerCase())
+                    );
+                    if (!others.length) return null;
+                    return others.map(og => (
+                      <div key={og.key} style={{ marginTop:10, paddingTop:8, borderTop:'1px dashed #1e293b' }}>
+                        <div style={{ fontSize:11, color: BUCKET_BY_KEY[og.bucket]?.color || '#94a3b8',
+                                      fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', marginBottom:6 }}>
+                          {BUCKET_BY_KEY[og.bucket]?.label || og.bucket} — {og.visits.length} {og.visits.length === 1 ? 'entry' : 'entries'}
+                        </div>
+                        {og.visits.map(v => {
+                          const h = hrs(v.total_minutes);
+                          const on = picked.has(v.id);
+                          const sus = h > SUSPICIOUS_HOURS;
+                          return (
+                            <div key={v.id} onClick={() => toggle(v.id)}
+                              style={{ display:'flex', gap:10, padding:'8px 9px', borderRadius:8, marginBottom:6, cursor:'pointer',
+                                       background: on ? '#0e293f' : '#0f172a', border:`1px solid ${on ? '#00c8e8' : sus ? '#ef4444' : '#1e293b'}` }}>
+                              <span style={{ color: on ? '#00c8e8' : '#475569', fontSize:15 }}>{on ? '☑' : '☐'}</span>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>
+                                  {fmtD(v.event_start)} · {v.tech_name || 'unknown tech'}
+                                  {v.disposition && <span style={{ color:'#94a3b8', fontWeight:400 }}> · {v.disposition.replace('_',' ')}</span>}
+                                </div>
+                                {maySeeBillingFields && (v.invoice_ref || v.invoice_amount != null) && (
+                                  <div style={{ fontSize:11.5, color:'#7dd3fc', marginTop:2 }}>
+                                    {v.invoice_ref && <span>Inv: {v.invoice_ref}</span>}
+                                    {v.invoice_amount != null && <span style={{ color:'#4ade80' }}>{v.invoice_ref ? ' · ' : ''}${Number(v.invoice_amount).toFixed(2)}</span>}
+                                  </div>
+                                )}
+                                {v.event_title && <div style={{ fontSize:12, color:'#94a3b8' }}>{v.event_title}</div>}
+                                {v.notes && <div style={{ fontSize:12, color:'#cbd5e1', marginTop:3, whiteSpace:'pre-wrap' }}>{v.notes}</div>}
+                                {v.materials && v.materials.trim() && (
+                                  <div style={{ fontSize:12, color:'#fbbf24', marginTop:3, background:'#78350f33', borderRadius:5, padding:'4px 7px' }}>
+                                    🔧 {v.materials.trim()}
+                                  </div>
+                                )}
+                                {sus && <div style={{ fontSize:12, color:'#ef4444', marginTop:3 }}>⚠️ {fmtH(h)} — somebody probably never clocked out</div>}
+                              </div>
+                              <span style={{ fontSize:14, fontWeight:800, color: sus ? '#ef4444' : '#22c55e', whiteSpace:'nowrap' }}>{fmtH(h)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ));
+                  })()}
+                  {/* ── PER-CARD ACTIONS ─────────────────────────────────────────
+                      Merge and FF are also in the global selection bar, but that bar
+                      only appears after you tick a row. These surface the same actions
+                      without requiring the checkbox dance when you know what group
+                      you want to act on. openMerge works off g.visits directly.
+                      "Create FF project" pre-selects the group so createProject sees
+                      the right sel.rows when the modal's submit fires. */}
+                  {g.job && (
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10,
+                                  paddingTop:8, borderTop:'1px solid #1e293b' }}>
+                      <button onClick={() => openMerge(g)} disabled={saving}
+                        style={{ background:'none', border:'1px solid #7c3aed', borderRadius:8,
+                                 color:'#c4b5fd', fontSize:12.5, fontWeight:700,
+                                 padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
+                        🔗 Merge into a job
+                      </button>
+                      <button
+                        onClick={() => {
+                          pickAll(g);
+                          setNewProj({ name: g.name === 'Unknown' ? '' : (g.name || ''), hours: '' });
+                          setMergeOpen(g);
+                        }}
+                        disabled={saving}
+                        style={{ background:'none', border:'1px solid #8b5cf6', borderRadius:8,
+                                 color:'#c4b5fd', fontSize:12.5, fontWeight:700,
+                                 padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
+                        📐 Create FF project
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1472,6 +1636,15 @@ export default function Unbilled({ onBack, userEmail }) {
             </div>
           </div>
         </div>
+      )}
+
+      {drawerJob && (
+        <BillingDrawer
+          job={drawerJob}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          onClose={() => setDrawerJob(null)}
+        />
       )}
 
       {/* Selection bar — everything ticked, across every customer */}

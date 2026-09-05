@@ -1357,6 +1357,61 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                       </div>
                     );
                   })}
+                  {/* ── OTHER BUCKETS' ENTRIES FOR THIS CUSTOMER ─────────────────
+                      The current tab only shows one slice. If the same customer has
+                      entries in other buckets, show them here too — same visit rows,
+                      just labelled with their bucket. "I see the one of two" — both
+                      rows, visible in one place. */}
+                  {(() => {
+                    const others = groups.filter(x =>
+                      x.key !== g.key && !x.noEntries &&
+                      (g.customerId
+                        ? x.customerId === g.customerId
+                        : (x.name || '').toLowerCase() === (g.name || '').toLowerCase())
+                    );
+                    if (!others.length) return null;
+                    return others.map(og => (
+                      <div key={og.key} style={{ marginTop:10, paddingTop:8, borderTop:'1px dashed #1e293b' }}>
+                        <div style={{ fontSize:11, color: BUCKET_BY_KEY[og.bucket]?.color || '#94a3b8',
+                                      fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', marginBottom:6 }}>
+                          {BUCKET_BY_KEY[og.bucket]?.label || og.bucket} — {og.visits.length} {og.visits.length === 1 ? 'entry' : 'entries'}
+                        </div>
+                        {og.visits.map(v => {
+                          const h = hrs(v.total_minutes);
+                          const on = picked.has(v.id);
+                          const sus = h > SUSPICIOUS_HOURS;
+                          return (
+                            <div key={v.id} onClick={() => toggle(v.id)}
+                              style={{ display:'flex', gap:10, padding:'8px 9px', borderRadius:8, marginBottom:6, cursor:'pointer',
+                                       background: on ? '#0e293f' : '#0f172a', border:`1px solid ${on ? '#00c8e8' : sus ? '#ef4444' : '#1e293b'}` }}>
+                              <span style={{ color: on ? '#00c8e8' : '#475569', fontSize:15 }}>{on ? '☑' : '☐'}</span>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>
+                                  {fmtD(v.event_start)} · {v.tech_name || 'unknown tech'}
+                                  {v.disposition && <span style={{ color:'#94a3b8', fontWeight:400 }}> · {v.disposition.replace('_',' ')}</span>}
+                                </div>
+                                {maySeeBillingFields && (v.invoice_ref || v.invoice_amount != null) && (
+                                  <div style={{ fontSize:11.5, color:'#7dd3fc', marginTop:2 }}>
+                                    {v.invoice_ref && <span>Inv: {v.invoice_ref}</span>}
+                                    {v.invoice_amount != null && <span style={{ color:'#4ade80' }}>{v.invoice_ref ? ' · ' : ''}${Number(v.invoice_amount).toFixed(2)}</span>}
+                                  </div>
+                                )}
+                                {v.event_title && <div style={{ fontSize:12, color:'#94a3b8' }}>{v.event_title}</div>}
+                                {v.notes && <div style={{ fontSize:12, color:'#cbd5e1', marginTop:3, whiteSpace:'pre-wrap' }}>{v.notes}</div>}
+                                {v.materials && v.materials.trim() && (
+                                  <div style={{ fontSize:12, color:'#fbbf24', marginTop:3, background:'#78350f33', borderRadius:5, padding:'4px 7px' }}>
+                                    🔧 {v.materials.trim()}
+                                  </div>
+                                )}
+                                {sus && <div style={{ fontSize:12, color:'#ef4444', marginTop:3 }}>⚠️ {fmtH(h)} — somebody probably never clocked out</div>}
+                              </div>
+                              <span style={{ fontSize:14, fontWeight:800, color: sus ? '#ef4444' : '#22c55e', whiteSpace:'nowrap' }}>{fmtH(h)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ));
+                  })()}
                   {/* ── PER-CARD ACTIONS ─────────────────────────────────────────
                       Merge and FF are also in the global selection bar, but that bar
                       only appears after you tick a row. These surface the same actions

@@ -1250,10 +1250,48 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
 
               {open && !g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+                  {/* ── CUSTOMER TOTAL — the whole picture, not just this bucket ──
+                      A customer's unbilled hours live in multiple buckets by design.
+                      Show the full count first so you know what you're dealing with
+                      before you touch a single row. The grab-all button is the
+                      primary action: select everything at once, then decide. */}
+                  {(() => {
+                    const t = clientTotal(g);
+                    if (t.groups < 2) return null;
+                    // Which buckets hold this customer's other hours?
+                    const mine = groups.filter(x => g.customerId
+                      ? x.customerId === g.customerId
+                      : (x.name || '').toLowerCase() === (g.name || '').toLowerCase());
+                    const bucketSummary = mine
+                      .map(x => `${BUCKET_BY_KEY[x.bucket]?.label || x.bucket}: ${x.visits.length}`)
+                      .join(' · ');
+                    const allGrabbed = t.visits > 0 &&
+                      mine.flatMap(x => x.visits).every(v => picked.has(v.id));
+                    return (
+                      <div style={{ background:'#130e23', border:'1px solid #4c1d95',
+                                    borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
+                        <div style={{ fontSize:12, color:'#a78bfa', fontWeight:700, marginBottom:4 }}>
+                          {g.name} · {t.visits} total unbilled {t.visits === 1 ? 'entry' : 'entries'} · {fmtH(t.hours)}
+                        </div>
+                        <div style={{ fontSize:11, color:'#64748b', marginBottom:8, lineHeight:1.5 }}>
+                          {bucketSummary}
+                        </div>
+                        <button onClick={() => pickAllForClient(g)}
+                          style={{ background: allGrabbed ? '#4c1d95' : '#7c3aed', border:'none',
+                                   borderRadius:8, color:'#fff', fontSize:13, fontWeight:800,
+                                   padding:'8px 14px', cursor:'pointer', fontFamily:'inherit',
+                                   width:'100%', textAlign:'left' }}>
+                          {allGrabbed
+                            ? `✓ All ${t.visits} entries selected (${fmtH(t.hours)}) — pick an action below`
+                            : `Grab all ${t.visits} entries (${fmtH(t.hours)}) → then bill · merge · or clear`}
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {/* ── JOB CONTEXT ─────────────────────────────────────────────
-                      Show which board ticket this group belongs to. "Open ticket →"
-                      opens the same TicketSheet drawer the board uses — same component,
-                      same shell, no new code. Notes and tasks live there. */}
+                      Which board ticket these entries belong to.
+                      "Open ticket →" opens TicketSheet — same component as the board.
+                      Notes, tasks, and history live there. */}
                   {g.job && (
                     <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px',
                                   marginBottom:8, background:'#0d1f38', borderRadius:8,
@@ -1274,26 +1312,16 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                       </button>
                     </div>
                   )}
+                  {/* This bucket's entries */}
+                  <div style={{ fontSize:11, color:'#475569', fontWeight:700, letterSpacing:'0.06em',
+                                textTransform:'uppercase', marginBottom:6 }}>
+                    {BUCKET_BY_KEY[g.bucket]?.label || g.bucket} — {g.visits.length} {g.visits.length === 1 ? 'entry' : 'entries'}
+                  </div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
                     <button onClick={() => pickAll(g)}
                       style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
-                      {allPicked ? 'Deselect all' : 'Select all visits'}
+                      {allPicked ? 'Deselect all' : 'Select these'}
                     </button>
-                    {/* "Grab all the hours of the client." A customer's unbilled
-                        time is split across buckets by design, so ticking one
-                        group at a time is how you miss the two sitting under a
-                        different heading — which are usually the ones a project
-                        is meant to gather up. Only shown when there ARE others. */}
-                    {(() => {
-                      const t = clientTotal(g);
-                      if (t.groups < 2) return null;
-                      return (
-                        <button onClick={() => pickAllForClient(g)}
-                          style={{ background: 'none', border: '1px solid #7c3aed', borderRadius: 6, color: '#c4b5fd', fontSize: 12, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          Grab all {t.visits} of {g.name}'s hours ({fmtH(t.hours)})
-                        </button>
-                      );
-                    })()}
                   </div>
 
                   {g.visits.map(v => {

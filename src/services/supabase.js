@@ -415,7 +415,8 @@ export const jobsApi = {
     // left alone.
     const SCHEDULER = 'shanaparks@drhsecurityservices.com';
     if (['ready_to_schedule', 'return_pending'].includes(newStatus)
-        && !['ready_to_schedule', 'return_pending'].includes(oldStatus)) {
+        && !['ready_to_schedule', 'return_pending'].includes(oldStatus)
+        && current?.job_type !== 'estimate') {   // estimates go to the estimate flow, not Shana's queue
       try {
         const { data: existing } = await supabase.from('notes')
           .select('id').eq('job_id', id).eq('assigned_to', SCHEDULER)

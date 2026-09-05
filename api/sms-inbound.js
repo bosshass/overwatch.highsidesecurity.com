@@ -161,12 +161,60 @@ export default async function handler(req, res) {
   const digits = last10(from);
 
   // Staff first: a reply from a tech is an internal note, not a client touch.
-  const staff = STAFF_BY_PHONE[from] || Object.entries(STAFF_BY_PHONE)
-    .find(([num]) => last10(num) === digits)?.[1];
+  // The static map covers the numbers already known; the techs table is the
+  // fallback so Austin, Trevor, Brian etc. resolve correctly without a code
+  // change every time someone's number is added or changes.
+  let staff = STAFF_BY_PHONE[from] || Object.entries(STAFF_BY_PHONE)
+    .find(([num]) => last10(num) === digits)?.[1] || null;
+
+  if (!staff && admin && digits) {
+    try {
+      const { data: techRows } = await admin
+        .from('techs')
+        .select('name, email, phone')
+        .not('phone', 'is', null)
+        .eq('is_active', true);
+      const hit = (techRows || []).find(t => last10(t.phone) === digits);
+      if (hit) staff = { name: hit.name, email: hit.email };
+    } catch (e) { console.warn('sms-inbound: techs phone lookup failed', e?.message || e); }
+  }
 
   try {
     let customer = null;
     let jobId = null;
+
+    if (staff) {
+      // A reply from a tech. "👍" means they saw the job notification —
+      // file it on their nearest scheduled job so Sara sees it in context.
+      //
+      // Match by tech_name ILIKE '%JR%' (or whatever the staff.name is).
+      // Prefer the next upcoming/today's job; if none is scheduled yet
+      // fall back to the most recently created live job for that tech.
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      try {
+        const { data: upcoming } = await admin
+          .from('jobs')
+          .select('id, customer_name, scheduled_date')
+          .ilike('tech_name', `%${staff.name}%`)
+          .in('status', ['scheduled', 'in_progress'])
+          .gte('scheduled_date', today.toISOString().slice(0, 10))
+          .order('scheduled_date', { ascending: true })
+          .limit(1);
+        jobId = upcoming?.[0]?.id || null;
+        // Nothing upcoming — grab the most recent live job they're on
+        if (!jobId) {
+          const { data: recent } = await admin
+            .from('jobs')
+            .select('id')
+            .ilike('tech_name', `%${staff.name}%`)
+            .not('status', 'in', '(dead,archived,lost,billed,complete)')
+            .order('updated_at', { ascending: false })
+            .limit(1);
+          jobId = recent?.[0]?.id || null;
+        }
+      } catch (e) { console.warn('sms-inbound: staff job lookup failed', e?.message || e); }
+    }
 
     if (!staff && digits) {
       // Match on the last 10 digits, in memory. Postgres cannot index a

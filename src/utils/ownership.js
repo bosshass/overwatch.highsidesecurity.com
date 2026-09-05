@@ -38,6 +38,7 @@ export const ASSIGNEES = [
   // STAFF_BY_PHONE there. Outbound is unaffected: that is keyed by email, and
   // the two rows have different emails.
   { email: 'subs@drhsecurityservices.com',        name: 'Subs',   phone: '7207500063' },
+  { email: 'whiting@drhsecurityservices.com',     name: 'Whiting', phone: null },
 ];
 export const PHONE_BY_EMAIL = Object.fromEntries(
   ASSIGNEES.filter(a => a.phone).map(a => [a.email, a.phone])

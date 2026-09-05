@@ -69,7 +69,7 @@ const USER_CONFIG = {
   // It isn't shared — it's JR's. The identity prompt is gone; it just signs
   // him in as himself. Sara reaches the app on admin@jnbservice.com and
   // sara@jnbllc.com, Shana on shanaparks@, so nobody loses a way in.
-  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'board' , needsIdentity: true },
+  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'calendar' , needsIdentity: true },
     // jr@ lands on HOME, not /work — he's the owner, and the tour we show him is
   // about My Tasks and the warning banner, both of which live there. NOTE his
   // role is still 'tech', so Admin Tools and the operator screens stay hidden
@@ -77,29 +77,34 @@ const USER_CONFIG = {
   // him an operator, jr@ makes him a tech, and it's the same person.
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'my' },
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
-  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
-  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
-  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
+  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'calendar' },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'calendar' },
+  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'calendar' },
   // defaultCalendar was 'Installations' — the shared install queue — so Trevor
   // signed in and landed on everyone's work instead of his own day. Austin
   // lands on Austin; Trevor lands on Trevor. He still SEES Installations
   // (config/calendars.js gives him both), it is just no longer where he starts.
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Trevor', defaultView: 'work' },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
-  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'board', superAdmin: true },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'calendar', superAdmin: true },
   // Sara on the DRH domain, as a TECH profile: her own calendar, My Day as the
   // landing, no board. She keeps admin@jnbservice.com and accounting@ for ops.
   // NOTE: an unknown email silently defaults to role 'tech' with no calendars
   // and no task ownership, so adding a login here is only ONE of the six lists
   // that have to agree — see the others changed alongside this.
   'sara@drhsecurityservices.com':     { name: 'Sara',   role: 'tech',     defaultCalendar: 'Sara', defaultView: 'my' },
+  // ── VIEWER TIER ──────────────────────────────────────────────────────────────
+  // A viewer can sign in, see their own calendar, open the job dispo card from
+  // a booked event, and view the board in read-only mode.
+  // They CANNOT move cards, open the scheduler, or edit anything.
+  'whiting@drhsecurityservices.com':  { name: 'Whiting', role: 'viewer', defaultCalendar: 'Whiting', defaultView: 'calendar' },
 };
 
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
-  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: 'board' },
+  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: 'calendar' },
   { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: 'my' },
-  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
+  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'calendar' },
 ];
 
 const CALENDAR_OPTIONS = [
@@ -458,8 +463,11 @@ export default function App() {
           .then(res => res.json())
           .then(data => {
             const email = data.email;
-            // Session lasts 36 hours — token refresh happens silently
-            const expiry = new Date(Date.now() + 36 * 60 * 60 * 1000);
+            // Session lasts 30 days — the Google token (1hr) refreshes silently
+            // so the Overwatch-level clock only matters if the browser is fully
+            // offline or the Google account is revoked. 36h was too short:
+            // operators left the app open overnight and hit the gate at 8am.
+            const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const config = getUserConfig(email);
 
             localStorage.setItem('juce_v4_token', token);
@@ -599,10 +607,13 @@ export default function App() {
               const info = await res.json();
               const left = Number(info.expires_in);
               if (Number.isFinite(left) && left > 60) {
-                // Token still valid — update the expiry so future checks are
-                // accurate, and report success without needing the popup.
+                // Token still valid — update both expiry fields. juce_v4_token_expiry
+                // keeps the pre-emptive renewal honest; juce_v4_expiry resets the
+                // 30-day session clock so the gate never fires over a live session.
                 localStorage.setItem('juce_v4_token_expiry',
                   new Date(Date.now() + left * 1000).toISOString());
+                localStorage.setItem('juce_v4_expiry',
+                  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
                 done(true);
                 return;
               }
@@ -617,12 +628,8 @@ export default function App() {
           const lifeMs = (Number(resp.expires_in) || 3600) * 1000;
           localStorage.setItem('juce_v4_token', resp.access_token);
           localStorage.setItem('juce_v4_token_expiry', new Date(Date.now() + lifeMs).toISOString());
-          // Also extend the 36-hour session so the session-expiry check doesn't
-          // re-raise the modal minutes after a successful silent refresh. If
-          // Google can silently provide a fresh token, the user is still signed
-          // in — there's no reason to let the Overwatch session clock expire
-          // independently.
-          localStorage.setItem('juce_v4_expiry', new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString());
+          // Reset the 30-day session clock on every successful refresh.
+          localStorage.setItem('juce_v4_expiry', new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
           setAccessToken(resp.access_token);
           done(true);
         } else done(false);
@@ -770,6 +777,10 @@ export default function App() {
   const isRestricted = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
 
   const isOperator = getUserConfig(readAsEmail).role === 'operator';
+
+  // Viewer: own calendar + board read-only + dispo card. Can't move cards or
+  // open the scheduler. NOT in RESTRICTED_EMAILS (they'd lose the board entirely).
+  const isViewer = getUserConfig(readAsEmail).role === 'viewer';
 
   // Super admin + the lens they're currently looking through.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
@@ -1100,6 +1111,8 @@ export default function App() {
 
   // ── ROUTE GUARDS ────────────────────────────────────────────────────────
   const OperatorOnly = ({ children }) => isOperator ? children : <Navigate to="/" replace />;
+  // Viewers can reach the board in read-only mode; operators get it fully interactive.
+  const OperatorOrViewer = ({ children }) => (isOperator || isViewer) ? children : <Navigate to="/" replace />;
 
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
@@ -1249,7 +1262,7 @@ export default function App() {
             whole shop, every customer, every dollar figure. View-as Austin made
             that visible, but a tech on his own phone had the same access.
             OperatorOnly already existed and guards four other routes. */}
-        <Route path="/board" element={<OperatorOnly><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/board" element={<OperatorOrViewer><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} readOnly={isViewer && !isOperator} /></ViewShell></OperatorOrViewer>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}

@@ -39,6 +39,10 @@ export const CALENDARS = {
   // Overwatch that event had no card and no tech.
   TREVOR:                'c_a5b141d2a4936b6e90c779694ce3ca7e01031bd8f7454cd0c98ba4a4157e8872@group.calendar.google.com',
   SHANA:                 'shanaparks@drhsecurityservices.com',
+  // ⚠ Confirm this ID in Google Calendar → Whiting → Settings → Integrate calendar
+  // if events don't appear. The email-as-ID pattern works for primary calendars
+  // (same as Shana's above) but breaks for group calendars.
+  WHITING:               'whiting@drhsecurityservices.com',
   SUBS:                  'c_ef1cf02ebba19919b78be38a9c5d2603ef52a838ac4bb37253fd69d718cdcb5c@group.calendar.google.com',
 };
 
@@ -72,6 +76,7 @@ const SHANA_EMAILS   = ['shanaparks@drhsecurityservices.com'];
 const SARA_EMAILS    = ['sara@drhsecurityservices.com'];
 const TREVOR_EMAILS  = ['trevor@drhsecurityservices.com'];
 const SUBS_EMAILS    = ['subs@drhsecurityservices.com'];
+const WHITING_EMAILS = ['whiting@drhsecurityservices.com'];
 
 // All calendars — order determines display order in filter chips
 export const SYNC_CALENDARS = [
@@ -86,14 +91,15 @@ export const SYNC_CALENDARS = [
     id: CALENDARS.AUSTIN,
     name: 'Austin',
     type: 'tech',
-    // Austin sees his own + Brian's + Subs per the work-view rule
-    visibleTo: AUSTIN_EMAILS,
+    // Austin sees his own + Brian's + Subs + Trevor (mutual visibility)
+    visibleTo: [...AUSTIN_EMAILS, ...TREVOR_EMAILS],
   },
   {
     id: CALENDARS.JR,
     name: 'JR',
     type: 'tech',
-    visibleTo: JR_EMAILS,
+    // JR sees his own; Trevor and Austin also see JR appointments per request
+    visibleTo: [...JR_EMAILS, ...TREVOR_EMAILS, ...AUSTIN_EMAILS],
   },
   {
     id: CALENDARS.TECH3,
@@ -107,10 +113,11 @@ export const SYNC_CALENDARS = [
     // theirs. It is `tech`, not `installations`: Installations is a shared
     // queue several people work out of, and treating Trevor's personal
     // calendar as that queue is what hid him.
+    // Trevor also sees Austin's calendar (mutual visibility per product spec).
     id: CALENDARS.TREVOR,
     name: 'Trevor',
     type: 'tech',
-    visibleTo: TREVOR_EMAILS,
+    visibleTo: [...TREVOR_EMAILS, ...AUSTIN_EMAILS],
   },
   {
     id: CALENDARS.SHANA,
@@ -124,6 +131,13 @@ export const SYNC_CALENDARS = [
     type: 'tech',
     // Subs sees own; Austin also sees Subs
     visibleTo: [...SUBS_EMAILS, ...AUSTIN_EMAILS],
+  },
+  {
+    id: CALENDARS.WHITING,
+    name: 'Whiting',
+    type: 'tech',
+    // Viewer: Whiting sees his own calendar only
+    visibleTo: WHITING_EMAILS,
   },
   {
     id: CALENDARS.INSTALLATIONS,
@@ -190,10 +204,10 @@ export function getVisibleCalendars(email, viewingAs) {
 //
 // Rules (per product spec):
 //   - Operators (info@, Sara, admin)  → Austin + JR + Brian (Tech3) + Trevor + Subs
-//   - Austin (restricted)             → Austin + Brian (Tech3) + Subs
+//   - Austin (restricted)             → Austin + JR + Brian (Tech3) + Trevor + Subs
 //   - Brian (restricted)              → Brian (Tech3) only
 //   - JR (restricted)                 → JR only
-//   - Trevor (restricted)             → Trevor + Installations
+//   - Trevor (restricted)             → Trevor + Austin + JR + Installations
 //   - Subs (restricted)               → Subs only
 //   - Shana (operator role)           → Austin + JR + Brian + Trevor + Subs (same as operators)
 //   - Anyone else                     → empty (caller should fall back to default)
@@ -213,21 +227,24 @@ export function getWorkViewCalendars(email) {
 
   if (AUSTIN_EMAILS.includes(e)) {
     return [
-      { id: CALENDARS.AUSTIN, name: 'Austin' },
-      { id: CALENDARS.TECH3,  name: 'Brian' },
-      { id: CALENDARS.SUBS,   name: 'Subs' },
+      { id: CALENDARS.AUSTIN,  name: 'Austin' },
+      { id: CALENDARS.JR,      name: 'JR' },
+      { id: CALENDARS.TECH3,   name: 'Brian' },
+      { id: CALENDARS.TREVOR,  name: 'Trevor' },
+      { id: CALENDARS.SUBS,    name: 'Subs' },
     ];
   }
   if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
   if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
-  // His own first, then Installations — he works out of both, the same way
-  // Austin sees his own plus Brian's and Subs'. Installations alone meant he
-  // could not see his own day.
+  // His own first, then Austin (mutual visibility), then JR, then Installations.
   if (TREVOR_EMAILS.includes(e)) return [
     { id: CALENDARS.TREVOR,        name: 'Trevor' },
+    { id: CALENDARS.AUSTIN,        name: 'Austin' },
+    { id: CALENDARS.JR,            name: 'JR' },
     { id: CALENDARS.INSTALLATIONS, name: 'Installations' },
   ];
-  if (SUBS_EMAILS.includes(e))   return [{ id: CALENDARS.SUBS, name: 'Subs' }];
+  if (SUBS_EMAILS.includes(e))     return [{ id: CALENDARS.SUBS, name: 'Subs' }];
+  if (WHITING_EMAILS.includes(e)) return [{ id: CALENDARS.WHITING, name: 'Whiting' }];
 
   return [];
 }
@@ -249,6 +266,7 @@ export const TECH_CALENDAR_MAP = {
   // calendar stayed empty in Overwatch's eyes.
   'trevor@drhsecurityservices.com':     CALENDARS.TREVOR,
   'subs@drhsecurityservices.com':       CALENDARS.SUBS,
+  'whiting@drhsecurityservices.com':    CALENDARS.WHITING,
 };
 
 export function getTechCalendarId(techOrEmail) {
@@ -270,4 +288,5 @@ export const TECH_COLORS = {
   'Trevor':               '#8E24AA',
   'Subs':                 '#EC4899',
   'Sales & Accounting':   '#039BE5',
+  'Whiting':              '#14b8a6',
 };

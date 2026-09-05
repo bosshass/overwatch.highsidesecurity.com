@@ -125,11 +125,18 @@ export async function archiveEvent(accessToken, sourceCalendarId, eventId) {
   }
 }
 
-// Get the latest note for a job (for event descriptions)
+// Auto-generated notes that add no information to a GCal event description.
+// "Job created" is the bootstrap entry every job gets on creation; the RECAP
+// lines are schedule audit markers written by logScheduleAction(). Neither
+// tells a tech anything useful in a calendar popup.
+const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job)/i;
+
+// Get the latest HUMAN-authored note for a job (for event descriptions).
 export async function getLatestNote(jobId) {
   try {
     const notes = await notesApi.getAllForJob(jobId);
-    return notes.length > 0 ? notes[0].text : '';
+    const human = notes.find(n => n.text && !AUTO_NOTE_RE.test(n.text.trim()));
+    return human?.text || '';
   } catch (e) {
     return '';
   }

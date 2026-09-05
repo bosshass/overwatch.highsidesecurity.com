@@ -66,6 +66,7 @@ async function logScheduleAction(jobId, action, byEmail, fromStatus, toStatus) {
 }
 import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote } from './calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
+import { sendSms, isSendable } from './sms.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -244,6 +245,38 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     beforeStatus,
     'scheduled',
   );
+
+  // ── Appointment notifications — fire-and-forget, never block a booking ──
+  // A failed text does not unwind a real booking; it just logs a warning.
+  if (accessToken) {
+    const dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const timeStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+    // Customer confirmation text
+    const customerPhone = job.customer_phone || job.site_contact_phone;
+    if (customerPhone && isSendable(customerPhone)) {
+      sendSms({
+        to: customerPhone,
+        message: `Your DRH Security Services appointment is scheduled for ${dateStr} at ${timeStr}. We'll see you then! – To opt out of these texts, reply STOP.`,
+        accessToken,
+      }).then(r => { if (!r.ok) console.warn('Customer confirmation SMS failed:', r.error); })
+        .catch(e => console.warn('Customer confirmation SMS error:', e?.message));
+    }
+
+    // Tech notification text — only when the tech has a phone on their row
+    const techPhone = tech.phone;
+    if (techPhone && isSendable(techPhone)) {
+      const issueSnip = (job.issue || '').slice(0, 100);
+      sendSms({
+        to: techPhone,
+        message: `📋 ${isReschedule ? 'Rescheduled' : 'New job'}: ${job.customer_name || 'customer'}\n📅 ${dateStr} at ${timeStr}\n📍 ${job.customer_address || 'see ticket'}${issueSnip ? `\nIssue: ${issueSnip}` : ''}`,
+        accessToken,
+      }).then(r => { if (!r.ok) console.warn('Tech notification SMS failed:', r.error); })
+        .catch(e => console.warn('Tech notification SMS error:', e?.message));
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   return { eventId: created?.id || null };
 }
 

@@ -15,7 +15,7 @@ import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
 import { LANES, RETURN_LANE, CLEAR_LANE, BLOCKED_LANE, isHeld, movesFor } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
-import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
+import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
@@ -563,7 +563,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
-function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, userEmail }) {
+function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
@@ -621,24 +621,23 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
         </div>
       )}
 
-      {/* THE STICKY LINE — added date, last-touched date, scheduled date, stale flag.
-          Description removed — the issue lives inside the ticket. */}
+      {/* For note/task type jobs the issue text IS the card — there is no separate
+          ticket body the operator can open to read it. Show it capped at two lines
+          so the context is visible on the board without opening the drawer. */}
+      {(job.job_type === 'note' || job.job_type === 'task') && job.issue && (
+        <div style={{ fontSize:12, color:'#cbd5e1', marginBottom:6, lineHeight:1.4,
+                      overflow:'hidden', display:'-webkit-box',
+                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+          {job.issue}
+        </div>
+      )}
+
+      {/* THE STICKY LINE — added date, assignee, scheduled date, note snippet, stale flag. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
         {(() => { const who = assigneeOf(job); return who
           ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
           : null; })()}
         <span style={{ fontSize:12, color:'#64748b' }}>added {ageLabel(job.created_at)}</span>
-        {(job.last_note_at || job.updated_at) && (() => {
-          const ts = job.last_note_at || job.updated_at;
-          const d  = new Date(ts);
-          const isToday = d.toDateString() === new Date().toDateString();
-          const label   = isToday
-            ? 'today'
-            : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          return (
-            <span style={{ fontSize:12, color:'#94a3b8' }}>· updated {label}</span>
-          );
-        })()}
         {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
             scheduled date — a hold is not a booking, and the day two crews turn
             up in one place is the day those two things looked alike. */}
@@ -665,31 +664,16 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
           // than printing a date that quietly reads as fine.
           const overdue = when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
           const color = overdue ? '#ef4444' : '#38bdf8';
-          // Still `scheduled` past the deadline = nobody said what happened.
-          // See needsDisposition() in utils/staleness.js for the 6pm + 14h
-          // rule and the weekend roll.
-          // Hours logged = somebody DID say what happened, even if the card
-          // never moved off 'scheduled'. That is a stale status, not a missing
-          // disposition, and it must not wear the same red badge.
-          const noDispo = needsDisposition(job) && !hasEntry;
           return (
-            <>
-            {noDispo && (
-              <span title="The scheduled day ended and nobody dispositioned this. Due 8am the next working morning."
-                style={{ fontSize:12, fontWeight:800, color:'#fff', background:'#dc2626',
-                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-                ⚠ NO DISPOSITION
-              </span>
-            )}
             <span style={{ fontSize:12, fontWeight:700, color, background:`${color}22`,
                            padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
               📅 {when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
               {overdue ? ' · past' : ''}
             </span>
-            </>
           );
         })()}
-        {staleColor && (
+        {/* Stale indicator — skip for statuses where waiting IS the job (estimate sent = waiting on customer, blocked = waiting on something external) */}
+        {staleColor && !['estimate_sent', 'blocked'].includes(job.status) && (
           <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
             style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
             ⏱ {stale.label}
@@ -697,29 +681,45 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
         )}
       </div>
 
+      {/* Last human-authored note — shown as a snippet so the card tells you
+          something useful at a glance without opening the drawer */}
+      {job.last_note_text && (
+        <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6, lineHeight:1.4,
+                      overflow:'hidden', display:'-webkit-box',
+                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+          💬 {job.last_note_text}
+        </div>
+      )}
+
       {/* Status + money + move controls */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-          <span style={{ fontSize:12, fontWeight:600, color:si.color||'#94a3b8', background:`${si.color||'#334155'}18`, padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
+          {/* estimate_sent = solid fill so it's visually distinct from needs_estimate at a glance */}
+          <span style={{ fontSize:12, fontWeight:600,
+            color: job.status === 'estimate_sent' ? '#0e1a27' : (si.color||'#94a3b8'),
+            background: job.status === 'estimate_sent' ? (si.color||'#06b6d4') : `${si.color||'#334155'}18`,
+            padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
             {si.icon} {si.label||job.status}
           </span>
           {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
         </div>
-        <div style={{ display:'flex', gap:5, flexShrink:0, alignItems:'center' }}>
-          {quickVerbs.length > 0 && (
-            <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-              title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-              style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
-              → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+        {!readOnly && (
+          <div style={{ display:'flex', gap:5, flexShrink:0, alignItems:'center' }}>
+            {quickVerbs.length > 0 && (
+              <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
+                title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
+                style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+                → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+              </button>
+            )}
+            {/* Escape hatch — any lane, without opening the drawer */}
+            <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
+              title="Move to any lane"
+              style={{ padding:'4px 7px', borderRadius:5, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1 }}>
+              {expandMoves ? '✕' : '⋯'}
             </button>
-          )}
-          {/* Escape hatch — any lane, without opening the drawer */}
-          <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
-            title="Move to any lane"
-            style={{ padding:'4px 7px', borderRadius:5, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1 }}>
-            {expandMoves ? '✕' : '⋯'}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* All-lanes accordion — stays inside stopPropagation so opening it
@@ -759,7 +759,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
-function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, loggedJobs, accessToken, userEmail }) {
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ borderBottom: '1px solid #1e293b' }}>
@@ -782,7 +782,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
             ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
-            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} accessToken={accessToken} userEmail={userEmail} />)
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />)
           }
         </div>
       )}
@@ -790,7 +790,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
   );
 }
 
-function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, loggedJobs, accessToken, userEmail }) {
+function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, accessToken, userEmail, readOnly }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ flex:1, minWidth:260, maxWidth:340, display:'flex', flexDirection:'column' }}>
@@ -805,7 +805,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
           ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
-          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} accessToken={accessToken} userEmail={userEmail} />)
+          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />)
         }
       </div>
     </div>
@@ -825,13 +825,12 @@ const STALE_PULSE_CSS = `
 // operator lands here now, so this is the walkthrough that matters most.
 // Spotlight walkthrough REMOVED 2026-08-20 — see src/App.jsx.
 
-export default function BoardView({ accessToken, onBack, userEmail, userName }) {
+export default function BoardView({ accessToken, onBack, userEmail, userName, readOnly }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
-  // Job ids that already have a time entry — see loadJobs(). Used to stop
-  // ⚠ NO DISPOSITION firing on work the tech actually wrote up.
-  const [loggedJobs, setLoggedJobs] = useState(new Set());
+  // eslint-disable-next-line no-unused-vars — retained for future disposition tracking
+  const [loggedJobs] = useState(new Set());
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [moving, setMoving] = useState(false);
@@ -895,52 +894,27 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       // actually changed. Re-stamping the same status with no note does not.
       const ids = (data || []).map(x => x.id);
 
-      // ── Which of these jobs already has field hours logged ────────────
-      // needsDisposition() in utils/staleness.js only ever looked at
-      // jobs.status + scheduled_date. It never checked time_entries. So a job
-      // the tech HAD written up still showed ⚠ NO DISPOSITION if nobody moved
-      // the card off 'scheduled' — Jeanneret 8/17 is the standing example:
-      // 2.0h logged with a full note ("Got 2 more glass breaks put up..."),
-      // badge screaming anyway.
-      //
-      // That is the worst kind of false alarm. The badge is meant to mean
-      // "nobody said what happened"; when it fires on work that WAS written
-      // up, people learn to ignore it, and then it stops catching the real
-      // ones. Same three-key match as visitsOwed.js — job_id OR either
-      // calendar column, because Jeanneret's two event ids differ.
-      const loggedJobIds = new Set();
-      if (ids.length) {
-        const evIds = [...new Set((data || [])
-          .flatMap(j => [j.calendar_event_id, j.scheduled_event_id])
-          .filter(Boolean))];
-        const ors = [`job_id.in.(${ids.join(',')})`];
-        if (evIds.length) ors.push(`calendar_event_id.in.(${evIds.join(',')})`);
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('job_id, calendar_event_id')
-          .or(ors.join(','))
-          .eq('archived', false);
-        const byEvent = new Set((entries || []).map(e => e.calendar_event_id).filter(Boolean));
-        (data || []).forEach(j => {
-          if ((entries || []).some(e => e.job_id === j.id)) { loggedJobIds.add(j.id); return; }
-          if (j.calendar_event_id && byEvent.has(j.calendar_event_id)) { loggedJobIds.add(j.id); return; }
-          if (j.scheduled_event_id && byEvent.has(j.scheduled_event_id)) loggedJobIds.add(j.id);
-        });
-      }
-      setLoggedJobs(loggedJobIds);
+      // Auto-generated notes that add no value to the card snippet.
+      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job)/i;
 
-      let lastNote = {};
+      // last_note_at = timestamp of the last real activity (status move or typed note) — for staleness.
+      // last_note_text = text of the last human-authored note — for the card snippet.
+      let lastNoteAt = {};
+      let lastNoteText = {};
       if (ids.length) {
-        const { data: notes } = await supabase
+        const { data: history } = await supabase
           .from('job_history')
           .select('job_id, changed_at, notes, from_status, to_status')
           .in('job_id', ids)
           .order('changed_at', { ascending: false });
-        (notes || []).forEach(n => {
-          if (lastNote[n.job_id]) return;                       // already have a newer one
-          const saidSomething = n.notes != null && String(n.notes).trim() !== '';
+        (history || []).forEach(n => {
+          const text = n.notes != null ? String(n.notes).trim() : '';
+          const saidSomething = text !== '';
           const movedIt = n.to_status && n.to_status !== n.from_status;
-          if (saidSomething || movedIt) lastNote[n.job_id] = n.changed_at;
+          // Staleness: any real activity counts.
+          if (!lastNoteAt[n.job_id] && (saidSomething || movedIt)) lastNoteAt[n.job_id] = n.changed_at;
+          // Snippet: only human-authored text, no auto-generated entries.
+          if (!lastNoteText[n.job_id] && saidSomething && !AUTO_NOTE_RE.test(text)) lastNoteText[n.job_id] = text;
         });
       }
       // WHO IS ALREADY ON A PIECE OF THIS. A card can sit in New forever with a
@@ -961,7 +935,8 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       }
       setJobs((data || []).map(j => ({
         ...j,
-        last_note_at: lastNote[j.id] || null,
+        last_note_at: lastNoteAt[j.id] || null,
+        last_note_text: lastNoteText[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
       })));
       const j = data||[];
@@ -1331,8 +1306,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                 expanded={expandedCol===col.key}
                 onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
                 onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
-                loggedJobs={loggedJobs}
-                accessToken={accessToken} userEmail={userEmail}
+                accessToken={accessToken} userEmail={userEmail} readOnly={readOnly}
               />
             </div>
           ))}
@@ -1341,7 +1315,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
             <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
-              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} loggedJobs={loggedJobs} accessToken={accessToken} userEmail={userEmail} />
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />
             </div>
           ))}
         </div>

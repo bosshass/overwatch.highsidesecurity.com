@@ -267,7 +267,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 { n: wk ? `${wk.project}h` : '—', label: 'project hours', color: '#8b5cf6',
                   to: '/unbilled?tab=project' },
                 { n: sched ? sched.booked : '—', label: 'scheduled',
-                  sub: sched ? `${sched.logged} logged · ${sched.missing} not` : null,
+                  sub: sched ? `${sched.logged} of ${sched.booked} submitted` : null,
                   color: sched && sched.missing ? C.amber : C.muted, to: '/calendar' },
                 { n: fmtDollars(invoicedTotal) || '—', label: 'invoiced', color: C.green,
                   to: '/unbilled?tab=ready' },

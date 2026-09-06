@@ -495,7 +495,7 @@ export default function CalendarTechDay({
               {totalBooked.toFixed(1)}h
             </b>
             {totalMissing > 0.25 && (
-              <span style={{ color: '#ff4f5e' }}>{' · '}{totalMissing.toFixed(1)}h unlogged</span>
+              <span style={{ color: '#ff4f5e' }}>{' · '}{totalMissing.toFixed(1)}h with no time submitted</span>
             )}
           </div>
         </div>
@@ -549,8 +549,8 @@ export default function CalendarTechDay({
                         <span style={{ color: '#64748b' }}>Total hours available:</span>{' '}
                         <b style={{ color: '#e2e8f0' }}>{cap}h</b>
                         <span style={{ color: '#64748b', fontSize: 11 }}>
-                          {' '}({weekHasToday
-                            ? `${countedDays} day${countedDays === 1 ? '' : 's'} in so far`
+                          {' '}({(weekHasToday && countedDays < 5)
+                            ? `${countedDays} day${countedDays === 1 ? '' : 's'} in`
                             : 'full week'})
                         </span>
                       </div>
@@ -565,7 +565,7 @@ export default function CalendarTechDay({
                           : <b style={{ color: '#22d16f' }}>{(cap - booked).toFixed(1)}h open</b>
                         }
                         {missing > 0.25 && (
-                          <span style={{ color: '#ff4f5e' }}>{' · '}{missing.toFixed(1)}h unlogged</span>
+                          <span style={{ color: '#ff4f5e' }}>{' · '}{missing.toFixed(1)}h no time submitted</span>
                         )}
                       </div>
                     </div>

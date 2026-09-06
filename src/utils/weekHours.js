@@ -109,11 +109,12 @@ export async function weekHours(now = new Date()) {
 export async function weekScheduled(now = new Date()) {
   const { start, end } = weekBounds(now);
   const iso = d => d.toISOString().slice(0, 10);
-  const out = { booked: 0, logged: 0, missing: 0, loggedHours: 0, start, end };
+  const out = { booked: 0, logged: 0, missing: 0, loggedHours: 0, start, end,
+                missingJobs: [], loggedJobs: [] };
 
   const { data: jobs, error } = await supabase
     .from('jobs')
-    .select('id, scheduled_date, status')
+    .select('id, scheduled_date, status, customer_name, tech_name, assigned_to')
     .gte('scheduled_date', iso(start))
     .lt('scheduled_date', iso(end))
     .not('status', 'in', '(dead,archived,lost)')
@@ -136,5 +137,8 @@ export async function weekScheduled(now = new Date()) {
   out.logged = list.filter(j => mins[j.id] > 0).length;
   out.missing = out.booked - out.logged;
   out.loggedHours = h(Object.values(mins).reduce((t, m) => t + m, 0));
+  // Return the actual job rows so callers can display which ones are missing
+  out.missingJobs = list.filter(j => !mins[j.id]);
+  out.loggedJobs  = list.filter(j =>  mins[j.id] > 0);
   return out;
 }

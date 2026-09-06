@@ -15,7 +15,7 @@
 // weeks will show 0 for those two numbers, honestly, with a note saying why.
 // From here on they're real.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { weekHours, weekScheduled } from '../utils/weekHours.js';
 import { supabase, notesApi } from '../services/supabase.js';
@@ -89,10 +89,10 @@ export default function WeeklyRecap({ userEmail, onBack }) {
 
       const [{ data: te }, { data: jobs }, { data: hist }] = await Promise.all([
         supabase.from('time_entries')
-          .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, total_minutes, job_id, archived')
+          .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, total_minutes, job_id, archived, billed, billable')
           .gte('event_start', startIso).lt('event_start', endIso)
           .order('event_start', { ascending: true }).limit(1000),
-        supabase.from('jobs').select('id, job_type, customer_name, invoiced_amount, estimate_amount'),
+        supabase.from('jobs').select('id, job_type, customer_name, invoiced_amount, estimate_amount, status, is_fixed_fee'),
         // The recap markers logged by schedule.js — job_history rows with the
         // "📅 RECAP:" prefix. Nothing before this build has these; that's
         // expected, not a bug.
@@ -136,21 +136,49 @@ export default function WeeklyRecap({ userEmail, onBack }) {
   }, [weekStart]);
 
   // ── The real numbers ─────────────────────────────────────────────────
-  // COMPLETE WORK — anything the tech flagged To Bill. The word "completed"
-  // was doing two jobs: it is not complete in the money sense (that is
-  // is_complete, and billing says so), it is complete in the DOING sense.
-  const completed = entries.filter(e => e.disposition === 'bill_it');
-  // RETURNS — anything flagged as a return. Work that happened and cannot be
-  // invoiced until somebody goes back, which is the number that says whether a
-  // busy week actually produced anything.
-  const returns = entries.filter(e => e.disposition === 'return');
-  // CUSTOMERS — unique customers seen. Was "locations visited", keyed on
-  // customer_id OR raw name OR event title, so one customer reached three
-  // different ways counted three times.
+  // COMPLETE WORK — anything the tech flagged To Bill, matching the same
+  // logic weekHours uses so the cards and the hours block agree.
+  //   - project / fixed-fee entries are COST, not invoiceable (excluded)
+  //   - billed=true entries are already invoiced (tracked separately)
+  //   - the action items are bill_it AND NOT billed AND NOT project
+  const isProject = (e) => e.job?.is_fixed_fee || e.job?.job_type === 'project' || e.billable === false;
+  const allBillIt  = entries.filter(e => e.disposition === 'bill_it' && !isProject(e));
+  const completed  = allBillIt.filter(e => !e.billed);   // ready to invoice
+  const alreadyInvoiced = allBillIt.filter(e => e.billed); // done, already sent
+
+  // RETURNS — match weekHours: disposition='return' OR job status='return_pending'.
+  // The card was missing the return_pending case, causing the 1h discrepancy
+  // between the card count and the hours block.
+  const returns = entries.filter(e =>
+    e.disposition === 'return' || e.job?.status === 'return_pending'
+  );
+  // CUSTOMERS — unique customers seen. Keyed on customer_id first (most stable),
+  // then customer_name_raw. We deliberately exclude bare event_title entries —
+  // those are unlinked calendar events with no customer attached, and counting
+  // every event title as a "customer" was inflating the number wildly (30 last
+  // week was mostly calendar noise, not 30 real clients).
   const customerKeys = new Set(entries.map(e =>
-    e.customer_id || (e.job?.customer_name || e.customer_name_raw || e.event_title || '').trim().toLowerCase()
+    e.customer_id || (e.customer_name_raw || '').trim().toLowerCase()
   ).filter(Boolean));
   const sumH = (rows) => Math.round((rows.reduce((t, e) => t + (e.total_minutes || 0), 0) / 60) * 10) / 10;
+
+  // CUSTOMER DRILL-DOWN — group entries by customer for the week view.
+  // Reuses already-loaded `entries`; no second query.
+  const [customerDrillOpen, setCustomerDrillOpen] = useState(false);
+  const [schedDrillOpen, setSchedDrillOpen] = useState(false);
+  const customerGroups = useMemo(() => {
+    const groups = {};
+    entries.forEach(e => {
+      const key = e.customer_id || (e.customer_name_raw || '').trim().toLowerCase();
+      if (!key) return; // skip unlinked entries (no customer attached)
+      const name = e.job?.customer_name || e.customer_name_raw || e.event_title || String(key);
+      if (!groups[key]) groups[key] = { key, name, jobId: e.job_id, entries: [] };
+      // Prefer the job_id from a job-linked entry if we have one
+      if (e.job_id && !groups[key].jobId) groups[key].jobId = e.job_id;
+      groups[key].entries.push(e);
+    });
+    return Object.values(groups).sort((a, b) => sumH(b.entries) - sumH(a.entries));
+  }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // INVOICED THIS WEEK — sum invoiced_amount for unique jobs that have
   // bill_it entries during the week. "Invoiced" here means the dollars
@@ -197,7 +225,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
     lines.push(`Weekly Recap — ${fmt(weekStart)} to ${fmt(new Date(weekEnd - 86400000))}`);
     lines.push('');
     const invoicedStr = fmtDollars(invoicedTotal);
-    lines.push(`✅ ${completed.length} complete work  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers${invoicedStr ? `  ·  💰 ${invoicedStr} invoiced` : ''}`);
+    lines.push(`✅ ${completed.length} ready to invoice${alreadyInvoiced.length ? ` · ${alreadyInvoiced.length} already invoiced` : ''}  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers${invoicedStr ? `  ·  💰 ${invoicedStr} completed value` : ''}`);
     if (wk) lines.push(`⏱ ${wk.total}h logged — ${wk.project}h project · ${wk.returns}h return · ${wk.billable}h to bill · ${wk.other}h in progress`);
     if (hasAnyScheduleData) {
       const fmtCounts = (obj) => Object.entries(obj).map(([k, v]) => `${k.split('@')[0]}: ${v}`).join(', ') || '—';
@@ -259,22 +287,31 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             <div style={{ display: 'grid', gap: 10, marginBottom: 16,
                           gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
               {[
-                { n: completed.length, h: sumH(completed), label: 'complete work', color: C.green,
+                // COMPLETE WORK = bill_it AND not yet invoiced — matches hours "ready to invoice"
+                // sub shows how many are already invoiced so the total makes sense
+                { n: completed.length, h: sumH(completed), label: 'ready to invoice', color: C.green,
+                  sub: alreadyInvoiced.length > 0 ? `+ ${alreadyInvoiced.length} already invoiced` : null,
                   to: '/unbilled?tab=ready' },
                 { n: returns.length, h: sumH(returns), label: 'return hours', color: '#ec4899',
                   to: '/unbilled?tab=return' },
-                { n: customerKeys.size, label: 'customers', color: C.accent, to: '/customers' },
-                { n: wk ? `${wk.project}h` : '—', label: 'project hours', color: '#8b5cf6',
+                { n: customerKeys.size, label: 'customers', color: customerDrillOpen ? '#fff' : C.accent,
+                  bg: customerDrillOpen ? C.accent : undefined,
+                  onTap: () => setCustomerDrillOpen(v => !v) },
+                { n: wk ? `${wk.project}h` : '—', label: 'project / covered', color: '#8b5cf6',
                   to: '/unbilled?tab=project' },
                 { n: sched ? sched.booked : '—', label: 'scheduled',
                   sub: sched ? `${sched.logged} of ${sched.booked} submitted` : null,
-                  color: sched && sched.missing ? C.amber : C.muted, to: '/calendar' },
-                { n: fmtDollars(invoicedTotal) || '—', label: 'invoiced', color: C.green,
+                  color: sched && sched.missing ? C.amber : C.muted,
+                  bg: schedDrillOpen ? '#2d1f00' : undefined,
+                  onTap: sched?.missing > 0 ? () => setSchedDrillOpen(v => !v) : null,
+                  to: sched?.missing > 0 ? null : '/calendar' },
+                { n: fmtDollars(invoicedTotal) || '—', label: 'completed value',
+                  sub: 'job invoice totals for done work', color: C.green,
                   to: '/unbilled?tab=ready' },
               ].map((s, i) => (
-                <button key={i} onClick={() => s.to && navigate(s.to)}
-                  style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
-                           padding: '16px 14px', textAlign: 'center', cursor: s.to ? 'pointer' : 'default',
+                <button key={i} onClick={() => s.onTap ? s.onTap() : s.to && navigate(s.to)}
+                  style={{ background: s.bg || C.panel, border: `1px solid ${s.bg ? s.bg : C.line}`, borderRadius: 14,
+                           padding: '16px 14px', textAlign: 'center', cursor: (s.to || s.onTap) ? 'pointer' : 'default',
                            color: C.text, fontFamily: 'inherit' }}>
                   <div style={{ fontSize: 30, fontWeight: 800, color: s.color }}>{s.n}</div>
                   <div style={{ fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 4 }}>{s.label}</div>
@@ -287,6 +324,128 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 </button>
               ))}
             </div>
+
+            {/* ── CUSTOMER WEEK VIEW ─────────────────────────────────────────
+                Clicking "customers" opens this panel instead of navigating away.
+                Same data as the cards above — no second query — just grouped
+                by customer and sorted by total hours. Entries are read-only
+                (this is a history view, not billing). Each customer name links
+                to the job board card so you can navigate into it. */}
+            {customerDrillOpen && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800 }}>
+                    Customers this week — {customerGroups.length}
+                  </span>
+                  <button onClick={() => setCustomerDrillOpen(false)}
+                    style={{ background: 'none', border: `1px solid ${C.line}`, color: C.muted,
+                             borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
+                    ✕ Close
+                  </button>
+                </div>
+                {customerGroups.length === 0 ? (
+                  <div style={{ fontSize: 12, color: C.muted }}>No customer-linked entries this week.</div>
+                ) : customerGroups.map(g => {
+                  const gh = sumH(g.entries);
+                  return (
+                    <div key={g.key}
+                      style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12,
+                               padding: '12px 14px', marginBottom: 8 }}>
+                      {/* Customer header — name links to job if one exists */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                        <button
+                          onClick={() => g.jobId ? navigate(`/board?job=${g.jobId}`) : null}
+                          style={{ background: 'none', border: 'none', padding: 0, fontFamily: 'inherit',
+                                   fontSize: 14, fontWeight: 800,
+                                   color: g.jobId ? C.accent : C.text,
+                                   cursor: g.jobId ? 'pointer' : 'default',
+                                   textAlign: 'left' }}>
+                          {g.name}
+                        </button>
+                        <span style={{ fontSize: 12, color: C.muted, flexShrink: 0, marginLeft: 10 }}>
+                          {gh}h
+                        </span>
+                      </div>
+                      {/* Entry rows */}
+                      {g.entries.map(e => {
+                        const mins = e.total_minutes || 0;
+                        const hrs = Math.round(mins / 60 * 10) / 10;
+                        const disp = e.billed
+                          ? { text: 'Billed',      color: C.muted }
+                          : e.disposition === 'bill_it'
+                            ? { text: 'To Bill',   color: C.green }
+                            : e.disposition === 'return'
+                              ? { text: 'Return',  color: '#ec4899' }
+                              : { text: 'In Progress', color: C.amber };
+                        const dateStr = e.event_start
+                          ? new Date(e.event_start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                          : '—';
+                        return (
+                          <div key={e.id}
+                            style={{ display: 'flex', gap: 8, alignItems: 'center',
+                                     fontSize: 12, color: C.muted, padding: '5px 0',
+                                     borderTop: `1px solid ${C.line}` }}>
+                            <span style={{ flex: '0 0 90px', color: '#64748b' }}>{dateStr}</span>
+                            <span style={{ flex: 1 }}>{e.tech_name || '—'}</span>
+                            <span style={{ fontWeight: 700, color: C.text }}>{hrs}h</span>
+                            <span style={{ fontWeight: 700, color: disp.color, flex: '0 0 80px', textAlign: 'right' }}>{disp.text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── UNSUBMITTED JOBS DRILL-DOWN ──────────────────────────────
+                Opens when "scheduled" card is tapped and there are jobs with
+                no time entry. Shows exactly which jobs went unlogged so you
+                can follow up — tech no-show, forgot to submit, or needs to
+                be cancelled/rescheduled. */}
+            {schedDrillOpen && sched?.missingJobs?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: C.amber }}>
+                    ⚠️ No time submitted — {sched.missingJobs.length} job{sched.missingJobs.length !== 1 ? 's' : ''}
+                  </span>
+                  <button onClick={() => setSchedDrillOpen(false)}
+                    style={{ background: 'none', border: `1px solid ${C.line}`, color: C.muted,
+                             borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
+                    ✕ Close
+                  </button>
+                </div>
+                {sched.missingJobs.map(j => (
+                  <div key={j.id}
+                    style={{ background: C.panel, border: `1px solid #3d2a00`, borderRadius: 12,
+                             padding: '11px 14px', marginBottom: 7,
+                             display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>{j.customer_name || 'Unnamed'}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                        {j.scheduled_date
+                          ? new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                          : '—'}
+                        {(j.tech_name || j.assigned_to) && (
+                          <span> · {j.tech_name || j.assigned_to.split('@')[0]}</span>
+                        )}
+                        <span style={{ color: '#64748b' }}> · {j.status}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => navigate(`/board?job=${j.id}`)}
+                      style={{ background: 'none', border: `1px solid ${C.line}`, color: C.accent,
+                               borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                               cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                      Open job →
+                    </button>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+                  These jobs were scheduled this week but have no time entries submitted.
+                  Open the job to add time, cancel it, or reschedule.
+                </div>
+              </div>
+            )}
 
             {/* ── Scheduled / rescheduled by person ── */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
@@ -312,17 +471,26 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             </div>
 
             {/* ── HOURS, THIS WEEK ─────────────────────────────────────
-                The three cards above count VISITS. This counts the hours
-                behind them and says which of those hours could ever become an
-                invoice line. A week can be busy and produce almost nothing
-                invoiceable, and until this was here nothing on any screen
-                said so. */}
+                Counts the hours behind the visit cards above and says what
+                state each hour is in. Every logged hour lands in exactly one
+                bucket — the contract outranks the disposition, so a project
+                hour marked bill_it still shows as "project / covered."
+
+                BUCKET MEANING (honest labels):
+                  Ready to invoice  — tech said bill it, nobody has sent the invoice yet
+                  Already invoiced  — time_entry.billed=true (invoice was sent)
+                  Return visit      — can't invoice; going back
+                  Project / covered — fixed-fee or project job; this is COST, not revenue
+                  On open jobs      — hours logged on a job that's still in progress;
+                                      tech hasn't said bill_it or return yet because
+                                      the work isn't finished. These move once the job
+                                      closes — not a billing action item today. */}
             {wk && wk.total > 0 && (
               <div style={{ background: C.panel, border: `1px solid ${C.line}`,
                             borderRadius: 14, padding: '13px 15px', marginBottom: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '.08em',
-                                 textTransform: 'uppercase', color: C.muted }}>Hours logged</span>
+                                 textTransform: 'uppercase', color: C.muted }}>Hours logged this week</span>
                   <span style={{ fontSize: 20, fontWeight: 900 }}>{wk.total}h</span>
                   <span style={{ fontSize: 11.5, color: C.muted }}>
                     across {wk.visits} visit{wk.visits === 1 ? '' : 's'}
@@ -330,22 +498,26 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 </div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   {[
-                    { n: wk.billable, label: 'to bill',     c: C.green },
-                    { n: wk.returns,  label: 'return',      c: '#ec4899' },
-                    { n: wk.project,  label: 'project',     c: '#8b5cf6' },
-                    { n: wk.other,    label: 'in progress', c: C.amber },
-                    { n: wk.settled,  label: 'billed',      c: C.muted },
+                    { n: wk.billable, label: 'ready to invoice', c: C.green },
+                    { n: wk.returns,  label: 'return visit',     c: '#ec4899' },
+                    { n: wk.project,  label: 'project / covered',c: '#8b5cf6' },
+                    { n: wk.other,    label: 'on open jobs',     c: C.amber },
+                    { n: wk.settled,  label: 'already invoiced', c: C.muted },
                   ].filter(x => x.n > 0).map(x => (
                     <div key={x.label}>
                       <div style={{ fontSize: 16, fontWeight: 900, color: x.c }}>{x.n}h</div>
-                      <div style={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase', letterSpacing: '.05em' }}>{x.label}</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase',
+                                    letterSpacing: '.04em', lineHeight: 1.3 }}>{x.label}</div>
                     </div>
                   ))}
                 </div>
+                {wk.other > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b', lineHeight: 1.5 }}>
+                    "On open jobs" = hours logged on jobs not yet closed — tech is still working.
+                    These move to "ready to invoice" or "return" when the job is resolved.
+                  </div>
+                )}
                 {wk.unlinked > 0 && (
-                  // An hour with no job cannot reach an invoice, a project
-                  // budget, or a customer's record. It is the most expensive
-                  // number here and it had nowhere to be said.
                   <div style={{ marginTop: 10, paddingTop: 9, borderTop: `1px solid ${C.line}`,
                                 fontSize: 12, color: C.amber, fontWeight: 700 }}>
                     ⚠️ {wk.unlinkedHours}h across {wk.unlinked} visit{wk.unlinked === 1 ? '' : 's'} has no job attached — it can't reach an invoice or a project
@@ -362,15 +534,23 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             {/* ── Completed jobs — pick some to add the human story to ── */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
-                Complete work this week ({completed.length})
+                Ready to invoice this week ({completed.length})
+                {alreadyInvoiced.length > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 400, color: C.muted, marginLeft: 8 }}>
+                    + {alreadyInvoiced.length} already invoiced
+                  </span>
+                )}
               </div>
-              {completed.length === 0 ? (
+              {completed.length === 0 && alreadyInvoiced.length === 0 ? (
                 <div style={{ fontSize: 12, color: C.muted }}>Nothing marked done this week.</div>
-              ) : completed.map(e => (
-                <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: '11px 13px', marginBottom: 8 }}>
+              ) : [...completed, ...alreadyInvoiced].map(e => (
+                <div key={e.id} style={{ background: C.panel, border: `1px solid ${e.billed ? '#1e3a2f' : C.line}`, borderRadius: 12, padding: '11px 13px', marginBottom: 8, opacity: e.billed ? 0.7 : 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{e.job?.customer_name || e.customer_name_raw || e.event_title || 'Unnamed'}</div>
-                    <div style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{e.tech_name || 'no tech'}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {e.billed && <span style={{ fontSize: 10, fontWeight: 800, color: C.muted, border: `1px solid #1e3a2f`, borderRadius: 5, padding: '2px 6px' }}>invoiced</span>}
+                      <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{e.tech_name || 'no tech'}</span>
+                    </div>
                   </div>
                   {e.job_id && (
                     <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>

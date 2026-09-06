@@ -15,7 +15,7 @@
 // weeks will show 0 for those two numbers, honestly, with a note saying why.
 // From here on they're real.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { weekHours, weekScheduled } from '../utils/weekHours.js';
 import { supabase, notesApi } from '../services/supabase.js';
@@ -144,13 +144,32 @@ export default function WeeklyRecap({ userEmail, onBack }) {
   // invoiced until somebody goes back, which is the number that says whether a
   // busy week actually produced anything.
   const returns = entries.filter(e => e.disposition === 'return');
-  // CUSTOMERS — unique customers seen. Was "locations visited", keyed on
-  // customer_id OR raw name OR event title, so one customer reached three
-  // different ways counted three times.
+  // CUSTOMERS — unique customers seen. Keyed on customer_id first (most stable),
+  // then customer_name_raw. We deliberately exclude bare event_title entries —
+  // those are unlinked calendar events with no customer attached, and counting
+  // every event title as a "customer" was inflating the number wildly (30 last
+  // week was mostly calendar noise, not 30 real clients).
   const customerKeys = new Set(entries.map(e =>
-    e.customer_id || (e.job?.customer_name || e.customer_name_raw || e.event_title || '').trim().toLowerCase()
+    e.customer_id || (e.customer_name_raw || '').trim().toLowerCase()
   ).filter(Boolean));
   const sumH = (rows) => Math.round((rows.reduce((t, e) => t + (e.total_minutes || 0), 0) / 60) * 10) / 10;
+
+  // CUSTOMER DRILL-DOWN — group entries by customer for the week view.
+  // Reuses already-loaded `entries`; no second query.
+  const [customerDrillOpen, setCustomerDrillOpen] = useState(false);
+  const customerGroups = useMemo(() => {
+    const groups = {};
+    entries.forEach(e => {
+      const key = e.customer_id || (e.customer_name_raw || '').trim().toLowerCase();
+      if (!key) return; // skip unlinked entries (no customer attached)
+      const name = e.job?.customer_name || e.customer_name_raw || e.event_title || String(key);
+      if (!groups[key]) groups[key] = { key, name, jobId: e.job_id, entries: [] };
+      // Prefer the job_id from a job-linked entry if we have one
+      if (e.job_id && !groups[key].jobId) groups[key].jobId = e.job_id;
+      groups[key].entries.push(e);
+    });
+    return Object.values(groups).sort((a, b) => sumH(b.entries) - sumH(a.entries));
+  }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // INVOICED THIS WEEK — sum invoiced_amount for unique jobs that have
   // bill_it entries during the week. "Invoiced" here means the dollars
@@ -263,7 +282,9 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                   to: '/unbilled?tab=ready' },
                 { n: returns.length, h: sumH(returns), label: 'return hours', color: '#ec4899',
                   to: '/unbilled?tab=return' },
-                { n: customerKeys.size, label: 'customers', color: C.accent, to: '/customers' },
+                { n: customerKeys.size, label: 'customers', color: customerDrillOpen ? '#fff' : C.accent,
+                  bg: customerDrillOpen ? C.accent : undefined,
+                  onTap: () => setCustomerDrillOpen(v => !v) },
                 { n: wk ? `${wk.project}h` : '—', label: 'project hours', color: '#8b5cf6',
                   to: '/unbilled?tab=project' },
                 { n: sched ? sched.booked : '—', label: 'scheduled',
@@ -272,9 +293,9 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 { n: fmtDollars(invoicedTotal) || '—', label: 'invoiced', color: C.green,
                   to: '/unbilled?tab=ready' },
               ].map((s, i) => (
-                <button key={i} onClick={() => s.to && navigate(s.to)}
-                  style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
-                           padding: '16px 14px', textAlign: 'center', cursor: s.to ? 'pointer' : 'default',
+                <button key={i} onClick={() => s.onTap ? s.onTap() : s.to && navigate(s.to)}
+                  style={{ background: s.bg || C.panel, border: `1px solid ${s.bg ? s.bg : C.line}`, borderRadius: 14,
+                           padding: '16px 14px', textAlign: 'center', cursor: (s.to || s.onTap) ? 'pointer' : 'default',
                            color: C.text, fontFamily: 'inherit' }}>
                   <div style={{ fontSize: 30, fontWeight: 800, color: s.color }}>{s.n}</div>
                   <div style={{ fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 4 }}>{s.label}</div>
@@ -287,6 +308,79 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 </button>
               ))}
             </div>
+
+            {/* ── CUSTOMER WEEK VIEW ─────────────────────────────────────────
+                Clicking "customers" opens this panel instead of navigating away.
+                Same data as the cards above — no second query — just grouped
+                by customer and sorted by total hours. Entries are read-only
+                (this is a history view, not billing). Each customer name links
+                to the job board card so you can navigate into it. */}
+            {customerDrillOpen && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800 }}>
+                    Customers this week — {customerGroups.length}
+                  </span>
+                  <button onClick={() => setCustomerDrillOpen(false)}
+                    style={{ background: 'none', border: `1px solid ${C.line}`, color: C.muted,
+                             borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
+                    ✕ Close
+                  </button>
+                </div>
+                {customerGroups.length === 0 ? (
+                  <div style={{ fontSize: 12, color: C.muted }}>No customer-linked entries this week.</div>
+                ) : customerGroups.map(g => {
+                  const gh = sumH(g.entries);
+                  return (
+                    <div key={g.key}
+                      style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12,
+                               padding: '12px 14px', marginBottom: 8 }}>
+                      {/* Customer header — name links to job if one exists */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                        <button
+                          onClick={() => g.jobId ? navigate(`/board?job=${g.jobId}`) : null}
+                          style={{ background: 'none', border: 'none', padding: 0, fontFamily: 'inherit',
+                                   fontSize: 14, fontWeight: 800,
+                                   color: g.jobId ? C.accent : C.text,
+                                   cursor: g.jobId ? 'pointer' : 'default',
+                                   textAlign: 'left' }}>
+                          {g.name}
+                        </button>
+                        <span style={{ fontSize: 12, color: C.muted, flexShrink: 0, marginLeft: 10 }}>
+                          {gh}h
+                        </span>
+                      </div>
+                      {/* Entry rows */}
+                      {g.entries.map(e => {
+                        const mins = e.total_minutes || 0;
+                        const hrs = Math.round(mins / 60 * 10) / 10;
+                        const disp = e.billed
+                          ? { text: 'Billed',      color: C.muted }
+                          : e.disposition === 'bill_it'
+                            ? { text: 'To Bill',   color: C.green }
+                            : e.disposition === 'return'
+                              ? { text: 'Return',  color: '#ec4899' }
+                              : { text: 'In Progress', color: C.amber };
+                        const dateStr = e.event_start
+                          ? new Date(e.event_start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                          : '—';
+                        return (
+                          <div key={e.id}
+                            style={{ display: 'flex', gap: 8, alignItems: 'center',
+                                     fontSize: 12, color: C.muted, padding: '5px 0',
+                                     borderTop: `1px solid ${C.line}` }}>
+                            <span style={{ flex: '0 0 90px', color: '#64748b' }}>{dateStr}</span>
+                            <span style={{ flex: 1 }}>{e.tech_name || '—'}</span>
+                            <span style={{ fontWeight: 700, color: C.text }}>{hrs}h</span>
+                            <span style={{ fontWeight: 700, color: disp.color, flex: '0 0 80px', textAlign: 'right' }}>{disp.text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* ── Scheduled / rescheduled by person ── */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>

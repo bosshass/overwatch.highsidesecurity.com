@@ -89,10 +89,10 @@ export default function WeeklyRecap({ userEmail, onBack }) {
 
       const [{ data: te }, { data: jobs }, { data: hist }] = await Promise.all([
         supabase.from('time_entries')
-          .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, total_minutes, job_id, archived')
+          .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, disposition, total_minutes, job_id, archived, billed, billable')
           .gte('event_start', startIso).lt('event_start', endIso)
           .order('event_start', { ascending: true }).limit(1000),
-        supabase.from('jobs').select('id, job_type, customer_name, invoiced_amount, estimate_amount'),
+        supabase.from('jobs').select('id, job_type, customer_name, invoiced_amount, estimate_amount, status, is_fixed_fee'),
         // The recap markers logged by schedule.js — job_history rows with the
         // "📅 RECAP:" prefix. Nothing before this build has these; that's
         // expected, not a bug.
@@ -136,14 +136,22 @@ export default function WeeklyRecap({ userEmail, onBack }) {
   }, [weekStart]);
 
   // ── The real numbers ─────────────────────────────────────────────────
-  // COMPLETE WORK — anything the tech flagged To Bill. The word "completed"
-  // was doing two jobs: it is not complete in the money sense (that is
-  // is_complete, and billing says so), it is complete in the DOING sense.
-  const completed = entries.filter(e => e.disposition === 'bill_it');
-  // RETURNS — anything flagged as a return. Work that happened and cannot be
-  // invoiced until somebody goes back, which is the number that says whether a
-  // busy week actually produced anything.
-  const returns = entries.filter(e => e.disposition === 'return');
+  // COMPLETE WORK — anything the tech flagged To Bill, matching the same
+  // logic weekHours uses so the cards and the hours block agree.
+  //   - project / fixed-fee entries are COST, not invoiceable (excluded)
+  //   - billed=true entries are already invoiced (tracked separately)
+  //   - the action items are bill_it AND NOT billed AND NOT project
+  const isProject = (e) => e.job?.is_fixed_fee || e.job?.job_type === 'project' || e.billable === false;
+  const allBillIt  = entries.filter(e => e.disposition === 'bill_it' && !isProject(e));
+  const completed  = allBillIt.filter(e => !e.billed);   // ready to invoice
+  const alreadyInvoiced = allBillIt.filter(e => e.billed); // done, already sent
+
+  // RETURNS — match weekHours: disposition='return' OR job status='return_pending'.
+  // The card was missing the return_pending case, causing the 1h discrepancy
+  // between the card count and the hours block.
+  const returns = entries.filter(e =>
+    e.disposition === 'return' || e.job?.status === 'return_pending'
+  );
   // CUSTOMERS — unique customers seen. Keyed on customer_id first (most stable),
   // then customer_name_raw. We deliberately exclude bare event_title entries —
   // those are unlinked calendar events with no customer attached, and counting
@@ -216,7 +224,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
     lines.push(`Weekly Recap — ${fmt(weekStart)} to ${fmt(new Date(weekEnd - 86400000))}`);
     lines.push('');
     const invoicedStr = fmtDollars(invoicedTotal);
-    lines.push(`✅ ${completed.length} complete work  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers${invoicedStr ? `  ·  💰 ${invoicedStr} invoiced` : ''}`);
+    lines.push(`✅ ${completed.length} ready to invoice${alreadyInvoiced.length ? ` · ${alreadyInvoiced.length} already invoiced` : ''}  ·  🔄 ${returns.length} returns  ·  📍 ${customerKeys.size} customers${invoicedStr ? `  ·  💰 ${invoicedStr} completed value` : ''}`);
     if (wk) lines.push(`⏱ ${wk.total}h logged — ${wk.project}h project · ${wk.returns}h return · ${wk.billable}h to bill · ${wk.other}h in progress`);
     if (hasAnyScheduleData) {
       const fmtCounts = (obj) => Object.entries(obj).map(([k, v]) => `${k.split('@')[0]}: ${v}`).join(', ') || '—';
@@ -278,19 +286,23 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             <div style={{ display: 'grid', gap: 10, marginBottom: 16,
                           gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
               {[
-                { n: completed.length, h: sumH(completed), label: 'complete work', color: C.green,
+                // COMPLETE WORK = bill_it AND not yet invoiced — matches hours "ready to invoice"
+                // sub shows how many are already invoiced so the total makes sense
+                { n: completed.length, h: sumH(completed), label: 'ready to invoice', color: C.green,
+                  sub: alreadyInvoiced.length > 0 ? `+ ${alreadyInvoiced.length} already invoiced` : null,
                   to: '/unbilled?tab=ready' },
                 { n: returns.length, h: sumH(returns), label: 'return hours', color: '#ec4899',
                   to: '/unbilled?tab=return' },
                 { n: customerKeys.size, label: 'customers', color: customerDrillOpen ? '#fff' : C.accent,
                   bg: customerDrillOpen ? C.accent : undefined,
                   onTap: () => setCustomerDrillOpen(v => !v) },
-                { n: wk ? `${wk.project}h` : '—', label: 'project hours', color: '#8b5cf6',
+                { n: wk ? `${wk.project}h` : '—', label: 'project / covered', color: '#8b5cf6',
                   to: '/unbilled?tab=project' },
                 { n: sched ? sched.booked : '—', label: 'scheduled',
                   sub: sched ? `${sched.logged} of ${sched.booked} submitted` : null,
                   color: sched && sched.missing ? C.amber : C.muted, to: '/calendar' },
-                { n: fmtDollars(invoicedTotal) || '—', label: 'invoiced', color: C.green,
+                { n: fmtDollars(invoicedTotal) || '—', label: 'completed value',
+                  sub: 'job invoice totals for done work', color: C.green,
                   to: '/unbilled?tab=ready' },
               ].map((s, i) => (
                 <button key={i} onClick={() => s.onTap ? s.onTap() : s.to && navigate(s.to)}
@@ -469,15 +481,23 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             {/* ── Completed jobs — pick some to add the human story to ── */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
-                Complete work this week ({completed.length})
+                Ready to invoice this week ({completed.length})
+                {alreadyInvoiced.length > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 400, color: C.muted, marginLeft: 8 }}>
+                    + {alreadyInvoiced.length} already invoiced
+                  </span>
+                )}
               </div>
-              {completed.length === 0 ? (
+              {completed.length === 0 && alreadyInvoiced.length === 0 ? (
                 <div style={{ fontSize: 12, color: C.muted }}>Nothing marked done this week.</div>
-              ) : completed.map(e => (
-                <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: '11px 13px', marginBottom: 8 }}>
+              ) : [...completed, ...alreadyInvoiced].map(e => (
+                <div key={e.id} style={{ background: C.panel, border: `1px solid ${e.billed ? '#1e3a2f' : C.line}`, borderRadius: 12, padding: '11px 13px', marginBottom: 8, opacity: e.billed ? 0.7 : 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{e.job?.customer_name || e.customer_name_raw || e.event_title || 'Unnamed'}</div>
-                    <div style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{e.tech_name || 'no tech'}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {e.billed && <span style={{ fontSize: 10, fontWeight: 800, color: C.muted, border: `1px solid #1e3a2f`, borderRadius: 5, padding: '2px 6px' }}>invoiced</span>}
+                      <span style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{e.tech_name || 'no tech'}</span>
+                    </div>
                   </div>
                   {e.job_id && (
                     <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>

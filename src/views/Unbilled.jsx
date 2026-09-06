@@ -23,7 +23,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
-import { canBill, canSeeBillingFields } from '../utils/ownership.js';
+import { canBill, canSeeBillingFields, NAME_BY_EMAIL } from '../utils/ownership.js';
+import { sendGmail } from '../services/gmailSend.js';
 import ProjectPanel from '../components/ProjectPanel.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
@@ -236,6 +237,9 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // TicketSheet drawer — same shell as DetailDrawer in BoardView.
   // Notes, tasks, history for the job linked to the expanded billing group.
   const [drawerJob, setDrawerJob] = useState(null);
+  // Chase-email send state keyed by group key.
+  // 'sending' | 'sent' | 'error' — cleared when the billing view reloads.
+  const [chaseState, setChaseState] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -277,7 +281,7 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
       const ids = [...new Set((entries || []).map(e => e.customer_id).filter(Boolean))];
       let cust = {};
       if (ids.length) {
-        const { data: cs } = await supabase.from('customers').select('id, name, short_code').in('id', ids);
+        const { data: cs } = await supabase.from('customers').select('id, name, short_code, email').in('id', ids);
         (cs || []).forEach(c => { cust[c.id] = c; });
       }
 
@@ -329,6 +333,7 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
           customerId: e.customer_id || null,
           name: cust[e.customer_id]?.name || e.customer_name_raw || 'Unknown',
           shortCode: cust[e.customer_id]?.short_code || null,
+          customerEmail: cust[e.customer_id]?.email || null,
           orphan: !e.customer_id,
           visits: [],
         };
@@ -776,6 +781,48 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
     setSaving(false);
   };
 
+  // ── CHASE AR VIA EMAIL ───────────────────────────────────────────────
+  // Sends an AR follow-up email to the customer using the logged-in user's
+  // Gmail OAuth token — same channel as tech assignment notifications.
+  // Requires accessToken (gmail.send scope) and a customer email on record.
+  // No browser redirect, no leaving the app.
+  const sendChaseEmail = async (g) => {
+    const to = g.customerEmail;
+    if (!to || !accessToken) return;
+    setChaseState(s => ({ ...s, [g.key]: 'sending' }));
+
+    const senderName = NAME_BY_EMAIL[userEmail] || 'DRH Security Services';
+    const visitWord = g.visits.length === 1 ? 'service visit' : `${g.visits.length} service visits`;
+    const oldest = g.oldest ? fmtD(g.oldest) : null;
+    const dateClause = oldest ? ` from ${oldest}` : '';
+
+    const subject = `Invoice follow-up — ${g.name}`;
+    const body = [
+      `Hi ${g.name},`,
+      '',
+      `I'm following up on ${visitWord}${dateClause} totaling ${fmtH(g.hours)} that ${g.visits.length === 1 ? 'is' : 'are'} ready to invoice.`,
+      '',
+      'Please let us know if you have any questions about the work performed, or if you would like the invoice sent to a specific address.',
+      '',
+      'Thank you,',
+      senderName,
+      'DRH Security Services',
+    ].join('\n');
+
+    const result = await sendGmail(accessToken, { to, subject, body });
+    if (result.ok) {
+      setChaseState(s => ({ ...s, [g.key]: 'sent' }));
+      setToast(`Chase email sent to ${to} ✓`);
+    } else if (result.reauth) {
+      setChaseState(s => ({ ...s, [g.key]: 'error' }));
+      setToast('Sign out and back in to grant Gmail permission, then retry.');
+    } else {
+      setChaseState(s => ({ ...s, [g.key]: 'error' }));
+      setToast(`Could not send: ${result.msg}`);
+    }
+    setTimeout(() => setToast(''), 4000);
+  };
+
   const markBilled = async () => {
     if (!mayBill) return;
     if (!sel.rows.length) return;
@@ -1136,6 +1183,25 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Make a new ticket instead
                   </button>
+                  {g.customerEmail && accessToken && (
+                    <button
+                      onClick={() => sendChaseEmail(g)}
+                      disabled={saving || chaseState[g.key] === 'sending'}
+                      title={`Send AR follow-up to ${g.customerEmail}`}
+                      style={{
+                        background: chaseState[g.key] === 'sent' ? '#14532d' : 'transparent',
+                        border: `1px solid ${chaseState[g.key] === 'sent' ? '#22c55e' : chaseState[g.key] === 'error' ? '#ef4444' : '#0ea5e9'}`,
+                        borderRadius: 8,
+                        color: chaseState[g.key] === 'sent' ? '#4ade80' : chaseState[g.key] === 'error' ? '#fca5a5' : '#7dd3fc',
+                        fontSize: 13, fontWeight: 700,
+                        padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit',
+                      }}>
+                      {chaseState[g.key] === 'sending' ? '…Sending'
+                        : chaseState[g.key] === 'sent' ? '✓ Chased'
+                        : chaseState[g.key] === 'error' ? '⚠ Retry chase'
+                        : '📧 Chase'}
+                    </button>
+                  )}
                   {mayBill && (
                   <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
@@ -1377,6 +1443,29 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                                  padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
                         📐 Create FF project
                       </button>
+                      {/* Chase AR: email the customer directly from Billing using the
+                          signed-in Gmail token. No redirects, no leaving the app.
+                          Only shown when we have the customer's email on record and
+                          the Gmail token is in scope. */}
+                      {g.customerEmail && accessToken && (
+                        <button
+                          onClick={() => sendChaseEmail(g)}
+                          disabled={saving || chaseState[g.key] === 'sending'}
+                          title={`Send AR follow-up to ${g.customerEmail}`}
+                          style={{
+                            background: chaseState[g.key] === 'sent' ? '#14532d' : 'none',
+                            border: `1px solid ${chaseState[g.key] === 'sent' ? '#22c55e' : chaseState[g.key] === 'error' ? '#ef4444' : '#0ea5e9'}`,
+                            borderRadius: 8,
+                            color: chaseState[g.key] === 'sent' ? '#4ade80' : chaseState[g.key] === 'error' ? '#fca5a5' : '#7dd3fc',
+                            fontSize: 12.5, fontWeight: 700,
+                            padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                          }}>
+                          {chaseState[g.key] === 'sending' ? '…Sending'
+                            : chaseState[g.key] === 'sent' ? '✓ Chased'
+                            : chaseState[g.key] === 'error' ? '⚠ Retry chase'
+                            : '📧 Chase'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

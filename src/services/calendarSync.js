@@ -501,7 +501,7 @@ export async function scanForOrphans(accessToken, { since = ORPHAN_SCAN_FROM } =
   // skipping the calendar; the suspenders is the title check below, which
   // also catches holds that ended up on the WRONG calendar during the weeks
   // the Tent ID was misconfigured.
-  const SKIP_TYPES = ['completed', 'sales', 'installations', 'queue'];
+  const SKIP_TYPES = ['completed', 'sales', 'installations', 'queue', 'admin'];
   const sourceCalendars = SYNC_CALENDARS.filter(c => !SKIP_TYPES.includes(c.type));
 
   for (const cal of sourceCalendars) {

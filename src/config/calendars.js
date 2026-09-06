@@ -172,6 +172,15 @@ export const SYNC_CALENDARS = [
     // Everyone sees completed
     visibleTo: [...AUSTIN_EMAILS, ...JR_EMAILS, ...BRIAN_EMAILS, ...SHANA_EMAILS, ...TREVOR_EMAILS, ...SUBS_EMAILS],
   },
+  {
+    // Admin Notes / Sara Tasks — operator-only. Not a tech calendar; events here
+    // are Sara's own reminders and jobs she's pulled off the field calendar.
+    // visibleTo: null means operators only (see getVisibleCalendars).
+    id: CALENDARS.ADMIN_NOTES,
+    name: 'Admin Notes',
+    type: 'admin',
+    visibleTo: null,
+  },
 ];
 
 // ── Visibility helper ────────────────────────────────────────────────────────

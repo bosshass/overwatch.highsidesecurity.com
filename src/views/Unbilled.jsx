@@ -1160,10 +1160,10 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
               {open && g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
                               display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button onClick={() => window.open(`/board?job=${g.job.id}`, '_self')}
+                  <button onClick={() => setDrawerJob(g.job)}
                     style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Open the ticket
+                    Open ticket — move it
                   </button>
                   {mayBill && (
                   <button onClick={() => closeNoHours(g, 'billed')} disabled={saving}
@@ -1179,8 +1179,8 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                     Not billable — pick a reason
                   </button>
                   <div style={{ flexBasis: '100%', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                    If the work really happened and the hours were never entered, open the
-                    ticket and log the visit — that is the only route that puts it on an invoice.
+                    Open the ticket to log hours or move it to another lane — "Where does this go?"
+                    is right there.
                   </div>
                 </div>
               )}

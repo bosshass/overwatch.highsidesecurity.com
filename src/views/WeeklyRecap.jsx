@@ -165,6 +165,7 @@ export default function WeeklyRecap({ userEmail, onBack }) {
   // CUSTOMER DRILL-DOWN — group entries by customer for the week view.
   // Reuses already-loaded `entries`; no second query.
   const [customerDrillOpen, setCustomerDrillOpen] = useState(false);
+  const [schedDrillOpen, setSchedDrillOpen] = useState(false);
   const customerGroups = useMemo(() => {
     const groups = {};
     entries.forEach(e => {
@@ -300,7 +301,10 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                   to: '/unbilled?tab=project' },
                 { n: sched ? sched.booked : '—', label: 'scheduled',
                   sub: sched ? `${sched.logged} of ${sched.booked} submitted` : null,
-                  color: sched && sched.missing ? C.amber : C.muted, to: '/calendar' },
+                  color: sched && sched.missing ? C.amber : C.muted,
+                  bg: schedDrillOpen ? '#2d1f00' : undefined,
+                  onTap: sched?.missing > 0 ? () => setSchedDrillOpen(v => !v) : null,
+                  to: sched?.missing > 0 ? null : '/calendar' },
                 { n: fmtDollars(invoicedTotal) || '—', label: 'completed value',
                   sub: 'job invoice totals for done work', color: C.green,
                   to: '/unbilled?tab=ready' },
@@ -391,6 +395,55 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* ── UNSUBMITTED JOBS DRILL-DOWN ──────────────────────────────
+                Opens when "scheduled" card is tapped and there are jobs with
+                no time entry. Shows exactly which jobs went unlogged so you
+                can follow up — tech no-show, forgot to submit, or needs to
+                be cancelled/rescheduled. */}
+            {schedDrillOpen && sched?.missingJobs?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: C.amber }}>
+                    ⚠️ No time submitted — {sched.missingJobs.length} job{sched.missingJobs.length !== 1 ? 's' : ''}
+                  </span>
+                  <button onClick={() => setSchedDrillOpen(false)}
+                    style={{ background: 'none', border: `1px solid ${C.line}`, color: C.muted,
+                             borderRadius: 7, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
+                    ✕ Close
+                  </button>
+                </div>
+                {sched.missingJobs.map(j => (
+                  <div key={j.id}
+                    style={{ background: C.panel, border: `1px solid #3d2a00`, borderRadius: 12,
+                             padding: '11px 14px', marginBottom: 7,
+                             display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>{j.customer_name || 'Unnamed'}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                        {j.scheduled_date
+                          ? new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                          : '—'}
+                        {(j.tech_name || j.assigned_to) && (
+                          <span> · {j.tech_name || j.assigned_to.split('@')[0]}</span>
+                        )}
+                        <span style={{ color: '#64748b' }}> · {j.status}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => navigate(`/board?job=${j.id}`)}
+                      style={{ background: 'none', border: `1px solid ${C.line}`, color: C.accent,
+                               borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                               cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                      Open job →
+                    </button>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>
+                  These jobs were scheduled this week but have no time entries submitted.
+                  Open the job to add time, cancel it, or reschedule.
+                </div>
               </div>
             )}
 

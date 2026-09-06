@@ -406,17 +406,26 @@ export default function WeeklyRecap({ userEmail, onBack }) {
             </div>
 
             {/* ── HOURS, THIS WEEK ─────────────────────────────────────
-                The three cards above count VISITS. This counts the hours
-                behind them and says which of those hours could ever become an
-                invoice line. A week can be busy and produce almost nothing
-                invoiceable, and until this was here nothing on any screen
-                said so. */}
+                Counts the hours behind the visit cards above and says what
+                state each hour is in. Every logged hour lands in exactly one
+                bucket — the contract outranks the disposition, so a project
+                hour marked bill_it still shows as "project / covered."
+
+                BUCKET MEANING (honest labels):
+                  Ready to invoice  — tech said bill it, nobody has sent the invoice yet
+                  Already invoiced  — time_entry.billed=true (invoice was sent)
+                  Return visit      — can't invoice; going back
+                  Project / covered — fixed-fee or project job; this is COST, not revenue
+                  On open jobs      — hours logged on a job that's still in progress;
+                                      tech hasn't said bill_it or return yet because
+                                      the work isn't finished. These move once the job
+                                      closes — not a billing action item today. */}
             {wk && wk.total > 0 && (
               <div style={{ background: C.panel, border: `1px solid ${C.line}`,
                             borderRadius: 14, padding: '13px 15px', marginBottom: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '.08em',
-                                 textTransform: 'uppercase', color: C.muted }}>Hours logged</span>
+                                 textTransform: 'uppercase', color: C.muted }}>Hours logged this week</span>
                   <span style={{ fontSize: 20, fontWeight: 900 }}>{wk.total}h</span>
                   <span style={{ fontSize: 11.5, color: C.muted }}>
                     across {wk.visits} visit{wk.visits === 1 ? '' : 's'}
@@ -424,22 +433,26 @@ export default function WeeklyRecap({ userEmail, onBack }) {
                 </div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   {[
-                    { n: wk.billable, label: 'to bill',     c: C.green },
-                    { n: wk.returns,  label: 'return',      c: '#ec4899' },
-                    { n: wk.project,  label: 'project',     c: '#8b5cf6' },
-                    { n: wk.other,    label: 'in progress', c: C.amber },
-                    { n: wk.settled,  label: 'billed',      c: C.muted },
+                    { n: wk.billable, label: 'ready to invoice', c: C.green },
+                    { n: wk.returns,  label: 'return visit',     c: '#ec4899' },
+                    { n: wk.project,  label: 'project / covered',c: '#8b5cf6' },
+                    { n: wk.other,    label: 'on open jobs',     c: C.amber },
+                    { n: wk.settled,  label: 'already invoiced', c: C.muted },
                   ].filter(x => x.n > 0).map(x => (
                     <div key={x.label}>
                       <div style={{ fontSize: 16, fontWeight: 900, color: x.c }}>{x.n}h</div>
-                      <div style={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase', letterSpacing: '.05em' }}>{x.label}</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase',
+                                    letterSpacing: '.04em', lineHeight: 1.3 }}>{x.label}</div>
                     </div>
                   ))}
                 </div>
+                {wk.other > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b', lineHeight: 1.5 }}>
+                    "On open jobs" = hours logged on jobs not yet closed — tech is still working.
+                    These move to "ready to invoice" or "return" when the job is resolved.
+                  </div>
+                )}
                 {wk.unlinked > 0 && (
-                  // An hour with no job cannot reach an invoice, a project
-                  // budget, or a customer's record. It is the most expensive
-                  // number here and it had nowhere to be said.
                   <div style={{ marginTop: 10, paddingTop: 9, borderTop: `1px solid ${C.line}`,
                                 fontSize: 12, color: C.amber, fontWeight: 700 }}>
                     ⚠️ {wk.unlinkedHours}h across {wk.unlinked} visit{wk.unlinked === 1 ? '' : 's'} has no job attached — it can't reach an invoice or a project

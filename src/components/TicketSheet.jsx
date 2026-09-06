@@ -282,10 +282,9 @@ export default function TicketSheet({
   // brings it home when the assignee marks it done.
   const createTask = async () => {
     const body = taskBody.trim();
-    // ONE ASSIGNEE ROW, NOT TWO. The card already asks who owns this directly
-    // under the customer; asking again inside the composer was the same
-    // question twice, and the two could disagree.
-    const who = ownerEmail;
+    // taskWho is the in-composer pick; ownerEmail is the job's current assignee.
+    // taskWho wins when set (explicit choice); ownerEmail is the pre-selected default.
+    const who = taskWho || ownerEmail;
     if (!body || !who) return;
     setSaving(true); setTaskMsg('');
     try {
@@ -992,27 +991,34 @@ export default function TicketSheet({
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 9,
                          border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
                          fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
-              {/* NO SECOND PILL ROW. The card asks who owns this directly under
-                  the customer — asking again here was the same question twice
-                  and the two answers could disagree. */}
-              <div style={{ fontSize: 12.5, color: ownerName ? '#93c5fd' : '#f59e0b',
-                            margin: '11px 0 2px', fontWeight: 700 }}>
-                {ownerName
-                  ? `Goes to ${ownerName}`
-                  : 'Nobody is assigned yet — pick someone above first.'}
+              {/* WHO DOES THIS? — pill row below the textarea so the assignee
+                  is always pickable, even when no job owner is set. Pre-selects
+                  ownerEmail so the usual path (one person owns it) is zero-click. */}
+              <div style={{ fontSize: 12, color: C.muted, margin: '11px 0 6px' }}>Who does this?</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+                {ASSIGNEES.map(a => {
+                  const selected = (taskWho || ownerEmail) === a.email;
+                  return (
+                    <button key={a.email}
+                      onClick={() => setTaskWho(taskWho === a.email ? '' : a.email)}
+                      style={{ padding: '7px 11px', borderRadius: 8, cursor: 'pointer',
+                               background: selected ? '#3b82f6' : 'transparent',
+                               border: `1px solid ${selected ? '#3b82f6' : '#334155'}`,
+                               color: selected ? '#fff' : C.muted,
+                               fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
+                      {a.name}
+                    </button>
+                  );
+                })}
               </div>
-              {/* THEN IT GOES TO — optional. When the doer is not the person who
-                  closes the loop with the customer, this is the field that was
-                  missing: two live tasks had the chain written out in prose
-                  ("once it's complete, Shana will reach out to the client")
-                  because there was nowhere to put it. */}
-              {ownerEmail && (
+              {/* THEN IT GOES TO — optional follow-up assignee. */}
+              {(taskWho || ownerEmail) && (
                 <div style={{ marginTop: 13 }}>
                   <div style={{ fontSize: 12, color: C.muted, marginBottom: 7 }}>
                     Then it goes to… <span style={{ opacity: 0.7 }}>(optional)</span>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {ASSIGNEES.filter(a => a.email !== ownerEmail).map(a => {
+                    {ASSIGNEES.filter(a => a.email !== (taskWho || ownerEmail)).map(a => {
                       const on = taskNext === a.email;
                       return (
                         <button key={a.email} onClick={() => setTaskNext(on ? '' : a.email)}
@@ -1030,11 +1036,11 @@ export default function TicketSheet({
               )}
 
               <div style={{ display: 'flex', gap: 7, marginTop: 13 }}>
-                <button onClick={createTask} disabled={saving || !taskBody.trim() || !ownerEmail}
+                <button onClick={createTask} disabled={saving || !taskBody.trim() || !(taskWho || ownerEmail)}
                   style={{ flex: 2, padding: '11px 0', borderRadius: 9, background: '#22d16f',
                            border: 'none', color: '#052e16', fontSize: 14, fontWeight: 800,
                            fontFamily: 'inherit', cursor: 'pointer',
-                           opacity: (saving || !taskBody.trim() || !taskWho) ? 0.5 : 1 }}>
+                           opacity: (saving || !taskBody.trim() || !(taskWho || ownerEmail)) ? 0.5 : 1 }}>
                   {saving ? 'Sending…' : 'Send task'}
                 </button>
                 <button onClick={() => { setTaskOpen(false); setTaskBody(''); setTaskWho(''); }}

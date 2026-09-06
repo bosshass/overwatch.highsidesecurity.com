@@ -158,8 +158,14 @@ function FixedFeeProjects({ userEmail }) {
 }
 
 // Thin drawer shell — same pattern as DetailDrawer in BoardView.
-// No new logic. TicketSheet handles notes, tasks, history, status moves.
-function BillingDrawer({ job, userEmail, accessToken, onClose }) {
+// onMove wires through jobsApi.changeStatus so "Where does this go next?"
+// actually writes the status change and triggers a reload of the billing view.
+function BillingDrawer({ job, userEmail, accessToken, onClose, onRefresh }) {
+  const handleMove = async (targetStatus, note) => {
+    await jobsApi.changeStatus(job.id, targetStatus, userEmail, note || null);
+    onClose();
+    if (onRefresh) onRefresh();
+  };
   return (
     <div onClick={onClose}
       style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.75)', zIndex:900,
@@ -172,8 +178,8 @@ function BillingDrawer({ job, userEmail, accessToken, onClose }) {
           userEmail={userEmail}
           accessToken={accessToken}
           onClose={onClose}
-          onMove={async () => {}}
-          onUpdated={() => {}}
+          onMove={handleMove}
+          onUpdated={onRefresh || (() => {})}
         />
       </div>
     </div>
@@ -1527,6 +1533,7 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
           userEmail={userEmail}
           accessToken={accessToken}
           onClose={() => setDrawerJob(null)}
+          onRefresh={load}
         />
       )}
 

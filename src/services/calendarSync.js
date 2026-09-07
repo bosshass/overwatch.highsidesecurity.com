@@ -200,6 +200,31 @@ export function buildEventDescription(job, latestNote, { scheduledBy = null } = 
   return desc;
 }
 
+// Patch an existing calendar event with the full job data.
+//
+// linkToEvent() adopts a pre-existing calendar event rather than creating a
+// new one — correct behaviour, because creating is how a job ends up with two.
+// The problem is that the adopted event has whatever the creator typed manually:
+// no CUSTOMER_ID stamp, no contact info, no address, no notes, no deep link.
+// This function pushes the same full description that book() writes on a fresh
+// event, so the tech sees identical data regardless of which path was used to
+// schedule the job.
+//
+// Non-fatal: a failed patch does not unwind a booking that is already recorded
+// in the database. The event just keeps its old text until the next note or
+// issue edit triggers a sync write.
+export async function patchEventWithJobData(accessToken, calendarId, eventId, job, { scheduledBy = null } = {}) {
+  const latestNote = await getLatestNote(job.id);
+  const description = buildEventDescription(job, latestNote, { scheduledBy });
+  const deepLink = jobDeepLink(calendarId, eventId);
+  const fullDesc = description + `\n\n📱 Open in Overwatch: ${deepLink}`;
+  await apiPatch(accessToken, calendarId, eventId, {
+    summary: buildEventTitle(job),
+    description: fullDesc,
+    location: job.customer_address || '',
+  });
+}
+
 // Google Calendar color IDs
 export function getColorId(type) {
   const colors = { urgent: '11', high: '6', normal: '7', low: '10', complete: '10', return: '6', sales: '5', nc: '8' };

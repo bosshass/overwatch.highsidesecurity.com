@@ -64,7 +64,7 @@ async function logScheduleAction(jobId, action, byEmail, fromStatus, toStatus) {
     if (error) console.warn('schedule audit log rejected (non-fatal):', error.message);
   } catch (e) { console.warn('schedule audit log failed (non-fatal)', e?.message || e); }
 }
-import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote } from './calendarSync.js';
+import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote, patchEventWithJobData } from './calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
 import { sendSms, isSendable } from './sms.js';
 
@@ -377,6 +377,39 @@ export async function linkToEvent({ job, event, calendarId, techName, accessToke
     updated_at: new Date().toISOString(),
   }).eq('id', job.id);
   if (error) throw error;
+
+  // Push the full job data onto the adopted calendar event.
+  //
+  // book() creates a fresh event and writes CUSTOMER_ID, address, phone, on-site
+  // contact, gate code, panel password, issue, latest note, and a deep link into
+  // the description. linkToEvent was adopting the existing event without touching
+  // it at all — the calendar kept whatever the person typed manually (usually
+  // just a customer name and nothing else). The tech was opening a calendar event
+  // with none of the contact or access data they needed.
+  //
+  // Re-read the job row first for the same reason book() does: the caller's
+  // copy may be stale (missing fields added after the drawer was opened).
+  if (accessToken && calendarId && event.id) {
+    try {
+      const { data: freshJob } = await supabase
+        .from('jobs')
+        .select('id, customer_id, customer_short_code, customer_name, customer_address, customer_phone, site_contact_name, site_contact_phone, access_permission, gate_code, panel_password, issue, job_number')
+        .eq('id', job.id)
+        .single();
+      await patchEventWithJobData(
+        accessToken,
+        calendarId,
+        event.id,
+        freshJob || job,
+        { scheduledBy: byEmail },
+      );
+    } catch (e) {
+      // Non-fatal: the DB link already exists. The event keeps its old text
+      // until the next note or issue edit triggers another sync write.
+      console.warn('linkToEvent: calendar event patch failed (non-fatal):', e?.message || e);
+    }
+  }
+
   // The second silent route to `scheduled`, and it recorded nothing at all —
   // not even a rejected insert. Linking an existing event to a card moves that
   // card, so it is a status change and it gets a history row like every other.

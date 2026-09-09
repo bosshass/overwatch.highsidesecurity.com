@@ -614,6 +614,16 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         </div>
       </div>
 
+      {/* Phone number — visible on the card so operators can read it at a
+          glance without opening the drawer. The TextButton above already lets
+          you call or text from the card; this just makes the number itself
+          readable. */}
+      {job.customer_phone && (
+        <div style={{ fontSize:12, color:'#64748b', marginBottom:4 }}>
+          📞 {job.customer_phone}
+        </div>
+      )}
+
       {!hasUUID && (
         <div style={{ background:'#78350f44', border:'1px solid #f59e0b', borderRadius:6, padding:'6px 9px', marginBottom:8 }}>
           <div style={{ fontSize:12, fontWeight:700, color:'#fbbf24' }}>Not linked to a customer</div>
@@ -681,13 +691,19 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         )}
       </div>
 
-      {/* Last human-authored note — shown as a snippet so the card tells you
-          something useful at a glance without opening the drawer */}
-      {job.last_note_text && (
-        <div style={{ fontSize:12, color:'#94a3b8', marginBottom:6, lineHeight:1.4,
+      {/* Issue scope or latest note.
+          New jobs have no notes yet, so fall back to job.issue — the "What are we
+          doing?" text — so the card is never a blank customer name with nothing
+          else to read. Switches to the latest human note as soon as one exists.
+          Note/task types already render their issue above this block, so skip
+          the issue fallback for those to avoid double-printing it. */}
+      {(job.last_note_text || (job.issue && job.job_type !== 'note' && job.job_type !== 'task')) && (
+        <div style={{ fontSize:12,
+                      color: job.last_note_text ? '#94a3b8' : '#cbd5e1',
+                      marginBottom:6, lineHeight:1.4,
                       overflow:'hidden', display:'-webkit-box',
                       WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-          💬 {job.last_note_text}
+          {job.last_note_text ? `💬 ${job.last_note_text}` : job.issue}
         </div>
       )}
 

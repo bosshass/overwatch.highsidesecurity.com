@@ -105,17 +105,20 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
   const selectCustomer = (customer) => {
     setSelectedCustomer(customer);
     setForm(f => ({
-      // The name/phone/CMS regex patching that used to happen here is gone with
-      // the template. Those three facts live in their own fields, which this
-      // already fills — copying them into `issue` as well only ever produced a
-      // second, staler copy on the tech's card.
       ...f,
-      customer_name: customer.name,
+      customer_name:    customer.name,
       customer_address: customer.address || '',
-      customer_phone: customer.phone || '',
-      gate_code: customer.gate_code || '',
-      panel_password: customer.panel_password || '',
-      cms_account_id: customer.cms_account_id || '',
+      customer_phone:   customer.phone || '',
+      gate_code:        customer.gate_code || '',
+      panel_password:   customer.panel_password || '',
+      cms_account_id:   customer.cms_account_id || '',
+      // Pre-fill on-site contact from the customer record so the dispatcher
+      // doesn't have to retype the account holder's name and number. The
+      // fields stay editable — override them when somebody other than the
+      // account holder will be on site. Preserved if the dispatcher already
+      // typed something before selecting the customer.
+      site_contact_name:  f.site_contact_name  || customer.name  || '',
+      site_contact_phone: f.site_contact_phone || customer.phone || '',
     }));
     setShowCustomerSearch(false);
     setSearchQuery(customer.name);

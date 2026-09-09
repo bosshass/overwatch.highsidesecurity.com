@@ -691,21 +691,37 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         )}
       </div>
 
-      {/* Issue scope or latest note.
-          New jobs have no notes yet, so fall back to job.issue — the "What are we
-          doing?" text — so the card is never a blank customer name with nothing
-          else to read. Switches to the latest human note as soon as one exists.
-          Note/task types already render their issue above this block, so skip
-          the issue fallback for those to avoid double-printing it. */}
-      {(job.last_note_text || (job.issue && job.job_type !== 'note' && job.job_type !== 'task')) && (
-        <div style={{ fontSize:12,
-                      color: job.last_note_text ? '#94a3b8' : '#cbd5e1',
-                      marginBottom:6, lineHeight:1.4,
-                      overflow:'hidden', display:'-webkit-box',
-                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-          {job.last_note_text ? `💬 ${job.last_note_text}` : job.issue}
-        </div>
-      )}
+      {/* Issue scope, return trip brief, or latest note — all in the same spot.
+          return_pending → show the return brief (what we're coming back to do);
+            this is what TicketSheet shows in its "🔄 This return trip" panel.
+          All others → last typed note if one exists; fall back to job.issue
+            ("What are we doing?") so a new card is never blank.
+          Note/task types already rendered their issue above, so skip the fallback
+          for those to avoid double-printing. */}
+      {(() => {
+        if (job.status === 'return_pending' && job.return_reason) {
+          return (
+            <div style={{ fontSize:12, color:'#fed7aa', marginBottom:6, lineHeight:1.4,
+                          overflow:'hidden', display:'-webkit-box',
+                          WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+              🔄 {job.return_reason}
+            </div>
+          );
+        }
+        const text = job.last_note_text
+          ? `💬 ${job.last_note_text}`
+          : (job.issue && job.job_type !== 'note' && job.job_type !== 'task' ? job.issue : null);
+        if (!text) return null;
+        return (
+          <div style={{ fontSize:12,
+                        color: job.last_note_text ? '#94a3b8' : '#cbd5e1',
+                        marginBottom:6, lineHeight:1.4,
+                        overflow:'hidden', display:'-webkit-box',
+                        WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+            {text}
+          </div>
+        );
+      })()}
 
       {/* Status + money + move controls */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
@@ -949,11 +965,42 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
           });
         }
       }
+      // RETURN TRIP BRIEF. return_pending cards need to surface what the tech
+      // is coming back TO DO, not the original scope. Batch-fetch the latest
+      // return_card for each return_pending job via original_event_id so the
+      // board card shows the same "🔄 what are we doing this trip?" text that
+      // TicketSheet shows in its return-trip panel.
+      const returnReasons = {};
+      {
+        const returnJobs = (data || []).filter(j => j.status === 'return_pending');
+        if (returnJobs.length) {
+          // Build event_id → job.id map. Each job can carry up to three event IDs.
+          const eventToJob = {};
+          returnJobs.forEach(j => {
+            [j.scheduled_event_id, j.calendar_event_id, j.tentative_event_id]
+              .filter(Boolean)
+              .forEach(eid => { if (!eventToJob[eid]) eventToJob[eid] = j.id; });
+          });
+          const eventIds = Object.keys(eventToJob);
+          if (eventIds.length) {
+            const { data: rcs } = await supabase
+              .from('return_cards')
+              .select('original_event_id, reason')
+              .in('original_event_id', eventIds)
+              .order('created_at', { ascending: false });
+            (rcs || []).forEach(rc => {
+              const jobId = eventToJob[rc.original_event_id];
+              if (jobId && !returnReasons[jobId] && rc.reason) returnReasons[jobId] = rc.reason;
+            });
+          }
+        }
+      }
       setJobs((data || []).map(j => ({
         ...j,
         last_note_at: lastNoteAt[j.id] || null,
         last_note_text: lastNoteText[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
+        return_reason: returnReasons[j.id] || null,
       })));
       const j = data||[];
       setStats({

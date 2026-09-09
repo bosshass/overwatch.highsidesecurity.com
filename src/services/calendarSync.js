@@ -110,6 +110,23 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
   return created;
 }
 
+// Update an existing calendar event in-place (title, description, location,
+// and/or start/end times). Called by book() when rescheduling to the same tech
+// so the Google Calendar event ID, attendees, and edit history are preserved
+// rather than the old event being deleted and a new one created.
+//
+// All fields are optional — pass only what changed. Omitting start or end leaves
+// those fields alone on the event.
+export async function patchEventOnCalendar(accessToken, calendarId, eventId, { title, description, location, startTime, endTime } = {}) {
+  const patch = {};
+  if (title     !== undefined) patch.summary     = title;
+  if (description !== undefined) patch.description = description;
+  if (location  !== undefined) patch.location    = location || '';
+  if (startTime !== undefined) patch.start = { dateTime: toWallClock(new Date(startTime)), timeZone: 'America/Denver' };
+  if (endTime   !== undefined) patch.end   = { dateTime: toWallClock(new Date(endTime)),   timeZone: 'America/Denver' };
+  await apiPatch(accessToken, calendarId, eventId, patch);
+}
+
 // Archive an event: delete from source calendar
 export async function archiveEvent(accessToken, sourceCalendarId, eventId) {
   try {

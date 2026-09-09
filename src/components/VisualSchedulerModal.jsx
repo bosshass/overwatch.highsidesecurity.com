@@ -237,21 +237,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   };
 
   const pickSlot = (techId, dayData, slot) => {
-    // Picking a slot pre-fills the hold hours as well, so holding "that gap"
-    // is one tap rather than retyping times you already chose.
-    if (slot?.start && slot?.end) {
-      const two = n => String(n).padStart(2, '0');
-      setHoldStart(`${two(slot.start.getHours())}:${two(slot.start.getMinutes())}`);
-      setHoldEnd(`${two(slot.end.getHours())}:${two(slot.end.getMinutes())}`);
-    }
+    // Picking a slot pre-fills start and end. The end defaults to
+    // job.estimated_hours from the slot start — the tech's own time estimate
+    // for this job — capped at the available slot. Falls back to 2h when no
+    // estimate is set, same as before.
+    //
+    // Both holdEnd (what book() receives) and endTime (what the input shows)
+    // are set from the same calculated end, so the displayed time matches what
+    // actually gets booked. Previously holdEnd was the full slot end regardless
+    // of the 2h cap on endTime, making them disagree.
+    const jobMs = (Number(job.estimated_hours) > 0 ? Number(job.estimated_hours) : 2) * 3600000;
+    const defStart = new Date(slot.start);
+    const defEnd = new Date(Math.min(slot.end.getTime(), slot.start.getTime() + jobMs));
+    const two = n => String(n).padStart(2, '0');
+    setHoldStart(`${two(defStart.getHours())}:${two(defStart.getMinutes())}`);
+    setHoldEnd(`${two(defEnd.getHours())}:${two(defEnd.getMinutes())}`);
     setSelectedTechId(techId);
     // Always carry techId — the event list resolves the tech name from it.
     setSelectedDay({ ...dayData, techId });
     setSelectedSlot(slot);
-    const defStart = new Date(slot.start);
-    const defEnd = new Date(Math.min(slot.end.getTime(), slot.start.getTime() + 2 * 3600000));
-    setStartTime(`${String(defStart.getHours()).padStart(2,'0')}:${String(defStart.getMinutes()).padStart(2,'0')}`);
-    setEndTime(`${String(defEnd.getHours()).padStart(2,'0')}:${String(defEnd.getMinutes()).padStart(2,'0')}`);
+    setStartTime(`${two(defStart.getHours())}:${two(defStart.getMinutes())}`);
+    setEndTime(`${two(defEnd.getHours())}:${two(defEnd.getMinutes())}`);
   };
 
   // What's still missing, in the order the user fills it in. Drives both the

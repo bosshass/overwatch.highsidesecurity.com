@@ -75,8 +75,10 @@ export default function MessagesView({ userEmail, accessToken }) {
 
   // Pull every note (inbound or outbound) that mentions this phone number,
   // then classify each and show them in chronological order as a conversation.
-  const openThread = async (phone, who) => {
-    setThread({ phone, who, messages: null });  // null = loading
+  // jobId/customerId come from the inbound note that was clicked so the reply
+  // button can associate the logged outbound note with the right record.
+  const openThread = async (phone, who, jobId, customerId) => {
+    setThread({ phone, who, messages: null, jobId: jobId || null, customerId: customerId || null });  // null = loading
     const { data } = await supabase
       .from('notes')
       .select('id, body, created_at, author_email, assigned_to')
@@ -91,7 +93,7 @@ export default function MessagesView({ userEmail, accessToken }) {
       if (out) return [{ id: n.id, dir: 'out', who: out[1].trim(),  text: out[3].trim(),  at: n.created_at, author: n.author_email }];
       return [];
     });
-    setThread({ phone, who, messages });
+    setThread(prev => ({ ...prev, messages }));
   };
 
   const fmtTime = iso => new Date(iso).toLocaleString('en-US', {
@@ -116,7 +118,8 @@ export default function MessagesView({ userEmail, accessToken }) {
           </div>
           <TextButton
             to={thread.phone} name={thread.who} accessToken={accessToken}
-            label="↩ Reply" logTo={{ userEmail }}
+            label="↩ Reply"
+            logTo={{ jobId: thread.jobId, customerId: thread.customerId, userEmail }}
           />
         </div>
 
@@ -240,7 +243,7 @@ export default function MessagesView({ userEmail, accessToken }) {
                 {/* VIEW THREAD — shows the full back-and-forth with this contact,
                     including what we sent, so the operator sees the whole conversation
                     before deciding what to say next. */}
-                <button onClick={() => openThread(msg.phone, msg.who)}
+                <button onClick={() => openThread(msg.phone, msg.who, n.job_id, n.customer_id)}
                   style={{ background: 'transparent', border: `1px solid ${C.teal}77`,
                            borderRadius: 999, color: C.teal, fontSize: 12.5, fontWeight: 800,
                            padding: '7px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>

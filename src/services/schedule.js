@@ -64,7 +64,7 @@ async function logScheduleAction(jobId, action, byEmail, fromStatus, toStatus) {
     if (error) console.warn('schedule audit log rejected (non-fatal):', error.message);
   } catch (e) { console.warn('schedule audit log failed (non-fatal)', e?.message || e); }
 }
-import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote } from './calendarSync.js';
+import { createEventOnCalendar, buildEventTitle, buildEventDescription, getLatestNote, patchEventWithJobData, patchEventOnCalendar } from './calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
 import { sendSms, isSendable } from './sms.js';
 
@@ -182,10 +182,6 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
   if (job.tentative_event_id) {
     await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, job.tentative_event_id);
   }
-  // Rebooking removes the previous tech-calendar event.
-  if (job.scheduled_event_id && job.scheduled_calendar_id) {
-    await deleteEvent(accessToken, job.scheduled_calendar_id, job.scheduled_event_id);
-  }
 
   const { error } = await supabase.from('jobs').update({
     status: 'scheduled',
@@ -204,22 +200,60 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
   if (error) throw error;
 
   const latestNote = await getLatestNote(job.id);
-  const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
-    title: buildEventTitle(job),
-    // byEmail was already threaded here for the recap audit log; it now also
-    // reaches the calendar, so the event says who put it on the day.
-    description: buildEventDescription(job, latestNote, { scheduledBy: byEmail }),
-    location: job.customer_address,
-    startTime: start,
-    endTime: end,
-  });
+  const eventDescription = buildEventDescription(job, latestNote, { scheduledBy: byEmail });
 
-  if (created?.id) {
-    const { error: memErr } = await supabase.from('jobs').update({
-      scheduled_event_id: created.id,
-      scheduled_calendar_id: tech.calendar_id,
-    }).eq('id', job.id);
-    if (memErr) console.warn('could not store scheduled event id:', memErr.message);
+  // ── PATCH vs DELETE+CREATE ──────────────────────────────────────────────
+  // When rescheduling to the SAME tech (same calendar), patch the existing
+  // event in-place: new start/end + refreshed description and location.
+  // Patching preserves the Google Calendar event ID, so external links,
+  // attendees, and the event's edit history all survive the reschedule.
+  //
+  // When the TECH CHANGES (different calendar), the event must move — patch
+  // cannot move an event across calendars, so the old one is deleted and a
+  // new one is created on the new tech's calendar.
+  //
+  // A fresh booking (never had a scheduled event) always creates.
+  const sameTech = isReschedule
+    && job.scheduled_calendar_id
+    && job.scheduled_calendar_id === tech.calendar_id;
+
+  if (sameTech && job.scheduled_event_id) {
+    // Same tech — keep the event alive, just update its times and content.
+    try {
+      await patchEventOnCalendar(accessToken, job.scheduled_calendar_id, job.scheduled_event_id, {
+        title: buildEventTitle(job),
+        description: eventDescription,
+        location: job.customer_address,
+        startTime: start,
+        endTime: end,
+      });
+    } catch (e) {
+      // A failed patch should not unwind the DB update. The event keeps its
+      // old times until the next reschedule; warn loudly.
+      console.warn('book: reschedule patch failed (non-fatal):', e?.message || e);
+    }
+    // No new event ID — the existing one stays correct on the job row.
+  } else {
+    // Tech changed or first booking: remove old event, create fresh one.
+    if (job.scheduled_event_id && job.scheduled_calendar_id) {
+      await deleteEvent(accessToken, job.scheduled_calendar_id, job.scheduled_event_id);
+    }
+    const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
+      title: buildEventTitle(job),
+      // byEmail was already threaded here for the recap audit log; it now also
+      // reaches the calendar, so the event says who put it on the day.
+      description: eventDescription,
+      location: job.customer_address,
+      startTime: start,
+      endTime: end,
+    });
+    if (created?.id) {
+      const { error: memErr } = await supabase.from('jobs').update({
+        scheduled_event_id: created.id,
+        scheduled_calendar_id: tech.calendar_id,
+      }).eq('id', job.id);
+      if (memErr) console.warn('could not store scheduled event id:', memErr.message);
+    }
   }
 
   // Mirror onto each helper's calendar. Non-fatal per-helper: a failed mirror
@@ -229,7 +263,7 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     try {
       await createEventOnCalendar(accessToken, h.calendar_id, {
         title: buildEventTitle(job),
-        description: buildEventDescription(job, latestNote, { scheduledBy: byEmail }) + `\n👥 Riding with ${tech.name}`,
+        description: eventDescription + `\n👥 Riding with ${tech.name}`,
         location: job.customer_address,
         startTime: start, endTime: end,
       });
@@ -377,6 +411,39 @@ export async function linkToEvent({ job, event, calendarId, techName, accessToke
     updated_at: new Date().toISOString(),
   }).eq('id', job.id);
   if (error) throw error;
+
+  // Push the full job data onto the adopted calendar event.
+  //
+  // book() creates a fresh event and writes CUSTOMER_ID, address, phone, on-site
+  // contact, gate code, panel password, issue, latest note, and a deep link into
+  // the description. linkToEvent was adopting the existing event without touching
+  // it at all — the calendar kept whatever the person typed manually (usually
+  // just a customer name and nothing else). The tech was opening a calendar event
+  // with none of the contact or access data they needed.
+  //
+  // Re-read the job row first for the same reason book() does: the caller's
+  // copy may be stale (missing fields added after the drawer was opened).
+  if (accessToken && calendarId && event.id) {
+    try {
+      const { data: freshJob } = await supabase
+        .from('jobs')
+        .select('id, customer_id, customer_short_code, customer_name, customer_address, customer_phone, site_contact_name, site_contact_phone, access_permission, gate_code, panel_password, issue, job_number')
+        .eq('id', job.id)
+        .single();
+      await patchEventWithJobData(
+        accessToken,
+        calendarId,
+        event.id,
+        freshJob || job,
+        { scheduledBy: byEmail },
+      );
+    } catch (e) {
+      // Non-fatal: the DB link already exists. The event keeps its old text
+      // until the next note or issue edit triggers another sync write.
+      console.warn('linkToEvent: calendar event patch failed (non-fatal):', e?.message || e);
+    }
+  }
+
   // The second silent route to `scheduled`, and it recorded nothing at all —
   // not even a rejected insert. Linking an existing event to a card moves that
   // card, so it is a status change and it gets a history row like every other.

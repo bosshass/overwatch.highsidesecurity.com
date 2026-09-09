@@ -110,6 +110,23 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
   return created;
 }
 
+// Update an existing calendar event in-place (title, description, location,
+// and/or start/end times). Called by book() when rescheduling to the same tech
+// so the Google Calendar event ID, attendees, and edit history are preserved
+// rather than the old event being deleted and a new one created.
+//
+// All fields are optional — pass only what changed. Omitting start or end leaves
+// those fields alone on the event.
+export async function patchEventOnCalendar(accessToken, calendarId, eventId, { title, description, location, startTime, endTime } = {}) {
+  const patch = {};
+  if (title     !== undefined) patch.summary     = title;
+  if (description !== undefined) patch.description = description;
+  if (location  !== undefined) patch.location    = location || '';
+  if (startTime !== undefined) patch.start = { dateTime: toWallClock(new Date(startTime)), timeZone: 'America/Denver' };
+  if (endTime   !== undefined) patch.end   = { dateTime: toWallClock(new Date(endTime)),   timeZone: 'America/Denver' };
+  await apiPatch(accessToken, calendarId, eventId, patch);
+}
+
 // Archive an event: delete from source calendar
 export async function archiveEvent(accessToken, sourceCalendarId, eventId) {
   try {
@@ -198,6 +215,31 @@ export function buildEventDescription(job, latestNote, { scheduledBy = null } = 
   // keeping the old JUC-E text costs nothing. This is purely what a human sees.
   desc += '\n⚡ Managed by Overwatch';
   return desc;
+}
+
+// Patch an existing calendar event with the full job data.
+//
+// linkToEvent() adopts a pre-existing calendar event rather than creating a
+// new one — correct behaviour, because creating is how a job ends up with two.
+// The problem is that the adopted event has whatever the creator typed manually:
+// no CUSTOMER_ID stamp, no contact info, no address, no notes, no deep link.
+// This function pushes the same full description that book() writes on a fresh
+// event, so the tech sees identical data regardless of which path was used to
+// schedule the job.
+//
+// Non-fatal: a failed patch does not unwind a booking that is already recorded
+// in the database. The event just keeps its old text until the next note or
+// issue edit triggers a sync write.
+export async function patchEventWithJobData(accessToken, calendarId, eventId, job, { scheduledBy = null } = {}) {
+  const latestNote = await getLatestNote(job.id);
+  const description = buildEventDescription(job, latestNote, { scheduledBy });
+  const deepLink = jobDeepLink(calendarId, eventId);
+  const fullDesc = description + `\n\n📱 Open in Overwatch: ${deepLink}`;
+  await apiPatch(accessToken, calendarId, eventId, {
+    summary: buildEventTitle(job),
+    description: fullDesc,
+    location: job.customer_address || '',
+  });
 }
 
 // Google Calendar color IDs

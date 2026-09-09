@@ -38,6 +38,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import { jobDeepLink, APP_BASE } from './config/appBase.js';
 import SmsSetup from './views/SmsSetup.jsx';
+import MessagesView from './views/MessagesView.jsx';
 import { APP_VERSION } from './version.js';
 
 // APP_VERSION lives in src/version.js and version.json is generated from it.
@@ -809,57 +810,43 @@ export default function App() {
   // Open tasks assigned to me, for the nav badge. Email told people a task had
   // landed; nothing in the app itself did, so anyone who does not live in that
   // mailbox found out whenever they next happened to look.
+  // Tasks badge — assigned-to-me open tasks only (messages have their own badge).
   const [taskCount, setTaskCount] = useState(0);
+  // Messages badge — unread inbound texts, shared inbox, silenced per-message by markRead.
+  const [msgCount,  setMsgCount]  = useState(0);
   useEffect(() => {
     if (!isSignedIn || !userEmail) return;
     let dead = false;
     const tick = async () => {
       try {
         const mine = emailsFor(userEmail);
-        // Fetch the IDS, not a count, so today's skips can be subtracted.
-        // The badge read straight from the database and skips live in
-        // localStorage, so the two never talked: you could skip everything and
-        // the 7 sat there all day telling you to look at work you had already
-        // said "not now" to. That is how a badge gets ignored permanently —
-        // and JR and Shana would have been the first to say so.
-        const { data } = await supabase.from('notes')
+        // Tasks: assigned to me, not yet finished, minus today's skips.
+        const { data: taskData } = await supabase.from('notes')
           .select('id')
           .eq('status', 'open').neq('lane', 'done')
+          .not('body', 'like', '📲 Text from%')   // exclude inbound texts — they live in Messages
           .in('assigned_to', mine.length ? mine : ['__none__']);
-
-        // UNREAD MESSAGES COUNT FOR EVERYBODY. Inbound texts are a shared
-        // inbox, so the badge cannot key off assignment the way tasks do — a
-        // client's unanswered question must nag the whole office, not only
-        // whoever it happened to be routed to. Read state is what silences it,
-        // and read is shared too: one person opening it clears it for all.
-        const { data: unread } = await supabase.from('notes')
-          .select('id')
-          .eq('status', 'open')
-          .is('read_at', null)
-          .like('body', '📲 Text from%');
 
         let skipped = {};
         try {
           const raw = JSON.parse(localStorage.getItem('task_skips') || '{}');
           const today = new Date().toLocaleDateString('en-CA');
-          // Day-scoped: yesterday's skips are dropped on read, so anything
-          // still open comes back tomorrow morning. Skipping is "not now",
-          // never "done".
           skipped = Object.fromEntries(Object.entries(raw).filter(([, d]) => d === today));
         } catch {}
+        const taskIds = (taskData || []).filter(n => !skipped[n.id]).map(n => n.id);
+        if (!dead) setTaskCount(taskIds.length);
 
-        // Union by id — a message routed to you would otherwise be counted
-        // twice, once as your task and once as an unread message.
-        const ids = new Set([
-          ...(data   || []).filter(n => !skipped[n.id]).map(n => n.id),
-          ...(unread || []).map(n => n.id),
-        ]);
-        if (!dead) setTaskCount(ids.size);
+        // Messages: unread inbound texts, shared across all operators.
+        const { data: unread } = await supabase.from('notes')
+          .select('id')
+          .eq('status', 'open')
+          .is('read_at', null)
+          .like('body', '📲 Text from%');
+        if (!dead) setMsgCount((unread || []).length);
       } catch { /* a badge is not worth an error */ }
     };
     tick();
-    const t = setInterval(tick, 90000);   // cheap head-count, not a subscription
-    // Skipping updates the badge immediately instead of up to 90s later.
+    const t = setInterval(tick, 90000);
     window.addEventListener('task-skips-changed', tick);
     return () => {
       dead = true;
@@ -1207,6 +1194,11 @@ export default function App() {
           <ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
         } />
 
+        {/* /messages — shared SMS inbox, separate from the task stack */}
+        <Route path="/messages" element={
+          <ViewShell><MessagesView userEmail={readAsEmail} accessToken={accessToken} /></ViewShell>
+        } />
+
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} defaultTab={urlParams.get('tab') === 'utilization' ? 'tasks' : undefined} /></ViewShell>} />
 
         <Route path="/work" element={
@@ -1321,30 +1313,30 @@ export default function App() {
             // is one tap from every screen in the app, so a tech tapping the
             // person icon expecting "my stuff" got a wall of text instead.
             // Operators still reach People from the board's "Who's stuck".
-            { icon:'📋', label:'Tasks', path:'/tasks' },   // was ✓ — identical to Today's icon
-            { icon:'🏠', label:'Clients', path:'/customers' },
-            { icon:'📅', label:'Cal',  path:'/calendar' },
+            { icon:'📋', label:'Tasks',    path:'/tasks' },
+            { icon:'💬', label:'Messages', path:'/messages' },
+            { icon:'🏠', label:'Clients',  path:'/customers' },
+            { icon:'📅', label:'Cal',      path:'/calendar' },
           ].map(t => {
             const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);
+            // Each badged tab has its own count: tasks → taskCount, messages → msgCount.
+            const badge = t.path === '/tasks' ? taskCount : t.path === '/messages' ? msgCount : 0;
             return (
               <button key={t.path} onClick={() => navigate(t.path)}
                 style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: active ? '#00c8e8' : '#8ea0b8', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                {/* TASKS CARRIES A COUNT AND SITS LARGER. It is the one tab
-                    that has a number attached — everything else is a place, but
-                    this is a pile that grows if nobody looks at it. */}
-                <span style={{ fontSize: t.path === '/tasks' ? 25 : 20, position:'relative' }}>
+                <span style={{ fontSize: badge > 0 ? 25 : 20, position:'relative' }}>
                   {t.icon}
-                  {t.path === '/tasks' && taskCount > 0 && (
+                  {badge > 0 && (
                     <span style={{ position:'absolute', top:-3, right:-11, minWidth:16, height:16,
                                    borderRadius:9, background:'#ff4f5e', color:'#fff',
                                    fontSize:10, fontWeight:900, display:'flex',
                                    alignItems:'center', justifyContent:'center', padding:'0 4px' }}>
-                      {taskCount > 9 ? '9+' : taskCount}
+                      {badge > 9 ? '9+' : badge}
                     </span>
                   )}
                 </span>
-                <span style={{ fontSize: t.path === '/tasks' ? 10.5 : 9.5,
-                               fontWeight: t.path === '/tasks' ? 900 : 700,
+                <span style={{ fontSize: badge > 0 ? 10.5 : 9.5,
+                               fontWeight: badge > 0 ? 900 : 700,
                                whiteSpace:'nowrap' }}>{t.label}</span>
               </button>
             );

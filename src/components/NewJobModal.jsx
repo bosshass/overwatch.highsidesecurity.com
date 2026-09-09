@@ -85,7 +85,8 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
     photoLink: '',
     gate_code: '',
     panel_password: '',
-    cms_account_id: ''
+    cms_account_id: '',
+    estimated_hours: '',
   });
 
   const [taskForm, setTaskForm] = useState({ title: '', assignedTo: '', customerId: null });
@@ -104,17 +105,20 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
   const selectCustomer = (customer) => {
     setSelectedCustomer(customer);
     setForm(f => ({
-      // The name/phone/CMS regex patching that used to happen here is gone with
-      // the template. Those three facts live in their own fields, which this
-      // already fills — copying them into `issue` as well only ever produced a
-      // second, staler copy on the tech's card.
       ...f,
-      customer_name: customer.name,
+      customer_name:    customer.name,
       customer_address: customer.address || '',
-      customer_phone: customer.phone || '',
-      gate_code: customer.gate_code || '',
-      panel_password: customer.panel_password || '',
-      cms_account_id: customer.cms_account_id || '',
+      customer_phone:   customer.phone || '',
+      gate_code:        customer.gate_code || '',
+      panel_password:   customer.panel_password || '',
+      cms_account_id:   customer.cms_account_id || '',
+      // Pre-fill on-site contact from the customer record so the dispatcher
+      // doesn't have to retype the account holder's name and number. The
+      // fields stay editable — override them when somebody other than the
+      // account holder will be on site. Preserved if the dispatcher already
+      // typed something before selecting the customer.
+      site_contact_name:  f.site_contact_name  || customer.name  || '',
+      site_contact_phone: f.site_contact_phone || customer.phone || '',
     }));
     setShowCustomerSearch(false);
     setSearchQuery(customer.name);
@@ -174,8 +178,12 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
     blocks.sort((a, b) => a.start - b.start);
     setBusyBlocks(blocks);
 
-    // Auto-suggest: find first open 2-hour slot between 8am-5pm
-    const slotDuration = (JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60;
+    // Auto-suggest: find first open slot between 8am-5pm.
+    // Use the tech's explicitly stated time estimate when set; fall back to the
+    // job-type default so an entry without an estimate behaves as before.
+    const slotDuration = Number(form.estimated_hours) > 0
+      ? Number(form.estimated_hours)
+      : (JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60;
     let suggested = '';
     for (let h = 8; h <= 17 - slotDuration; h += 0.5) {
       const slotStart = h;
@@ -212,7 +220,11 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
     if (!calendarId) return null;
 
     const startTime = new Date(scheduledFor);
-    const duration = JOB_TYPE_INFO[job.job_type]?.minutes || 120;
+    // estimated_hours is the tech's explicit time estimate; fall back to
+    // the job-type default when not set.
+    const duration = Number(job.estimated_hours) > 0
+      ? Number(job.estimated_hours) * 60
+      : (JOB_TYPE_INFO[job.job_type]?.minutes || 120);
     const endTime = new Date(startTime.getTime() + duration * 60000);
 
     const event = {
@@ -301,6 +313,9 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
         // strips '' but keeps `false`, so "client must be present" survives.
         access_permission: form.access_permission,
         gate_code: form.gate_code, panel_password: form.panel_password, cms_account_id: form.cms_account_id,
+        // Tech's time estimate — drives calendar event duration and scheduling
+        // slot suggestion everywhere this job is scheduled or rescheduled.
+        estimated_hours: Number(form.estimated_hours) > 0 ? Number(form.estimated_hours) : null,
         status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW,
         // When adopting an orphan calendar event, stamp the event id so
         // resolveJobForEvent can find this job later. Without it, a tech
@@ -454,7 +469,9 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
   const isSlotBusy = (timeStr) => {
     const [hStr, mStr] = timeStr.split(':');
     const slotStart = parseInt(hStr) + parseInt(mStr) / 60;
-    const duration = (JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60;
+    const duration = Number(form.estimated_hours) > 0
+      ? Number(form.estimated_hours)
+      : (JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60;
     const slotEnd = slotStart + duration;
     return busyBlocks.some(b => b.startHour < slotEnd && b.endHour > slotStart);
   };
@@ -821,6 +838,35 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
         </div>
 
 
+        {/* 3b. TIME NEEDED */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>⏱ Time Needed <span style={{ color: '#64748b', fontWeight: 400 }}>— sets the calendar event length and suggests the right slot</span></label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[1, 1.5, 2, 3, 4, 6, 8].map(h => {
+              const on = String(form.estimated_hours) === String(h);
+              const label = h === 1 ? '1 hr' : h % 1 !== 0 ? `${h} hrs` : `${h} hrs`;
+              return (
+                <button key={h} type="button"
+                  onClick={() => setForm(f => ({ ...f, estimated_hours: on ? '' : String(h) }))}
+                  style={{
+                    padding: '8px 14px', borderRadius: 999, cursor: 'pointer',
+                    background: on ? '#00c8e8' : 'transparent',
+                    border: `1px solid ${on ? '#00c8e8' : '#334155'}`,
+                    color: on ? '#04121f' : '#94a3b8',
+                    fontSize: 13, fontWeight: on ? 800 : 500, fontFamily: 'inherit',
+                  }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {!form.estimated_hours && (
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+              Leave blank and the calendar event defaults to 2 hrs.
+            </div>
+          )}
+        </div>
+
         {/* 4. WHO'S GOING — the control that was missing ── */}
         {/* The visual scheduler below is gated on `assignedTo`, and until now
             nothing on this form could set it. Everything past this point —
@@ -976,7 +1022,7 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
                     Suggested: {formatSlotLabel(suggestedTime)}
                   </div>
                   <div style={{ color: '#cbd5e1', fontSize: '11px' }}>
-                    First open {Math.round((JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60 * 10) / 10}hr slot
+                    First open {Number(form.estimated_hours) > 0 ? Number(form.estimated_hours) : Math.round((JOB_TYPE_INFO[form.job_type]?.minutes || 120) / 60 * 10) / 10}hr slot
                   </div>
                 </div>
               </button>

@@ -73,7 +73,11 @@ export default function SmsComposer({
       return;
     }
     setMsg(`Sent ✓ ${r.status || 'queued'}${r.from ? ` · from ${r.from}` : ''}`);
-    if (logTo?.jobId || logTo?.customerId) {
+    // Log whenever we have any caller context at all (userEmail is the minimum).
+    // Previously required jobId or customerId — which meant replies sent from
+    // the thread view (no job/customer context) were silently discarded and
+    // never appeared in the conversation history.
+    if (logTo?.userEmail || logTo?.jobId || logTo?.customerId) {
       try {
         await supabase.from('notes').insert({
           // The NUMBER is in the body on purpose. A reply arrives knowing only

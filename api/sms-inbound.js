@@ -44,6 +44,7 @@ const STAFF_BY_PHONE = {
   '+18087474948': { name: 'Shana',  email: 'shanaparks@drhsecurityservices.com' },
   '+18088541757': { name: 'JR',     email: 'jr@drhsecurityservices.com' },
   '+17207500063': { name: 'Sara',   email: 'admin@jnbservice.com' },
+  '+13372800021': { name: 'Austin', email: 'austin@drhsecurityservices.com' },
 };
 
 // Last 10 digits — the only comparison that survives the six ways a phone
@@ -184,36 +185,52 @@ export default async function handler(req, res) {
     let jobId = null;
 
     if (staff) {
-      // A reply from a tech. "👍" means they saw the job notification —
-      // file it on their nearest scheduled job so Sara sees it in context.
-      //
-      // Match by tech_name ILIKE '%JR%' (or whatever the staff.name is).
-      // Prefer the next upcoming/today's job; if none is scheduled yet
-      // fall back to the most recently created live job for that tech.
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // A reply from a tech. File it on the SAME job the outgoing text to this
+      // number was about — that is the job the tech is replying about, and it is
+      // already on the outgoing note. Guessing "their next scheduled job" was the
+      // bug: a text about job #123 landed on job #456 because that happened to be
+      // next on the schedule, making the reply invisible in the thread it belonged to.
       try {
-        const { data: upcoming } = await admin
-          .from('jobs')
-          .select('id, customer_name, scheduled_date')
-          .ilike('tech_name', `%${staff.name}%`)
-          .in('status', ['scheduled', 'in_progress'])
-          .gte('scheduled_date', today.toISOString().slice(0, 10))
-          .order('scheduled_date', { ascending: true })
+        const { data: lastOut } = await admin
+          .from('notes')
+          .select('job_id, customer_id, author_email')
+          .like('body', `%(${from})%`)
+          .not('author_email', 'is', null)
+          .not('job_id', 'is', null)
+          .order('created_at', { ascending: false })
           .limit(1);
-        jobId = upcoming?.[0]?.id || null;
-        // Nothing upcoming — grab the most recent live job they're on
-        if (!jobId) {
-          const { data: recent } = await admin
-            .from('jobs')
-            .select('id')
-            .ilike('tech_name', `%${staff.name}%`)
-            .not('status', 'in', '(dead,archived,lost,billed,complete)')
-            .order('updated_at', { ascending: false })
-            .limit(1);
-          jobId = recent?.[0]?.id || null;
+        if (lastOut?.[0]) {
+          jobId = lastOut[0].job_id;
         }
-      } catch (e) { console.warn('sms-inbound: staff job lookup failed', e?.message || e); }
+      } catch (e) { console.warn('sms-inbound: staff outgoing-note lookup failed', e?.message || e); }
+
+      // Nothing outgoing found (unprompted text from tech) — fall back to
+      // their nearest scheduled job so it still lands somewhere useful.
+      if (!jobId) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        try {
+          const { data: upcoming } = await admin
+            .from('jobs')
+            .select('id, customer_name, scheduled_date')
+            .ilike('tech_name', `%${staff.name}%`)
+            .in('status', ['scheduled', 'in_progress'])
+            .gte('scheduled_date', today.toISOString().slice(0, 10))
+            .order('scheduled_date', { ascending: true })
+            .limit(1);
+          jobId = upcoming?.[0]?.id || null;
+          if (!jobId) {
+            const { data: recent } = await admin
+              .from('jobs')
+              .select('id')
+              .ilike('tech_name', `%${staff.name}%`)
+              .not('status', 'in', '(dead,archived,lost,billed,complete)')
+              .order('updated_at', { ascending: false })
+              .limit(1);
+            jobId = recent?.[0]?.id || null;
+          }
+        } catch (e) { console.warn('sms-inbound: staff job fallback failed', e?.message || e); }
+      }
     }
 
     if (!staff && digits) {
@@ -292,6 +309,35 @@ export default async function handler(req, res) {
       on_customer_record: !staff && !!customer?.id,
       created_at: when,
     });
+
+    // ── YES / NO AUTO-DETECTION (client replies only) ──────────────────────
+    // When a customer replies YES or NO to a confirmation text and we know
+    // which job it is about, log a second archived note on that job so the
+    // appointment status is visible in TicketSheet without having to open
+    // the full message thread.  Staff replies (JR: "👍 on my way") are
+    // intentionally excluded — they are not confirming an appointment.
+    if (!staff && jobId) {
+      const bare = body.toLowerCase().replace(/[^a-z]/g, '');
+      const isYes = ['yes','y','yep','yeah','confirm','confirmed','ok','okay'].includes(bare);
+      const isNo  = ['no','n','nope','cant','cannot','reschedule'].includes(bare);
+      if (isYes || isNo) {
+        try {
+          await admin.from('notes').insert({
+            body: isYes
+              ? `✅ ${who} confirmed the appointment (auto-detected — they replied "${body}")`
+              : `⚠️ ${who} cannot make it (auto-detected — they replied "${body}"). Call to reschedule.`,
+            customer_id: customer?.id || null,
+            job_id: jobId,
+            author_email: null,         // system-generated
+            assigned_to: owner || FALLBACK_OWNER,
+            lane: 'note',
+            status: 'open',             // keep it open so it surfaces in Tasks
+            on_customer_record: !!customer?.id,
+            created_at: when,
+          });
+        } catch (e) { console.warn('sms-inbound: yes/no auto-note failed', e?.message || e); }
+      }
+    }
   } catch (e) {
     // Never 500 at Twilio — it retries, and a retry storm would file the same
     // message repeatedly. Log it and acknowledge.

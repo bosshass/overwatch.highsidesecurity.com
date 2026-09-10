@@ -217,6 +217,13 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     && job.scheduled_calendar_id
     && job.scheduled_calendar_id === tech.calendar_id;
 
+  // `created` is declared here so it is in scope for the return at the bottom
+  // of the function. Previously it was const-inside-else, which made it
+  // invisible to the return statement when the sameTech (patch) branch ran —
+  // that is the "created is not defined" ReferenceError the scheduler was
+  // showing on every same-tech reschedule.
+  let created = null;
+
   if (sameTech && job.scheduled_event_id) {
     // Same tech — keep the event alive, just update its times and content.
     try {
@@ -238,7 +245,7 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
     if (job.scheduled_event_id && job.scheduled_calendar_id) {
       await deleteEvent(accessToken, job.scheduled_calendar_id, job.scheduled_event_id);
     }
-    const created = await createEventOnCalendar(accessToken, tech.calendar_id, {
+    created = await createEventOnCalendar(accessToken, tech.calendar_id, {
       title: buildEventTitle(job),
       // byEmail was already threaded here for the recap audit log; it now also
       // reaches the calendar, so the event says who put it on the day.
@@ -311,7 +318,9 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
   }
   // ────────────────────────────────────────────────────────────────────────
 
-  return { eventId: created?.id || null };
+  // sameTech path: event was patched in-place, existing ID is still correct.
+  // create path: use the new event's ID.
+  return { eventId: sameTech ? (job.scheduled_event_id || null) : (created?.id || null) };
 }
 
 // ── HOLD: a day (+hours) → Tent calendar + tentative stamp ─────────────

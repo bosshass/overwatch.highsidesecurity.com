@@ -189,6 +189,13 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
           {statusInfo.label}
         </span>
 
+        {/* Appointment confirmed by customer (YES reply to confirmation text) */}
+        {job.customer_confirmed && (
+          <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: 800, padding: '2px 7px', borderRadius: '4px', letterSpacing: '0.4px' }}>
+            ✅ CONFIRMED
+          </span>
+        )}
+
         {/* Tech name */}
         {assigneeOf(job) && (
           <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '500' }}>

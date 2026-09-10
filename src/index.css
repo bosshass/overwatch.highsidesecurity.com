@@ -80,6 +80,17 @@ a { color: #00c8e8; text-decoration: none; }
   to { transform: rotate(360deg); }
 }
 
+/* Messages nav badge — pulses when there are unread inbound texts */
+@keyframes msg-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.18); }
+}
+@keyframes badge-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(255,79,94,0.7); }
+  70%  { box-shadow: 0 0 0 7px rgba(255,79,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,79,94,0); }
+}
+
 .spinner {
   width: 40px;
   height: 40px;

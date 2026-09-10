@@ -1321,16 +1321,21 @@ export default function App() {
             const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);
             // Each badged tab has its own count: tasks → taskCount, messages → msgCount.
             const badge = t.path === '/tasks' ? taskCount : t.path === '/messages' ? msgCount : 0;
+            // Messages badge pulses so a new inbound text is impossible to miss.
+            const isMsg = t.path === '/messages';
             return (
               <button key={t.path} onClick={() => navigate(t.path)}
                 style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: active ? '#00c8e8' : '#8ea0b8', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                <span style={{ fontSize: badge > 0 ? 25 : 20, position:'relative' }}>
+                <span style={{ fontSize: badge > 0 ? 25 : 20, position:'relative',
+                               animation: isMsg && badge > 0 ? 'msg-pulse 1.4s ease-in-out infinite' : 'none' }}>
                   {t.icon}
                   {badge > 0 && (
                     <span style={{ position:'absolute', top:-3, right:-11, minWidth:16, height:16,
                                    borderRadius:9, background:'#ff4f5e', color:'#fff',
                                    fontSize:10, fontWeight:900, display:'flex',
-                                   alignItems:'center', justifyContent:'center', padding:'0 4px' }}>
+                                   alignItems:'center', justifyContent:'center', padding:'0 4px',
+                                   boxShadow: isMsg ? '0 0 0 0 #ff4f5e' : 'none',
+                                   animation: isMsg && badge > 0 ? 'badge-ring 1.4s ease-in-out infinite' : 'none' }}>
                       {badge > 9 ? '9+' : badge}
                     </span>
                   )}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
+import TextButton, { clientTemplates } from '../components/TextButton.jsx';
 import { supabase } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -94,7 +95,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
-  const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
+  const [doneToast, setDoneToast]     = useState(null); // { msg, color, bg }
+  const [textAfterJob, setTextAfterJob] = useState(null); // { phone, name, scheduledDate } — prompt after completion
 
   // Single tech calendar OR all techs for operators
   const techCalId = TECH_CAL_MAP[userEmail?.toLowerCase()] || TECH_CAL_MAP[userName] || CALENDARS.AUSTIN;
@@ -215,7 +217,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             .eq('archived', false),
           supabase
             .from('job_assignments')
-            .select('calendar_event_id, job:job_id(customer_id)')
+            .select('calendar_event_id, job:job_id(customer_id, customer_phone, customer_confirmed)')
             .in('calendar_event_id', eventIds)
             .not('job_id', 'is', null),
           supabase
@@ -233,10 +235,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
         }
 
-        const customerIdByEventId = {};
+        const customerIdByEventId        = {};
+        const customerPhoneByEventId     = {};
+        const customerConfirmedByEventId = {};
         for (const a of assignments || []) {
           if (a.calendar_event_id && a.job?.customer_id) {
-            customerIdByEventId[a.calendar_event_id] = a.job.customer_id;
+            customerIdByEventId[a.calendar_event_id]        = a.job.customer_id;
+            customerPhoneByEventId[a.calendar_event_id]     = a.job.customer_phone || null;
+            customerConfirmedByEventId[a.calendar_event_id] = !!a.job.customer_confirmed;
           }
         }
 
@@ -258,7 +264,9 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             ...ev,
             tab,
             disposition: d || null,
-            customerId: customerIdByEventId[ev.id] || null,
+            customerId:        customerIdByEventId[ev.id]        || null,
+            customerPhone:     customerPhoneByEventId[ev.id]     || null,
+            customerConfirmed: customerConfirmedByEventId[ev.id] || false,
             returnReason: rc?.reason || null,
             returnMaterials: rc?.materials_needed || null,
           };
@@ -318,6 +326,17 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     // The TITLE is deliberately not touched — Overwatch no longer tags calendar
     // events, so there is no new title to swap in. Only the tab moves.
     setAll(prev => prev.map(e => e.id === targetId ? { ...e, tab: newTab } : e));
+    // Offer to text the customer — only meaningful for bill_it (done) and
+    // only when the event had a phone number attached to it.
+    const finishedEv = allEvents.find(e => e.id === targetId);
+    const custPhone = finishedEv?.customerPhone || extractPhone(finishedEv?.description || '');
+    if (disposition === 'bill_it' && custPhone) {
+      setTextAfterJob({
+        phone: custPhone,
+        name: cleanTitle(finishedEv?.title || ''),
+        scheduledDate: finishedEv?.start || null,
+      });
+    }
     closeSheet();
     // Brief confirmation so the tech knows the disposition actually landed.
     // Without this, the sheet just closed — identical to a cancel — and
@@ -341,6 +360,51 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const extractPhone = (desc) => {
     const m = (desc || '').match(/(?:Phone|Ph|Tel|Call)?:?\s*(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/i);
     return m ? m[1] : null;
+  };
+
+  // Send the "Confirm visit" template to every TODAY event that has a phone and
+  // is not already confirmed. Returns a count so the button can give feedback.
+  const [confirmAllState, setConfirmAllState] = useState('idle'); // idle | sending | done
+  const confirmAll = async () => {
+    if (confirmAllState !== 'idle') return;
+    // Today's unconfirmed events that have a phone number
+    const targets = allEvents.filter(ev => {
+      if (ev.tab === 'billit') return false;               // already finished
+      if (ev.customerConfirmed) return false;              // already said yes
+      const ph = ev.customerPhone || extractPhone(ev.description || '');
+      return !!ph;
+    });
+    if (targets.length === 0) {
+      setConfirmAllState('done');
+      setTimeout(() => setConfirmAllState('idle'), 3000);
+      return;
+    }
+    setConfirmAllState('sending');
+    const { sendSms, formatPhone } = await import('../services/sms.js');
+    const templates = clientTemplates({ scheduledDate: viewDate.toISOString().slice(0, 10) });
+    const confirmTpl = templates.find(t => t.label === 'Confirm visit')?.text || templates[1]?.text || '';
+    let sent = 0;
+    for (const ev of targets) {
+      const ph = ev.customerPhone || extractPhone(ev.description || '');
+      if (!ph || !confirmTpl) continue;
+      try {
+        const r = await sendSms({ to: formatPhone(ph), body: confirmTpl, accessToken });
+        if (r.ok) {
+          sent++;
+          // Log the outbound note so the thread history is complete
+          await supabase.from('notes').insert({
+            body: `📱 Texted ${cleanTitle(ev.title || '')} (${formatPhone(ph)}): ${confirmTpl.split('\n')[0].slice(0, 80)}`,
+            author_email: userEmail,
+            lane: 'note',
+            status: 'archived',
+          });
+        }
+      } catch (e) { console.warn('confirm-all: send failed for', ph, e?.message); }
+    }
+    setConfirmAllState('done');
+    setTimeout(() => setConfirmAllState('idle'), 4000);
+    setDoneToast({ msg: `📱 Sent confirmation to ${sent} of ${targets.length} customer${targets.length !== 1 ? 's' : ''}`, color: '#166534', bg: '#f0fdf4' });
+    setTimeout(() => setDoneToast(null), 5000);
   };
 
   const tabCounts   = {};
@@ -369,6 +433,36 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           pointerEvents: 'none',
         }}>
           {doneToast.msg}
+        </div>
+      )}
+
+      {/* ── POST-COMPLETION TEXT PROMPT ──────────────────────────────────────
+          Slides up after "Bill It" when the event had a customer phone. Lets the
+          tech shoot a quick "all done" text without hunting for the customer sheet. */}
+      {textAfterJob && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+          onClick={() => setTextAfterJob(null)}>
+          <div style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: '20px 16px calc(28px + env(safe-area-inset-bottom))', width: '100%', maxWidth: 480 }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ width: 40, height: 5, background: '#e5e7eb', borderRadius: 3, margin: '0 auto 14px' }} />
+            <div style={{ fontWeight: 800, fontSize: 16, color: '#1B2A4A', marginBottom: 4 }}>Job marked done ✅</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>
+              Want to text {textAfterJob.name || 'the customer'} to let them know?
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <TextButton
+                to={textAfterJob.phone} name={textAfterJob.name}
+                accessToken={accessToken}
+                templates={clientTemplates({ scheduledDate: textAfterJob.scheduledDate?.toISOString?.()?.slice(0, 10) })}
+                logTo={{ userEmail }}
+                label="📱 Text customer"
+              />
+              <button onClick={() => setTextAfterJob(null)}
+                style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, padding: '7px 14px', fontSize: 13, color: '#6b7280', cursor: 'pointer', fontFamily: 'inherit' }}>
+                Skip
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -456,6 +550,26 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             style={{ background: '#f3f4f6', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 22, cursor: 'pointer', color: '#374151', minWidth: 52 }}>›</button>
         </div>
 
+        {/* ── CONFIRM ALL ── one tap to text every unconfirmed customer for the day */}
+        {activeTab === 'new' && !loading && allEvents.some(ev => ev.tab !== 'billit' && !ev.customerConfirmed && (ev.customerPhone || extractPhone(ev.description || ''))) && (
+          <div style={{ padding: '0 16px 10px', borderTop: '1px solid #e5e7eb' }}>
+            <button
+              onClick={confirmAll}
+              disabled={confirmAllState === 'sending'}
+              style={{
+                width: '100%', padding: '11px 16px', borderRadius: 10, border: 'none',
+                background: confirmAllState === 'done' ? '#dcfce7' : '#1a8a8a',
+                color: confirmAllState === 'done' ? '#166534' : '#fff',
+                fontWeight: 800, fontSize: 14, cursor: confirmAllState === 'sending' ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}>
+              {confirmAllState === 'sending' ? '📱 Sending…' :
+               confirmAllState === 'done'    ? '✅ Confirmations sent' :
+               `📱 Confirm all appointments for ${dayLabel()}`}
+            </button>
+          </div>
+        )}
+
         {/* Four Tabs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', borderTop: '1px solid #e5e7eb' }}>
           {TABS.map(tab => (
@@ -536,6 +650,9 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   {ev.disposition === 'in_progress' && (
                     <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>⚙️ In Progress</span>
                   )}
+                  {ev.customerConfirmed && (
+                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>✅ Confirmed</span>
+                  )}
                   {ev.customerId ? (
                     <span
                       role="link"
@@ -581,8 +698,18 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 10, alignItems: 'center' }}>
                     <a href={'tel:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
                       style={{ color: '#16a34a', fontWeight: 600, textDecoration: 'none' }}>📞 {phone}</a>
-                    <a href={'sms:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
-                      style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>💬 Text</a>
+                    {/* TextButton sends via Twilio and logs the message — replaced the bare
+                        sms: link which bypassed the app entirely and left no record. */}
+                    <span onClick={e => e.stopPropagation()}>
+                      <TextButton
+                        to={phone} name={cleanTitle(ev.title || '')}
+                        accessToken={accessToken}
+                        templates={clientTemplates({ scheduledDate: ev.start?.toISOString?.()?.slice(0, 10) })}
+                        logTo={{ userEmail }}
+                        size="sm"
+                        label="📱 Text"
+                      />
+                    </span>
                   </div>
                 )}
               </div>

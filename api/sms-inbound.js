@@ -335,6 +335,13 @@ export default async function handler(req, res) {
             on_customer_record: !!customer?.id,
             created_at: when,
           });
+          // Stamp the job itself so every view can show the confirmed badge
+          // without reading the notes table. The field already exists (migration
+          // added customer_confirmed boolean); only YES flips it — a NO does not
+          // un-confirm a job that was already confirmed by a previous reply.
+          if (isYes) {
+            await admin.from('jobs').update({ customer_confirmed: true }).eq('id', jobId);
+          }
         } catch (e) { console.warn('sms-inbound: yes/no auto-note failed', e?.message || e); }
       }
     }

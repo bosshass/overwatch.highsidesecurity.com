@@ -1099,8 +1099,8 @@ export default function TechCalendar({ accessToken, userEmail, defaultCalendar, 
               <CalendarTechDay
                 date={weekDates[selectedDay]}
                 weekDates={weekDates}
-                events={visibleEvents}
-                calendars={USER_CALENDARS.filter(c => !hiddenCalendars.has(c.name))}
+                events={calEvents}
+                calendars={USER_CALENDARS}
                 colors={CALENDAR_COLORS}
                 onOpenEvent={openEvent}
                 onNavigate={(to) => navigate(to)}

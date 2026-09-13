@@ -486,17 +486,16 @@ export default function CalendarTechDay({
                     marginBottom: 8, padding: '0 2px' }}>
         <div style={{ fontSize: 12.5, color: '#94a3b8', lineHeight: 1.6 }}>
           <div>
-            <span style={{ color: '#64748b' }}>Total available hours across all team members:</span>{' '}
+            <span style={{ color: '#64748b' }}>Team calendar hours:</span>{' '}
+            <b style={{ color: '#e2e8f0' }}>{totalBooked.toFixed(1)}h</b>
+          </div>
+          <div>
+            <span style={{ color: '#64748b' }}>Team weekly goal:</span>{' '}
             <b style={{ color: '#e2e8f0' }}>{totalCap}h</b>
           </div>
           <div>
-            <span style={{ color: '#64748b' }}>Total calendar hours scheduled across all techs:</span>{' '}
-            <b style={{ color: totalMissing > 0.25 ? '#ff4f5e' : totalBooked > totalCap ? '#ff4f5e' : '#22d16f' }}>
-              {totalBooked.toFixed(1)}h
-            </b>
-            {totalMissing > 0.25 && (
-              <span style={{ color: '#ff4f5e' }}>{' · '}{totalMissing.toFixed(1)}h with no time submitted</span>
-            )}
+            <span style={{ color: '#64748b' }}>Hours logged:</span>{' '}
+            <b style={{ color: totalLogged > 0.25 ? '#22d16f' : '#475569' }}>{totalLogged.toFixed(1)}h</b>
           </div>
         </div>
         <button onClick={() => setEditCap(v => !v)}
@@ -534,8 +533,11 @@ export default function CalendarTechDay({
       {showUtilization && range === 'week' && (
         <div style={{ marginBottom: 14 }}>
           {weekCols.map(({ cal, perDay, cap, booked, hrs, missing, countedDays, weekHasToday }) => {
+            // Red only at 40h+ — going over the weekly goal is expected and
+            // fine. Going past 40 is the actual problem worth flagging.
+            const OVER_CAP = 40;
             const pct  = cap ? Math.min(booked / cap, 1) : 0;
-            const over = cap && booked > cap;
+            const over = booked >= OVER_CAP;
             const tone = over ? '#ff4f5e' : pct >= 0.75 ? '#22d16f' : pct >= 0.4 ? '#ffb020' : '#475569';
             return (
               <div key={cal.name}
@@ -546,7 +548,11 @@ export default function CalendarTechDay({
                   {cap > 0 ? (
                     <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, lineHeight: 1.7 }}>
                       <div>
-                        <span style={{ color: '#64748b' }}>Total hours available:</span>{' '}
+                        <span style={{ color: '#64748b' }}>Calendar hours:</span>{' '}
+                        <b style={{ color: tone }}>{booked.toFixed(1)}h</b>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Weekly goal:</span>{' '}
                         <b style={{ color: '#e2e8f0' }}>{cap}h</b>
                         <span style={{ color: '#64748b', fontSize: 11 }}>
                           {' '}({(weekHasToday && countedDays < 5)
@@ -555,24 +561,14 @@ export default function CalendarTechDay({
                         </span>
                       </div>
                       <div>
-                        <span style={{ color: '#64748b' }}>Total booked this week:</span>{' '}
-                        <b style={{ color: tone }}>{booked.toFixed(1)}h</b>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Difference:</span>{' '}
-                        {booked > cap
-                          ? <b style={{ color: '#ff4f5e' }}>+{(booked - cap).toFixed(1)}h over capacity</b>
-                          : <b style={{ color: '#22d16f' }}>{(cap - booked).toFixed(1)}h open</b>
-                        }
-                        {missing > 0.25 && (
-                          <span style={{ color: '#ff4f5e' }}>{' · '}{missing.toFixed(1)}h no time submitted</span>
-                        )}
+                        <span style={{ color: '#64748b' }}>Hours logged:</span>{' '}
+                        <b style={{ color: hrs > 0.25 ? '#22d16f' : '#475569' }}>{hrs.toFixed(1)}h</b>
                       </div>
                     </div>
                   ) : (
                     <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
-                      <b style={{ color: tone }}>{booked.toFixed(1)}h booked</b>
-                      <span style={{ color: '#64748b' }}> · no set capacity</span>
+                      <b style={{ color: tone }}>{booked.toFixed(1)}h</b>
+                      <span style={{ color: '#64748b' }}> calendar hours · no goal set</span>
                     </div>
                   )}
                 </div>

@@ -1443,29 +1443,6 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                                  padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
                         📐 Create FF project
                       </button>
-                      {/* Chase AR: email the customer directly from Billing using the
-                          signed-in Gmail token. No redirects, no leaving the app.
-                          Only shown when we have the customer's email on record and
-                          the Gmail token is in scope. */}
-                      {g.customerEmail && accessToken && (
-                        <button
-                          onClick={() => sendChaseEmail(g)}
-                          disabled={saving || chaseState[g.key] === 'sending'}
-                          title={`Send AR follow-up to ${g.customerEmail}`}
-                          style={{
-                            background: chaseState[g.key] === 'sent' ? '#14532d' : 'none',
-                            border: `1px solid ${chaseState[g.key] === 'sent' ? '#22c55e' : chaseState[g.key] === 'error' ? '#ef4444' : '#0ea5e9'}`,
-                            borderRadius: 8,
-                            color: chaseState[g.key] === 'sent' ? '#4ade80' : chaseState[g.key] === 'error' ? '#fca5a5' : '#7dd3fc',
-                            fontSize: 12.5, fontWeight: 700,
-                            padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit',
-                          }}>
-                          {chaseState[g.key] === 'sending' ? '…Sending'
-                            : chaseState[g.key] === 'sent' ? '✓ Chased'
-                            : chaseState[g.key] === 'error' ? '⚠ Retry chase'
-                            : '📧 Chase'}
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>

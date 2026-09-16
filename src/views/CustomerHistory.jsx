@@ -329,9 +329,17 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     if (!selected) return;
     setSavingDetails(true); setErr('');
     try {
-      const { error } = await supabase.from('customers').update(editForm).eq('id', selected.id);
+      // qbo_customer_id has a unique constraint with no exclusion for empty
+      // strings — "CRISIS CENTER" landed with qbo_customer_id='' and blocked
+      // every subsequent save that left the field blank. Store null, not ''.
+      const payload = {
+        ...editForm,
+        qbo_customer_id:   editForm.qbo_customer_id?.trim()   || null,
+        qbo_customer_name: editForm.qbo_customer_name?.trim() || null,
+      };
+      const { error } = await supabase.from('customers').update(payload).eq('id', selected.id);
       if (error) throw error;
-      const updated = { ...selected, ...editForm };
+      const updated = { ...selected, ...payload };
       setSelected(updated);
       setRegistry(prev => prev.map(c => c.id === selected.id ? updated : c));
       setEditingDetails(false);

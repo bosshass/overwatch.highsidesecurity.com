@@ -765,6 +765,9 @@ export default function App() {
   // filter row — just their own calendar and their own work. This is the list
   // that actually locks the app down; USER_CONFIG role 'tech' alone does not.
   const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com', 'sara@drhsecurityservices.com'];
+  // LIMITED_TECH_EMAILS: Austin and Trevor only. These users see Today + Calendar + Clients.
+  // No Tasks, no Messages, no Home nav tile. SMS threads from other staff are hidden on client profiles.
+  const LIMITED_TECH_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
   // THE ADDRESS EVERY SCREEN READS AS.
   // Declared HERE, above the role flags, because they use it. In 9.67.0 this
   // lived 85 lines further down: legal JavaScript, compiles clean, and dies the
@@ -775,7 +778,8 @@ export default function App() {
   // promises: "anything you save is recorded under your own name."
   const readAsEmail = viewAs || userEmail;
 
-  const isRestricted = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
+  const isRestricted   = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
+  const isLimitedTech  = LIMITED_TECH_EMAILS.includes(readAsEmail?.toLowerCase());
 
   const isOperator = getUserConfig(readAsEmail).role === 'operator';
 
@@ -1100,6 +1104,8 @@ export default function App() {
   const OperatorOnly = ({ children }) => isOperator ? children : <Navigate to="/" replace />;
   // Viewers can reach the board in read-only mode; operators get it fully interactive.
   const OperatorOrViewer = ({ children }) => (isOperator || isViewer) ? children : <Navigate to="/" replace />;
+  // Limited techs (Austin, Trevor) may only reach Today, Calendar, and Clients.
+  const LimitedTechBlocked = ({ children }) => isLimitedTech ? <Navigate to="/work" replace /> : children;
 
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
@@ -1191,12 +1197,12 @@ export default function App() {
         {/* /tasks — one card at a time, To Do / Doing / Done. Replaces
             sending people to People, which opens on a jobs list. */}
         <Route path="/tasks" element={
-          <ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
+          <LimitedTechBlocked><ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell></LimitedTechBlocked>
         } />
 
         {/* /messages — shared SMS inbox, separate from the task stack */}
         <Route path="/messages" element={
-          <ViewShell><MessagesView userEmail={readAsEmail} accessToken={accessToken} /></ViewShell>
+          <LimitedTechBlocked><ViewShell><MessagesView userEmail={readAsEmail} accessToken={accessToken} /></ViewShell></LimitedTechBlocked>
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} defaultTab={urlParams.get('tab') === 'utilization' ? 'tasks' : undefined} /></ViewShell>} />
@@ -1301,7 +1307,8 @@ export default function App() {
       {isSignedIn && (
         <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'rgba(7,17,31,0.97)', borderTop:'1px solid #1d2f48', display:'flex', zIndex:150, backdropFilter:'blur(14px)', paddingBottom:'env(safe-area-inset-bottom)' }}>
           {[
-            { icon:'⌂', label:'Home',  path:'/' },
+            // Limited techs (Austin, Trevor) get a slim nav: Today, Clients, Cal only.
+            ...(isLimitedTech ? [] : [{ icon:'⌂', label:'Home', path:'/' }]),
             { icon:'✓', label:'Today', path:'/work' },
             // Hidden from techs. The route is gated now, so leaving the tab
             // there would just navigate them into a redirect — a door that
@@ -1313,8 +1320,8 @@ export default function App() {
             // is one tap from every screen in the app, so a tech tapping the
             // person icon expecting "my stuff" got a wall of text instead.
             // Operators still reach People from the board's "Who's stuck".
-            { icon:'📋', label:'Tasks',    path:'/tasks' },
-            { icon:'💬', label:'Messages', path:'/messages' },
+            ...(isLimitedTech ? [] : [{ icon:'📋', label:'Tasks', path:'/tasks' }]),
+            ...(isLimitedTech ? [] : [{ icon:'💬', label:'Messages', path:'/messages' }]),
             { icon:'🏠', label:'Clients',  path:'/customers' },
             { icon:'📅', label:'Cal',      path:'/calendar' },
           ].map(t => {

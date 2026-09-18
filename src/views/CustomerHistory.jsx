@@ -11,6 +11,8 @@
 
 import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
+
+const LIMITED_TECH_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, customersApi, JOB_STATUS } from '../services/supabase.js';
 import { isNotReal } from '../config/archiveReasons.js';
@@ -92,6 +94,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const location = useLocation();
   const navigate = useNavigate();
   const me = userEmail || (typeof localStorage !== 'undefined' && localStorage.getItem('juce_v4_email')) || '';
+  const isLimitedTech = LIMITED_TECH_EMAILS.includes(me.toLowerCase());
 
   const [registry, setRegistry]   = useState([]);
   const [query, setQuery]         = useState('');
@@ -105,6 +108,38 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [jobMinutes, setJobMinutes] = useState({});
   const [stats, setStats] = useState({ visits: 0, hours: 0, lastVisit: null });
   const [custNotes, setCustNotes] = useState([]);
+
+  // Filter notes based on who is viewing:
+  // • private notes are visible only to their author
+  // • limited techs (Austin, Trevor) only see their own outbound SMS and the
+  //   inbound replies to phones they texted — not other staff's conversations
+  const visibleNotes = useMemo(() => {
+    // Build the set of phone numbers Austin/Trevor have texted (for inbound matching)
+    const myPhones = isLimitedTech
+      ? new Set(
+          custNotes
+            .filter(n => /^📱/.test(n.body) && LIMITED_TECH_EMAILS.includes((n.author_email || '').toLowerCase()))
+            .map(n => { const m = n.body.match(/\((\+?[\d\s\-().]+)\)/); return m ? m[1].replace(/\D/g, '') : null; })
+            .filter(Boolean)
+        )
+      : null;
+
+    return custNotes.filter(n => {
+      // Private notes: only the author can see them
+      if (n.private && (n.author_email || '').toLowerCase() !== me.toLowerCase()) return false;
+      if (!isLimitedTech) return true;
+      // Outbound SMS: only show if sent by a limited tech
+      if (/^📱/.test(n.body)) return LIMITED_TECH_EMAILS.includes((n.author_email || '').toLowerCase());
+      // Inbound SMS: only show if the customer's phone is in a thread this limited tech started
+      if (/^📲/.test(n.body)) {
+        const m = n.body.match(/\((\+?[\d\s\-().]+)\)/);
+        const phone = m ? m[1].replace(/\D/g, '') : null;
+        return phone ? myPhones.has(phone) : false;
+      }
+      return true;
+    });
+  }, [custNotes, isLimitedTech, me]);
+
   const [showNotes, setShowNotes] = useState(true);
   const [showDone, setShowDone]   = useState(true);
   const [loading, setLoading]     = useState(false);
@@ -234,7 +269,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const loadNotes = useCallback(async (customer) => {
     const { data, error } = await supabase
       .from('notes')
-      .select('id, body, author_email, created_at, lane, status, ticket_id, job_id')
+      .select('id, body, author_email, created_at, lane, status, ticket_id, job_id, private')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false });
     if (!error) setCustNotes(data || []);
@@ -834,12 +869,12 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                     onClick={() => setShowNotes(v => !v)}
                     style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...sectionLabel, color: '#38bdf8' }}
                   >
-                    {showNotes ? '\u25be' : '\u25b8'} Notes ({custNotes.length})
+                    {showNotes ? '\u25be' : '\u25b8'} Notes ({visibleNotes.length})
                   </button>
 
                   {showNotes && (
                     <>
-                      {custNotes.length === 0 && (
+                      {visibleNotes.length === 0 && (
                         <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
                           No notes on this account yet.
                         </div>
@@ -851,11 +886,11 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                           exactly like it. A note is paper, not a card — no
                           slab, no rounded box, just a rule and the words. */}
                       {(() => {
-                        const open = custNotes.filter(n => n.lane !== 'done');
-                        const done = custNotes.filter(n => n.lane === 'done');
+                        const open = visibleNotes.filter(n => n.lane !== 'done');
+                        const done = visibleNotes.filter(n => n.lane === 'done');
                         const Note = ({ n, dim }) => (
                           <div key={n.id} style={{
-                            borderLeft: `2px solid ${n.assigned_to ? '#a78bfa' : (dim ? '#1e293b' : '#38bdf8')}`,
+                            borderLeft: `2px solid ${n.private ? '#f59e0b' : n.assigned_to ? '#a78bfa' : (dim ? '#1e293b' : '#38bdf8')}`,
                             padding: '5px 0 9px 12px', marginBottom: 3, opacity: dim ? 0.55 : 1 }}>
                             <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#e2e8f0' }}>{n.body}</div>
                             <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 5, fontSize: 11, color: '#64748b' }}>
@@ -865,6 +900,9 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                                 <span style={{ color: '#a78bfa', fontWeight: 700 }}>
                                   task &middot; {n.assigned_to.split('@')[0]}
                                 </span>
+                              )}
+                              {n.private && (
+                                <span style={{ color: '#f59e0b', fontWeight: 700 }}>🔒 private</span>
                               )}
                             </div>
                           </div>

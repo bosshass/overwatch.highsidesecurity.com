@@ -225,24 +225,10 @@ export function getWorkViewCalendars(email) {
   if (OPERATOR_EMAILS.includes(e)) return ALL_TECHS;
   if (SHANA_EMAILS.includes(e))    return ALL_TECHS;
 
-  if (AUSTIN_EMAILS.includes(e)) {
-    return [
-      { id: CALENDARS.AUSTIN,  name: 'Austin' },
-      { id: CALENDARS.JR,      name: 'JR' },
-      { id: CALENDARS.TECH3,   name: 'Brian' },
-      { id: CALENDARS.TREVOR,  name: 'Trevor' },
-      { id: CALENDARS.SUBS,    name: 'Subs' },
-    ];
-  }
-  if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
-  if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
-  // His own first, then Austin (mutual visibility), then JR, then Installations.
-  if (TREVOR_EMAILS.includes(e)) return [
-    { id: CALENDARS.TREVOR,        name: 'Trevor' },
-    { id: CALENDARS.AUSTIN,        name: 'Austin' },
-    { id: CALENDARS.JR,            name: 'JR' },
-    { id: CALENDARS.INSTALLATIONS, name: 'Installations' },
-  ];
+  if (AUSTIN_EMAILS.includes(e))  return [{ id: CALENDARS.AUSTIN, name: 'Austin' }];
+  if (JR_EMAILS.includes(e))      return [{ id: CALENDARS.JR,     name: 'JR' }];
+  if (BRIAN_EMAILS.includes(e))   return [{ id: CALENDARS.TECH3,  name: 'Brian' }];
+  if (TREVOR_EMAILS.includes(e))  return [{ id: CALENDARS.TREVOR, name: 'Trevor' }];
   if (SUBS_EMAILS.includes(e))     return [{ id: CALENDARS.SUBS, name: 'Subs' }];
   if (WHITING_EMAILS.includes(e)) return [{ id: CALENDARS.WHITING, name: 'Whiting' }];
 

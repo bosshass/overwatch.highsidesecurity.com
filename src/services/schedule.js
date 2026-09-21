@@ -304,9 +304,9 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
         .catch(e => console.warn('Customer confirmation SMS error:', e?.message));
     }
 
-    // Tech notification text — only when the tech has a phone on their row
+    // Tech notification text — new bookings only, not reschedules (too noisy)
     const techPhone = tech.phone;
-    if (techPhone && isSendable(techPhone)) {
+    if (!isReschedule && techPhone && isSendable(techPhone)) {
       const issueSnip = (job.issue || '').slice(0, 100);
       sendSms({
         to: techPhone,

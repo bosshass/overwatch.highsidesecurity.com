@@ -225,26 +225,26 @@ export function getWorkViewCalendars(email) {
   if (OPERATOR_EMAILS.includes(e)) return ALL_TECHS;
   if (SHANA_EMAILS.includes(e))    return ALL_TECHS;
 
-  if (AUSTIN_EMAILS.includes(e)) {
-    return [
-      { id: CALENDARS.AUSTIN,  name: 'Austin' },
-      { id: CALENDARS.JR,      name: 'JR' },
-      { id: CALENDARS.TECH3,   name: 'Brian' },
-      { id: CALENDARS.TREVOR,  name: 'Trevor' },
-      { id: CALENDARS.SUBS,    name: 'Subs' },
-    ];
-  }
-  if (JR_EMAILS.includes(e))     return [{ id: CALENDARS.JR, name: 'JR' }];
-  if (BRIAN_EMAILS.includes(e))  return [{ id: CALENDARS.TECH3, name: 'Brian' }];
-  // His own first, then Austin (mutual visibility), then JR, then Installations.
-  if (TREVOR_EMAILS.includes(e)) return [
-    { id: CALENDARS.TREVOR,        name: 'Trevor' },
-    { id: CALENDARS.AUSTIN,        name: 'Austin' },
-    { id: CALENDARS.JR,            name: 'JR' },
-    { id: CALENDARS.INSTALLATIONS, name: 'Installations' },
+  // isOwn: true = full card; isOwn: false = title + tech badge only (no
+  // description, not tappable). Austin and Trevor see each other's calendars
+  // so they know when they're on the same job — they just can't see the detail.
+  if (AUSTIN_EMAILS.includes(e)) return [
+    { id: CALENDARS.AUSTIN,  name: 'Austin',  isOwn: true  },
+    { id: CALENDARS.TREVOR,  name: 'Trevor',  isOwn: false },
+    { id: CALENDARS.JR,      name: 'JR',      isOwn: false },
+    { id: CALENDARS.TECH3,   name: 'Brian',   isOwn: false },
+    { id: CALENDARS.SUBS,    name: 'Subs',    isOwn: false },
   ];
-  if (SUBS_EMAILS.includes(e))     return [{ id: CALENDARS.SUBS, name: 'Subs' }];
-  if (WHITING_EMAILS.includes(e)) return [{ id: CALENDARS.WHITING, name: 'Whiting' }];
+  if (TREVOR_EMAILS.includes(e)) return [
+    { id: CALENDARS.TREVOR,        name: 'Trevor',        isOwn: true  },
+    { id: CALENDARS.AUSTIN,        name: 'Austin',        isOwn: false },
+    { id: CALENDARS.JR,            name: 'JR',            isOwn: false },
+    { id: CALENDARS.INSTALLATIONS, name: 'Installations', isOwn: false },
+  ];
+  if (JR_EMAILS.includes(e))      return [{ id: CALENDARS.JR,      name: 'JR',      isOwn: true }];
+  if (BRIAN_EMAILS.includes(e))   return [{ id: CALENDARS.TECH3,   name: 'Brian',   isOwn: true }];
+  if (SUBS_EMAILS.includes(e))    return [{ id: CALENDARS.SUBS,    name: 'Subs',    isOwn: true }];
+  if (WHITING_EMAILS.includes(e)) return [{ id: CALENDARS.WHITING, name: 'Whiting', isOwn: true }];
 
   return [];
 }

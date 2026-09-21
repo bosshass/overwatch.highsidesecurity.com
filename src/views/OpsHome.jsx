@@ -61,10 +61,13 @@ const BOARD_TILES = [
   { key:'tobill',    label:'To Bill',           color:'#16c7df', lane:null        },
 ];
 
+const LIMITED_TECH_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
+
 export default function OpsHome({
   userName, isOperator, isSuperAdmin, accessToken, userEmail,
   onNavigate, onSignOut, onSearch, onBackfill,
 }) {
+  const isLimitedTech = LIMITED_TECH_EMAILS.includes((userEmail || '').toLowerCase());
   const [people, setPeople] = useState(null);
   // HOME IS A GRID OF DOORS, NOT A STACK OF PANELS. The prompt and the task
   // card were rendered inline at full width above two small tiles, so the
@@ -425,14 +428,17 @@ export default function OpsHome({
         <div style={{ display:'grid', gap:11, margin:'16px 16px 0',
                       gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))' }}>
           {[
-            { key:'visits', icon:'📍', label:'Close out visits',
-              sub: tileCounts.visits == null ? 'Checking…'
-                 : tileCounts.visits ? `${tileCounts.visits} with no hours` : 'All caught up',
-              hot: !!tileCounts.visits, sheet:'visits' },
-            { key:'tasks', icon:'📋', label:'Your tasks',
-              sub: tileCounts.tasks == null ? 'Checking…'
-                 : tileCounts.tasks ? `${tileCounts.tasks} open` : 'Nothing open',
-              sheet:'tasks' },
+            // Limited techs (Austin, Trevor) see only Calendar and Clients here.
+            ...(isLimitedTech ? [] : [
+              { key:'visits', icon:'📍', label:'Close out visits',
+                sub: tileCounts.visits == null ? 'Checking…'
+                   : tileCounts.visits ? `${tileCounts.visits} with no hours` : 'All caught up',
+                hot: !!tileCounts.visits, sheet:'visits' },
+              { key:'tasks', icon:'📋', label:'Your tasks',
+                sub: tileCounts.tasks == null ? 'Checking…'
+                   : tileCounts.tasks ? `${tileCounts.tasks} open` : 'Nothing open',
+                sheet:'tasks' },
+            ]),
             { path:'/calendar',  icon:'📅', label:'Calendar', sub:"Who's booked, and how full" },
             { path:'/customers', icon:'🏠', label:'Clients',  sub:'History and open work' },
             // Billing and the recap were rows in an Admin list most people

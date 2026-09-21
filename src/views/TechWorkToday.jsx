@@ -157,7 +157,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       : [{ id: techCalId, name: null }];
 
     const calIds = techCalendars.map(c => c.id);
-    const calNameById = Object.fromEntries(techCalendars.map(c => [c.id, c.name]));
+    const calNameById  = Object.fromEntries(techCalendars.map(c => [c.id, c.name]));
+    const calIsOwnById = Object.fromEntries(techCalendars.map(c => [c.id, c.isOwn !== false]));
     const fetches = calIds.map(calId =>
       fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -165,7 +166,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         .then(data => (data.items || []).map(ev => ({
           ...ev,
           _calId: calId,
-          _techName: calNameById[calId] || null
+          _techName: calNameById[calId] || null,
+          _isOwn: calIsOwnById[calId] !== false,
         })))
         .catch(() => [])
     );
@@ -189,6 +191,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       location: ev.location || '',
       description: ev.description || '',
       isAllDay: !ev.start?.dateTime,
+      isOwn: ev._isOwn !== false,
       tab: getTab(ev.summary || ''),
     })).sort((a, b) => a.start - b.start);
 
@@ -497,28 +500,29 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
         {!loading && events.map((ev, i) => {
           const name  = cleanTitle(ev.title);
-          const phone = extractPhone(ev.description);
+          const phone = ev.isOwn ? extractPhone(ev.description) : null;
           const now   = new Date();
-          const isNow = ev.start <= now && ev.end >= now;
-          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : null;
+          const isNow = ev.isOwn && ev.start <= now && ev.end >= now;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : ev.techName === 'Trevor' ? '#8E24AA' : null;
 
           return (
-            <div key={ev.id} onClick={() => openDetail(ev)}
+            <div key={ev.id} onClick={ev.isOwn ? () => openDetail(ev) : undefined}
               style={{
-                background: '#ffffff',
+                background: ev.isOwn ? '#ffffff' : '#f9fafb',
                 borderRadius: i === 0 && events.length === 1 ? 12 : i === 0 ? '12px 12px 0 0' : i === events.length - 1 ? '0 0 12px 12px' : 0,
-                padding: '18px 16px', cursor: 'pointer',
+                padding: '14px 16px', cursor: ev.isOwn ? 'pointer' : 'default',
                 borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
                 borderLeft: '4px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                opacity: ev.isOwn ? 1 : 0.85,
               }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {isNow && <div style={{ color: '#1a8a8a', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>In Progress</div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: ev.isOwn ? 4 : 0, flexWrap: 'wrap' }}>
                   {ev.techName && (
                     <span style={{
-                      background: techColor + '20',
-                      color: techColor,
+                      background: (techColor || '#64748b') + '20',
+                      color: techColor || '#64748b',
                       fontSize: 11,
                       fontWeight: 700,
                       padding: '3px 8px',
@@ -527,16 +531,16 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       {ev.techName}
                     </span>
                   )}
-                  {ev.tab === 'return' && (
+                  {ev.isOwn && ev.tab === 'return' && (
                     <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>🔄 Return Visit</span>
                   )}
-                  {ev.tab === 'estimate' && (
+                  {ev.isOwn && ev.tab === 'estimate' && (
                     <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
                   )}
-                  {ev.disposition === 'in_progress' && (
+                  {ev.isOwn && ev.disposition === 'in_progress' && (
                     <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>⚙️ In Progress</span>
                   )}
-                  {ev.customerId ? (
+                  {ev.isOwn && ev.customerId ? (
                     <span
                       role="link"
                       tabIndex={0}
@@ -545,48 +549,56 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       {name || '(no name)'}
                     </span>
                   ) : (
-                    <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: ev.isOwn ? 17 : 15, color: ev.isOwn ? '#1B2A4A' : '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {name || '(no name)'}
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 14, color: '#6b7280' }}>
-                  {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
-                  {ev.location && ' · ' + ev.location.split(',')[0]}
-                </div>
-                {/* Return brief — shown instead of GCal description for return-tab events */}
-                {ev.tab === 'return' && ev.returnReason ? (
-                  <div style={{ fontSize: 12, color: '#b45309', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                    🔄 {ev.returnReason}{ev.returnMaterials ? ' · 🔧 ' + ev.returnMaterials : ''}
-                  </div>
-                ) : (
-                  /* Issue preview — first useful line from GCal description, never time_entries.notes */
-                  (() => {
-                    const lines = (ev.description || '').split('\n').map(l => l.trim()).filter(l => {
-                      if (!l) return false;
-                      if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false; // phone line
-                      if (/^https?:\/\//i.test(l)) return false; // URL line
-                      return true;
-                    });
-                    const preview = lines.join(' ').slice(0, 80);
-                    if (!preview) return null;
-                    return (
-                      <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {preview}{lines.join(' ').length > 80 ? '…' : ''}
+                {ev.isOwn && (
+                  <>
+                    <div style={{ fontSize: 14, color: '#6b7280' }}>
+                      {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
+                      {ev.location && ' · ' + ev.location.split(',')[0]}
+                    </div>
+                    {/* Return brief — shown instead of GCal description for return-tab events */}
+                    {ev.tab === 'return' && ev.returnReason ? (
+                      <div style={{ fontSize: 12, color: '#b45309', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                        🔄 {ev.returnReason}{ev.returnMaterials ? ' · 🔧 ' + ev.returnMaterials : ''}
                       </div>
-                    );
-                  })()
+                    ) : (
+                      (() => {
+                        const lines = (ev.description || '').split('\n').map(l => l.trim()).filter(l => {
+                          if (!l) return false;
+                          if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false;
+                          if (/^https?:\/\//i.test(l)) return false;
+                          return true;
+                        });
+                        const preview = lines.join(' ').slice(0, 80);
+                        if (!preview) return null;
+                        return (
+                          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {preview}{lines.join(' ').length > 80 ? '…' : ''}
+                          </div>
+                        );
+                      })()
+                    )}
+                    {phone && (
+                      <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <a href={'tel:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
+                          style={{ color: '#16a34a', fontWeight: 600, textDecoration: 'none' }}>📞 {phone}</a>
+                        <a href={'sms:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
+                          style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>💬 Text</a>
+                      </div>
+                    )}
+                  </>
                 )}
-                {phone && (
-                  <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <a href={'tel:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
-                      style={{ color: '#16a34a', fontWeight: 600, textDecoration: 'none' }}>📞 {phone}</a>
-                    <a href={'sms:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
-                      style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>💬 Text</a>
+                {!ev.isOwn && (
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                    {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                   </div>
                 )}
               </div>
-              <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>
+              {ev.isOwn && <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>}
             </div>
           );
         })}

@@ -1,10 +1,9 @@
 // ============================================
 // JobFinishSheet — canonical "tech finishes a job" UI
 // ============================================
-// One bottom sheet, five dispositions:
+// One bottom sheet, four dispositions:
 //   • bill_it      — done, hours go to Billing
 //   • return       — must go back (also writes a return_card)
-//   • in_progress  — multi-day work, stays open
 //   • estimate     — sales handoff
 //   • blocked      — couldn't do it: no access, wrong parts, turned away
 //
@@ -48,11 +47,10 @@ const GCAL = 'https://www.googleapis.com/calendar/v3';
 // ── Color tokens — one source of truth per disposition ──────────────
 // Values from the Overwatch color system (artifact c2fb7e69).
 const DISPO_COLORS = {
-  bill_it:     { color: '#4ade80', bg: 'rgba(34,197,94,0.08)',   border: 'rgba(34,197,94,0.25)' },
-  return:      { color: '#fb923c', bg: 'rgba(249,115,22,0.08)',  border: 'rgba(249,115,22,0.25)' },
-  estimate:    { color: '#c084fc', bg: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.25)' },
-  in_progress: { color: '#38bdf8', bg: 'rgba(14,165,233,0.08)',  border: 'rgba(14,165,233,0.25)' },
-  blocked:     { color: '#fb7185', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)' },
+  bill_it:  { color: '#4ade80', bg: 'rgba(34,197,94,0.08)',   border: 'rgba(34,197,94,0.25)' },
+  return:   { color: '#fb923c', bg: 'rgba(249,115,22,0.08)',  border: 'rgba(249,115,22,0.25)' },
+  estimate: { color: '#c084fc', bg: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.25)' },
+  blocked:  { color: '#fb7185', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)' },
 };
 
 // Strip LEGACY bracket tags out of a title so the bare customer name is left for
@@ -83,7 +81,6 @@ export default function JobFinishSheet({
   const [returnEstTime,   setReturnEstTime]   = useState('');   // Return — estimated time (→ return_cards.estimated_time)
   const [estimateWhat,    setEstimateWhat]    = useState('');   // Estimate — what needs estimating
   const [estimateMats,    setEstimateMats]    = useState('');   // Estimate — materials
-  const [inProgressWhat,  setInProgressWhat]  = useState('');  // In Progress — what's happening next
   const [blockedWhy,      setBlockedWhy]      = useState('');   // Blocked — why couldn't it be done (required)
   const [blockedNext,     setBlockedNext]     = useState('');   // Blocked — what's next
 
@@ -168,7 +165,6 @@ export default function JobFinishSheet({
         const parts = [estimateWhat.trim(), estimateMats.trim() && `Materials: ${estimateMats.trim()}`].filter(Boolean);
         return parts.join('\n') || null;
       }
-      case 'in_progress': return inProgressWhat.trim() || null;
       case 'blocked': {
         const parts = [];
         if (blockedWhy.trim())  parts.push(`Why: ${blockedWhy.trim()}`);
@@ -191,7 +187,6 @@ export default function JobFinishSheet({
         return { noteText: noteParts.join(' | '), matText: returnMaterials.trim() };
       }
       case 'estimate':    return { noteText: estimateWhat.trim(),    matText: estimateMats.trim() };
-      case 'in_progress': return { noteText: inProgressWhat.trim(),  matText: '' };
       case 'blocked': {
         const parts = [];
         if (blockedWhy.trim())  parts.push(`Why: ${blockedWhy.trim()}`);
@@ -574,11 +569,10 @@ export default function JobFinishSheet({
   // move had three names depending on which screen you were standing in.
   // `means` is the question the tech is actually answering.
   const DISPOS = [
-    { key: 'bill_it',     label: '✅ Done — To Bill',   means: 'Finished. Hours go to Billing.' },
-    { key: 'return',      label: '🔄 Return Visit',     means: 'Work started — I have to come back.' },
-    { key: 'in_progress', label: '📅 Still Scheduled',  means: 'Multi-day job. Not finished, still booked.' },
-    { key: 'estimate',    label: '📋 Estimates',        means: 'Scope changed — this needs pricing.' },
-    { key: 'blocked',     label: "🚫 Couldn't do it",   means: 'Nobody there, no access, wrong parts. The trip still bills.' },
+    { key: 'bill_it',  label: '✅ Done — Bill It',    means: 'Finished. Hours go to Billing.' },
+    { key: 'return',   label: '🔄 Return Visit',      means: 'Work started — I have to come back.' },
+    { key: 'estimate', label: '📋 Estimate',          means: 'Scope changed — this needs pricing.' },
+    { key: 'blocked',  label: "🚫 Can't Complete",    means: 'Nobody there, no access, wrong parts. The trip still bills.' },
   ];
 
   // True when the event's calendar date differs from the local calendar date
@@ -682,12 +676,12 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* ISSUE — the hero. What the tech is walking into, from jobs.issue. */}
+      {/* ISSUE / WHAT'S NEXT — label reflects visit history */}
       {scope && (
         <div style={scopeBox}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase',
-                        letterSpacing: 0.5, marginBottom: 5 }}>
-            📋 Issue
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af',
+                        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
+            {jobNotes.length > 0 ? "📋 What's Next — from last visit" : '📋 Issue'}
           </div>
           <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
             {scope}
@@ -695,50 +689,83 @@ export default function JobFinishSheet({
         </div>
       )}
 
-      {/* NOTES — "what happened on this visit"
-          Shown BEFORE the outcome picker so the tech fills it in first.
-          Routes to the correct per-dispo state variable so assembleNotes /
-          panelValid / handleFinish are completely unchanged. */}
+      {/* HOW DID IT END — unified 2×2 grid, four options */}
+      {mode === 'full' && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700,
+                        color: selectedDispo ? '#16a34a' : '#64748b',
+                        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+            How did it end? {selectedDispo ? '✓' : '— required'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { key: 'bill_it',  emoji: '✅', label: 'Done — Bill It',  sub: 'Finished. Hours go to billing.' },
+              { key: 'return',   emoji: '🔄', label: 'Return Visit',    sub: 'Work started — have to come back.' },
+              { key: 'estimate', emoji: '📋', label: 'Estimate',        sub: 'Scope changed — needs pricing.' },
+              { key: 'blocked',  emoji: '🚫', label: "Can't Complete",  sub: 'No access / wrong parts. Trip bills.' },
+            ].map(d => {
+              const on = selectedDispo === d.key;
+              const dc = DISPO_COLORS[d.key];
+              return (
+                <button key={d.key}
+                  onClick={() => { setSelectedDispo(on ? null : d.key); setError(''); }}
+                  style={{ padding: '13px 10px', borderRadius: 12, cursor: 'pointer',
+                           textAlign: 'center', fontFamily: 'inherit',
+                           background: on ? dc.color : dc.bg, color: on ? '#fff' : dc.color,
+                           border: on ? `2px solid ${dc.color}` : `2px solid ${dc.border}` }}>
+                  <div style={{ fontSize: 20 }}>{d.emoji}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, marginTop: 3 }}>{d.label}</div>
+                  <div style={{ fontSize: 11, opacity: on ? 0.85 : 0.75, marginTop: 3, lineHeight: 1.3 }}>{d.sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* HOURS */}
+      <TimeEntryBlock value={timeEntry} onChange={setTimeEntry} eventDate={eventDate}
+        required={false} hideClock />
+
+      {/* NOTES — label shifts for blocked */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
                          letterSpacing: 0.5 }}>
-            📝 Notes
+            {effectiveDispo === 'blocked' ? "📝 Why Couldn't It Be Done?" : '📝 Notes'}
           </span>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>
-            {!effectiveDispo
-              ? 'pick an outcome below, then add your notes'
-              : effectiveDispo === 'bill_it'
-              ? 'What happened? Appended to calendar + shown in board history.'
-              : effectiveDispo === 'return'
-              ? 'What happened on this visit?'
-              : effectiveDispo === 'estimate'
-              ? 'What are we bidding and why?'
-              : effectiveDispo === 'blocked'
-              ? "What happened — why couldn't it be done?"
-              : 'Where are things at? What happens next?'}
-          </span>
+          {effectiveDispo && effectiveDispo !== 'blocked' && (
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+              {effectiveDispo === 'bill_it'
+                ? 'What happened? Appended to calendar + shown in board history.'
+                : effectiveDispo === 'return'
+                ? 'What happened on this visit?'
+                : effectiveDispo === 'estimate'
+                ? 'What are we bidding and why?'
+                : 'Where are things at? What happens next?'}
+            </span>
+          )}
         </div>
         <textarea
           value={
-            effectiveDispo === 'bill_it'       ? billNotes
-            : effectiveDispo === 'return'      ? returnBillNotes
-            : effectiveDispo === 'estimate'    ? estimateWhat
-            : effectiveDispo === 'blocked'     ? blockedWhy
-            : effectiveDispo === 'in_progress' ? inProgressWhat
+            effectiveDispo === 'bill_it'    ? billNotes
+            : effectiveDispo === 'return'   ? returnBillNotes
+            : effectiveDispo === 'estimate' ? estimateWhat
+            : effectiveDispo === 'blocked'  ? blockedWhy
             : ''
           }
           onChange={e => {
-            if      (effectiveDispo === 'bill_it')      setBillNotes(e.target.value);
-            else if (effectiveDispo === 'return')       setReturnBillNotes(e.target.value);
-            else if (effectiveDispo === 'estimate')     setEstimateWhat(e.target.value);
-            else if (effectiveDispo === 'blocked')      setBlockedWhy(e.target.value);
-            else if (effectiveDispo === 'in_progress')  setInProgressWhat(e.target.value);
+            if      (effectiveDispo === 'bill_it')   setBillNotes(e.target.value);
+            else if (effectiveDispo === 'return')    setReturnBillNotes(e.target.value);
+            else if (effectiveDispo === 'estimate')  setEstimateWhat(e.target.value);
+            else if (effectiveDispo === 'blocked')   setBlockedWhy(e.target.value);
           }}
           disabled={!effectiveDispo}
-          placeholder={effectiveDispo
-            ? 'What happened on this visit…'
-            : 'Pick an outcome below first'}
+          placeholder={
+            !effectiveDispo ? 'Pick an outcome above first'
+            : effectiveDispo === 'blocked' ? 'No access, nobody home, wrong parts…'
+            : 'What happened on this visit…'
+          }
           rows={3}
           style={{
             width: '100%', padding: '12px 14px', boxSizing: 'border-box',
@@ -793,168 +820,82 @@ export default function JobFinishSheet({
         <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{photoErr}</div>
       )}
 
-      {/* HOURS — no clock in/out */}
-      <TimeEntryBlock value={timeEntry} onChange={setTimeEntry} eventDate={eventDate}
-        required={false} hideClock />
+      {/* RETURN DETAILS — below photos, orange */}
+      {selectedDispo === 'return' && (
+        <div style={{ background: 'rgba(249,115,22,0.06)',
+                      border: '1.5px solid rgba(249,115,22,0.3)',
+                      borderRadius: 12, padding: 14, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#ea580c',
+                        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+            Return details
+          </div>
+          <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+            What are we doing when we come back?
+          </div>
+          <textarea value={returnWhat} onChange={e => setReturnWhat(e.target.value)}
+            placeholder="What needs to happen on the return visit…" rows={2}
+            style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                     border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
+                     fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                     resize: 'vertical', outline: 'none', marginBottom: 10 }} />
+          <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+            Need to buy anything?
+          </div>
+          <input value={returnMaterials} onChange={e => setReturnMaterials(e.target.value)}
+            placeholder="Parts, materials — or leave blank"
+            style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                     border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
+                     fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                     outline: 'none', marginBottom: 10 }} />
+          <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
+            How long should we plan on-site?
+          </div>
+          <input value={returnEstTime} onChange={e => setReturnEstTime(e.target.value)}
+            placeholder="e.g. 2h, half day"
+            style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                     border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
+                     fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none' }} />
+        </div>
+      )}
 
-      {/* HOW DID IT END — 2 primary, 2 secondary, 1 tertiary */}
-      {mode === 'full' && (
-        <div style={{ marginTop: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 700,
-                        color: selectedDispo ? '#16a34a' : '#64748b',
+      {/* ESTIMATE DETAILS — materials to bid, purple */}
+      {selectedDispo === 'estimate' && (
+        <div style={{ background: 'rgba(168,85,247,0.05)',
+                      border: '1.5px solid rgba(168,85,247,0.25)',
+                      borderRadius: 12, padding: 14, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#7c3aed',
                         textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
-            How did it end? {selectedDispo ? '✓' : '— required'}
+            Estimate details
           </div>
-
-          {/* PRIMARY: Done and Return */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-            {[
-              { key: 'bill_it', emoji: '✅', label: 'Done — Bill It',  sub: 'Finished. Hours go to billing.' },
-              { key: 'return',  emoji: '🔄', label: 'Return Visit',    sub: 'Work started — have to come back.' },
-            ].map(d => {
-              const on = selectedDispo === d.key;
-              const dc = DISPO_COLORS[d.key];
-              return (
-                <button key={d.key}
-                  onClick={() => { setSelectedDispo(on ? null : d.key); setError(''); }}
-                  style={{ padding: '14px 10px', borderRadius: 12, cursor: 'pointer',
-                           textAlign: 'center', fontFamily: 'inherit',
-                           background: on ? dc.color : dc.bg, color: on ? '#fff' : dc.color,
-                           border: on ? `2px solid ${dc.color}` : `2px solid ${dc.border}` }}>
-                  <div style={{ fontSize: 22 }}>{d.emoji}</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, marginTop: 3 }}>{d.label}</div>
-                  <div style={{ fontSize: 11, opacity: on ? 0.85 : 0.75, marginTop: 3, lineHeight: 1.3 }}>{d.sub}</div>
-                </button>
-              );
-            })}
+          <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, marginBottom: 4 }}>
+            Materials to bid out
           </div>
+          <textarea value={estimateMats} onChange={e => setEstimateMats(e.target.value)}
+            placeholder="Parts, equipment, subcontractors…" rows={2}
+            style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                     border: '1px solid rgba(168,85,247,0.3)', borderRadius: 10, background: '#fff',
+                     fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
+                     resize: 'vertical', outline: 'none' }} />
+        </div>
+      )}
 
-          {/* Return details — inline below the button */}
-          {selectedDispo === 'return' && (
-            <div style={{ background: 'rgba(249,115,22,0.06)',
-                          border: '1.5px solid rgba(249,115,22,0.3)',
-                          borderRadius: 12, padding: 14, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#ea580c',
-                            textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
-                Return details
-              </div>
-              <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
-                What are we doing when we come back?
-              </div>
-              <textarea value={returnWhat} onChange={e => setReturnWhat(e.target.value)}
-                placeholder="What needs to happen on the return visit…" rows={2}
-                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
-                         border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
-                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
-                         resize: 'vertical', outline: 'none', marginBottom: 10 }} />
-              <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
-                Need to buy anything?
-              </div>
-              <input value={returnMaterials} onChange={e => setReturnMaterials(e.target.value)}
-                placeholder="Parts, materials — or leave blank"
-                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
-                         border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
-                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
-                         outline: 'none', marginBottom: 10 }} />
-              <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 4 }}>
-                How long should we plan on-site?
-              </div>
-              <input value={returnEstTime} onChange={e => setReturnEstTime(e.target.value)}
-                placeholder="e.g. 2h, half day"
-                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
-                         border: '1px solid rgba(249,115,22,0.35)', borderRadius: 10, background: '#fff',
-                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none' }} />
-            </div>
-          )}
-
-          {/* SECONDARY: Estimate and Can't Complete */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-            {[
-              { key: 'estimate', emoji: '📋', label: 'Estimate',       sub: 'Scope changed — needs pricing.' },
-              { key: 'blocked',  emoji: '🚫', label: "Can't Complete", sub: 'No access / wrong parts. Trip bills.' },
-            ].map(d => {
-              const on = selectedDispo === d.key;
-              const dc = DISPO_COLORS[d.key];
-              return (
-                <button key={d.key}
-                  onClick={() => { setSelectedDispo(on ? null : d.key); setError(''); }}
-                  style={{ padding: '11px 10px', borderRadius: 12, cursor: 'pointer',
-                           textAlign: 'center', fontFamily: 'inherit',
-                           background: on ? dc.color : dc.bg, color: on ? '#fff' : dc.color,
-                           border: on ? `2px solid ${dc.color}` : `2px solid ${dc.border}` }}>
-                  <div style={{ fontSize: 18 }}>{d.emoji}</div>
-                  <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2 }}>{d.label}</div>
-                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2, lineHeight: 1.3 }}>{d.sub}</div>
-                </button>
-              );
-            })}
+      {/* CAN'T COMPLETE — what happens next, red */}
+      {selectedDispo === 'blocked' && (
+        <div style={{ background: 'rgba(239,68,68,0.05)',
+                      border: '1.5px solid rgba(239,68,68,0.2)',
+                      borderRadius: 12, padding: 14, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#b91c1c',
+                        textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+            Can't complete
           </div>
-
-          {/* Estimate extra: materials to bid */}
-          {selectedDispo === 'estimate' && (
-            <div style={{ background: 'rgba(168,85,247,0.05)',
-                          border: '1.5px solid rgba(168,85,247,0.25)',
-                          borderRadius: 12, padding: 14, marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700, marginBottom: 4 }}>
-                Materials to bid out
-              </div>
-              <textarea value={estimateMats} onChange={e => setEstimateMats(e.target.value)}
-                placeholder="Parts, equipment, subcontractors…" rows={2}
-                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
-                         border: '1px solid rgba(168,85,247,0.3)', borderRadius: 10, background: '#fff',
-                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
-                         resize: 'vertical', outline: 'none' }} />
-            </div>
-          )}
-
-          {/* Blocked extra: optional "what happens next" */}
-          {selectedDispo === 'blocked' && (
-            <div style={{ background: 'rgba(239,68,68,0.05)',
-                          border: '1.5px solid rgba(239,68,68,0.2)',
-                          borderRadius: 12, padding: 14, marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700, marginBottom: 4 }}>
-                What happens next? (optional)
-              </div>
-              <input value={blockedNext} onChange={e => setBlockedNext(e.target.value)}
-                placeholder="Reschedule, waiting on parts, customer will call…"
-                style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
-                         border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, background: '#fff',
-                         fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none' }} />
-            </div>
-          )}
-
-          {/* TERTIARY: Still Scheduled — quiet, multi-day work */}
-          {(() => {
-            const on = selectedDispo === 'in_progress';
-            const dc = DISPO_COLORS['in_progress'];
-            return (
-              <>
-                <button
-                  onClick={() => { setSelectedDispo(on ? null : 'in_progress'); setError(''); }}
-                  style={{ width: '100%', padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
-                           textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
-                           fontFamily: 'inherit',
-                           background: on ? dc.bg : 'rgba(100,116,139,0.04)',
-                           border: on ? `1.5px solid ${dc.border}` : '1.5px solid rgba(100,116,139,0.12)',
-                           color: on ? dc.color : '#94a3b8', marginBottom: on ? 8 : 4 }}>
-                  <span style={{ fontSize: 16 }}>📅</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>Still Scheduled</div>
-                    <div style={{ fontSize: 11 }}>Multi-day job — not finished, still booked.</div>
-                  </div>
-                </button>
-                {on && (
-                  <textarea value={inProgressWhat} onChange={e => setInProgressWhat(e.target.value)}
-                    placeholder="Where are things at? What happens on the next day?"
-                    rows={2}
-                    style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
-                             border: `1px solid ${dc.border}`, borderRadius: 10, background: '#fff',
-                             fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit',
-                             resize: 'vertical', outline: 'none', marginBottom: 8 }} />
-                )}
-              </>
-            );
-          })()}
+          <div style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700, marginBottom: 4 }}>
+            What happens next? (optional)
+          </div>
+          <input value={blockedNext} onChange={e => setBlockedNext(e.target.value)}
+            placeholder="Reschedule, waiting on parts, customer will call…"
+            style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box',
+                     border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, background: '#fff',
+                     fontSize: 14, color: '#1B2A4A', fontFamily: 'inherit', outline: 'none' }} />
         </div>
       )}
 

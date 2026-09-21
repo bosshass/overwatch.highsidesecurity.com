@@ -302,11 +302,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // Optimistically updates the local list so the just-finished item flips
   // tabs immediately, then closes the sheet.
   const DISPO_CONFIRM = {
-    bill_it:     { msg: '✅ Marked to bill — entry saved.',           color: '#166534', bg: '#f0fdf4' },
-    return:      { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
-    in_progress: { msg: '📅 Still in progress — entry saved.',        color: '#1e40af', bg: '#eff6ff' },
-    estimate:    { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
-    blocked:     { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
+    bill_it:  { msg: '✅ Marked to bill — entry saved.',           color: '#166534', bg: '#f0fdf4' },
+    return:   { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
+    estimate: { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
+    blocked:  { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
   };
   // JobFinishSheet passes the calendar event id as the second argument so the
   // update doesn't have to rely on `selected` being current in the closure.
@@ -536,9 +535,6 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   )}
                   {ev.isOwn && ev.tab === 'estimate' && (
                     <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
-                  )}
-                  {ev.isOwn && ev.disposition === 'in_progress' && (
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>⚙️ In Progress</span>
                   )}
                   {ev.isOwn && ev.customerId ? (
                     <span

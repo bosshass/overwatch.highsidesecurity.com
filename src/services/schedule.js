@@ -142,7 +142,7 @@ export function scheduleOf(job) {
 // tech owns the booking (tech_assigned, scheduled_event_id); each helper gets
 // the SAME event mirrored onto their calendar so their availability grid tells
 // the truth. tech_name carries all names so the board reads "JR + Austin".
-export async function book({ job, tech, start, end, accessToken, helpers = [], byEmail = null }) {
+export async function book({ job, tech, start, end, accessToken, helpers = [], byEmail = null, notifyTech = true }) {
   if (!job?.id) throw new Error('No job');
   // NEVER TRUST THE PASSED JOB. The board refreshes its list after a booking
   // but not the object the open drawer is holding, so a second booking from
@@ -304,9 +304,9 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
         .catch(e => console.warn('Customer confirmation SMS error:', e?.message));
     }
 
-    // Tech notification text — new bookings only, not reschedules (too noisy)
+    // Tech notification text — new bookings only, and only when caller opted in
     const techPhone = tech.phone;
-    if (!isReschedule && techPhone && isSendable(techPhone)) {
+    if (!isReschedule && notifyTech && techPhone && isSendable(techPhone)) {
       const issueSnip = (job.issue || '').slice(0, 100);
       sendSms({
         to: techPhone,

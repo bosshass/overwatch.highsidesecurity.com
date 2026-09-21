@@ -70,6 +70,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const [endTime, setEndTime] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [notifyTech, setNotifyTech] = useState(true);
   const [holdStart, setHoldStart] = useState('09:00');
   const [holdEnd, setHoldEnd]     = useState('17:00');
   // Which tech's calendar is OPEN. Every tech's six-week grid used to render
@@ -308,7 +309,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
       // subsets disagreed. Now everything that means "scheduled" changes
       // together or not at all.
       const helpers = validTechs.filter(t => helperIds.includes(t.id) && t.id !== tech.id);
-      await book({ job, tech, start, end, accessToken, helpers, byEmail: userEmail });
+      await book({ job, tech, start, end, accessToken, helpers, byEmail: userEmail, notifyTech });
 
       // Extra days ride the SAME time-of-day on their own dates. Each is its
       // own calendar event; failures are per-day and non-fatal — the primary
@@ -642,6 +643,18 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                 </div>
 
                 {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={notifyTech}
+                    onChange={e => setNotifyTech(e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: '#00c8e8', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                    Text the tech
+                  </span>
+                </label>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <button onClick={holdTentative} disabled={saving}

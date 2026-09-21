@@ -202,12 +202,20 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const matches = useMemo(() => {
     const s = query.trim().toLowerCase();
     if (!s) return [];
-    return registry.filter(c =>
-      (c.name || '').toLowerCase().includes(s) ||
-      (c.short_code || '').toLowerCase().includes(s) ||
-      (c.cs_number || '').toLowerCase().includes(s) ||
-      (c.address || '').toLowerCase().includes(s)
-    ).slice(0, 40);
+    // Normalize phone for matching: strip non-digits so "970 286 1192",
+    // "(970) 286-1192", and "9702861192" all find the same record.
+    const sDigits = s.replace(/\D/g, '');
+    return registry.filter(c => {
+      if ((c.name || '').toLowerCase().includes(s)) return true;
+      if ((c.short_code || '').toLowerCase().includes(s)) return true;
+      if ((c.cs_number || '').toLowerCase().includes(s)) return true;
+      if ((c.address || '').toLowerCase().includes(s)) return true;
+      if (sDigits.length >= 7) {
+        const p = (c.phone || '').replace(/\D/g, '');
+        if (p && p.includes(sDigits)) return true;
+      }
+      return false;
+    }).slice(0, 40);
   }, [query, registry]);
 
   const loadOpenWork = useCallback(async (customer) => {
@@ -717,6 +725,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                     <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
                   </div>
                   {c.address && <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 4 }}>📍 {c.address}</div>}
+                  {c.phone && <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 3 }}>📞 {c.phone}</div>}
                 </button>
               ))}
             </div>

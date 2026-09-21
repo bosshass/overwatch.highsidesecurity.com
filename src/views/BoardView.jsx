@@ -312,6 +312,7 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [loaded, setLoaded] = useState(null);
+  const [mergePending, setMergePending] = useState(null); // survivorId awaiting confirm
 
   useEffect(() => {
     if (allJobs || !open || loaded) return;
@@ -334,8 +335,8 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
      query.toLowerCase().includes(j.customer_name.toLowerCase().split(' ')[0]))
   ).slice(0, 10);
 
-  const merge = async (survivorId) => {
-    if (!window.confirm('Merge THIS job into the other? Notes, issue/scope details, contact info, CMS/access codes, and the calendar link carry over to the survivor; this one is marked dead.')) return;
+  const merge = async (survivorId, confirmed = false) => {
+    if (!confirmed) { setMergePending(survivorId); return; }
     setSaving(true);
     setErr('');
     try {
@@ -504,6 +505,26 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
           );
         })
       }
+      {mergePending && (() => {
+        const survivor = pool.find(j => j.id === mergePending);
+        return (
+          <div style={{ background:'#1e293b', border:'1px solid #f59e0b', borderRadius:8, padding:12, marginTop:8 }}>
+            <div style={{ fontSize:12, color:'#fde68a', marginBottom:10, lineHeight:1.5 }}>
+              Merge into <b>{survivor?.customer_name || mergePending}</b>? Notes, scope, contact info and CMS codes carry over. This job is marked dead.
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => { setMergePending(null); merge(mergePending, true); }}
+                style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'6px 14px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                Yes, merge
+              </button>
+              <button onClick={() => setMergePending(null)}
+                style={{ background:'transparent', border:'1px solid #334155', borderRadius:6, color:'#94a3b8', padding:'6px 12px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       {err && <div style={{ color:'#ef4444', fontSize:11, marginTop:6 }}>{err}</div>}
     </div>
   );

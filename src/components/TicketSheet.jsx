@@ -127,6 +127,9 @@ export default function TicketSheet({
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
   const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
+  // Tasks start collapsed — the count + "needs OK" badge conveys urgency without
+  // forcing the full task list on top of the job context.
+  const [tasksExpanded, setTasksExpanded] = useState(false);
 
   // ── Texting the person who owns a task ───────────────────────────────
   // api/send-sms.js (Twilio) and services/sms.js have both been complete and
@@ -857,16 +860,19 @@ export default function TicketSheet({
       {openTasks.length > 0 && (
         <div style={{ background: '#1a1533', border: '1px solid #9b6cff66',
                       borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.06em',
-                        color: '#c4a6ff', marginBottom: 9 }}>
-            {openTasks.length === 1 ? 'TASK ON THIS JOB' : `${openTasks.length} TASKS ON THIS JOB`}
-          </div>
-          {/* This was one line — a comma-joined list of names and the words
-              "working a piece of this". It named who, and nothing else: not
-              what was asked, not whether they had started, not whether they
-              had already handed it back. Which is the actual question when you
-              open a card and want to know what is happening. */}
-          {openTasks.map(t => {
+          <button onClick={() => setTasksExpanded(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                     width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                     padding: 0, marginBottom: tasksExpanded ? 9 : 0, fontFamily: 'inherit' }}>
+            <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.06em', color: '#c4a6ff' }}>
+              {openTasks.length === 1 ? 'TASK ON THIS JOB' : `${openTasks.length} TASKS ON THIS JOB`}
+              {!tasksExpanded && openTasks.some(t => t.lane === 'done') && (
+                <span style={{ marginLeft: 8, color: '#ef4444' }}>· needs OK</span>
+              )}
+            </span>
+            <span style={{ fontSize: 11, color: '#9b6cff', transform: tasksExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▼</span>
+          </button>
+          {tasksExpanded && openTasks.map(t => {
             const owner = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
             const asker = ASSIGNEES.find(a => a.email === t.assigned_by)?.name || t.assigned_by;
             const days  = Math.floor((Date.now() - new Date(t.created_at).getTime()) / 86400000);

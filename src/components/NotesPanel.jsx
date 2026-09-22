@@ -74,7 +74,10 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         let out = (t || '').trim();
         let guard = 0;
         while (guard++ < 10) {
-          const next = out.replace(/^↪\s*from merged job(\s*\([^)]*\))?\s*:\s*/i, '');
+          // Two prefix formats in the wild — strip both, keep the real content.
+          // "↪ from merged job (date): <note text>"  — individual notes carried over
+          // "[↩↪] merged job details (originally logged ...): <issue field>"  — intake text carried over
+          const next = out.replace(/^[↩↪]\s*(from merged job|merged job details)(\s*\([^)]*\))?\s*:\s*/i, '');
           if (next === out) break;
           out = next.trim();
         }
@@ -88,6 +91,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         return !x
             || /^\[MERGED INTO JOB/i.test(x)
             || /^🔗 MERGED FROM JOB/i.test(x)
+            || /^🔀 Merged in duplicate/i.test(x)
             || /^Merged into job #/i.test(x)
             || /^Marked as duplicate/i.test(x)
             || /^Job created$/i.test(x)

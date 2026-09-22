@@ -211,6 +211,7 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   const [invoiceAmount, setInvoiceAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+  const [confirmPending, setConfirmPending] = useState(null); // { msg, onConfirm }
   const [search, setSearch] = useState('');
   const [archiving, setArchiving] = useState(false);
   // When a "clear" action opens the modal, this holds what to clear. The modal
@@ -533,17 +534,17 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // Close out a job that is marked done but carries no time. Writes through
   // jobsApi.changeStatus so it lands in job_history and is auditable — the same
   // path every other status move uses.
-  const closeNoHours = async (g, target) => {
+  const closeNoHours = async (g, target, confirmed = false) => {
     if (!g.job?.id) return;
-    // /unbilled is OperatorOnly, and operators include JR. Reaching the
-    // billing screen is not the same as being the person who invoices, so the
-    // one irreversible-looking action on it asks separately.
     if (target === 'billed' && !mayBill) return;
-    const label = target === 'billed' ? 'billed' : 'cleared';
-    // Clearing needs a reason, not a confirm box. "Not billable" collapsed a
-    // warranty callback and a test entry into one string.
     if (target !== 'billed') { setClearTarget({ kind: 'job', group: g }); return; }
-    if (!window.confirm(`Mark ${g.name} as ${label}?\n\nNo hours are attached, so nothing goes on an invoice. This only moves the card off the board.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${g.name} as billed? No hours are attached — this only moves the card off the board.`,
+        onConfirm: () => closeNoHours(g, target, true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       await jobsApi.changeStatus(g.job.id, target, userEmail,
@@ -567,14 +568,19 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // Marking billed here stamps the time entries and nothing else — there is no
   // job to write through to, which is the whole point. Clearing archives with a
   // reason rather than deleting, so the hours stay auditable.
-  const closeOrphan = async (g, target) => {
+  const closeOrphan = async (g, target, confirmed = false) => {
     const ids = g.visits.map(v => v.id).filter(Boolean);
     if (!ids.length) return;
     if (target === 'billed' && !mayBill) return;
     const n = ids.length;
     if (target !== 'billed') { setClearTarget({ kind: 'orphan', group: g }); return; }
-    const msg = `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed?\n\nNo ticket is created. Use this when the work was already invoiced in QuickBooks.`;
-    if (!window.confirm(msg)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed? No ticket is created — use this when the work was already invoiced in QuickBooks.`,
+        onConfirm: () => closeOrphan(g, target, true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       const patch = target === 'billed'
@@ -601,13 +607,16 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // FUTURE hour on the same job derive correctly without anyone ticking it.
   // Flagging only the entries would leave the next visit reading as billable
   // and put somebody back here doing this again.
-  const markFixedFee = async () => {
+  const markFixedFee = async (confirmed = false) => {
     if (!sel.rows.length) return;
     const n = sel.rows.length;
-    if (!window.confirm(
-      `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as fixed-fee project hours?\n\n` +
-      `They stay visible as COST — they just stop reading as something to invoice ` +
-      `by the hour. The job is flagged fixed-fee so later visits follow automatically.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as fixed-fee? They show as cost, not an hourly invoice. The job is flagged so future visits follow automatically.`,
+        onConfirm: () => markFixedFee(true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase.from('time_entries').update({
@@ -823,11 +832,17 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
     setTimeout(() => setToast(''), 4000);
   };
 
-  const markBilled = async () => {
+  const markBilled = async (confirmed = false) => {
     if (!mayBill) return;
     if (!sel.rows.length) return;
     const n = sel.rows.length;
-    if (!window.confirm(`Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed?\n\nThey will leave this queue. This does not create an invoice — do that in QuickBooks.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed? They leave this queue. Do the invoice in QuickBooks.`,
+        onConfirm: () => markBilled(true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       const amtRaw = invoiceAmount.trim().replace(/[$,\s]/g, '');
@@ -1695,6 +1710,27 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
                 🔧 <b>Materials on this invoice:</b> {sel.materials.join(' · ')}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {confirmPending && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: sel.rows.length > 0 ? 'calc(110px + env(safe-area-inset-bottom))' : 0,
+                      background: '#0f172a', borderTop: '2px solid #f59e0b', padding: '14px 18px', zIndex: 30 }}>
+          <div style={{ maxWidth: 900, margin: '0 auto' }}>
+            <div style={{ fontSize: 14, color: '#e2e8f0', marginBottom: 12 }}>{confirmPending.msg}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { confirmPending.onConfirm(); setConfirmPending(null); }}
+                style={{ background: '#22c55e', border: 'none', borderRadius: 8, color: '#052e16',
+                         padding: '8px 22px', fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Yes, confirm
+              </button>
+              <button onClick={() => setConfirmPending(null)}
+                style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 8,
+                         color: '#94a3b8', padding: '8px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

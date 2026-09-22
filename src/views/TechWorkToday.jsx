@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
@@ -94,6 +94,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  // job ID to auto-open once the day's events finish loading
+  const pendingOpenRef = useRef(null);
   const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
 
   // Single tech calendar OR all techs for operators
@@ -127,13 +129,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   useEffect(() => { loadNeedNotes(); }, [loadNeedNotes]);
 
 
-  // Jump the day nav to a specific date, so the event and the finish sheet are
-  // right there instead of somewhere behind the < button.
-  const goToDate = (scheduledDate) => {
-    const [y, m, d] = String(scheduledDate).slice(0, 10).split('-').map(Number);
+  // Jump the day nav to a specific date and auto-open that job's finish sheet.
+  const goToDate = (job) => {
+    const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
     if (!y || !m || !d) return;
     const want = new Date(y, m - 1, d); want.setHours(0, 0, 0, 0);
     const now  = new Date();            now.setHours(0, 0, 0, 0);
+    pendingOpenRef.current = job.id;
     setOffset(Math.round((want - now) / 86400000));
     setShowNeedNotes(false);
   };
@@ -218,7 +220,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             .eq('archived', false),
           supabase
             .from('job_assignments')
-            .select('calendar_event_id, job:job_id(customer_id)')
+            .select('calendar_event_id, job_id, job:job_id(customer_id)')
             .in('calendar_event_id', eventIds)
             .not('job_id', 'is', null),
           supabase
@@ -237,9 +239,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         }
 
         const customerIdByEventId = {};
+        const jobIdByEventId = {};
         for (const a of assignments || []) {
           if (a.calendar_event_id && a.job?.customer_id) {
             customerIdByEventId[a.calendar_event_id] = a.job.customer_id;
+          }
+          if (a.calendar_event_id && a.job_id) {
+            jobIdByEventId[a.calendar_event_id] = a.job_id;
           }
         }
 
@@ -262,6 +268,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             tab,
             disposition: d || null,
             customerId: customerIdByEventId[ev.id] || null,
+            jobId: jobIdByEventId[ev.id] || null,
             returnReason: rc?.reason || null,
             returnMaterials: rc?.materials_needed || null,
           };
@@ -273,6 +280,11 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     }
 
     setAll(items);
+    if (pendingOpenRef.current) {
+      const match = items.find(ev => ev.jobId === pendingOpenRef.current);
+      if (match) { setSelected(match); setDetailsExpanded(false); }
+      pendingOpenRef.current = null;
+    }
     setLoading(false);
   }, [accessToken, userEmail, techCalId, offset, showAllTechs]);
 
@@ -409,13 +421,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             {showNeedNotes && (
               <div style={{ background: '#fff1f2', borderBottom: '1px solid #fecaca' }}>
                 <div style={{ fontSize: 12, color: '#9f1239', padding: '10px 16px 6px', lineHeight: 1.5 }}>
-                  The day came and went and nobody said what happened. Tap one to jump
-                  to that day, then finish it — notes, hours, then a disposition.
+                  The day came and went and nobody said what happened. Tap one to open the finish sheet directly.
                 </div>
                 {needNotes.map(j => {
                   const late = daysLate(j.scheduled_date);
                   return (
-                    <button key={j.id} onClick={() => goToDate(j.scheduled_date)}
+                    <button key={j.id} onClick={() => goToDate(j)}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                                textAlign: 'left', background: 'none', border: 'none',
                                borderTop: '1px solid #fecaca', padding: '11px 16px',

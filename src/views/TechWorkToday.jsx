@@ -263,11 +263,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             ? (d === 'bill_it' ? 'billit' : d === 'return' ? 'return' : d === 'estimate' ? 'estimate' : ev.tab)
             : ev.tab; // in_progress and blocked stay in Today tab
           const rc = returnCardByEventId[ev.id];
+          const descCustomerId = (ev.description || '').match(/CUSTOMER_ID:\s*([0-9a-f-]{36})/i)?.[1] || null;
           return {
             ...ev,
             tab,
             disposition: d || null,
-            customerId: customerIdByEventId[ev.id] || null,
+            customerId: customerIdByEventId[ev.id] || descCustomerId || null,
             jobId: jobIdByEventId[ev.id] || null,
             returnReason: rc?.reason || null,
             returnMaterials: rc?.materials_needed || null,
@@ -395,7 +396,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           </button>
           <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
-          <button onClick={() => navigate('/customers')}
+          <button onClick={() => navigate('/customers', { state: { from: 'today' } })}
             title="Search clients"
             style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#1a8a8a', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             🔍 <span>Clients</span>
@@ -555,7 +556,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   {ev.isOwn && ev.customerId ? (
                     /* Linked — taps through to full client history */
                     <button
-                      onClick={e => { e.stopPropagation(); navigate(`/customers?customerId=${ev.customerId}`); }}
+                      onClick={e => { e.stopPropagation(); navigate(`/customers?customerId=${ev.customerId}`, { state: { from: 'today' } }); }}
                       style={{ background: '#f0fdf9', border: '1.5px solid #1a8a8a33', borderRadius: 8,
                                padding: '3px 10px 3px 8px', display: 'inline-flex', alignItems: 'center', gap: 5,
                                fontWeight: 700, fontSize: 16, color: '#1a8a8a', cursor: 'pointer',
@@ -569,7 +570,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {name || '(no name)'}
                       </span>
-                      <button onClick={e => { e.stopPropagation(); navigate('/customers'); }}
+                      <button onClick={e => { e.stopPropagation(); navigate('/customers', { state: { from: 'today' } }); }}
                         style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6,
                                  padding: '2px 8px', fontSize: 11, fontWeight: 600, color: '#9ca3af',
                                  cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit', flexShrink: 0 }}>
@@ -595,10 +596,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       </div>
                     ) : (
                       (() => {
-                        const lines = (ev.description || '').split('\n').map(l => l.trim()).filter(l => {
+                        const lines = (ev.description || '').replace(/<br\s*\/?>/gi, '\n').split('\n').map(l => l.trim()).filter(l => {
                           if (!l) return false;
                           if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false;
                           if (/^https?:\/\//i.test(l)) return false;
+                          if (/CUSTOMER_ID:/i.test(l)) return false;
+                          if (/^<br>/i.test(l) || l === '<br>') return false;
                           return true;
                         });
                         const preview = lines.join(' ').slice(0, 80);

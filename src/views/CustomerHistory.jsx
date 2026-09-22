@@ -489,9 +489,12 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     });
   };
 
+  const fromToday = location.state?.from === 'today';
+
   const goBack = () => {
     if (createMode) { setCreateMode(null); return; }
     if (selected) { setSelected(null); setTagged([]); setSuggested([]); setOpenWork([]); setErr(''); }
+    else if (fromToday) navigate('/today');
     else if (onBack) onBack();
   };
 
@@ -549,9 +552,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
           <Badge color={t.color}>{t.label}</Badge>
           {!done && <Badge color={s.color}>{s.label}</Badge>}
           {done && <Badge color="#64748b">{jobChip(j.status).label}</Badge>}
-          {j.created_at && <span style={{ fontSize: 12, color: '#cbd5e1' }}>📅 {fmtDate(j.created_at)}</span>}
+          {j.created_at && <span style={{ fontSize: 12, color: '#cbd5e1' }}>📅 {fmtDate(done && j.completed_at ? j.completed_at : j.created_at)}</span>}
+          {done && jobMinutes[j.id] ? <span style={{ fontSize: 12, color: '#94a3b8' }}>⏱ {hoursFromMin(jobMinutes[j.id])}</span> : null}
         </div>
-        {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none' }}>{j.issue}</div>}
+        {j.issue && <div style={{ fontSize: 13.5, color: done ? '#94a3b8' : '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{j.issue}</div>}
         {actionable && (
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }} onClick={e => e.stopPropagation()}>
             {done ? (
@@ -571,9 +575,19 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   return (
     <div style={page}>
       <div style={bar}>
-        <button onClick={goBack} style={back}>←</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={goBack} style={back}>←</button>
+          {fromToday && (
+            <button onClick={() => navigate('/today')}
+              style={{ background: 'none', border: '1px solid #334155', borderRadius: 8,
+                       color: '#00c8e8', padding: '4px 10px', fontSize: 12, fontWeight: 700,
+                       cursor: 'pointer' }}>
+              Today ↩
+            </button>
+          )}
+        </div>
         <div style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>
-          {selected ? selected.name : 'Customer Lookup'}
+          {selected ? selected.name : 'Client lookup'}
         </div>
         {selected && (
           <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>
@@ -872,8 +886,28 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                   );
                 })()}
 
+                {/* visit history */}
+                <div style={{ ...sectionLabel, color: '#94a3b8', marginTop: openWork.length ? 18 : 4 }}>
+                  Visit history ({tagged.length})
+                </div>
+                {tagged.length === 0 && (
+                  <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                    No visits tagged to this account yet.{suggested.length > 0 ? ' Possible matches below.' : ''}
+                  </div>
+                )}
+                {tagged.map(e => <EventCard key={e.id} e={e} />)}
+
+                {suggested.length > 0 && (
+                  <>
+                    <div style={{ ...sectionLabel, color: '#f59e0b', marginTop: 18 }}>
+                      Possible matches — not yet assigned ({suggested.length})
+                    </div>
+                    {suggested.map(e => <EventCard key={e.id} e={e} showAssign />)}
+                  </>
+                )}
+
                 {/* customer notes */}
-                <div style={{ marginTop: openWork.length ? 18 : 4 }}>
+                <div style={{ marginTop: 18 }}>
                   <button
                     onClick={() => setShowNotes(v => !v)}
                     style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...sectionLabel, color: '#38bdf8' }}
@@ -932,26 +966,6 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                     </>
                   )}
                 </div>
-
-                {/* finished visits */}
-                <div style={{ ...sectionLabel, color: '#cbd5e1', marginTop: openWork.length ? 18 : 4 }}>
-                  Calendar events ({tagged.length})
-                </div>
-                {tagged.length === 0 && (
-                  <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 16 }}>
-                    Nothing tagged to this account yet. Any look-alikes below can be assigned with one tap.
-                  </div>
-                )}
-                {tagged.map(e => <EventCard key={e.id} e={e} />)}
-
-                {suggested.length > 0 && (
-                  <>
-                    <div style={{ ...sectionLabel, color: '#f59e0b', marginTop: 18 }}>
-                      Possible matches — not yet assigned ({suggested.length})
-                    </div>
-                    {suggested.map(e => <EventCard key={e.id} e={e} showAssign />)}
-                  </>
-                )}
               </>
             )}
           </>

@@ -635,22 +635,6 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         </div>
       </div>
 
-      {/* Phone number — visible on the card so operators can read it at a
-          glance without opening the drawer. The TextButton above already lets
-          you call or text from the card; this just makes the number itself
-          readable. */}
-      {job.customer_phone && (
-        <div style={{ fontSize:12, color:'#64748b', marginBottom:4 }}>
-          📞 {job.customer_phone}
-        </div>
-      )}
-
-      {!hasUUID && (
-        <div style={{ background:'#78350f44', border:'1px solid #f59e0b', borderRadius:6, padding:'6px 9px', marginBottom:8 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:'#fbbf24' }}>Not linked to a customer</div>
-          <div style={{ fontSize:12, color:'#fcd34d' }}>{missingLabel(job)}</div>
-        </div>
-      )}
 
       {/* For note/task type jobs the issue text IS the card — there is no separate
           ticket body the operator can open to read it. Show it capped at two lines
@@ -668,7 +652,6 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         {(() => { const who = assigneeOf(job); return who
           ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
           : null; })()}
-        <span style={{ fontSize:12, color:'#64748b' }}>added {ageLabel(job.created_at)}</span>
         {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
             scheduled date — a hold is not a booking, and the day two crews turn
             up in one place is the day those two things looked alike. */}
@@ -744,16 +727,9 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         );
       })()}
 
-      {/* Status + money + move controls */}
+      {/* Money + move controls */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-          {/* estimate_sent = solid fill so it's visually distinct from needs_estimate at a glance */}
-          <span style={{ fontSize:12, fontWeight:600,
-            color: job.status === 'estimate_sent' ? '#0e1a27' : (si.color||'#94a3b8'),
-            background: job.status === 'estimate_sent' ? (si.color||'#06b6d4') : `${si.color||'#334155'}18`,
-            padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
-            {si.icon} {si.label||job.status}
-          </span>
           {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
         </div>
         {!readOnly && (

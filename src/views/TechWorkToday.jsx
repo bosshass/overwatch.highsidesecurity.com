@@ -395,8 +395,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           </button>
           <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
+          <button onClick={() => navigate('/customers')}
+            title="Search clients"
+            style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#1a8a8a', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            🔍 <span>Clients</span>
+          </button>
           <button onClick={() => { load(); loadNeedNotes(); }}
-            style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
+            style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
             ↻
           </button>
         </div>
@@ -548,15 +553,31 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                     <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
                   )}
                   {ev.isOwn && ev.customerId ? (
-                    <span
-                      role="link"
-                      tabIndex={0}
+                    /* Linked — taps through to full client history */
+                    <button
                       onClick={e => { e.stopPropagation(); navigate(`/customers?customerId=${ev.customerId}`); }}
-                      style={{ fontWeight: 700, fontSize: 17, color: '#1a8a8a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', textDecoration: 'underline dotted' }}>
-                      {name || '(no name)'}
-                    </span>
+                      style={{ background: '#f0fdf9', border: '1.5px solid #1a8a8a33', borderRadius: 8,
+                               padding: '3px 10px 3px 8px', display: 'inline-flex', alignItems: 'center', gap: 5,
+                               fontWeight: 700, fontSize: 16, color: '#1a8a8a', cursor: 'pointer',
+                               maxWidth: '100%', overflow: 'hidden', fontFamily: 'inherit' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || '(no name)'}</span>
+                      <span style={{ fontSize: 14, flexShrink: 0, opacity: 0.7 }}>›</span>
+                    </button>
+                  ) : ev.isOwn ? (
+                    /* Own job but no customerId yet — offer a search escape hatch */
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {name || '(no name)'}
+                      </span>
+                      <button onClick={e => { e.stopPropagation(); navigate('/customers'); }}
+                        style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6,
+                                 padding: '2px 8px', fontSize: 11, fontWeight: 600, color: '#9ca3af',
+                                 cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit', flexShrink: 0 }}>
+                        Find client →
+                      </button>
+                    </div>
                   ) : (
-                    <span style={{ fontWeight: 700, fontSize: ev.isOwn ? 17 : 15, color: ev.isOwn ? '#1B2A4A' : '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {name || '(no name)'}
                     </span>
                   )}

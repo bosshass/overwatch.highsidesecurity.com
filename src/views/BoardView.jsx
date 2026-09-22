@@ -584,6 +584,23 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
+// Human-readable label for the card's next-action row.
+const NEXT_ACTION_LABEL = {
+  new:           'Needs review',
+  needs_parts:   'Waiting on parts',
+  scheduled:     'Scheduled',
+  tentative:     'Hold — not booked',
+  return_pending:'Return trip needed',
+  estimate_sent: 'Waiting on approval',
+  blocked:       'Blocked',
+  complete:      'Ready to bill',
+  to_bill:       'Ready to invoice',
+  billed:        'Invoice sent',
+  dead:          'Closed',
+  lost:          'Closed — lost',
+  archived:      'Archived',
+};
+
 function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
@@ -600,26 +617,73 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
   // open the drawer instead of quick-moving — they need a date.
   const allMoves = movesFor(job, { includeBilling: true, includeClear: false, mayBill: canBill(userEmail) });
 
-  // 72h rule — see src/utils/staleness.js. A card nobody has touched in 3 days
-  // gets an amber rail; a week gets red. The status chip used to be the loudest
-  // thing on the card, but "New" tells you nothing you can act on. WHO owns it,
-  // HOW LONG it's been sitting, and WHETHER IT'S ROTTING do.
+  // 72h rule — see src/utils/staleness.js.
   const stale = stalenessOf(job);
-  const staleColor = STALE_COLOR[stale.level];
-  const rail = isUrgent ? '#ef4444' : (staleColor || si.color || '#334155');
+
+  // Overdue: scheduled date is in the past and job is still open.
+  // Parsed manually — new Date(bare date string) reads UTC midnight, which in
+  // Denver renders as the previous day (same bug we fixed on the date chip).
+  const isOverdue = (() => {
+    if (!job.scheduled_date || isHeld(job)) return false;
+    const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const when = new Date(y, m - 1, d);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
+  })();
+
+  // 3-state rail: red = urgent/overdue · amber = stale/high/hold · dark = normal.
+  const rail = (isUrgent || isOverdue)
+    ? '#ef4444'
+    : (stale.level !== 'none' || isHigh || ['return_pending','tentative'].includes(job.status))
+      ? '#f59e0b'
+      : '#334155';
+
+  // Snippet — same priority logic as before, presentation only.
+  const snippet = (() => {
+    if (job.status === 'return_pending' && job.return_reason)
+      return { text: job.return_reason, color: '#fed7aa' };
+    if (job.last_note_text)
+      return { text: job.last_note_text, color: '#94a3b8' };
+    if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
+      return { text: job.issue, color: '#cbd5e1' };
+    return null;
+  })();
+
+  // Muted date string for the meta row (no chip, no colored badge).
+  const who = assigneeOf(job);
+  const dateStr = (() => {
+    if (job.tentative_date && isHeld(job)) {
+      return `tent ${new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+    }
+    if (job.scheduled_date && !isHeld(job)) {
+      const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+      if (!y || !m || !d) return null;
+      const when = new Date(y, m - 1, d);
+      return when.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    }
+    return null;
+  })();
+
+  const nextAction = NEXT_ACTION_LABEL[job.status] || si.label || job.status;
+  // Next-action label echoes the rail color so it reads as one system.
+  const actionColor = rail === '#ef4444' ? '#ef4444' : rail === '#f59e0b' ? '#f59e0b' : '#475569';
 
   return (
     <div onClick={() => onSelect(job)}
-      style={{ position:'relative', background:'#1e293b', borderRadius:8, padding:13, paddingLeft:17, marginBottom:8, cursor:'pointer', overflow:'hidden', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+      style={{ position:'relative', background:'#1e293b', borderRadius:8, padding:'12px 12px 12px 16px', marginBottom:8, cursor:'pointer', overflow:'hidden', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+
+      {/* Rail — carries the stale animation when applicable */}
       <div className={stale.level === 'very_stale' ? 'ow-verystale' : stale.level === 'stale' ? 'ow-stale' : undefined}
         style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:rail }} />
 
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:5 }}>
-        <div style={{ fontSize:16, fontWeight:600, color:'#fff', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
-        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-          {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>URGENT</span>}
-          {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>HIGH</span>}
-          {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:800, padding:'2px 6px', borderRadius:4 }}>⚠️ NO CLIENT</span>}
+      {/* Row 1: name + priority badges + TextButton */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:4 }}>
+        <div style={{ fontSize:15, fontWeight:700, color:'#f1f5f9', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
+        <div style={{ display:'flex', gap:4, flexShrink:0, alignItems:'center' }}>
+          {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>URGENT</span>}
+          {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>HIGH</span>}
+          {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:800, padding:'2px 5px', borderRadius:3 }}>NO CLIENT</span>}
           {/* TEXT WITHOUT OPENING ANYTHING. The board is where the day gets
               scanned, and "tell them we're running late" should not require
               opening a card and hunting for a control inside it. stopPropagation
@@ -635,121 +699,61 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         </div>
       </div>
 
-
-      {/* For note/task type jobs the issue text IS the card — there is no separate
-          ticket body the operator can open to read it. Show it capped at two lines
-          so the context is visible on the board without opening the drawer. */}
+      {/* Row 2: issue text for note/task types (the issue IS the card) */}
       {(job.job_type === 'note' || job.job_type === 'task') && job.issue && (
-        <div style={{ fontSize:12, color:'#cbd5e1', marginBottom:6, lineHeight:1.4,
+        <div style={{ fontSize:12, color:'#cbd5e1', marginBottom:5, lineHeight:1.4,
                       overflow:'hidden', display:'-webkit-box',
                       WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
           {job.issue}
         </div>
       )}
 
-      {/* THE STICKY LINE — added date, assignee, scheduled date, note snippet, stale flag. */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-        {(() => { const who = assigneeOf(job); return who
-          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
-          : null; })()}
-        {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
-            scheduled date — a hold is not a booking, and the day two crews turn
-            up in one place is the day those two things looked alike. */}
-        {job.tentative_date && isHeld(job) && (
-          <span style={{ fontSize:12, fontWeight:700, color:'#f59e0b', background:'#78350f44',
-                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-            ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
-          </span>
-        )}
-        {/* THE BOOKED DATE. The card showed who owned a job and how long it had
-            been sitting, but never WHEN it was going to happen — so a Scheduled
-            column was a list of jobs with no dates in it.
-            Parsed manually, NOT with new Date(str). jobs.scheduled_date is a
-            DATE ('2026-08-07'), and new Date() reads a bare date as UTC
-            midnight — which in Denver renders as the PREVIOUS DAY. That is the
-            same off-by-one that used to drop jobs into Needs Action at 6 PM.
-            Splitting the parts and building a local Date avoids it entirely. */}
-        {job.scheduled_date && !isHeld(job) && (() => {
-          const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
-          if (!y || !m || !d) return null;
-          const when = new Date(y, m - 1, d);
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          // Past-dated and still open = it did not happen. Say so in red rather
-          // than printing a date that quietly reads as fine.
-          const overdue = when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
-          const color = overdue ? '#ef4444' : '#38bdf8';
-          return (
-            <span style={{ fontSize:12, fontWeight:700, color, background:`${color}22`,
-                           padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-              📅 {when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
-              {overdue ? ' · past' : ''}
-            </span>
-          );
-        })()}
-        {/* Stale indicator — skip for statuses where waiting IS the job (estimate sent = waiting on customer, blocked = waiting on something external) */}
-        {staleColor && !['estimate_sent', 'blocked'].includes(job.status) && (
-          <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
-            style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-            ⏱ {stale.label}
-          </span>
-        )}
-      </div>
-
-      {/* Issue scope, return trip brief, or latest note — all in the same spot.
-          return_pending → show the return brief (what we're coming back to do);
-            this is what TicketSheet shows in its "🔄 This return trip" panel.
-          All others → last typed note if one exists; fall back to job.issue
-            ("What are we doing?") so a new card is never blank.
-          Note/task types already rendered their issue above, so skip the fallback
-          for those to avoid double-printing. */}
-      {(() => {
-        if (job.status === 'return_pending' && job.return_reason) {
-          return (
-            <div style={{ fontSize:12, color:'#fed7aa', marginBottom:6, lineHeight:1.4,
-                          overflow:'hidden', display:'-webkit-box',
-                          WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-              🔄 {job.return_reason}
-            </div>
-          );
-        }
-        const text = job.last_note_text
-          ? `💬 ${job.last_note_text}`
-          : (job.issue && job.job_type !== 'note' && job.job_type !== 'task' ? job.issue : null);
-        if (!text) return null;
-        return (
-          <div style={{ fontSize:12,
-                        color: job.last_note_text ? '#94a3b8' : '#cbd5e1',
-                        marginBottom:6, lineHeight:1.4,
-                        overflow:'hidden', display:'-webkit-box',
-                        WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-            {text}
-          </div>
-        );
-      })()}
-
-      {/* Money + move controls */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
-        <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-          {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
+      {/* Row 2b: snippet — return brief, last note, or issue scope */}
+      {snippet && (
+        <div style={{ fontSize:12, color:snippet.color, marginBottom:5, lineHeight:1.4,
+                      overflow:'hidden', display:'-webkit-box',
+                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+          {snippet.text}
         </div>
-        {!readOnly && (
-          <div style={{ display:'flex', gap:5, flexShrink:0, alignItems:'center' }}>
-            {quickVerbs.length > 0 && (
-              <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-                title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-                style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
-                → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
-              </button>
-            )}
-            {/* Escape hatch — any lane, without opening the drawer */}
-            <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
-              title="Move to any lane"
-              style={{ padding:'4px 7px', borderRadius:5, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1 }}>
-              {expandMoves ? '✕' : '⋯'}
-            </button>
-          </div>
-        )}
+      )}
+
+      {/* Row 3: next-action label — one glanceable phrase that says what this card needs */}
+      <div style={{ fontSize:11, fontWeight:600, color:actionColor, marginBottom:3, letterSpacing:'0.02em' }}>
+        {nextAction}
       </div>
+
+      {/* Row 4: assignee · date · estimate — all neutral, no badges */}
+      {(who || dateStr || job.estimate_amount > 0) && (
+        <div style={{ fontSize:12, color:'#64748b', marginBottom:9, display:'flex', gap:5, alignItems:'center', flexWrap:'wrap' }}>
+          {who && <span>{who}</span>}
+          {who && dateStr && <span style={{ color:'#334155' }}>·</span>}
+          {dateStr && <span style={{ color: isOverdue ? '#ef4444' : '#64748b' }}>{dateStr}</span>}
+          {job.estimate_amount > 0 && (
+            <>
+              {(who || dateStr) && <span style={{ color:'#334155' }}>·</span>}
+              <span style={{ color:'#22c55e', fontWeight:600 }}>{fmtMoney(job.estimate_amount)}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Row 5: one primary action (always blue) + ⋯ escape hatch */}
+      {!readOnly && (
+        <div style={{ display:'flex', gap:5, alignItems:'center' }} onClick={e => e.stopPropagation()}>
+          {quickVerbs.length > 0 && (
+            <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
+              title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
+              style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'none', background:'#0ea5e9', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', fontFamily:'inherit', opacity: moving ? 0.5 : 1 }}>
+              → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
+            </button>
+          )}
+          <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
+            title="Move to any lane"
+            style={{ padding:'6px 9px', borderRadius:6, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1, fontFamily:'inherit' }}>
+            {expandMoves ? '✕' : '⋯'}
+          </button>
+        </div>
+      )}
 
       {/* All-lanes accordion — stays inside stopPropagation so opening it
           doesn't also open the drawer */}

@@ -350,18 +350,6 @@ export default function TicketSheet({
       if (error) throw error;
       setOwner(email ? (ASSIGNEES.find(a => a.email === email)?.name || email) : '\u0000');
       onAssigned?.(job.id, email);
-
-      // Notify the assignee — send email via Gmail using the same OAuth token
-      // that's already in scope. No Twilio, no server, no extra config.
-      // Falls back silently if the token lacks gmail.send scope.
-      if (email && accessToken) {
-        const name = ASSIGNEES.find(a => a.email === email)?.name || email;
-        sendGmail(accessToken, {
-          to: email,
-          subject: `[Overwatch] Assigned: ${job.customer_name || 'a job'}`,
-          body: assignmentMessage(job),
-        }).catch(() => {}); // never block the UI on a notification
-      }
     } catch (e) { setErr(e.message || 'Could not assign'); }
     finally { setSaving(false); }
   };
@@ -645,9 +633,33 @@ export default function TicketSheet({
           <Row label="CMS">{job.cms_account_id}</Row>
         </div>
 
-        {/* Assigned-to person picker removed from the ticket — assignment is
-            a task-level concept. Job ownership (for board filtering) is set
-            when a task is created, not from the ticket header. ── */}
+        {/* ── Assigned to ───────────────────────────────────────────── */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b',
+                        textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 }}>
+            Assigned to
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {ASSIGNEES.map(a => {
+              const active = (ownerName === a.name) || (!ownerName && assigneeOf(job) === a.name);
+              return (
+                <button key={a.email}
+                  onClick={() => assign(active ? null : a.email)}
+                  disabled={saving}
+                  style={{
+                    padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                    background: active ? '#00c8e8' : 'transparent',
+                    color: active ? '#07111f' : '#94a3b8',
+                    border: `1px solid ${active ? '#00c8e8' : '#334155'}`,
+                    transition: 'all 0.15s',
+                  }}>
+                  {a.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* ── Return trip brief — THIS VISIT ONLY ─────────────────────
             The Issue panel below is why we first went. This panel is why we

@@ -220,7 +220,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             .eq('archived', false),
           supabase
             .from('job_assignments')
-            .select('calendar_event_id, job_id, job:job_id(customer_id)')
+            .select('calendar_event_id, job_id, job:job_id(customer_id, completion_notes, issue, status)')
             .in('calendar_event_id', eventIds)
             .not('job_id', 'is', null),
           supabase
@@ -240,12 +240,16 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
         const customerIdByEventId = {};
         const jobIdByEventId = {};
+        const jobSnippetByEventId = {};
         for (const a of assignments || []) {
           if (a.calendar_event_id && a.job?.customer_id) {
             customerIdByEventId[a.calendar_event_id] = a.job.customer_id;
           }
           if (a.calendar_event_id && a.job_id) {
             jobIdByEventId[a.calendar_event_id] = a.job_id;
+          }
+          if (a.calendar_event_id && a.job) {
+            jobSnippetByEventId[a.calendar_event_id] = a.job.completion_notes || a.job.issue || null;
           }
         }
 
@@ -272,6 +276,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             jobId: jobIdByEventId[ev.id] || null,
             returnReason: rc?.reason || null,
             returnMaterials: rc?.materials_needed || null,
+            jobSnippet: jobSnippetByEventId[ev.id] || null,
           };
         });
       } catch (e) {
@@ -589,10 +594,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                       {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
                       {ev.location && ' · ' + ev.location.split(',')[0]}
                     </div>
-                    {/* Return brief — shown instead of GCal description for return-tab events */}
+                    {/* Most recent note/disposition from the job, falling back to GCal description */}
                     {ev.tab === 'return' && ev.returnReason ? (
                       <div style={{ fontSize: 12, color: '#b45309', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
                         🔄 {ev.returnReason}{ev.returnMaterials ? ' · 🔧 ' + ev.returnMaterials : ''}
+                      </div>
+                    ) : ev.jobSnippet ? (
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ev.jobSnippet.length > 90 ? ev.jobSnippet.slice(0, 88) + '…' : ev.jobSnippet}
                       </div>
                     ) : (
                       (() => {

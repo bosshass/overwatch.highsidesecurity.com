@@ -639,10 +639,16 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
       ? '#f59e0b'
       : '#334155';
 
-  // Snippet — same priority logic as before, presentation only.
+  // Snippet priority:
+  // 1. return_pending reason (what the tech is coming back to do)
+  // 2. completion_notes (tech's visit summary — set on finish sheet)
+  // 3. last_note_text (last human-authored history note)
+  // 4. issue (original problem description — fallback when no visit yet)
   const snippet = (() => {
     if (job.status === 'return_pending' && job.return_reason)
       return { text: job.return_reason, color: '#fed7aa' };
+    if (job.completion_notes)
+      return { text: job.completion_notes, color: '#94a3b8' };
     if (job.last_note_text)
       return { text: job.last_note_text, color: '#94a3b8' };
     if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
@@ -928,7 +934,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
       const ids = (data || []).map(x => x.id);
 
       // Auto-generated notes that add no value to the card snippet.
-      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job)/i;
+      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job|🔀 Merged in duplicate)/i;
 
       // last_note_at = timestamp of the last real activity (status move or typed note) — for staleness.
       // last_note_text = text of the last human-authored note — for the card snippet.

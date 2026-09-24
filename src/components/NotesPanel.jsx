@@ -104,6 +104,17 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             || /^📌 TENTATIVELY assigned/i.test(x);
       };
 
+      // Merge entries are pure internal plumbing — never shown anywhere in the UI,
+      // not even in the Activity trail. A merged card looks identical to any other.
+      const isMergeEntry = (t) => {
+        const x = (t || '').trim();
+        return /^\[MERGED INTO JOB/i.test(x)
+            || /^🔗 MERGED FROM JOB/i.test(x)
+            || /^🔀 Merged (in duplicate|into)/i.test(x)
+            || /^Merged into job #/i.test(x)
+            || /^Marked as duplicate/i.test(x);
+      };
+
       const unwrapped = data.map(n => ({ ...n, text: stripMergePrefix(n.text) }));
 
       // Merging duplicates the same note onto the survivor. Collapse identical
@@ -120,7 +131,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       // cards on the same surface — showing them again here is the duplicate.
       const nonBookkeeping = deduped.filter(n => !isBookkeeping(n.text));
       setNotes(hideFieldNotes ? nonBookkeeping.filter(n => n.source !== 'field') : nonBookkeeping);
-      setActivity(deduped.filter(n => isBookkeeping(n.text)));
+      setActivity(deduped.filter(n => isBookkeeping(n.text) && !isMergeEntry(n.text)));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {

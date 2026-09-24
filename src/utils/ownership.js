@@ -230,3 +230,56 @@ export const canSeeBillingFields = (email) => {
   const resolved = canonicalEmail(email) || String(email || '').toLowerCase().trim();
   return BILLING_FIELD_EMAILS.includes(resolved);
 };
+
+// ── BOARD VISIBILITY TIERS ────────────────────────────────────────────────────
+// Three tiers:
+//   Full board  — see every job regardless of assignment
+//   Scoped      — see a fixed set of people's work (e.g. Austin sees Austin+Trevor+JR)
+//   My Work     — see only their own assigned work (default for all techs)
+//
+// info@ is a shared mailbox — canonicalEmail resolves it to whoever picked their
+// identity (JR → jr@, Sara → admin@, Shana → shanaparks@), all of whom are
+// already in the full-board list. The raw address is included as a fallback for
+// sessions where no identity has been picked yet.
+
+export const FULL_BOARD_EMAILS = [
+  'info@drhsecurityservices.com',        // shared — fallback before identity pick
+  'shanaparks@drhsecurityservices.com',  // Shana
+  'jr@drhsecurityservices.com',          // JR
+  'admin@jnbservice.com',                // Sara (canonical)
+  'accounting@drhsecurityservices.com',  // Sara alias
+  'sara@jnbservice.com',                 // Sara alias
+];
+
+// Scoped multi-person views. Key = canonical email. Value = names visible to them.
+// These users see multiple people's work but NOT the full board.
+const BOARD_SCOPE = {
+  'austin@drhsecurityservices.com':  ['Austin', 'Trevor', 'JR'],
+  'drhservicetech1@gmail.com':       ['Austin', 'Trevor', 'JR'], // Austin's Google calendar login
+};
+
+// Returns null for full-board users (sees all), an array of names for scoped
+// users, or a single-name array for My Work users. Use null-check for full board.
+export function boardVisibleNames(email) {
+  const canon = canonicalEmail(email) || String(email || '').toLowerCase().trim();
+  if (!canon) return [];
+  if (FULL_BOARD_EMAILS.includes(canon)) return null;
+  const scope = BOARD_SCOPE[canon];
+  if (scope) return scope;
+  const name = NAME_BY_EMAIL[canon];
+  return name ? [name] : [];
+}
+
+export const canSeeAllJobs = (email) => boardVisibleNames(email) === null;
+
+// ── STATUS AUTO-ASSIGN ────────────────────────────────────────────────────────
+// When a job moves to one of these statuses, assigned_to is set automatically.
+// The card routes silently into the right person's My Work queue.
+// No email is sent — notification is user-triggered.
+export const STATUS_AUTO_ASSIGN = {
+  to_bill:        'jr@drhsecurityservices.com',
+  complete:       'jr@drhsecurityservices.com',
+  return_pending: 'shanaparks@drhsecurityservices.com',
+  blocked:        'austin@drhsecurityservices.com',
+  needs_estimate: 'jr@drhsecurityservices.com',
+};

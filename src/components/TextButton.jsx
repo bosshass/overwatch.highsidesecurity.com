@@ -35,8 +35,15 @@ export default function TextButton({
   label = null,        // override the button text
   size = 'md',         // 'sm' for dense rows, 'md' elsewhere
   style = {},
+  onOpen = null,       // called when the sheet opens (e.g. to dismiss a parent prompt)
 }) {
   const [open, setOpen] = useState(false);
+
+  const handleOpen = (e) => {
+    e.stopPropagation();
+    onOpen?.();
+    setOpen(true);
+  };
 
   // No number, no button. The alternative — a disabled control on every row
   // that lacks a phone — is visual noise on exactly the rows that can do
@@ -49,7 +56,7 @@ export default function TextButton({
     <>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        onClick={handleOpen}
         title={`Text ${name || formatPhone(to)}`}
         style={{
           background: '#9b6cff', border: 'none', borderRadius: 999,

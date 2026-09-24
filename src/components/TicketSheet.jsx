@@ -729,7 +729,7 @@ export default function TicketSheet({
             today's trip before reading the original scope. Editable so the
             office can fill it in when the tech left it blank on the finish
             sheet. Data lives in return_cards.reason / materials_needed. */}
-        {(job.status === 'return_pending' || (returnCard?.reason || returnCard?.materials_needed)) && (
+        {(job.status === 'return_pending' || returnCard) && (
           <div style={{ background: 'rgba(249,115,22,0.1)',
                         border: '1px solid rgba(249,115,22,0.4)',
                         borderLeft: '4px solid #fb923c',
@@ -739,7 +739,7 @@ export default function TicketSheet({
                              textTransform: 'uppercase', letterSpacing: 0.7 }}>
                 🔄 This return trip — what are we doing?
               </span>
-              {!rcEdit && job.status === 'return_pending' && (
+              {!rcEdit && (
                 <button
                   onClick={() => { setRcEdit(true); setRcReason(returnCard?.reason || ''); setRcMaterials(returnCard?.materials_needed || ''); setRcMsg(''); }}
                   style={{ marginLeft: 'auto', background: 'transparent', border: 'none',

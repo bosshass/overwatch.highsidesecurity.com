@@ -161,15 +161,15 @@ export default function TicketSheet({
   const [rcSaving, setRcSaving]           = useState(false);
   const [rcMsg, setRcMsg]                 = useState('');
 
-  // Fetch the return_card for this job when it is return_pending.
-  // Tries three paths in order: event ids that JobFinishSheet wrote as
-  // original_event_id, then time_entries with disposition='return' + job_id.
-  // This is the SAME data FieldVisits already shows, just surfaced first.
+  // Fetch the return_card for this job — shown prominently so the tech knows
+  // what to do on this trip before reading the original scope. Loaded whenever
+  // the card is open (not just return_pending) so the brief stays visible after
+  // the job is re-scheduled for the return visit.
   useEffect(() => {
-    if (job?.status !== 'return_pending') { setReturnCard(null); return; }
     let dead = false;
     (async () => {
       let rc = null;
+      // Path 1: event ids that JobFinishSheet wrote as original_event_id.
       const eventIds = [job?.scheduled_event_id, job?.calendar_event_id, job?.tentative_event_id].filter(Boolean);
       if (eventIds.length) {
         const { data } = await supabase.from('return_cards')
@@ -178,6 +178,7 @@ export default function TicketSheet({
           .order('created_at', { ascending: false }).limit(1);
         rc = data?.[0] || null;
       }
+      // Path 2: time_entries with disposition='return' linked to this job.
       if (!rc && job?.id) {
         const { data: entries } = await supabase.from('time_entries')
           .select('id').eq('job_id', job.id).eq('disposition', 'return');
@@ -189,6 +190,16 @@ export default function TicketSheet({
             .order('created_at', { ascending: false }).limit(1);
           rc = data?.[0] || null;
         }
+      }
+      // Path 3: customer_id fallback — handles the case where the job's event IDs
+      // changed after re-scheduling (original_event_id no longer matches any
+      // current event on the job row).
+      if (!rc && job?.customer_id) {
+        const { data } = await supabase.from('return_cards')
+          .select('id, reason, materials_needed, estimated_time')
+          .eq('customer_id', job.customer_id)
+          .order('created_at', { ascending: false }).limit(1);
+        rc = data?.[0] || null;
       }
       if (!dead) setReturnCard(rc);
     })();
@@ -667,7 +678,7 @@ export default function TicketSheet({
             today's trip before reading the original scope. Editable so the
             office can fill it in when the tech left it blank on the finish
             sheet. Data lives in return_cards.reason / materials_needed. */}
-        {job.status === 'return_pending' && (
+        {(job.status === 'return_pending' || (returnCard?.reason || returnCard?.materials_needed)) && (
           <div style={{ background: 'rgba(249,115,22,0.1)',
                         border: '1px solid rgba(249,115,22,0.4)',
                         borderLeft: '4px solid #fb923c',
@@ -677,7 +688,7 @@ export default function TicketSheet({
                              textTransform: 'uppercase', letterSpacing: 0.7 }}>
                 🔄 This return trip — what are we doing?
               </span>
-              {!rcEdit && (
+              {!rcEdit && job.status === 'return_pending' && (
                 <button
                   onClick={() => { setRcEdit(true); setRcReason(returnCard?.reason || ''); setRcMaterials(returnCard?.materials_needed || ''); setRcMsg(''); }}
                   style={{ marginLeft: 'auto', background: 'transparent', border: 'none',
@@ -962,117 +973,6 @@ export default function TicketSheet({
         </div>
       )}
 
-      {/* ── SPAWN A TASK ────────────────────────────────────────────────
-            An estimate that needs writing is not a stage of the job, it is a
-            thing one person owes. It gets a task; the job stays the record. */}
-        <div style={{ background: taskOpen ? C.panel : 'transparent',
-                      borderRadius: 12, padding: taskOpen ? 14 : 0, marginBottom: 14 }}>
-          {!taskOpen ? (
-            // DEMOTED WHEN THE SCHEDULER IS THE ANSWER. A card in Ready to
-            // Schedule has one obvious next move and it is the purple button
-            // above; a second full-weight purple button under it competes with
-            // the thing the card is actually for. Solid when there is no
-            // scheduler CTA, outlined when there is.
-            <button onClick={() => { setTaskOpen(true); setTaskMsg(''); }}
-              style={{ width: '100%', padding: onSchedulePrimary ? '12px 14px' : '16px 14px',
-                       borderRadius: 12, cursor: 'pointer',
-                       background: onSchedulePrimary ? 'transparent' : '#9b6cff',
-                       border: onSchedulePrimary ? '1px solid #9b6cff66' : 'none',
-                       color: onSchedulePrimary ? '#c4a6ff' : '#0b0618',
-                       fontSize: onSchedulePrimary ? 14 : 16, fontWeight: 900,
-                       fontFamily: 'inherit',
-                       display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left' }}>
-              <span style={{ fontSize: onSchedulePrimary ? 18 : 22 }}>＋</span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block' }}>
-                  {openTasks.length ? 'Create another task' : 'Create a task'}
-                </span>
-                {/* SAY WHAT IS ALREADY OUT THERE. Nothing stopped you sending a
-                    second and third copy of the same ask to different people,
-                    none of whom knew about the others. Still allowed — a job
-                    can genuinely need two — but not by accident. */}
-                <span style={{ display: 'block', fontSize: 12, fontWeight: 700,
-                               opacity: 0.72, marginTop: 2 }}>
-                  {openTasks.length
-                    ? `${openTasks.length} already open · ${[...new Set(openTasks
-                        .map(t => ASSIGNEES.find(a => a.email === t.assigned_to)?.name
-                                  || t.assigned_to))].join(', ')}`
-                    : 'Hand a piece of this to someone'}
-                </span>
-              </span>
-            </button>
-          ) : (
-            <div>
-              <div style={{ fontSize: 13.5, fontWeight: 900, marginBottom: 8 }}>What needs doing?</div>
-              <textarea value={taskBody} onChange={e => setTaskBody(e.target.value)} rows={3} autoFocus
-                placeholder="Write the estimate for this scope…"
-                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 9,
-                         border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
-                         fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
-              {/* WHO DOES THIS? — pill row below the textarea so the assignee
-                  is always pickable, even when no job owner is set. Pre-selects
-                  ownerEmail so the usual path (one person owns it) is zero-click. */}
-              <div style={{ fontSize: 12, color: C.muted, margin: '11px 0 6px' }}>Who does this?</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
-                {ASSIGNEES.map(a => {
-                  const selected = (taskWho || ownerEmail) === a.email;
-                  return (
-                    <button key={a.email}
-                      onClick={() => setTaskWho(taskWho === a.email ? '' : a.email)}
-                      style={{ padding: '7px 11px', borderRadius: 8, cursor: 'pointer',
-                               background: selected ? '#3b82f6' : 'transparent',
-                               border: `1px solid ${selected ? '#3b82f6' : '#334155'}`,
-                               color: selected ? '#fff' : C.muted,
-                               fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
-                      {a.name}
-                    </button>
-                  );
-                })}
-              </div>
-              {/* THEN IT GOES TO — optional follow-up assignee. */}
-              {(taskWho || ownerEmail) && (
-                <div style={{ marginTop: 13 }}>
-                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 7 }}>
-                    Then it goes to… <span style={{ opacity: 0.7 }}>(optional)</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {ASSIGNEES.filter(a => a.email !== (taskWho || ownerEmail)).map(a => {
-                      const on = taskNext === a.email;
-                      return (
-                        <button key={a.email} onClick={() => setTaskNext(on ? '' : a.email)}
-                          style={{ padding: '7px 11px', borderRadius: 8, cursor: 'pointer',
-                                   background: on ? '#ffb020' : 'transparent',
-                                   border: `1px solid ${on ? '#ffb020' : '#334155'}`,
-                                   color: on ? '#231600' : C.muted,
-                                   fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
-                          {a.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 7, marginTop: 13 }}>
-                <button onClick={createTask} disabled={saving || !taskBody.trim() || !(taskWho || ownerEmail)}
-                  style={{ flex: 2, padding: '11px 0', borderRadius: 9, background: '#22d16f',
-                           border: 'none', color: '#052e16', fontSize: 14, fontWeight: 800,
-                           fontFamily: 'inherit', cursor: 'pointer',
-                           opacity: (saving || !taskBody.trim() || !(taskWho || ownerEmail)) ? 0.5 : 1 }}>
-                  {saving ? 'Sending…' : 'Send task'}
-                </button>
-                <button onClick={() => { setTaskOpen(false); setTaskBody(''); setTaskWho(''); }}
-                  style={{ flex: 1, padding: '11px 0', borderRadius: 9, background: 'transparent',
-                           border: '1px solid #334155', color: C.muted, fontSize: 14,
-                           fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-          {taskMsg && <div style={{ fontSize: 12.5, color: '#93c5fd', marginTop: 9 }}>{taskMsg}</div>}
-        </div>
-
         {/* ── WHERE NEXT — identical on every surface ── */}
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14,
                       border: awaitingDispo ? '2px solid #dc2626' : 'none' }}>
@@ -1186,6 +1086,117 @@ export default function TicketSheet({
         {/* hideFieldNotes: FieldVisits above already renders time_entry notes
             as visit cards. Without this, the same note appears twice. */}
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly hideFieldNotes />
+
+      {/* ── SPAWN A TASK ────────────────────────────────────────────────
+            An estimate that needs writing is not a stage of the job, it is a
+            thing one person owes. It gets a task; the job stays the record. */}
+        <div style={{ background: taskOpen ? C.panel : 'transparent',
+                      borderRadius: 12, padding: taskOpen ? 14 : 0, marginBottom: 14 }}>
+          {!taskOpen ? (
+            // DEMOTED WHEN THE SCHEDULER IS THE ANSWER. A card in Ready to
+            // Schedule has one obvious next move and it is the purple button
+            // above; a second full-weight purple button under it competes with
+            // the thing the card is actually for. Solid when there is no
+            // scheduler CTA, outlined when there is.
+            <button onClick={() => { setTaskOpen(true); setTaskMsg(''); }}
+              style={{ width: '100%', padding: onSchedulePrimary ? '12px 14px' : '16px 14px',
+                       borderRadius: 12, cursor: 'pointer',
+                       background: onSchedulePrimary ? 'transparent' : '#9b6cff',
+                       border: onSchedulePrimary ? '1px solid #9b6cff66' : 'none',
+                       color: onSchedulePrimary ? '#c4a6ff' : '#0b0618',
+                       fontSize: onSchedulePrimary ? 14 : 16, fontWeight: 900,
+                       fontFamily: 'inherit',
+                       display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left' }}>
+              <span style={{ fontSize: onSchedulePrimary ? 18 : 22 }}>＋</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block' }}>
+                  {openTasks.length ? 'Create another task' : 'Create a task'}
+                </span>
+                {/* SAY WHAT IS ALREADY OUT THERE. Nothing stopped you sending a
+                    second and third copy of the same ask to different people,
+                    none of whom knew about the others. Still allowed — a job
+                    can genuinely need two — but not by accident. */}
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 700,
+                               opacity: 0.72, marginTop: 2 }}>
+                  {openTasks.length
+                    ? `${openTasks.length} already open · ${[...new Set(openTasks
+                        .map(t => ASSIGNEES.find(a => a.email === t.assigned_to)?.name
+                                  || t.assigned_to))].join(', ')}`
+                    : 'Hand a piece of this to someone'}
+                </span>
+              </span>
+            </button>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 900, marginBottom: 8 }}>What needs doing?</div>
+              <textarea value={taskBody} onChange={e => setTaskBody(e.target.value)} rows={3} autoFocus
+                placeholder="Write the estimate for this scope…"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 9,
+                         border: '1px solid #334155', background: '#0b1220', color: '#e2e8f0',
+                         fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
+              {/* WHO DOES THIS? — pill row below the textarea so the assignee
+                  is always pickable, even when no job owner is set. Pre-selects
+                  ownerEmail so the usual path (one person owns it) is zero-click. */}
+              <div style={{ fontSize: 12, color: C.muted, margin: '11px 0 6px' }}>Who does this?</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+                {ASSIGNEES.map(a => {
+                  const selected = (taskWho || ownerEmail) === a.email;
+                  return (
+                    <button key={a.email}
+                      onClick={() => setTaskWho(taskWho === a.email ? '' : a.email)}
+                      style={{ padding: '7px 11px', borderRadius: 8, cursor: 'pointer',
+                               background: selected ? '#3b82f6' : 'transparent',
+                               border: `1px solid ${selected ? '#3b82f6' : '#334155'}`,
+                               color: selected ? '#fff' : C.muted,
+                               fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
+                      {a.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* THEN IT GOES TO — optional follow-up assignee. */}
+              {(taskWho || ownerEmail) && (
+                <div style={{ marginTop: 13 }}>
+                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 7 }}>
+                    Then it goes to… <span style={{ opacity: 0.7 }}>(optional)</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {ASSIGNEES.filter(a => a.email !== (taskWho || ownerEmail)).map(a => {
+                      const on = taskNext === a.email;
+                      return (
+                        <button key={a.email} onClick={() => setTaskNext(on ? '' : a.email)}
+                          style={{ padding: '7px 11px', borderRadius: 8, cursor: 'pointer',
+                                   background: on ? '#ffb020' : 'transparent',
+                                   border: `1px solid ${on ? '#ffb020' : '#334155'}`,
+                                   color: on ? '#231600' : C.muted,
+                                   fontSize: 12.5, fontWeight: 800, fontFamily: 'inherit' }}>
+                          {a.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 7, marginTop: 13 }}>
+                <button onClick={createTask} disabled={saving || !taskBody.trim() || !(taskWho || ownerEmail)}
+                  style={{ flex: 2, padding: '11px 0', borderRadius: 9, background: '#22d16f',
+                           border: 'none', color: '#052e16', fontSize: 14, fontWeight: 800,
+                           fontFamily: 'inherit', cursor: 'pointer',
+                           opacity: (saving || !taskBody.trim() || !(taskWho || ownerEmail)) ? 0.5 : 1 }}>
+                  {saving ? 'Sending…' : 'Send task'}
+                </button>
+                <button onClick={() => { setTaskOpen(false); setTaskBody(''); setTaskWho(''); }}
+                  style={{ flex: 1, padding: '11px 0', borderRadius: 9, background: 'transparent',
+                           border: '1px solid #334155', color: C.muted, fontSize: 14,
+                           fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {taskMsg && <div style={{ fontSize: 12.5, color: '#93c5fd', marginTop: 9 }}>{taskMsg}</div>}
+        </div>
 
         {/* ── Surface-specific tools (merge, UUID link) — deliberately LAST.
             They exist, they matter, and they are not the reason anyone opens

@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
-import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
+import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill, boardVisibleNames, canSeeAllJobs } from '../utils/ownership.js';
 import { LANES, RETURN_LANE, CLEAR_LANE, BLOCKED_LANE, isHeld, movesFor } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
 import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
@@ -893,7 +893,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
   const [showNewJob, setShowNewJob] = useState(false);
   const [activeCol, setActiveCol] = useState('triage');
   const [search, setSearch] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState(null);
+  const [assigneeFilter, setAssigneeFilter] = useState(() => {
+    const visible = boardVisibleNames(userEmail);
+    if (visible === null) return null;          // full board — show all by default
+    if (visible.length > 1) return '__scope__'; // scoped (Austin) — show team by default
+    return visible[0] || null;                  // My Work — own name
+  });
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState({ total_open:0, needs_action:0, to_bill:0, returns_pending:0 });
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
@@ -1107,11 +1112,15 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
     showToast('Marked as duplicate ✓');
   }, []);
 
-  // null = everyone. '__none__' = jobs with nobody on them, which is its own
-  // kind of problem and worth being able to see on purpose.
+  // null = everyone. '__none__' = unassigned. '__scope__' = the current user's
+  // visible team (e.g. Austin sees Austin + Trevor + JR).
   const assigneeMatch = (j) => {
     if (!assigneeFilter) return true;
     if (assigneeFilter === '__none__') return !assigneeOf(j);
+    if (assigneeFilter === '__scope__') {
+      const visible = boardVisibleNames(userEmail);
+      return visible ? visible.includes(assigneeOf(j)) : true;
+    }
     return assigneeOf(j) === assigneeFilter;
   };
 
@@ -1284,9 +1293,23 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         ))}
         <div data-tour="board-assigned-filter" style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
           <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>assigned</span>
-          {[{ key:null, label:'All' },
-            ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
-            { key:'__none__', label:'Nobody' }].map(o => (
+          {(() => {
+            const visible = boardVisibleNames(userEmail);
+            // Full board — All + every person + Nobody
+            if (visible === null) {
+              return [{ key:null, label:'All' },
+                ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
+                { key:'__none__', label:'Nobody' }];
+            }
+            // Scoped (Austin) — My Team + each person in scope + Nobody
+            if (visible.length > 1) {
+              return [{ key:'__scope__', label:'My Team' },
+                ...visible.map(name => ({ key:name, label:name })),
+                { key:'__none__', label:'Nobody' }];
+            }
+            // My Work only — single chip, no switching
+            return [{ key:visible[0], label:'My Work' }];
+          })().map(o => (
             <button key={o.label} onClick={() => setAssigneeFilter(o.key)}
               style={{
                 background: assigneeFilter === o.key ? '#00c8e8' : '#1e293b',

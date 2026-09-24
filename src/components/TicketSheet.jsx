@@ -21,7 +21,7 @@ import ArchiveModal from './ArchiveModal.jsx';
 import { reasonLabel } from '../config/archiveReasons.js';
 import { useState, useEffect } from 'react';
 import { supabase, jobsApi } from '../services/supabase.js';
-import { sendGmail } from '../services/gmailSend.js';
+import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { assignmentMessage, APP_BASE } from '../config/appBase.js';
 import { PHONE_BY_EMAIL } from '../utils/ownership.js';
 import { ASSIGNEES, assigneeOf, EMAIL_BY_NAME, canonicalEmail, NAME_BY_EMAIL } from '../utils/ownership.js';
@@ -118,6 +118,7 @@ export default function TicketSheet({
   // My Tasks and /j/ links cannot drift apart again.
   const [owner, setOwner] = useState(null);   // local echo after a write
   const [saving, setSaving] = useState(false);
+  const [notifyAssignee, setNotifyAssignee] = useState(null); // email to offer notify prompt for
   // Spawn-a-task composer. Lives on the job card because that is where the
   // work is described — retyping it into a separate notes screen is how the
   // task ends up saying something different from the job.
@@ -353,7 +354,7 @@ export default function TicketSheet({
   };
 
   const assign = async (email) => {
-    setErr(''); setSaving(true);
+    setErr(''); setSaving(true); setNotifyAssignee(null);
     try {
       const { error } = await supabase.from('jobs')
         .update({ assigned_to: email, updated_at: new Date().toISOString() })
@@ -361,6 +362,7 @@ export default function TicketSheet({
       if (error) throw error;
       setOwner(email ? (ASSIGNEES.find(a => a.email === email)?.name || email) : '\u0000');
       onAssigned?.(job.id, email);
+      if (email) setNotifyAssignee(email);
     } catch (e) { setErr(e.message || 'Could not assign'); }
     finally { setSaving(false); }
   };
@@ -670,6 +672,43 @@ export default function TicketSheet({
               );
             })}
           </div>
+          {notifyAssignee && (() => {
+            const a = ASSIGNEES.find(x => x.email === notifyAssignee);
+            const name = a?.name || notifyAssignee;
+            const phone = PHONE_BY_EMAIL[canonicalEmail(notifyAssignee)] || null;
+            return (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: '#64748b' }}>Notify {name}?</span>
+                {phone && (
+                  <button onClick={() => {
+                    setSms({ key: `assign:${job.id}`, to: phone, name, internal: true,
+                             draft: `${job.customer_name || 'Job'} — assigned to you.\n\n${shortJobLink(job.id)}` });
+                    setNotifyAssignee(null);
+                  }} style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11,
+                               cursor: 'pointer', fontFamily: 'inherit',
+                               background: 'transparent', border: '1px solid #334155', color: '#94a3b8' }}>
+                    Text
+                  </button>
+                )}
+                {accessToken && (
+                  <button onClick={() => {
+                    const { subject, body } = assignmentEmail(name, job);
+                    sendGmail(accessToken, { to: notifyAssignee, subject, body }).catch(() => {});
+                    setNotifyAssignee(null);
+                  }} style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11,
+                               cursor: 'pointer', fontFamily: 'inherit',
+                               background: 'transparent', border: '1px solid #334155', color: '#94a3b8' }}>
+                    Email
+                  </button>
+                )}
+                <button onClick={() => setNotifyAssignee(null)} style={{ padding: '3px 8px', borderRadius: 12,
+                           fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+                           background: 'transparent', border: 'none', color: '#475569' }}>
+                  Skip
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* ── Return trip brief — THIS VISIT ONLY ─────────────────────

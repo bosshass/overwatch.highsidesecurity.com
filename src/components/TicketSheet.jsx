@@ -721,6 +721,18 @@ export default function TicketSheet({
               </div>
             );
           })()}
+          {sms?.key?.startsWith('assign:') && (
+            <div style={{ paddingTop: 8 }}>
+              <SmsComposer
+                key={sms.key}
+                to={sms.to} name={sms.name} internal={sms.internal}
+                draft={sms.draft} accessToken={accessToken}
+                logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                onSent={() => setTimeout(() => setSms(null), 2600)}
+                onCancel={() => setSms(null)}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── Return trip brief — THIS VISIT ONLY ─────────────────────

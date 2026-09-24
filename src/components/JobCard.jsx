@@ -189,22 +189,6 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
           {statusInfo.label}
         </span>
 
-        {/* Billing review indicator — visible on every board, any view */}
-        {job.status === 'to_bill' && (
-          <span style={{
-            background: '#fbbf2415',
-            color: '#fbbf24',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            fontSize: '10px',
-            fontWeight: '700',
-            border: '1px solid #fbbf2440',
-            whiteSpace: 'nowrap',
-          }}>
-            ⏳ Awaiting Billing
-          </span>
-        )}
-
         {/* Tech name */}
         {assigneeOf(job) && (
           <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '500' }}>

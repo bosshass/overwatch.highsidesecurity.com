@@ -43,8 +43,8 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
-  // Last note preview (from completion_notes or issue)
-  const notePreview = job.completion_notes || job.issue || '';
+  // issue is the primary content; completion_notes is secondary
+  const notePreview = job.issue || job.completion_notes || '';
   const truncatedNote = notePreview.length > 80 ? notePreview.substring(0, 80) + '...' : notePreview;
 
   if (isOrphan) {

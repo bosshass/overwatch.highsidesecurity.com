@@ -743,19 +743,12 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
         </div>
       )}
 
-      {/* Row 5: one primary action (always blue) + ⋯ escape hatch */}
+      {/* ⋯ move accordion — click card to open ticket; use ⋯ to move lanes */}
       {!readOnly && (
-        <div style={{ display:'flex', gap:5, alignItems:'center' }} onClick={e => e.stopPropagation()}>
-          {quickVerbs.length > 0 && (
-            <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-              title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-              style={{ flex:1, padding:'6px 10px', borderRadius:6, border:'none', background:'#0ea5e9', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', fontFamily:'inherit', opacity: moving ? 0.5 : 1 }}>
-              → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
-            </button>
-          )}
+        <div style={{ display:'flex', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
           <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
             title="Move to any lane"
-            style={{ padding:'6px 9px', borderRadius:6, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#94a3b8', fontSize:13, cursor:'pointer', lineHeight:1, fontFamily:'inherit' }}>
+            style={{ padding:'4px 8px', borderRadius:6, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#64748b', fontSize:13, cursor:'pointer', lineHeight:1, fontFamily:'inherit' }}>
             {expandMoves ? '✕' : '⋯'}
           </button>
         </div>

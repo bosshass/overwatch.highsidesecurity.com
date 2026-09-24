@@ -459,10 +459,22 @@ export default function TicketSheet({
       } else if (!accessToken) {
         setIssueMsg('⚠ Saved here, but not signed in to Google — the calendar event still shows the old text.');
       } else {
-        const r = await syncIssueToEvents(accessToken, job, next);
-        setIssueMsg(r.patched > 0
-          ? `Saved · calendar updated (${r.patched} event${r.patched === 1 ? '' : 's'})`
-          : '⚠ Saved here, but the calendar event could not be updated.');
+        // Guard against firing calendar API calls with a known-expired token.
+        // A 401 from inside syncIssueToEvents triggers the app's interceptor,
+        // which shows the silent-refresh popup once per failing request —
+        // multiple events → multiple flashes → reconnect overlay mid-edit.
+        // Checking the stored expiry prevents that: if the token is already
+        // past its lifetime we show the warning without ever touching Google.
+        const expStr = localStorage.getItem('juce_v4_token_expiry');
+        const tokenFresh = expStr ? new Date(expStr).getTime() > Date.now() + 30_000 : true;
+        if (!tokenFresh) {
+          setIssueMsg('⚠ Saved here, but your Google session has expired — sign back in to sync the calendar event.');
+        } else {
+          const r = await syncIssueToEvents(accessToken, job, next);
+          setIssueMsg(r.patched > 0
+            ? `Saved · calendar updated (${r.patched} event${r.patched === 1 ? '' : 's'})`
+            : '⚠ Saved here, but the calendar event could not be updated.');
+        }
       }
     } catch (e) {
       setIssueMsg(`⚠ Could not save: ${e.message || e}`);

@@ -135,14 +135,24 @@ export default function TicketSheet({
   // forcing the full task list on top of the job context.
   const [tasksExpanded, setTasksExpanded] = useState(false);
 
-  // ── Texting the person who owns a task ───────────────────────────────
-  // api/send-sms.js (Twilio) and services/sms.js have both been complete and
-  // UNREACHABLE — sendSms had zero callers anywhere in the app. Same shape as
-  // the assign picker in Notes: the plumbing was built, the button never was.
-  // ONE target at a time: { key, to, name, internal, draft, templates }.
-  // Was four pieces of state wired to a single task; the customer needs the
-  // same box, so the sheet tracks WHAT is being texted rather than whether a
-  // task is.
+  // ── Calendar event start (for appointment-time in client text templates) ────
+  // Only fetched for jobs that have a scheduled calendar event; not on every
+  // card open. Null = no event or still loading; templates fall back to date-only.
+  const [eventStart, setEventStart] = useState(null);
+  useEffect(() => {
+    const eventId = job?.scheduled_event_id || job?.calendar_event_id;
+    const calId   = job?.scheduled_calendar_id;
+    if (!accessToken || !eventId || !calId) return;
+    let dead = false;
+    fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(eventId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+      .then(r => r.ok ? r.json() : null)
+      .then(ev => { if (!dead && ev?.start?.dateTime) setEventStart(ev.start.dateTime); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [job?.id, job?.scheduled_event_id, job?.calendar_event_id]);
   // ── Editing the issue ────────────────────────────────────────────────
   const [issueEdit, setIssueEdit]     = useState(false);
   const [issueText, setIssueText]     = useState('');
@@ -414,39 +424,6 @@ export default function TicketSheet({
     return [`${who} — ${ask}`.trim(), '', shortJobLink(job.id)].join('\n');
   };
 
-  const textTask = (t) => {
-    const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
-    const name  = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
-    if (sms?.key === `task:${t.id}`) { setSms(null); return; }
-    setSms({ key: `task:${t.id}`, to: phone, name, internal: true, draft: draftForTask(t) });
-  };
-
-  // ── TEXTING THE CLIENT ───────────────────────────────────────────────
-  // THE LOCAL COPY OF THESE TEMPLATES IS GONE. It had drifted already — it
-  // still said "reply to let us know if that still works" after the shared one
-  // learned to ask for YES or NO, and it could only ever print a day because
-  // jobs.scheduled_date has no time in it. Two copies of the words a customer
-  // reads is two chances for one of them to be wrong. See TextButton.jsx.
-
-  // THE APPOINTMENT'S REAL TIME IS ON THE CALENDAR EVENT, not the job.
-  // scheduled_date is a DATE. "Tuesday" is not an appointment, so when the job
-  // has an event the start is fetched once, when a client text is opened —
-  // never on render, because that would spend a Google call on every card
-  // anybody looks at.
-  const [eventStart, setEventStart] = useState(null);
-  const fetchEventStart = async () => {
-    const eventId = job.scheduled_event_id || job.calendar_event_id;
-    const calId   = job.scheduled_calendar_id;
-    if (!accessToken || !eventId || !calId) return null;
-    try {
-      const r = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(eventId)}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!r.ok) return null;
-      const ev = await r.json();
-      return ev?.start?.dateTime || null;   // all-day events have no time to quote
-    } catch { return null; }
-  };
 
   // Save the issue, then mirror it to the calendar.
   //
@@ -474,10 +451,22 @@ export default function TicketSheet({
       } else if (!accessToken) {
         setIssueMsg('⚠ Saved here, but not signed in to Google — the calendar event still shows the old text.');
       } else {
-        const r = await syncIssueToEvents(accessToken, job, next);
-        setIssueMsg(r.patched > 0
-          ? `Saved · calendar updated (${r.patched} event${r.patched === 1 ? '' : 's'})`
-          : '⚠ Saved here, but the calendar event could not be updated.');
+        // Guard against firing calendar API calls with a known-expired token.
+        // A 401 from inside syncIssueToEvents triggers the app's interceptor,
+        // which shows the silent-refresh popup once per failing request —
+        // multiple events → multiple flashes → reconnect overlay mid-edit.
+        // Checking the stored expiry prevents that: if the token is already
+        // past its lifetime we show the warning without ever touching Google.
+        const expStr = localStorage.getItem('juce_v4_token_expiry');
+        const tokenFresh = expStr ? new Date(expStr).getTime() > Date.now() + 30_000 : true;
+        if (!tokenFresh) {
+          setIssueMsg('⚠ Saved here, but your Google session has expired — sign back in to sync the calendar event.');
+        } else {
+          const r = await syncIssueToEvents(accessToken, job, next);
+          setIssueMsg(r.patched > 0
+            ? `Saved · calendar updated (${r.patched} event${r.patched === 1 ? '' : 's'})`
+            : '⚠ Saved here, but the calendar event could not be updated.');
+        }
       }
     } catch (e) {
       setIssueMsg(`⚠ Could not save: ${e.message || e}`);
@@ -617,8 +606,16 @@ export default function TicketSheet({
               templates={clientTemplates({ when: eventStart, scheduledDate: job.scheduled_date })}
               logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
               style={{ marginLeft: 9 }}
-              onOpen={async () => { if (!eventStart) { const w = await fetchEventStart(); if (w) setEventStart(w); } }}
-              onSent={() => setSmsTick(t => t + 1)}
+              onSent={() => {
+                const phone = formatPhone(job.customer_phone);
+                if (phone) {
+                  supabase.from('notes').update({ read_at: new Date().toISOString(), read_by: userEmail })
+                    .is('read_at', null).eq('status', 'open')
+                    .like('body', `📲 Text from%`).like('body', `%${phone}%`)
+                    .then(() => window.dispatchEvent(new Event('task-skips-changed')));
+                }
+                setSmsTick(t => t + 1);
+              }}
             />
           </Row>
           {job.site_contact_phone && (
@@ -629,9 +626,7 @@ export default function TicketSheet({
                 internal={false} accessToken={accessToken} size="sm"
                 templates={clientTemplates({ when: eventStart, scheduledDate: job.scheduled_date })}
                 logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
-                style={{ marginLeft: 9 }}
-                onOpen={async () => { if (!eventStart) { const w = await fetchEventStart(); if (w) setEventStart(w); } }}
-              />
+                style={{ marginLeft: 9 }} />
             </Row>
           )}
           <Row label="Tech on site">{job.tech_name}</Row>{/* physical presence, NOT ownership — see the Assigned to block */}
@@ -662,7 +657,16 @@ export default function TicketSheet({
                 label="↩ Reply"
                 style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #334155',
                          color: '#94a3b8', padding: '3px 10px', borderRadius: 99, fontSize: 11 }}
-                onSent={() => setSmsTick(t => t + 1)}
+                onSent={() => {
+                  const phone = formatPhone(job.customer_phone);
+                  if (phone) {
+                    supabase.from('notes').update({ read_at: new Date().toISOString(), read_by: userEmail })
+                      .is('read_at', null).eq('status', 'open')
+                      .like('body', `📲 Text from%`).like('body', `%${phone}%`)
+                      .then(() => window.dispatchEvent(new Event('task-skips-changed')));
+                  }
+                  setSmsTick(t => t + 1);
+                }}
               />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -722,17 +726,16 @@ export default function TicketSheet({
             return (
               <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, color: '#64748b' }}>Notify {name}?</span>
-                {phone && (
-                  <button onClick={() => {
-                    setSms({ key: `assign:${job.id}`, to: phone, name, internal: true,
-                             draft: `${job.customer_name || 'Job'} — assigned to you.\n\n${shortJobLink(job.id)}` });
-                    setNotifyAssignee(null);
-                  }} style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11,
-                               cursor: 'pointer', fontFamily: 'inherit',
-                               background: 'transparent', border: '1px solid #334155', color: '#94a3b8' }}>
-                    Text
-                  </button>
-                )}
+                <TextButton
+                  to={phone} name={name} internal={true}
+                  accessToken={accessToken}
+                  draft={`${job.customer_name || 'Job'} — assigned to you.\n\n${shortJobLink(job.id)}`}
+                  logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                  label="Text" size="sm"
+                  onOpen={() => setNotifyAssignee(null)}
+                  style={{ background: 'transparent', border: '1px solid #334155',
+                           color: '#94a3b8', padding: '3px 10px', borderRadius: 12, fontSize: 11 }}
+                />
                 {accessToken && (
                   <button onClick={() => {
                     const { subject, body } = assignmentEmail(name, job);
@@ -760,7 +763,7 @@ export default function TicketSheet({
             today's trip before reading the original scope. Editable so the
             office can fill it in when the tech left it blank on the finish
             sheet. Data lives in return_cards.reason / materials_needed. */}
-        {(job.status === 'return_pending' || (returnCard?.reason || returnCard?.materials_needed)) && (
+        {(job.status === 'return_pending' || returnCard) && (
           <div style={{ background: 'rgba(249,115,22,0.1)',
                         border: '1px solid rgba(249,115,22,0.4)',
                         borderLeft: '4px solid #fb923c',
@@ -1015,40 +1018,15 @@ export default function TicketSheet({
                   </div>
                 )}
 
-                {/* THE TASK IS NOW SOMETHING YOU CAN ACT ON, not a read-only
-                    label. The person who created a task has exactly one thing
-                    they want from this card — to chase whoever owns it — and
-                    there was no control for it anywhere. */}
-                {(() => {
-                  const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
-                  const open  = sms?.key === `task:${t.id}`;
-                  return (
-                    <>
-                      <div style={{ display: 'flex', gap: 7, marginTop: 8, flexWrap: 'wrap' }}>
-                        <button onClick={() => textTask(t)} disabled={!phone}
-                          title={phone ? formatPhone(phone) : 'No phone number on file'}
-                          style={{ background: open ? '#9b6cff' : 'transparent',
-                                   border: '1px solid #9b6cff66', borderRadius: 8,
-                                   color: open ? '#08121f' : (phone ? '#c4a6ff' : C.muted),
-                                   fontSize: 12, fontWeight: 800, padding: '6px 12px',
-                                   cursor: phone ? 'pointer' : 'default',
-                                   opacity: phone ? 1 : 0.5, fontFamily: 'inherit' }}>
-                          {phone ? `📱 Text ${owner}` : `No number for ${owner}`}
-                        </button>
-                      </div>
-                      {open && (
-                        <SmsComposer
-                          key={sms.key}
-                          to={sms.to} name={sms.name} internal={sms.internal}
-                          draft={sms.draft} accessToken={accessToken}
-                          logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
-                          onSent={() => setTimeout(() => setSms(null), 2600)}
-                          onCancel={() => setSms(null)}
-                        />
-                      )}
-                    </>
-                  );
-                })()}
+                <div style={{ marginTop: 8 }}>
+                  <TextButton
+                    to={PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null}
+                    name={ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to}
+                    internal={true} accessToken={accessToken}
+                    draft={draftForTask(t)}
+                    logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                  />
+                </div>
               </div>
             );
           })}

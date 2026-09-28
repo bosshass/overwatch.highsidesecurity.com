@@ -40,6 +40,12 @@ export default function TextButton({
 }) {
   const [open, setOpen] = useState(false);
 
+  const handleOpen = (e) => {
+    e.stopPropagation();
+    onOpen?.();
+    setOpen(true);
+  };
+
   // No number, no button. The alternative — a disabled control on every row
   // that lacks a phone — is visual noise on exactly the rows that can do
   // nothing about it.
@@ -51,7 +57,7 @@ export default function TextButton({
     <>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); onOpen?.(); setOpen(true); }}
+        onClick={handleOpen}
         title={`Text ${name || formatPhone(to)}`}
         style={{
           background: '#9b6cff', border: 'none', borderRadius: 999,

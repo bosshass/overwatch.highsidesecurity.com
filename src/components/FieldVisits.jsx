@@ -162,7 +162,7 @@ export default function FieldVisits({ job }) {
           we are doing, this says what happened. */}
       <div style={header}>
         <span>📝 What happened on site</span>
-        <span style={{ color: '#94a3b8', fontWeight: 600 }}>({total})</span>
+        {total > 0 && <span style={{ color: '#94a3b8', fontWeight: 600 }}>({total})</span>}
       </div>
 
       {/* notes captured on Work Today (time_entries) */}

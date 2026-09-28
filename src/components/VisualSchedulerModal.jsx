@@ -103,6 +103,16 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const [returnBrief, setReturnBrief] = useState('');
   const isReturn = job?.status === 'return_pending';
 
+  // Pre-populate the return brief from the return_cards record if one exists.
+  useEffect(() => {
+    if (!isReturn || !job?.id) return;
+    supabase.from('return_cards').select('reason, materials_needed')
+      .eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).single()
+      .then(({ data }) => {
+        if (data?.reason) setReturnBrief(r => r || data.reason);
+      }).catch(() => {});
+  }, [job?.id, isReturn]);
+
   const validTechs = (techs || []).filter(t => t.calendar_id);
 
   const loadAvailability = useCallback(async () => {

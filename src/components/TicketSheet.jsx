@@ -274,13 +274,23 @@ export default function TicketSheet({
   }, [job?.id, taskMsg]);
 
   // ── SMS thread for this customer's phone ─────────────────────────────────
-  const [smsMessages, setSmsMessages] = useState(null);
-  const [smsUnread,   setSmsUnread]   = useState(0);
-  const [smsTick,     setSmsTick]     = useState(0);
-  const [smsOpen,     setSmsOpen]     = useState(true);
+  const [smsMessages,    setSmsMessages]    = useState(null);
+  const [smsUnread,      setSmsUnread]      = useState(0);
+  const [smsTick,        setSmsTick]        = useState(0);
+  const [smsOpen,        setSmsOpen]        = useState(true);
+  const [smsReplyPhone,  setSmsReplyPhone]  = useState(null);
+
+  // Refresh unread count when another surface (MessagesView) marks texts read
+  useEffect(() => {
+    const refresh = () => setSmsTick(t => t + 1);
+    window.addEventListener('task-skips-changed', refresh);
+    return () => window.removeEventListener('task-skips-changed', refresh);
+  }, []);
+
   useEffect(() => {
     if (!job?.id) { setSmsMessages([]); return; }
     const phone = job?.customer_phone ? formatPhone(job.customer_phone) : null;
+    const sitePhone = job?.site_contact_phone ? formatPhone(job.site_contact_phone) : null;
     const hasPhone = phone && /^\+\d{10,15}$/.test(phone);
     let dead = false;
     (async () => {
@@ -290,8 +300,10 @@ export default function TicketSheet({
         .limit(50);
       if (hasPhone) {
         q = q.like('body', `%${phone}%`);
+      } else if (sitePhone && /^\+\d{10,15}$/.test(sitePhone)) {
+        q = q.like('body', `%${sitePhone}%`);
       } else {
-        q = q.eq('job_id', job.id).like('body', '📲 Text from%');
+        q = q.eq('job_id', job.id).or('body.like.📲 Text from%,body.like.📱 Texted%');
       }
       const { data } = await q;
       if (dead) return;
@@ -304,9 +316,15 @@ export default function TicketSheet({
       });
       setSmsMessages(msgs);
       setSmsUnread(msgs.filter(m => m.unread).length);
+      // Best phone for the Reply button: job fields first, then extracted from message bodies
+      const bodyPhone = (data || []).flatMap(n => {
+        const m = /\((\+[0-9]{10,15})\)/.exec(n.body);
+        return m ? [m[1]] : [];
+      }).find(p => /^\+\d{10,15}$/.test(p)) || null;
+      setSmsReplyPhone(job.customer_phone || job.site_contact_phone || bodyPhone);
     })();
     return () => { dead = true; };
-  }, [job?.id, job?.customer_phone, smsTick]);
+  }, [job?.id, job?.customer_phone, job?.site_contact_phone, smsTick]);
 
   if (!job) return null;
 
@@ -644,8 +662,7 @@ export default function TicketSheet({
 
         {/* ── SMS thread — conversation with this customer ──────────── */}
         {smsMessages !== null && smsMessages.length > 0 && (() => {
-          const replyPhone = job.customer_phone ||
-            smsMessages.slice().reverse().find(m => m.phone)?.phone || null;
+          const replyPhone = smsReplyPhone;
           const onSent = () => {
             const phone = replyPhone ? formatPhone(replyPhone) : null;
             if (phone) {

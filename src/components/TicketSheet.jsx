@@ -137,6 +137,14 @@ export default function TicketSheet({
   const [issueLocal, setIssueLocal]   = useState(null);
   const [showMoves, setShowMoves] = useState(false);
 
+  // "Make a Note" — writes to the notes table with assigned_to=null.
+  // Invisible on the job card (TicketSheet filters to assigned_to != null).
+  // Visible in CustomerHistory (queries all notes by customer_id).
+  const [internalNoteOpen, setInternalNoteOpen]   = useState(false);
+  const [internalNoteText, setInternalNoteText]   = useState('');
+  const [internalNoteSaving, setInternalNoteSaving] = useState(false);
+  const [internalNoteMsg, setInternalNoteMsg]     = useState('');
+
   // Inline editing of the on-site contact name and phone.
   const [siteEdit, setSiteEdit]             = useState(false);
   const [siteContactName, setSiteContactName] = useState('');
@@ -412,6 +420,31 @@ export default function TicketSheet({
       setSiteMsg(`⚠ Could not save: ${e.message || e}`);
     } finally {
       setSiteSaving(false);
+    }
+  };
+
+  const saveInternalNote = async () => {
+    const body = internalNoteText.trim();
+    if (!body) return;
+    setInternalNoteSaving(true); setInternalNoteMsg('');
+    try {
+      const { error } = await supabase.from('notes').insert({
+        body,
+        job_id: job.id,
+        customer_id: job.customer_id || null,
+        author_email: canonicalEmail(userEmail),
+        assigned_to: null,
+        lane: 'todo',
+        status: 'open',
+      });
+      if (error) throw error;
+      setInternalNoteText(''); setInternalNoteOpen(false);
+      setInternalNoteMsg('Saved — visible in client search, not on this card.');
+      setTimeout(() => setInternalNoteMsg(''), 3500);
+    } catch (e) {
+      setInternalNoteMsg(`⚠ ${e.message || e}`);
+    } finally {
+      setInternalNoteSaving(false);
     }
   };
 
@@ -1078,6 +1111,66 @@ export default function TicketSheet({
 
         {/* ── Notes — same component, same place, every surface ── */}
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />
+
+        {/* ── MAKE A NOTE — office-only, invisible on this card ───────────
+            Writes to the notes table with assigned_to=null. TicketSheet's
+            task query filters to assigned_to != null, so this note never
+            appears here. CustomerHistory queries all notes by customer_id,
+            so it shows there — next to every other account touch. ── */}
+        <div style={{ marginBottom: 14 }}>
+          {!internalNoteOpen ? (
+            <button onClick={() => { setInternalNoteOpen(true); setInternalNoteMsg(''); }}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
+                       background: 'transparent', border: `1px dashed ${C.line}`,
+                       color: C.muted, fontSize: 14, fontWeight: 700,
+                       fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>🗒️</span>
+              <span style={{ flex: 1, textAlign: 'left' }}>
+                <span style={{ display: 'block' }}>Make a note</span>
+                <span style={{ display: 'block', fontSize: 11.5, fontWeight: 500, opacity: 0.65, marginTop: 1 }}>
+                  Only visible in client search — not shown in the field
+                </span>
+              </span>
+            </button>
+          ) : (
+            <div style={{ background: C.panel, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            color: C.muted, marginBottom: 8 }}>
+                Internal note · client search only
+              </div>
+              <textarea
+                value={internalNoteText}
+                onChange={e => setInternalNoteText(e.target.value)}
+                rows={3} autoFocus
+                placeholder="Only the office sees this — not on the job card, not synced to the calendar."
+                style={{ width: '100%', boxSizing: 'border-box', background: C.bg,
+                         border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
+                         padding: '9px 11px', fontSize: 14, lineHeight: 1.5,
+                         fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+              <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                <button onClick={saveInternalNote} disabled={internalNoteSaving || !internalNoteText.trim()}
+                  style={{ flex: 2, background: '#1e3a5f', border: '1px solid #3b82f6',
+                           borderRadius: 8, padding: '9px 0', color: '#93c5fd', fontSize: 13,
+                           fontWeight: 800, cursor: internalNoteSaving ? 'default' : 'pointer',
+                           fontFamily: 'inherit', opacity: internalNoteSaving || !internalNoteText.trim() ? 0.55 : 1 }}>
+                  {internalNoteSaving ? 'Saving…' : 'Save note'}
+                </button>
+                <button onClick={() => { setInternalNoteOpen(false); setInternalNoteText(''); setInternalNoteMsg(''); }}
+                  style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
+                           borderRadius: 8, padding: '9px 0', color: C.muted, fontSize: 13,
+                           fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {internalNoteMsg && (
+            <div style={{ fontSize: 12, marginTop: 6,
+                          color: internalNoteMsg.startsWith('⚠') ? C.amber : C.muted }}>
+              {internalNoteMsg}
+            </div>
+          )}
+        </div>
 
         {/* ── Surface-specific tools (merge, UUID link) — deliberately LAST.
             They exist, they matter, and they are not the reason anyone opens

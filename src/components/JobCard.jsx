@@ -8,6 +8,16 @@ import { STATUS_INFO, JOB_STATUS } from '../services/supabase.js';
 import { JOB_TYPE_INFO, getJobAge, getAgeUrgency } from '../utils/statusMachine.js';
 import { assigneeOf } from '../utils/ownership.js';
 
+// Maps job statuses that a tech disposition produces to a visible chip.
+// The board lane already carries the status; this just makes it loud.
+const DISPO_CHIP = {
+  to_bill:       { label: 'Bill it',       color: '#22c55e' },
+  return_pending: { label: 'Return',        color: '#f97316' },
+  needs_estimate: { label: 'Estimate',      color: '#3b82f6' },
+  estimate_sent:  { label: 'Estimate sent', color: '#06b6d4' },
+  blocked:        { label: "Couldn't do it", color: '#b91c1c' },
+};
+
 const TERMINAL_STATUSES = [JOB_STATUS.BILLED, JOB_STATUS.ARCHIVED, JOB_STATUS.LOST, JOB_STATUS.DEAD];
 
 export default function JobCard({ job, onClick, compact = false, showTime = false, isOrphan = false }) {
@@ -22,6 +32,7 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
   const typeInfo = JOB_TYPE_INFO[job.job_type] || JOB_TYPE_INFO.service;
   const statusInfo = STATUS_INFO[job.status] || {};
   const isTerminal = TERMINAL_STATUSES.includes(job.status);
+  const dispoChip = DISPO_CHIP[job.status] || null;
 
   // Format time for calendar view
   const formatTime = (dateStr) => {
@@ -100,12 +111,12 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
     <div
       onClick={onClick}
       style={{
-        background: '#1e293b',
+        background: dispoChip ? `${dispoChip.color}0d` : '#1e293b',
         borderRadius: '12px',
         padding: compact ? '12px' : '14px 16px',
         cursor: 'pointer',
-        border: '1px solid #ffffff08',
-        borderLeft: `3px solid ${statusInfo.color || '#475569'}`,
+        border: `1px solid ${dispoChip ? `${dispoChip.color}44` : '#ffffff08'}`,
+        borderLeft: `4px solid ${dispoChip?.color || statusInfo.color || '#475569'}`,
         opacity: isTerminal ? 0.6 : 1,
         transition: 'background 0.15s',
       }}
@@ -176,18 +187,33 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
           {typeInfo.icon} {typeInfo.label}
         </span>
 
-        {/* Status badge */}
-        <span style={{
-          background: `${statusInfo.color}20`,
-          color: statusInfo.color,
-          padding: '2px 8px',
-          borderRadius: '4px',
-          fontSize: '10px',
-          fontWeight: '600',
-          border: `1px solid ${statusInfo.color}40`
-        }}>
-          {statusInfo.label}
-        </span>
+        {/* Disposition chip — only for statuses a tech disposition produced */}
+        {dispoChip ? (
+          <span style={{
+            background: `${dispoChip.color}22`,
+            color: dispoChip.color,
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '10px',
+            fontWeight: '800',
+            border: `1px solid ${dispoChip.color}66`,
+            letterSpacing: '0.3px',
+          }}>
+            {dispoChip.label}
+          </span>
+        ) : (
+          <span style={{
+            background: `${statusInfo.color}20`,
+            color: statusInfo.color,
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '10px',
+            fontWeight: '600',
+            border: `1px solid ${statusInfo.color}40`
+          }}>
+            {statusInfo.label}
+          </span>
+        )}
 
         {/* Tech name */}
         {assigneeOf(job) && (

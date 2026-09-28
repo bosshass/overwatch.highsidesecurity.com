@@ -221,7 +221,7 @@ export default function OpsHome({
       const waiting = (jobs || []).filter(j =>
         NEW_STATUSES.includes(j.status) || ['ready_to_schedule', 'return_pending'].includes(j.status));
       setBoard({
-        tobill:    count('complete', 'to_bill'),
+        tobill:    count('to_bill'),
         neu:       count(...NEW_STATUSES),
         oldest:    waiting.reduce((max, j) => {
                      const d = Math.floor((Date.now() - new Date(j.created_at).getTime()) / 86400000);

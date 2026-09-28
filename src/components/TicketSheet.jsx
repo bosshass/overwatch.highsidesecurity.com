@@ -276,24 +276,29 @@ export default function TicketSheet({
   // ── SMS thread for this customer's phone ─────────────────────────────────
   const [smsMessages, setSmsMessages] = useState(null);
   const [smsUnread,   setSmsUnread]   = useState(0);
-  const [smsTick,     setSmsTick]     = useState(0); // increment to force reload
+  const [smsTick,     setSmsTick]     = useState(0);
   useEffect(() => {
-    if (!job?.customer_phone) { setSmsMessages([]); return; }
-    const phone = formatPhone(job.customer_phone);
-    if (!/^\+\d{10,15}$/.test(phone)) { setSmsMessages([]); return; }
+    if (!job?.id) { setSmsMessages([]); return; }
+    const phone = job?.customer_phone ? formatPhone(job.customer_phone) : null;
+    const hasPhone = phone && /^\+\d{10,15}$/.test(phone);
     let dead = false;
     (async () => {
-      const { data } = await supabase.from('notes')
+      let q = supabase.from('notes')
         .select('id, body, created_at, read_at, status')
-        .like('body', `%${phone}%`)
         .order('created_at', { ascending: true })
         .limit(50);
+      if (hasPhone) {
+        q = q.like('body', `%${phone}%`);
+      } else {
+        q = q.eq('job_id', job.id).like('body', '📲 Text from%');
+      }
+      const { data } = await q;
       if (dead) return;
       const msgs = (data || []).flatMap(n => {
         const inb = SMS_IN_RE.exec(n.body);
-        if (inb) return [{ id: n.id, dir: 'in', text: inb[3].trim(), at: n.created_at, unread: !n.read_at && n.status === 'open' }];
+        if (inb) return [{ id: n.id, dir: 'in', phone: inb[2], text: inb[3].trim(), at: n.created_at, unread: !n.read_at && n.status === 'open' }];
         const out = SMS_OUT_RE.exec(n.body);
-        if (out) return [{ id: n.id, dir: 'out', text: out[3].trim(), at: n.created_at }];
+        if (out) return [{ id: n.id, dir: 'out', phone: out[2], text: out[3].trim(), at: n.created_at }];
         return [];
       });
       setSmsMessages(msgs);
@@ -637,7 +642,10 @@ export default function TicketSheet({
         </div>
 
         {/* ── SMS thread — conversation with this customer ──────────── */}
-        {smsMessages !== null && smsMessages.length > 0 && (
+        {smsMessages !== null && smsMessages.length > 0 && (() => {
+          const replyPhone = job.customer_phone ||
+            smsMessages.slice().reverse().find(m => m.phone)?.phone || null;
+          return (
           <div style={{ background: C.panel, borderRadius: 12, padding: '10px 14px', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b',
@@ -651,14 +659,14 @@ export default function TicketSheet({
                 </span>
               )}
               <TextButton
-                to={job.customer_phone} name={job.customer_name || 'client'}
+                to={replyPhone} name={job.customer_name || 'client'}
                 internal={false} accessToken={accessToken} size="sm"
                 logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
                 label="↩ Reply"
                 style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #334155',
                          color: '#94a3b8', padding: '3px 10px', borderRadius: 99, fontSize: 11 }}
                 onSent={() => {
-                  const phone = formatPhone(job.customer_phone);
+                  const phone = replyPhone ? formatPhone(replyPhone) : null;
                   if (phone) {
                     supabase.from('notes').update({ read_at: new Date().toISOString(), read_by: userEmail })
                       .is('read_at', null).eq('status', 'open')
@@ -691,7 +699,8 @@ export default function TicketSheet({
               ))}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── Assigned to ───────────────────────────────────────────── */}
         <div style={{ marginBottom: 14 }}>
@@ -763,7 +772,7 @@ export default function TicketSheet({
             today's trip before reading the original scope. Editable so the
             office can fill it in when the tech left it blank on the finish
             sheet. Data lives in return_cards.reason / materials_needed. */}
-        {(job.status === 'return_pending' || returnCard) && (
+        {(job.status === 'return_pending' || (returnCard?.reason || returnCard?.materials_needed)) && (
           <div style={{ background: 'rgba(249,115,22,0.1)',
                         border: '1px solid rgba(249,115,22,0.4)',
                         borderLeft: '4px solid #fb923c',
@@ -1036,12 +1045,11 @@ export default function TicketSheet({
         {/* ── WHERE NEXT — identical on every surface ── */}
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14,
                       border: awaitingDispo ? '2px solid #dc2626' : 'none' }}>
-          <div style={{ fontSize: awaitingDispo ? 16 : 14, fontWeight: 900, marginBottom: 2 }}>
-            {awaitingDispo ? 'What happened on site?' : 'Where does this go next?'}
-          </div>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
-            {here ? <>Currently <b style={{ color: here.color }}>{here.label}</b>.</> : null}
-          </div>
+          {awaitingDispo && (
+            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 12 }}>
+              What happened on site?
+            </div>
+          )}
 
           {/* SEVEN LANES, COLLAPSED. A card in Ready to Schedule wants ONE
               thing — the scheduler, which is the purple button above. Every

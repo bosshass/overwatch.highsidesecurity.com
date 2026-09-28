@@ -101,7 +101,8 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             || /^Status changed/i.test(x)
             || /^Moved (to|from) /i.test(x)
             || /^Reconciled —/i.test(x)
-            || /^📌 TENTATIVELY assigned/i.test(x);
+            || /^📌 TENTATIVELY assigned/i.test(x)
+            || /^📅\s*RECAP:/i.test(x);
       };
 
       // Merge entries are pure internal plumbing — never shown anywhere in the UI,
@@ -472,8 +473,8 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             </button>
           )}
 
-          {/* Audit trail, collapsed. Still here, just not shouting over notes. */}
-          {activity.length > 0 && (
+          {/* Audit trail, collapsed. Hidden in readOnly (job card) — techs don't need it. */}
+          {!readOnly && activity.length > 0 && (
             <div style={{ marginTop: 8 }}>
               <button onClick={() => setShowActivity(v => !v)}
                 style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '11px',

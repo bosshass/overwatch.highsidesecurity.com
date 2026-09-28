@@ -302,7 +302,10 @@ export default function TicketSheet({
       } else if (sitePhone && /^\+\d{10,15}$/.test(sitePhone)) {
         q = q.like('body', `%${sitePhone}%`);
       } else {
-        q = q.eq('job_id', job.id).or('body.like.📲 Text from%,body.like.📱 Texted%');
+        // No phone on the job — fetch all notes for this job and let the regex
+        // filter client-side. Using .or() with emoji in the filter string is
+        // unreliable; client-side filtering is simpler and safe at this scale.
+        q = q.eq('job_id', job.id);
       }
       const { data } = await q;
       if (dead) return;
@@ -315,12 +318,14 @@ export default function TicketSheet({
       });
       setSmsMessages(msgs);
       setSmsUnread(msgs.filter(m => m.unread).length);
-      // Best phone for the Reply button: job fields first, then extracted from message bodies
+      // Best phone for Reply: job fields first, then any E.164 number found in
+      // the message bodies (with or without + prefix), then parsed message phones.
       const bodyPhone = (data || []).flatMap(n => {
-        const m = /\((\+[0-9]{10,15})\)/.exec(n.body);
+        const m = /\((\+?[0-9]{10,15})\)/.exec(n.body);
         return m ? [m[1]] : [];
-      }).find(p => /^\+\d{10,15}$/.test(p)) || null;
-      setSmsReplyPhone(job.customer_phone || job.site_contact_phone || bodyPhone);
+      }).find(p => /^\+?\d{10,15}$/.test(p)) || null;
+      const msgPhone = msgs.slice().reverse().find(m => m.phone)?.phone || null;
+      setSmsReplyPhone(job.customer_phone || job.site_contact_phone || bodyPhone || msgPhone);
     })();
     return () => { dead = true; };
   }, [job?.id, job?.customer_phone, job?.site_contact_phone, smsTick]);

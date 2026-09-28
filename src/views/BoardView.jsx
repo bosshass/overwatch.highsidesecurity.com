@@ -601,7 +601,7 @@ const NEXT_ACTION_LABEL = {
   archived:      'Archived',
 };
 
-function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
+function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly, unreadCount = 0 }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
@@ -690,6 +690,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
           {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>URGENT</span>}
           {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>HIGH</span>}
           {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:800, padding:'2px 5px', borderRadius:3 }}>NO CLIENT</span>}
+          {unreadCount > 0 && <span style={{ background:'#14b8a6', color:'#04211e', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:99 }}>💬{unreadCount}</span>}
           {/* TEXT WITHOUT OPENING ANYTHING. The board is where the day gets
               scanned, and "tell them we're running late" should not require
               opening a card and hunting for a control inside it. stopPropagation
@@ -791,7 +792,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
-function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly }) {
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly, unreadByJob }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ borderBottom: '1px solid #1e293b' }}>
@@ -814,7 +815,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
             ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
-            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />)
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} unreadCount={unreadByJob?.[j.id] || 0} />)
           }
         </div>
       )}
@@ -822,7 +823,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
   );
 }
 
-function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, accessToken, userEmail, readOnly }) {
+function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, accessToken, userEmail, readOnly, unreadByJob }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ flex:1, minWidth:260, maxWidth:340, display:'flex', flexDirection:'column' }}>
@@ -837,7 +838,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
           ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
-          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />)
+          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} unreadCount={unreadByJob?.[j.id] || 0} />)
         }
       </div>
     </div>
@@ -902,11 +903,36 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
   // triage | ready | tentative | scheduled | estimates.
   const [expandedCol, setExpandedCol] = useState(
     () => new URLSearchParams(window.location.search).get('lane') || 'triage');
+  const [unreadByJob, setUnreadByJob] = useState({});
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Unread inbound texts per job — drives the 💬 badge on board cards.
+  // Re-runs when jobs load and every 90s (matching the App.jsx badge interval).
+  useEffect(() => {
+    let dead = false;
+    const tick = async () => {
+      try {
+        const { data } = await supabase.from('notes')
+          .select('id, job_id')
+          .eq('status', 'open')
+          .is('read_at', null)
+          .like('body', '📲 Text from%')
+          .not('job_id', 'is', null);
+        if (dead) return;
+        const map = {};
+        for (const n of (data || [])) map[n.job_id] = (map[n.job_id] || 0) + 1;
+        setUnreadByJob(map);
+      } catch { /* badge is non-critical */ }
+    };
+    tick();
+    const t = setInterval(tick, 90000);
+    window.addEventListener('task-skips-changed', tick);
+    return () => { dead = true; clearInterval(t); window.removeEventListener('task-skips-changed', tick); };
   }, []);
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''), 2400); };
@@ -1393,6 +1419,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
                 onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
                 onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
                 accessToken={accessToken} userEmail={userEmail} readOnly={readOnly}
+                unreadByJob={unreadByJob}
               />
             </div>
           ))}
@@ -1401,7 +1428,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
             <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
-              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} />
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} unreadByJob={unreadByJob} />
             </div>
           ))}
         </div>

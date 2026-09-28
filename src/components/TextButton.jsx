@@ -35,6 +35,8 @@ export default function TextButton({
   label = null,        // override the button text
   size = 'md',         // 'sm' for dense rows, 'md' elsewhere
   style = {},
+  onOpen = null,       // called when the sheet opens (e.g. to dismiss a parent prompt)
+  onSent = null,       // called after a message is successfully sent
 }) {
   const [open, setOpen] = useState(false);
 
@@ -49,7 +51,7 @@ export default function TextButton({
     <>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        onClick={(e) => { e.stopPropagation(); onOpen?.(); setOpen(true); }}
         title={`Text ${name || formatPhone(to)}`}
         style={{
           background: '#9b6cff', border: 'none', borderRadius: 999,
@@ -94,7 +96,7 @@ export default function TextButton({
               to={to} name={name} internal={internal}
               draft={draft} templates={templates}
               accessToken={accessToken} logTo={logTo}
-              onSent={() => setTimeout(() => setOpen(false), 2400)}
+              onSent={(r) => { onSent?.(r); setTimeout(() => setOpen(false), 2400); }}
               onCancel={() => setOpen(false)}
             />
           </div>

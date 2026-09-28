@@ -120,6 +120,7 @@ export default function MessagesView({ userEmail, accessToken }) {
             to={thread.phone} name={thread.who} accessToken={accessToken}
             label="↩ Reply"
             logTo={{ jobId: thread.jobId, customerId: thread.customerId, userEmail }}
+            onSent={() => openThread(thread.phone, thread.who, thread.jobId, thread.customerId)}
           />
         </div>
 

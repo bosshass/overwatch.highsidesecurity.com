@@ -31,9 +31,8 @@ import { stripIntakeTemplate } from '../utils/statusMachine.js';
 import NotesPanel from './NotesPanel.jsx';
 import { releaseCalendar } from '../services/schedule.js';
 import { syncIssueToEvents } from '../services/calendarSync.js';
+import TextButton, { clientTemplates } from './TextButton.jsx';
 import { formatPhone } from '../services/sms.js';
-import SmsComposer from './SmsComposer.jsx';
-import { clientTemplates } from './TextButton.jsx';
 import { shortJobLink } from '../config/appBase.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';
 import FieldVisits from './FieldVisits.jsx';
@@ -42,6 +41,10 @@ const C = {
   bg: '#0f1729', panel: '#16233a', raised: '#1b2b45', line: '#2a3b56',
   text: '#e9f1ff', muted: '#93a5bd', dim: '#64748b',
 };
+
+const SMS_IN_RE  = /^📲 Text from (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
+const SMS_OUT_RE = /^📱 Texted (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
+const fmtSmsTime = iso => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 const Row = ({ label, children }) => children == null || children === '' ? null : (
   <div style={{ display: 'flex', gap: 12, padding: '7px 0', fontSize: 13 }}>
@@ -140,8 +143,6 @@ export default function TicketSheet({
   // Was four pieces of state wired to a single task; the customer needs the
   // same box, so the sheet tracks WHAT is being texted rather than whether a
   // task is.
-  const [sms, setSms] = useState(null);
-
   // ── Editing the issue ────────────────────────────────────────────────
   const [issueEdit, setIssueEdit]     = useState(false);
   const [issueText, setIssueText]     = useState('');
@@ -261,6 +262,35 @@ export default function TicketSheet({
     })();
     return () => { dead = true; };
   }, [job?.id, taskMsg]);
+
+  // ── SMS thread for this customer's phone ─────────────────────────────────
+  const [smsMessages, setSmsMessages] = useState(null);
+  const [smsUnread,   setSmsUnread]   = useState(0);
+  const [smsTick,     setSmsTick]     = useState(0); // increment to force reload
+  useEffect(() => {
+    if (!job?.customer_phone) { setSmsMessages([]); return; }
+    const phone = formatPhone(job.customer_phone);
+    if (!/^\+\d{10,15}$/.test(phone)) { setSmsMessages([]); return; }
+    let dead = false;
+    (async () => {
+      const { data } = await supabase.from('notes')
+        .select('id, body, created_at, read_at, status')
+        .like('body', `%${phone}%`)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      if (dead) return;
+      const msgs = (data || []).flatMap(n => {
+        const inb = SMS_IN_RE.exec(n.body);
+        if (inb) return [{ id: n.id, dir: 'in', text: inb[3].trim(), at: n.created_at, unread: !n.read_at && n.status === 'open' }];
+        const out = SMS_OUT_RE.exec(n.body);
+        if (out) return [{ id: n.id, dir: 'out', text: out[3].trim(), at: n.created_at }];
+        return [];
+      });
+      setSmsMessages(msgs);
+      setSmsUnread(msgs.filter(m => m.unread).length);
+    })();
+    return () => { dead = true; };
+  }, [job?.id, job?.customer_phone, smsTick]);
 
   if (!job) return null;
 
@@ -416,21 +446,6 @@ export default function TicketSheet({
       const ev = await r.json();
       return ev?.start?.dateTime || null;   // all-day events have no time to quote
     } catch { return null; }
-  };
-
-  // Two numbers can be on a card and they are different people: the account
-  // holder, and whoever the tech actually meets on site (migration 047).
-  const textClient = async (which) => {
-    const isSite = which === 'site';
-    const to   = isSite ? job.site_contact_phone : job.customer_phone;
-    const name = isSite
-      ? (job.site_contact_name || 'the on-site contact')
-      : (job.customer_name || 'the client');
-    if (sms?.key === `client:${which}`) { setSms(null); return; }
-    const when = eventStart ?? await fetchEventStart();
-    if (when && !eventStart) setEventStart(when);
-    setSms({ key: `client:${which}`, to, name, internal: false, draft: '',
-             templates: clientTemplates({ when, scheduledDate: job.scheduled_date }) });
   };
 
   // Save the issue, then mirror it to the calendar.
@@ -597,47 +612,27 @@ export default function TicketSheet({
           <Row label="Address">{job.customer_address}</Row>
           <Row label="Phone">
             {job.customer_phone}
-            {/* TEXT THE CLIENT. Two numbers can be on a card and they are
-                different people: the account holder, and whoever the tech
-                actually meets on site (migration 047). Both get their own
-                button rather than one that guesses. SmsComposer enforces the
-                rules a client message has and a staff one does not — no
-                Overwatch link, ever. */}
-            {job.customer_phone && (
-              <button onClick={() => textClient('customer')}
-                style={{ marginLeft: 9, background: sms?.key === 'client:customer' ? '#9b6cff' : 'transparent',
-                         border: '1px solid #9b6cff66', borderRadius: 7,
-                         color: sms?.key === 'client:customer' ? '#08121f' : '#c4a6ff',
-                         fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
-                         cursor: 'pointer', fontFamily: 'inherit' }}>
-                📱 Text
-              </button>
-            )}
+            <TextButton to={job.customer_phone} name={job.customer_name || 'client'}
+              internal={false} accessToken={accessToken} size="sm"
+              templates={clientTemplates({ when: eventStart, scheduledDate: job.scheduled_date })}
+              logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+              style={{ marginLeft: 9 }}
+              onOpen={async () => { if (!eventStart) { const w = await fetchEventStart(); if (w) setEventStart(w); } }}
+              onSent={() => setSmsTick(t => t + 1)}
+            />
           </Row>
           {job.site_contact_phone && (
             <Row label="On site">
               {job.site_contact_name || 'contact'} · {job.site_contact_phone}
-              <button onClick={() => textClient('site')}
-                style={{ marginLeft: 9, background: sms?.key === 'client:site' ? '#9b6cff' : 'transparent',
-                         border: '1px solid #9b6cff66', borderRadius: 7,
-                         color: sms?.key === 'client:site' ? '#08121f' : '#c4a6ff',
-                         fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
-                         cursor: 'pointer', fontFamily: 'inherit' }}>
-                📱 Text
-              </button>
-            </Row>
-          )}
-          {sms?.key?.startsWith('client:') && (
-            <div style={{ padding: '4px 0 10px' }}>
-              <SmsComposer
-                key={sms.key}
-                to={sms.to} name={sms.name} internal={sms.internal}
-                draft={sms.draft} templates={sms.templates} accessToken={accessToken}
+              <TextButton to={job.site_contact_phone}
+                name={job.site_contact_name || 'on-site contact'}
+                internal={false} accessToken={accessToken} size="sm"
+                templates={clientTemplates({ when: eventStart, scheduledDate: job.scheduled_date })}
                 logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
-                onSent={() => setTimeout(() => setSms(null), 2600)}
-                onCancel={() => setSms(null)}
+                style={{ marginLeft: 9 }}
+                onOpen={async () => { if (!eventStart) { const w = await fetchEventStart(); if (w) setEventStart(w); } }}
               />
-            </div>
+            </Row>
           )}
           <Row label="Tech on site">{job.tech_name}</Row>{/* physical presence, NOT ownership — see the Assigned to block */}
           <Row label="Scheduled">{job.scheduled_date
@@ -645,6 +640,54 @@ export default function TicketSheet({
             : null}</Row>
           <Row label="CMS">{job.cms_account_id}</Row>
         </div>
+
+        {/* ── SMS thread — conversation with this customer ──────────── */}
+        {smsMessages !== null && smsMessages.length > 0 && (
+          <div style={{ background: C.panel, borderRadius: 12, padding: '10px 14px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b',
+                             textTransform: 'uppercase', letterSpacing: 0.7 }}>
+                Messages
+              </span>
+              {smsUnread > 0 && (
+                <span style={{ background: '#14b8a6', color: '#04211e', fontSize: 10, fontWeight: 900,
+                               borderRadius: 99, padding: '2px 7px' }}>
+                  {smsUnread} unread
+                </span>
+              )}
+              <TextButton
+                to={job.customer_phone} name={job.customer_name || 'client'}
+                internal={false} accessToken={accessToken} size="sm"
+                logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                label="↩ Reply"
+                style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #334155',
+                         color: '#94a3b8', padding: '3px 10px', borderRadius: 99, fontSize: 11 }}
+                onSent={() => setSmsTick(t => t + 1)}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {smsMessages.slice(-8).map(msg => (
+                <div key={msg.id}
+                  style={{ display: 'flex', flexDirection: 'column',
+                           alignItems: msg.dir === 'out' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '85%',
+                    background: msg.dir === 'out' ? '#1e3a5f' : (msg.unread ? '#0d2a1e' : '#1a232e'),
+                    borderRadius: msg.dir === 'out' ? '12px 12px 3px 12px' : '12px 12px 12px 3px',
+                    padding: '8px 11px', fontSize: 13, lineHeight: 1.45,
+                    whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+                    border: `1px solid ${msg.dir === 'out' ? '#2d5a8e' : (msg.unread ? '#14b8a6' : '#2a3b56')}`,
+                  }}>
+                    {msg.text || '(no text)'}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.dim, marginTop: 2 }}>
+                    {fmtSmsTime(msg.at)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Assigned to ───────────────────────────────────────────── */}
         <div style={{ marginBottom: 14 }}>

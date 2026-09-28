@@ -41,6 +41,7 @@ import FieldVisits from './FieldVisits.jsx';
 const C = {
   bg: '#0f1729', panel: '#16233a', raised: '#1b2b45', line: '#2a3b56',
   text: '#e9f1ff', muted: '#93a5bd', dim: '#64748b',
+  blue: '#3b82f6', amber: '#f59e0b',
 };
 
 const Row = ({ label, children }) => children == null || children === '' ? null : (
@@ -136,6 +137,15 @@ export default function TicketSheet({
   const [issueLocal, setIssueLocal]   = useState(null);
   const [showMoves, setShowMoves] = useState(false);
 
+  // Inline editing of the on-site contact name and phone.
+  const [siteEdit, setSiteEdit]             = useState(false);
+  const [siteContactName, setSiteContactName] = useState('');
+  const [siteContactPhone, setSiteContactPhone] = useState('');
+  const [siteSaving, setSiteSaving]         = useState(false);
+  const [siteMsg, setSiteMsg]               = useState('');
+  const [siteLocalName, setSiteLocalName]   = useState(null);
+  const [siteLocalPhone, setSiteLocalPhone] = useState(null);
+
   // WHAT IS ALREADY OUT THERE. Without this the card happily lets you send a
   // third copy of the same ask to a third person, and none of them know about
   // each other.
@@ -177,6 +187,8 @@ export default function TicketSheet({
   // boilerplate verbatim. Same rule here: if nothing real was written after
   // "Scope of Work:", there is nothing to show, and the box doesn't render.
   const cleanIssue = issueLocal !== null ? issueLocal : stripIntakeTemplate(job.issue);
+  const displaySiteName  = siteLocalName  !== null ? siteLocalName  : (job.site_contact_name  || '');
+  const displaySitePhone = siteLocalPhone !== null ? siteLocalPhone : (job.site_contact_phone || '');
 
   // ONE rule for who owns this, from ownership.js. The board card used to read
   // job.tech_name directly, which is why assigning somebody left the card
@@ -331,9 +343,9 @@ export default function TicketSheet({
   // holder, and whoever the tech actually meets on site (migration 047).
   const textClient = async (which) => {
     const isSite = which === 'site';
-    const to   = isSite ? job.site_contact_phone : job.customer_phone;
+    const to   = isSite ? displaySitePhone : job.customer_phone;
     const name = isSite
-      ? (job.site_contact_name || 'the on-site contact')
+      ? (displaySiteName || 'the on-site contact')
       : (job.customer_name || 'the client');
     if (sms?.key === `client:${which}`) { setSms(null); return; }
     const when = eventStart ?? await fetchEventStart();
@@ -377,6 +389,29 @@ export default function TicketSheet({
       setIssueMsg(`⚠ Could not save: ${e.message || e}`);
     } finally {
       setIssueSaving(false);
+    }
+  };
+
+  const saveSiteContact = async () => {
+    setSiteSaving(true);
+    setSiteMsg('');
+    try {
+      await jobsApi.update(job.id, {
+        site_contact_name:  siteContactName.trim() || null,
+        site_contact_phone: siteContactPhone.trim() || null,
+      }, userEmail);
+      const savedName  = siteContactName.trim() || null;
+      const savedPhone = siteContactPhone.trim() || null;
+      setSiteLocalName(savedName);
+      setSiteLocalPhone(savedPhone);
+      setSiteEdit(false);
+      onUpdated?.({ ...job, site_contact_name: savedName, site_contact_phone: savedPhone });
+      setSiteMsg('Saved.');
+      setTimeout(() => setSiteMsg(''), 2500);
+    } catch (e) {
+      setSiteMsg(`⚠ Could not save: ${e.message || e}`);
+    } finally {
+      setSiteSaving(false);
     }
   };
 
@@ -517,18 +552,74 @@ export default function TicketSheet({
               </button>
             )}
           </Row>
-          {job.site_contact_phone && (
-            <Row label="On site">
-              {job.site_contact_name || 'contact'} · {job.site_contact_phone}
-              <button onClick={() => textClient('site')}
-                style={{ marginLeft: 9, background: sms?.key === 'client:site' ? '#9b6cff' : 'transparent',
-                         border: '1px solid #9b6cff66', borderRadius: 7,
-                         color: sms?.key === 'client:site' ? '#08121f' : '#c4a6ff',
-                         fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
-                         cursor: 'pointer', fontFamily: 'inherit' }}>
-                📱 Text
+          {siteEdit ? (
+            <div style={{ padding: '7px 0' }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <span style={{ color: C.muted, minWidth: 110, flexShrink: 0, fontSize: 13, paddingTop: 7 }}>On site</span>
+                <div style={{ flex: 1 }}>
+                  <input value={siteContactName} onChange={e => setSiteContactName(e.target.value)}
+                    placeholder="Contact name (optional)"
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                             border: `1px solid ${C.line}`, borderRadius: 6, color: C.text,
+                             padding: '6px 9px', fontSize: 13, fontFamily: 'inherit',
+                             outline: 'none', marginBottom: 5 }} />
+                  <input value={siteContactPhone} onChange={e => setSiteContactPhone(e.target.value)}
+                    placeholder="Phone number" type="tel"
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                             border: `1px solid ${C.line}`, borderRadius: 6, color: C.text,
+                             padding: '6px 9px', fontSize: 13, fontFamily: 'inherit',
+                             outline: 'none' }} />
+                  <div style={{ display: 'flex', gap: 7, marginTop: 7 }}>
+                    <button onClick={saveSiteContact} disabled={siteSaving}
+                      style={{ flex: 2, background: C.blue, border: 'none', borderRadius: 7,
+                               padding: '7px 0', color: '#04121f', fontSize: 12.5, fontWeight: 800,
+                               cursor: siteSaving ? 'default' : 'pointer', fontFamily: 'inherit',
+                               opacity: siteSaving ? 0.6 : 1 }}>
+                      {siteSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => { setSiteEdit(false); setSiteMsg(''); }} disabled={siteSaving}
+                      style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
+                               borderRadius: 7, padding: '7px 0', color: C.muted, fontSize: 12.5,
+                               fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Cancel
+                    </button>
+                  </div>
+                  {siteMsg && (
+                    <div style={{ fontSize: 12, color: siteMsg.startsWith('⚠') ? C.amber : C.muted, marginTop: 6 }}>
+                      {siteMsg}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 12, padding: '7px 0', fontSize: 13, alignItems: 'center' }}>
+              <span style={{ color: C.muted, minWidth: 110, flexShrink: 0 }}>On site</span>
+              <span style={{ color: C.text, flex: 1, minWidth: 0 }}>
+                {displaySitePhone ? (
+                  <>
+                    {displaySiteName || 'contact'} · {displaySitePhone}
+                    <button onClick={() => textClient('site')}
+                      style={{ marginLeft: 9, background: sms?.key === 'client:site' ? '#9b6cff' : 'transparent',
+                               border: '1px solid #9b6cff66', borderRadius: 7,
+                               color: sms?.key === 'client:site' ? '#08121f' : '#c4a6ff',
+                               fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
+                               cursor: 'pointer', fontFamily: 'inherit' }}>
+                      📱 Text
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ color: C.dim }}>—</span>
+                )}
+              </span>
+              <button
+                onClick={() => { setSiteEdit(true); setSiteContactName(displaySiteName); setSiteContactPhone(displaySitePhone); setSiteMsg(''); }}
+                style={{ background: 'transparent', border: 'none', color: C.blue,
+                         fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                         fontFamily: 'inherit', padding: 0, flexShrink: 0 }}>
+                {displaySitePhone ? 'Edit' : 'Add'}
               </button>
-            </Row>
+            </div>
           )}
           {sms?.key?.startsWith('client:') && (
             <div style={{ padding: '4px 0 10px' }}>

@@ -286,7 +286,6 @@ export default function TicketSheet({
     window.addEventListener('task-skips-changed', refresh);
     return () => window.removeEventListener('task-skips-changed', refresh);
   }, []);
-
   useEffect(() => {
     if (!job?.id) { setSmsMessages([]); return; }
     const phone = job?.customer_phone ? formatPhone(job.customer_phone) : null;

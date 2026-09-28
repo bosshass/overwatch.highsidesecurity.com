@@ -317,6 +317,9 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
         // slot suggestion everywhere this job is scheduled or rescheduled.
         estimated_hours: Number(form.estimated_hours) > 0 ? Number(form.estimated_hours) : null,
         status: willSchedule ? JOB_STATUS.SCHEDULED : JOB_STATUS.NEW,
+        // New jobs are owned by the person who created them until a status move
+        // or manual reassignment changes it. Phases 2+4 rely on this being set.
+        assigned_to: canonicalEmail(userEmail) || undefined,
         // When adopting an orphan calendar event, stamp the event id so
         // resolveJobForEvent can find this job later. Without it, a tech
         // dispositioning the same event via the finish sheet falls through to

@@ -94,6 +94,20 @@ export default function MessagesView({ userEmail, accessToken }) {
       return [];
     });
     setThread(prev => ({ ...prev, messages }));
+
+    // Opening the thread means you've read it — mark all unread inbound from
+    // this number as read and refresh the inbox badge.
+    supabase.from('notes')
+      .update({ read_at: new Date().toISOString(), read_by: me })
+      .is('read_at', null).eq('status', 'open')
+      .like('body', `📲 Text from%`).like('body', `%${phone}%`)
+      .then(() => {
+        setRows(prev => (prev || []).map(r =>
+          r._msg?.phone === phone && !r.read_at
+            ? { ...r, read_at: new Date().toISOString(), read_by: me }
+            : r));
+        window.dispatchEvent(new Event('task-skips-changed'));
+      });
   };
 
   const fmtTime = iso => new Date(iso).toLocaleString('en-US', {
@@ -120,6 +134,7 @@ export default function MessagesView({ userEmail, accessToken }) {
             to={thread.phone} name={thread.who} accessToken={accessToken}
             label="↩ Reply"
             logTo={{ jobId: thread.jobId, customerId: thread.customerId, userEmail }}
+            onSent={() => openThread(thread.phone, thread.who, thread.jobId, thread.customerId)}
           />
         </div>
 

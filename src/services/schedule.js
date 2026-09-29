@@ -253,6 +253,7 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
       location: job.customer_address,
       startTime: start,
       endTime: end,
+      jobId: job.id,
     });
     if (created?.id) {
       const { error: memErr } = await supabase.from('jobs').update({
@@ -273,6 +274,7 @@ export async function book({ job, tech, start, end, accessToken, helpers = [], b
         description: eventDescription + `\n👥 Riding with ${tech.name}`,
         location: job.customer_address,
         startTime: start, endTime: end,
+        jobId: job.id,
       });
     } catch (e) { console.warn(`helper mirror failed for ${h.name} (non-fatal)`, e.message); }
   }
@@ -333,14 +335,19 @@ export async function hold({ job, start, end, accessToken, byName, byEmail = nul
     await deleteEvent(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, job.tentative_event_id);
   }
 
+  const latestNote = await getLatestNote(job.id);
+  const holdDesc = buildEventDescription(job, latestNote, { scheduledBy: byEmail || byName })
+    + '\n\n⚠️ TENTATIVE — no tech assigned yet';
+
   let eventId = null;
   try {
     const created = await createEventOnCalendar(accessToken, CALENDARS.TENTATIVELY_SCHEDULED, {
       title: `Holding ${job.customer_name || 'job'}`,   // the team's convention
-      description: `Tentative hold${byName ? ` placed by ${byName}` : ''} in Overwatch. No tech booked.`,
+      description: holdDesc,
       location: job.customer_address || '',
       startTime: start,
       endTime: end || new Date(start.getTime() + 2 * 3600000),
+      jobId: job.id,
     });
     if (created?.id) eventId = created.id;
   } catch (e) { console.warn('tent event create failed (non-fatal)', e); }
@@ -373,6 +380,7 @@ export async function bookExtraDay({ job, tech, start, end, accessToken, dayLabe
     location: job.customer_address,
     startTime: start,
     endTime: end,
+    jobId: job.id,
   });
   // The event alone was never enough. bookExtraDay used to create a calendar
   // entry and return — no job_assignments row — so day 2 existed on Google and

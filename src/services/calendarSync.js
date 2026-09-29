@@ -6,7 +6,7 @@
 
 import { jobsApi, assignmentsApi, techsApi, JOB_STATUS, notesApi, supabase } from './supabase.js';
 import { SYNC_CALENDARS, CALENDARS, getTechCalendarId } from '../config/calendars.js';
-import { jobDeepLink } from '../config/appBase.js';
+import { jobDeepLink, jobLink } from '../config/appBase.js';
 import { resolveJobForEvent } from '../utils/jobResolve.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -88,7 +88,10 @@ function toWallClock(d) {
 }
 
 // Create a new event on any calendar. Returns the created event.
-export async function createEventOnCalendar(accessToken, calendarId, { title, description, location, startTime, endTime, colorId }) {
+// Pass jobId (Supabase UUID) to write a /board?job=<id> deep link that opens
+// the job card directly. Without jobId the link falls back to the older
+// /?cal=X&job=Y format, which routes through JobFinishSheet instead.
+export async function createEventOnCalendar(accessToken, calendarId, { title, description, location, startTime, endTime, colorId, jobId }) {
   const event = {
     summary: title,
     description: description || '',
@@ -102,7 +105,7 @@ export async function createEventOnCalendar(accessToken, calendarId, { title, de
   if (colorId) event.colorId = colorId;
   const created = await apiCreate(accessToken, calendarId, event);
   try {
-    const deepLink = jobDeepLink(calendarId, created.id);
+    const deepLink = jobId ? jobLink(jobId) : jobDeepLink(calendarId, created.id);
     const updatedDesc = (event.description ? event.description + '\n\n' : '') + `📱 Open in Overwatch: ${deepLink}`;
     await apiPatch(accessToken, calendarId, created.id, { description: updatedDesc });
     created.description = updatedDesc;
@@ -233,7 +236,7 @@ export function buildEventDescription(job, latestNote, { scheduledBy = null } = 
 export async function patchEventWithJobData(accessToken, calendarId, eventId, job, { scheduledBy = null } = {}) {
   const latestNote = await getLatestNote(job.id);
   const description = buildEventDescription(job, latestNote, { scheduledBy });
-  const deepLink = jobDeepLink(calendarId, eventId);
+  const deepLink = job.id ? jobLink(job.id) : jobDeepLink(calendarId, eventId);
   const fullDesc = description + `\n\n📱 Open in Overwatch: ${deepLink}`;
   await apiPatch(accessToken, calendarId, eventId, {
     summary: buildEventTitle(job),

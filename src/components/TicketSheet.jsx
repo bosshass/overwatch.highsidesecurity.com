@@ -149,6 +149,8 @@ export default function TicketSheet({
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
   const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
+  const [taskRefreshTick, setTaskRefreshTick] = useState(0);
+  const [tasksOpen, setTasksOpen] = useState(true);
 
   // ── Calendar event start (for appointment-time in client text templates) ────
   // Only fetched for jobs that have a scheduled calendar event; not on every
@@ -305,7 +307,7 @@ export default function TicketSheet({
       if (!dead) setOpenTasks(data || []);
     })();
     return () => { dead = true; };
-  }, [job?.id, taskMsg]);
+  }, [job?.id, taskMsg, taskRefreshTick]);
 
   // ── SMS thread for this customer's phone ─────────────────────────────────
   const [smsMessages,    setSmsMessages]    = useState(null);
@@ -456,6 +458,17 @@ export default function TicketSheet({
       setTimeout(() => { try { onClose?.(); } catch (_) {} }, 650);
     } catch (e) { setTaskMsg(e.message || String(e)); }
     setSaving(false);
+  };
+
+  const markTaskDone = async (taskId) => {
+    try {
+      await supabase.from('notes').update({
+        lane: 'done',
+        done_at: new Date().toISOString(),
+        done_by: canonicalEmail(userEmail),
+      }).eq('id', taskId);
+      setTaskRefreshTick(t => t + 1);
+    } catch (e) { console.warn('markTaskDone failed:', e?.message || e); }
   };
 
   const assign = async (email) => {
@@ -1320,6 +1333,65 @@ export default function TicketSheet({
         {/* hideFieldNotes: FieldVisits above already renders time_entry notes
             as visit cards. Without this, the same note appears twice. */}
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly hideFieldNotes />
+
+      {openTasks.length > 0 && (
+        <div style={{ background: C.panel, borderRadius: 12, marginBottom: 14, overflow: 'hidden' }}>
+          <button onClick={() => setTasksOpen(o => !o)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                     padding: '11px 14px',
+                     background: 'none', border: 'none', borderBottom: tasksOpen ? `1px solid ${C.line}` : 'none',
+                     cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: 0.7 }}>
+              Tasks ({openTasks.length})
+            </span>
+            <span style={{ marginLeft: 'auto', color: '#475569', fontSize: 14 }}>
+              {tasksOpen ? '▾' : '▸'}
+            </span>
+          </button>
+          {tasksOpen && (
+            <div style={{ padding: '0 14px 2px' }}>
+              {openTasks.map(t => {
+                const assigneeName = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
+                const isDone = t.lane === 'done';
+                return (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10,
+                                           padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
+                    <button
+                      onClick={() => !isDone && markTaskDone(t.id)}
+                      style={{
+                        width: 20, height: 20, borderRadius: '50%', flexShrink: 0, marginTop: 2,
+                        background: isDone ? '#22c55e' : 'transparent',
+                        border: `2px solid ${isDone ? '#22c55e' : '#475569'}`,
+                        cursor: isDone ? 'default' : 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 10, color: '#fff', padding: 0,
+                      }}
+                    >
+                      {isDone ? '✓' : ''}
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: isDone ? C.dim : C.text,
+                                     textDecoration: isDone ? 'line-through' : 'none',
+                                     lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box',
+                                     WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                        {t.body}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
+                        {assigneeName}
+                        {isDone && (
+                          <span style={{ color: '#22c55e', marginLeft: 5 }}>
+                            · done{t.done_by ? ` by ${NAME_BY_EMAIL[canonicalEmail(t.done_by)] || t.done_by.split('@')[0]}` : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── SPAWN A TASK ────────────────────────────────────────────────
             An estimate that needs writing is not a stage of the job, it is a

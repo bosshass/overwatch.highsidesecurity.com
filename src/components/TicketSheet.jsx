@@ -1339,7 +1339,7 @@ export default function TicketSheet({
                   {openTasks.length
                     ? `${openTasks.length} already open · ${[...new Set(openTasks
                         .map(t => ASSIGNEES.find(a => a.email === t.assigned_to)?.name
-                                  || t.assigned_to))].join(', ')}${openTasks.some(t => t.lane === 'done') ? ' · needs OK' : ''}`
+                                  || t.assigned_to))].join(', ')}`
                     : 'Hand a piece of this to someone'}
                 </span>
               </span>

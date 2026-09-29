@@ -444,6 +444,15 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
         if (nErr) console.warn('merge: notes not moved', nErr.message);
       } catch (e) { console.warn('merge: notes not moved', e?.message || e); }
 
+      // 3c) THE HOURS COME TOO.
+      // time_entries.job_id was never updated on merge, leaving the dead job's
+      // hours orphaned — invisible in billing and field visits for the survivor.
+      try {
+        const { error: teErr } = await supabase.from('time_entries')
+          .update({ job_id: survivorId }).eq('job_id', job.id);
+        if (teErr) console.warn('merge: time entries not moved', teErr.message);
+      } catch (e) { console.warn('merge: time entries not moved', e?.message || e); }
+
       // 4) Mark this job dead, pointing at the survivor
       const { error } = await supabase.from('jobs').update({
         status: 'dead',

@@ -298,6 +298,7 @@ export default function TicketSheet({
   const [smsTick,        setSmsTick]        = useState(0);
   const [smsOpen,        setSmsOpen]        = useState(true);
   const [smsReplyPhone,  setSmsReplyPhone]  = useState(null);
+  const [sms,            setSms]            = useState(null);
 
   // Refresh unread count when another surface (MessagesView) marks texts read
   useEffect(() => {

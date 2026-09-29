@@ -303,7 +303,8 @@ export default function TicketSheet({
         .select('id, body, assigned_to, assigned_by, lane, handoff_to, created_at, done_at, done_by')
         .eq('job_id', job.id).eq('status', 'open')
         .not('assigned_to', 'is', null)
-        .order('created_at', { ascending: true });
+        .neq('lane', 'done')
+        .order('created_at', { ascending: false });
       if (!dead) setOpenTasks(data || []);
     })();
     return () => { dead = true; };
@@ -1352,38 +1353,27 @@ export default function TicketSheet({
             <div style={{ padding: '0 14px 2px' }}>
               {openTasks.map(t => {
                 const assigneeName = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
-                const isDone = t.lane === 'done';
                 return (
                   <div key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10,
                                            padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
                     <button
-                      onClick={() => !isDone && markTaskDone(t.id)}
+                      onClick={() => markTaskDone(t.id)}
                       style={{
                         width: 20, height: 20, borderRadius: '50%', flexShrink: 0, marginTop: 2,
-                        background: isDone ? '#22c55e' : 'transparent',
-                        border: `2px solid ${isDone ? '#22c55e' : '#475569'}`,
-                        cursor: isDone ? 'default' : 'pointer',
+                        background: 'transparent',
+                        border: `2px solid #475569`,
+                        cursor: 'pointer',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 10, color: '#fff', padding: 0,
                       }}
-                    >
-                      {isDone ? '✓' : ''}
-                    </button>
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: isDone ? C.dim : C.text,
-                                     textDecoration: isDone ? 'line-through' : 'none',
+                      <div style={{ fontSize: 13, color: C.text,
                                      lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box',
                                      WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                         {t.body}
                       </div>
-                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>
-                        {assigneeName}
-                        {isDone && (
-                          <span style={{ color: '#22c55e', marginLeft: 5 }}>
-                            · done{t.done_by ? ` by ${NAME_BY_EMAIL[canonicalEmail(t.done_by)] || t.done_by.split('@')[0]}` : ''}
-                          </span>
-                        )}
-                      </div>
+                      <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{assigneeName}</div>
                     </div>
                   </div>
                 );

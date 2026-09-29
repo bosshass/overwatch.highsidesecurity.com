@@ -703,6 +703,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
           {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>HIGH</span>}
           {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:800, padding:'2px 5px', borderRadius:3 }}>NO CLIENT</span>}
           {(job._taskCount || 0) > 0 && <span style={{ background:'#9b6cff20', color:'#c4a6ff', border:'1px solid #9b6cff44', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:99 }}>✓{job._taskCount}</span>}
+          {job._multipleJobs && <span title="Multiple open jobs for this customer" style={{ fontSize:13, lineHeight:1 }}>⚠️</span>}
           {unreadCount > 0 && <span style={{ background:'#14b8a6', color:'#04211e', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:99 }}>💬{unreadCount}</span>}
           {/* TEXT WITHOUT OPENING ANYTHING. The board is where the day gets
               scanned, and "tell them we're running late" should not require
@@ -1064,6 +1065,10 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
           }
         }
       }
+      const customerJobCount = {};
+      (data || []).forEach(j => {
+        if (j.customer_id) customerJobCount[j.customer_id] = (customerJobCount[j.customer_id] || 0) + 1;
+      });
       setJobs((data || []).map(j => ({
         ...j,
         last_note_at: lastNoteAt[j.id] || null,
@@ -1072,6 +1077,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
         _taskCount: taskCounts[j.id] || 0,
         return_reason: returnReasons[j.id] || null,
+        _multipleJobs: !!(j.customer_id && customerJobCount[j.customer_id] > 1),
       })));
       const j = data||[];
       setStats({

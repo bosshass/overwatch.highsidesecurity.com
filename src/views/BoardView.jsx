@@ -650,11 +650,17 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
 
   // Snippet priority:
   // 1. return_pending reason (what the tech is coming back to do)
-  // 2. last_note_text (most recent human note from job_history — status moves, typed notes)
-  // 3. issue (original problem description — fallback for brand-new cards with no history)
+  // 2. Most recent tech note from time_entries — what the tech actually found
+  // 3. jobs.issue for scheduled/ready_to_schedule — "what are we doing this visit"
+  // 4. last_note_text (job_history fallback for cards with no tech visits yet)
+  // 5. issue (original fallback for brand-new cards with no history at all)
   const snippet = (() => {
     if (job.status === 'return_pending' && job.return_reason)
       return { text: job.return_reason, color: '#fed7aa' };
+    if (job._lastTechNote)
+      return { text: job._lastTechNote, color: '#94a3b8' };
+    if (job.issue && ['scheduled', 'ready_to_schedule'].includes(job.status))
+      return { text: job.issue, color: '#cbd5e1' };
     if (job.last_note_text)
       return { text: job.last_note_text, color: '#94a3b8' };
     if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
@@ -1006,6 +1012,28 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
           });
         }
       }
+      // MOST RECENT TECH NOTE per job — the snippet the board card shows.
+      // Reads the latest time_entries.notes for each job so the card preview
+      // reflects what the tech actually found, not whatever got typed in
+      // job_history. Scheduled cards with no visits yet fall back to jobs.issue
+      // in the snippet logic below ("what are we doing").
+      const lastTechNotes = {};
+      {
+        const ids = (data || []).map(j => j.id);
+        if (ids.length) {
+          const { data: visits } = await supabase
+            .from('time_entries')
+            .select('job_id, notes, event_start, created_at')
+            .in('job_id', ids)
+            .not('notes', 'is', null)
+            .neq('notes', '')
+            .order('event_start', { ascending: false });
+          (visits || []).forEach(v => {
+            if (!lastTechNotes[v.job_id]) lastTechNotes[v.job_id] = v.notes;
+          });
+        }
+      }
+
       // RETURN TRIP BRIEF. return_pending cards need to surface what the tech
       // is coming back TO DO, not the original scope. Batch-fetch the latest
       // return_card for each return_pending job via original_event_id so the
@@ -1040,6 +1068,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         ...j,
         last_note_at: lastNoteAt[j.id] || null,
         last_note_text: lastNoteText[j.id] || null,
+        _lastTechNote: lastTechNotes[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
         _taskCount: taskCounts[j.id] || 0,
         return_reason: returnReasons[j.id] || null,

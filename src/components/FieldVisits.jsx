@@ -290,9 +290,13 @@ export default function FieldVisits({ job }) {
             </div>
           ))}
           {otherWithNotes.length > 10 && (
-            <div style={{ fontSize: 12, color: '#64748b' }}>
-              …and {otherWithNotes.length - 10} more. The full history is on the client record.
-            </div>
+            <button
+              onClick={() => window.location.assign(`/customers?customerId=${job.customer_id}`)}
+              style={{ background: 'none', border: 'none', padding: 0, fontSize: 12,
+                       color: '#00c8e8', cursor: 'pointer', textDecoration: 'underline',
+                       fontFamily: 'inherit' }}>
+              …and {otherWithNotes.length - 10} more — view full client history →
+            </button>
           )}
         </div>
       )}

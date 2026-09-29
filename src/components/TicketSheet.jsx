@@ -46,6 +46,22 @@ const C = {
 
 const SMS_IN_RE  = /^📲 Text from (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
 const SMS_OUT_RE = /^📱 Texted (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
+
+// Parse a human-written time string into decimal hours for the scheduler.
+// Handles "2h", "2.5h", "2 hours", "90 min", "half day", "full day", bare numbers.
+function parseEstHours(s) {
+  if (!s) return null;
+  const lower = s.toLowerCase().trim();
+  if (/half.?day/.test(lower)) return 4;
+  if (/full.?day/.test(lower)) return 8;
+  const hMatch = lower.match(/^(\d+\.?\d*)\s*h/);
+  if (hMatch) return parseFloat(hMatch[1]);
+  const mMatch = lower.match(/^(\d+\.?\d*)\s*m/);
+  if (mMatch) return Math.round(parseFloat(mMatch[1]) / 60 * 10) / 10;
+  const numMatch = lower.match(/^(\d+\.?\d*)$/);
+  if (numMatch) return parseFloat(numMatch[1]);
+  return null;
+}
 const fmtSmsTime = iso => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 const Row = ({ label, children }) => children == null || children === '' ? null : (
@@ -133,9 +149,6 @@ export default function TicketSheet({
   const [taskMsg, setTaskMsg]   = useState('');
   const [taskNext, setTaskNext] = useState('');   // handoff_to
   const [openTasks, setOpenTasks] = useState([]); // tasks already live on this job
-  // Tasks start collapsed — the count + "needs OK" badge conveys urgency without
-  // forcing the full task list on top of the job context.
-  const [tasksExpanded, setTasksExpanded] = useState(false);
 
   // ── Calendar event start (for appointment-time in client text templates) ────
   // Only fetched for jobs that have a scheduled calendar event; not on every
@@ -189,6 +202,7 @@ export default function TicketSheet({
   const [rcEdit, setRcEdit]               = useState(false);
   const [rcReason, setRcReason]           = useState('');
   const [rcMaterials, setRcMaterials]     = useState('');
+  const [rcEstTime, setRcEstTime]         = useState('');
   const [rcSaving, setRcSaving]           = useState(false);
   const [rcMsg, setRcMsg]                 = useState('');
 
@@ -242,10 +256,10 @@ export default function TicketSheet({
     try {
       if (returnCard?.id) {
         const { error } = await supabase.from('return_cards')
-          .update({ reason: rcReason.trim() || null, materials_needed: rcMaterials.trim() || null })
+          .update({ reason: rcReason.trim() || null, materials_needed: rcMaterials.trim() || null, estimated_time: rcEstTime.trim() || null })
           .eq('id', returnCard.id);
         if (error) throw error;
-        setReturnCard(rc => ({ ...rc, reason: rcReason.trim() || null, materials_needed: rcMaterials.trim() || null }));
+        setReturnCard(rc => ({ ...rc, reason: rcReason.trim() || null, materials_needed: rcMaterials.trim() || null, estimated_time: rcEstTime.trim() || null }));
       } else {
         const eventId = job.scheduled_event_id || job.calendar_event_id || job.tentative_event_id;
         const { data, error } = await supabase.from('return_cards').insert({
@@ -257,6 +271,7 @@ export default function TicketSheet({
           original_location:    job.customer_address || null,
           reason:               rcReason.trim() || null,
           materials_needed:     rcMaterials.trim() || null,
+          estimated_time:       rcEstTime.trim() || null,
           flagged_by_email:     userEmail || null,
           time_entry_id:        null,
         }).select('id, reason, materials_needed, estimated_time').single();
@@ -996,7 +1011,7 @@ export default function TicketSheet({
               </span>
               {!rcEdit && job.status === 'return_pending' && (
                 <button
-                  onClick={() => { setRcEdit(true); setRcReason(returnCard?.reason || ''); setRcMaterials(returnCard?.materials_needed || ''); setRcMsg(''); }}
+                  onClick={() => { setRcEdit(true); setRcReason(returnCard?.reason || ''); setRcMaterials(returnCard?.materials_needed || ''); setRcEstTime(returnCard?.estimated_time || ''); setRcMsg(''); }}
                   style={{ marginLeft: 'auto', background: 'transparent', border: 'none',
                            color: '#fb923c', fontSize: 12, fontWeight: 800,
                            cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
@@ -1018,7 +1033,14 @@ export default function TicketSheet({
                   style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
                            border: '1px solid #fb923c88', borderRadius: 8, color: '#e2e8f0',
                            padding: '9px 11px', fontSize: 13.5, lineHeight: 1.5,
-                           fontFamily: 'inherit', resize: 'vertical', outline: 'none', marginBottom: 8 }} />
+                           fontFamily: 'inherit', resize: 'vertical', outline: 'none', marginBottom: 6 }} />
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>How long should we plan on-site?</div>
+                <input value={rcEstTime} onChange={e => setRcEstTime(e.target.value)}
+                  placeholder="e.g. 2h, half day"
+                  style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                           border: '1px solid #fb923c88', borderRadius: 8, color: '#e2e8f0',
+                           padding: '9px 11px', fontSize: 13.5,
+                           fontFamily: 'inherit', outline: 'none', marginBottom: 8 }} />
                 <div style={{ display: 'flex', gap: 7 }}>
                   <button onClick={saveReturnCard} disabled={rcSaving}
                     style={{ flex: 2, background: '#fb923c', border: 'none', borderRadius: 8,
@@ -1049,10 +1071,13 @@ export default function TicketSheet({
                   </div>
                 )}
                 {returnCard.materials_needed && (
-                  <div style={{ fontSize: 13, color: '#fbbf24' }}>🔧 {returnCard.materials_needed}</div>
+                  <div style={{ fontSize: 13, color: '#fbbf24', marginBottom: returnCard.estimated_time ? 4 : 0 }}>🔧 {returnCard.materials_needed}</div>
                 )}
                 {returnCard.estimated_time && (
-                  <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 3 }}>⏱ {returnCard.estimated_time}</div>
+                  <div style={{ fontSize: 13, color: '#94a3b8', marginTop: returnCard.materials_needed ? 0 : 4 }}>
+                    <span style={{ fontWeight: 700, color: '#64748b', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 5 }}>Time needed</span>
+                    {returnCard.estimated_time}
+                  </div>
                 )}
                 {rcMsg && (
                   <div style={{ fontSize: 12, color: '#fb923c', marginTop: 6 }}>{rcMsg}</div>
@@ -1157,7 +1182,7 @@ export default function TicketSheet({
 
         {/* Scheduler as a primary action for schedulable statuses */}
         {onSchedulePrimary && (
-          <button onClick={() => onSchedulePrimary()}
+          <button onClick={() => onSchedulePrimary(parseEstHours(returnCard?.estimated_time))}
             style={{ width: '100%', background: '#8b5cf6', border: 'none', borderRadius: 12,
                      color: '#fff', fontWeight: 800, fontSize: 14, padding: '13px 0',
                      cursor: 'pointer', marginBottom: 14 }}>
@@ -1182,77 +1207,6 @@ export default function TicketSheet({
           </div>
         )}
 
-        {/* THIS CARD HAS TASKS ON IT. The job stays exactly where it is — a note
-          in New with a task hanging off it is a perfectly normal state — but
-          the card has to SAY so, or the only way to know somebody is already
-          working a piece of it is to open the composer and read the button. */}
-      {openTasks.length > 0 && (
-        <div style={{ background: '#1a1533', border: '1px solid #9b6cff66',
-                      borderRadius: 11, padding: '10px 13px', marginBottom: 14 }}>
-          <button onClick={() => setTasksExpanded(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                     width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                     padding: 0, marginBottom: tasksExpanded ? 9 : 0, fontFamily: 'inherit' }}>
-            <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.06em', color: '#c4a6ff' }}>
-              {openTasks.length === 1 ? 'TASK ON THIS JOB' : `${openTasks.length} TASKS ON THIS JOB`}
-              {!tasksExpanded && openTasks.some(t => t.lane === 'done') && (
-                <span style={{ marginLeft: 8, color: '#ef4444' }}>· needs OK</span>
-              )}
-            </span>
-            <span style={{ fontSize: 11, color: '#9b6cff', transform: tasksExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▼</span>
-          </button>
-          {tasksExpanded && openTasks.map(t => {
-            const owner = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
-            const asker = ASSIGNEES.find(a => a.email === t.assigned_by)?.name || t.assigned_by;
-            const days  = Math.floor((Date.now() - new Date(t.created_at).getTime()) / 86400000);
-            // Three states, three colours. 'done' means the doer finished and
-            // it is sitting with whoever asked — that is a prompt for the
-            // reader, not a closed item, so it is the loudest of the three.
-            const state = t.lane === 'done'
-              ? { label: 'SAYS DONE — needs your OK', color: '#c4a6ff' }
-              : t.lane === 'doing'
-                ? { label: 'ON IT', color: '#38bdf8' }
-                : { label: 'TO DO', color: '#94a3b8' };
-            return (
-              <div key={t.id} style={{ paddingTop: 8, marginTop: 8,
-                                       borderTop: '1px solid #9b6cff33' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13.5, color: '#e2e8f0', fontWeight: 800 }}>{owner}</span>
-                  <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: '0.05em',
-                                 color: state.color, border: `1px solid ${state.color}55`,
-                                 borderRadius: 5, padding: '2px 6px' }}>
-                    {state.label}
-                  </span>
-                  <span style={{ fontSize: 11.5, marginLeft: 'auto',
-                                 color: days >= 21 ? '#ef4444' : days >= 7 ? '#f59e0b' : C.muted }}>
-                    {days > 0 ? `${days}d` : 'today'}
-                  </span>
-                </div>
-                <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.45, marginTop: 3,
-                              whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                  {t.body || '(no detail)'}
-                </div>
-                {(asker || t.handoff_to) && (
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
-                    {asker ? `asked by ${asker}` : ''}
-                    {t.handoff_to ? ` · then → ${ASSIGNEES.find(a => a.email === t.handoff_to)?.name || t.handoff_to}` : ''}
-                  </div>
-                )}
-
-                <div style={{ marginTop: 8 }}>
-                  <TextButton
-                    to={PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null}
-                    name={ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to}
-                    internal={true} accessToken={accessToken}
-                    draft={draftForTask(t)}
-                    logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
         {/* ── WHERE NEXT — identical on every surface ── */}
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14,

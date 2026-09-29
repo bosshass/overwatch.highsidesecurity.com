@@ -444,6 +444,15 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
         if (nErr) console.warn('merge: notes not moved', nErr.message);
       } catch (e) { console.warn('merge: notes not moved', e?.message || e); }
 
+      // 3c) THE HOURS COME TOO.
+      // time_entries.job_id was never updated on merge, leaving the dead job's
+      // hours orphaned — invisible in billing and field visits for the survivor.
+      try {
+        const { error: teErr } = await supabase.from('time_entries')
+          .update({ job_id: survivorId }).eq('job_id', job.id);
+        if (teErr) console.warn('merge: time entries not moved', teErr.message);
+      } catch (e) { console.warn('merge: time entries not moved', e?.message || e); }
+
       // 4) Mark this job dead, pointing at the survivor
       const { error } = await supabase.from('jobs').update({
         status: 'dead',
@@ -559,7 +568,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           onOpenScheduler={() => onSchedule(job)}
           onSchedulePrimary={
             ['ready_to_schedule','return_pending','scheduled'].includes(job.status)
-              ? () => onSchedule(job) : null
+              ? (estHoursOverride) => onSchedule(job, estHoursOverride) : null
           }
           onMove={async (target, note, reason) => { await onStatusMove(job.id, target, note, reason); }}
           onAssigned={onAssigned}
@@ -641,14 +650,11 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
 
   // Snippet priority:
   // 1. return_pending reason (what the tech is coming back to do)
-  // 2. completion_notes (tech's visit summary — set on finish sheet)
-  // 3. last_note_text (last human-authored history note)
-  // 4. issue (original problem description — fallback when no visit yet)
+  // 2. last_note_text (most recent human note from job_history — status moves, typed notes)
+  // 3. issue (original problem description — fallback for brand-new cards with no history)
   const snippet = (() => {
     if (job.status === 'return_pending' && job.return_reason)
       return { text: job.return_reason, color: '#fed7aa' };
-    if (job.completion_notes)
-      return { text: job.completion_notes, color: '#94a3b8' };
     if (job.last_note_text)
       return { text: job.last_note_text, color: '#94a3b8' };
     if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
@@ -957,8 +963,9 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
       // actually changed. Re-stamping the same status with no note does not.
       const ids = (data || []).map(x => x.id);
 
-      // Auto-generated notes that add no value to the card snippet.
-      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job|🔀 Merged in duplicate)/i;
+      // Bookkeeping entries that add no value to the card snippet.
+      // Keep this in sync with isBookkeeping() in NotesPanel.jsx.
+      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job|🔀 Merged (in duplicate|into)|Marked as duplicate|Assigned to |Assignment email sent|Unassigned\b|Status changed|Moved (to|from) |Reconciled —|📌 TENTATIVELY|Merged \d+ loose time|Cleared from Billing)/i;
 
       // last_note_at = timestamp of the last real activity (status move or typed note) — for staleness.
       // last_note_text = text of the last human-authored note — for the card snippet.
@@ -1447,7 +1454,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
             setJobs(list => list.map(j => (j.id === updated.id ? { ...j, ...updated } : j)));
           }}
           onStatusMove={(jobId, verb, note, reason) => { moveStatus(jobId, verb, note, reason); setSelectedJob(null); }}
-          onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}
+          onSchedule={(job, estHoursOverride) => { setSelectedJob(null); setSchedulingJob(estHoursOverride ? { ...job, estimated_hours: estHoursOverride } : job); }}
           onClose={() => setSelectedJob(null)}
           onUUIDLinked={handleUUIDLinked}
           onMerge={handleMerge}

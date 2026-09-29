@@ -296,7 +296,7 @@ export default function TicketSheet({
   const [smsMessages,    setSmsMessages]    = useState(null);
   const [smsUnread,      setSmsUnread]      = useState(0);
   const [smsTick,        setSmsTick]        = useState(0);
-  const [smsOpen,        setSmsOpen]        = useState(true);
+  const [smsOpen,        setSmsOpen]        = useState(false);
   const [smsReplyPhone,  setSmsReplyPhone]  = useState(null);
   const [sms,            setSms]            = useState(null);
 
@@ -868,10 +868,8 @@ export default function TicketSheet({
                 💬 Messages ({smsMessages.length})
               </span>
               {smsUnread > 0 && (
-                <span style={{ background: '#14b8a6', color: '#04211e', fontSize: 10, fontWeight: 900,
-                               borderRadius: 99, padding: '2px 7px' }}>
-                  {smsUnread} unread
-                </span>
+                <span style={{ width: 8, height: 8, borderRadius: '50%',
+                               background: '#14b8a6', display: 'inline-block', flexShrink: 0 }} />
               )}
               <span style={{ marginLeft: 'auto', color: '#475569', fontSize: 14 }}>
                 {smsOpen ? '▾' : '▸'}

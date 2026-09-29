@@ -40,6 +40,7 @@ import FieldVisits from './FieldVisits.jsx';
 const C = {
   bg: '#0f1729', panel: '#16233a', raised: '#1b2b45', line: '#2a3b56',
   text: '#e9f1ff', muted: '#93a5bd', dim: '#64748b',
+  blue: '#3b82f6', amber: '#f59e0b',
 };
 
 const SMS_IN_RE  = /^📲 Text from (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
@@ -162,6 +163,23 @@ export default function TicketSheet({
   // parent to refetch. Null until something is saved here.
   const [issueLocal, setIssueLocal]   = useState(null);
   const [showMoves, setShowMoves] = useState(false);
+
+  // "Make a Note" — writes to the notes table with assigned_to=null.
+  // Invisible on the job card (TicketSheet filters to assigned_to != null).
+  // Visible in CustomerHistory (queries all notes by customer_id).
+  const [internalNoteOpen, setInternalNoteOpen]   = useState(false);
+  const [internalNoteText, setInternalNoteText]   = useState('');
+  const [internalNoteSaving, setInternalNoteSaving] = useState(false);
+  const [internalNoteMsg, setInternalNoteMsg]     = useState('');
+
+  // Inline editing of the on-site contact name and phone.
+  const [siteEdit, setSiteEdit]             = useState(false);
+  const [siteContactName, setSiteContactName] = useState('');
+  const [siteContactPhone, setSiteContactPhone] = useState('');
+  const [siteSaving, setSiteSaving]         = useState(false);
+  const [siteMsg, setSiteMsg]               = useState('');
+  const [siteLocalName, setSiteLocalName]   = useState(null);
+  const [siteLocalPhone, setSiteLocalPhone] = useState(null);
 
   // ── Return-trip plan (return_cards) ─────────────────────────────────
   // Fetched and shown prominently when status is return_pending so the tech
@@ -348,6 +366,8 @@ export default function TicketSheet({
   // boilerplate verbatim. Same rule here: if nothing real was written after
   // "Scope of Work:", there is nothing to show, and the box doesn't render.
   const cleanIssue = issueLocal !== null ? issueLocal : stripIntakeTemplate(job.issue);
+  const displaySiteName  = siteLocalName  !== null ? siteLocalName  : (job.site_contact_name  || '');
+  const displaySitePhone = siteLocalPhone !== null ? siteLocalPhone : (job.site_contact_phone || '');
 
   // ONE rule for who owns this, from ownership.js. The board card used to read
   // job.tech_name directly, which is why assigning somebody left the card
@@ -452,6 +472,44 @@ export default function TicketSheet({
     return [`${who} — ${ask}`.trim(), '', shortJobLink(job.id)].join('\n');
   };
 
+  const textTask = (t) => {
+    const phone = PHONE_BY_EMAIL[canonicalEmail(t.assigned_to)] || null;
+    const name  = ASSIGNEES.find(a => a.email === t.assigned_to)?.name || t.assigned_to;
+    if (sms?.key === `task:${t.id}`) { setSms(null); return; }
+    setSms({ key: `task:${t.id}`, to: phone, name, internal: true, draft: draftForTask(t) });
+  };
+
+  // fetchEventStart: on-demand fetch for appointment time (eventStart state is
+  // declared above via main's useEffect which auto-populates it). This fallback
+  // is only used by textClient when the auto-fetch hasn't resolved yet.
+  const fetchEventStart = async () => {
+    const eventId = job.scheduled_event_id || job.calendar_event_id;
+    const calId   = job.scheduled_calendar_id;
+    if (!accessToken || !eventId || !calId) return null;
+    try {
+      const r = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(eventId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!r.ok) return null;
+      const ev = await r.json();
+      return ev?.start?.dateTime || null;
+    } catch { return null; }
+  };
+
+  // Two numbers can be on a card and they are different people: the account
+  // holder, and whoever the tech actually meets on site (migration 047).
+  const textClient = async (which) => {
+    const isSite = which === 'site';
+    const to   = isSite ? displaySitePhone : job.customer_phone;
+    const name = isSite
+      ? (displaySiteName || 'the on-site contact')
+      : (job.customer_name || 'the client');
+    if (sms?.key === `client:${which}`) { setSms(null); return; }
+    const when = eventStart ?? await fetchEventStart();
+    if (when && !eventStart) setEventStart(when);
+    setSms({ key: `client:${which}`, to, name, internal: false, draft: '',
+             templates: clientTemplates({ when, scheduledDate: job.scheduled_date }) });
+  };
 
   // Save the issue, then mirror it to the calendar.
   //
@@ -500,6 +558,54 @@ export default function TicketSheet({
       setIssueMsg(`⚠ Could not save: ${e.message || e}`);
     } finally {
       setIssueSaving(false);
+    }
+  };
+
+  const saveSiteContact = async () => {
+    setSiteSaving(true);
+    setSiteMsg('');
+    try {
+      await jobsApi.update(job.id, {
+        site_contact_name:  siteContactName.trim() || null,
+        site_contact_phone: siteContactPhone.trim() || null,
+      }, userEmail);
+      const savedName  = siteContactName.trim() || null;
+      const savedPhone = siteContactPhone.trim() || null;
+      setSiteLocalName(savedName);
+      setSiteLocalPhone(savedPhone);
+      setSiteEdit(false);
+      onUpdated?.({ ...job, site_contact_name: savedName, site_contact_phone: savedPhone });
+      setSiteMsg('Saved.');
+      setTimeout(() => setSiteMsg(''), 2500);
+    } catch (e) {
+      setSiteMsg(`⚠ Could not save: ${e.message || e}`);
+    } finally {
+      setSiteSaving(false);
+    }
+  };
+
+  const saveInternalNote = async () => {
+    const body = internalNoteText.trim();
+    if (!body) return;
+    setInternalNoteSaving(true); setInternalNoteMsg('');
+    try {
+      const { error } = await supabase.from('notes').insert({
+        body,
+        job_id: job.id,
+        customer_id: job.customer_id || null,
+        author_email: canonicalEmail(userEmail),
+        assigned_to: null,
+        lane: 'todo',
+        status: 'open',
+      });
+      if (error) throw error;
+      setInternalNoteText(''); setInternalNoteOpen(false);
+      setInternalNoteMsg('Saved — visible in client search, not on this card.');
+      setTimeout(() => setInternalNoteMsg(''), 3500);
+    } catch (e) {
+      setInternalNoteMsg(`⚠ ${e.message || e}`);
+    } finally {
+      setInternalNoteSaving(false);
     }
   };
 
@@ -646,16 +752,86 @@ export default function TicketSheet({
               }}
             />
           </Row>
-          {job.site_contact_phone && (
-            <Row label="On site">
-              {job.site_contact_name || 'contact'} · {job.site_contact_phone}
-              <TextButton to={job.site_contact_phone}
-                name={job.site_contact_name || 'on-site contact'}
-                internal={false} accessToken={accessToken} size="sm"
-                templates={clientTemplates({ when: eventStart, scheduledDate: job.scheduled_date })}
+          {siteEdit ? (
+            <div style={{ padding: '7px 0' }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <span style={{ color: C.muted, minWidth: 110, flexShrink: 0, fontSize: 13, paddingTop: 7 }}>On site</span>
+                <div style={{ flex: 1 }}>
+                  <input value={siteContactName} onChange={e => setSiteContactName(e.target.value)}
+                    placeholder="Contact name (optional)"
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                             border: `1px solid ${C.line}`, borderRadius: 6, color: C.text,
+                             padding: '6px 9px', fontSize: 13, fontFamily: 'inherit',
+                             outline: 'none', marginBottom: 5 }} />
+                  <input value={siteContactPhone} onChange={e => setSiteContactPhone(e.target.value)}
+                    placeholder="Phone number" type="tel"
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
+                             border: `1px solid ${C.line}`, borderRadius: 6, color: C.text,
+                             padding: '6px 9px', fontSize: 13, fontFamily: 'inherit',
+                             outline: 'none' }} />
+                  <div style={{ display: 'flex', gap: 7, marginTop: 7 }}>
+                    <button onClick={saveSiteContact} disabled={siteSaving}
+                      style={{ flex: 2, background: C.blue, border: 'none', borderRadius: 7,
+                               padding: '7px 0', color: '#04121f', fontSize: 12.5, fontWeight: 800,
+                               cursor: siteSaving ? 'default' : 'pointer', fontFamily: 'inherit',
+                               opacity: siteSaving ? 0.6 : 1 }}>
+                      {siteSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => { setSiteEdit(false); setSiteMsg(''); }} disabled={siteSaving}
+                      style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
+                               borderRadius: 7, padding: '7px 0', color: C.muted, fontSize: 12.5,
+                               fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Cancel
+                    </button>
+                  </div>
+                  {siteMsg && (
+                    <div style={{ fontSize: 12, color: siteMsg.startsWith('⚠') ? C.amber : C.muted, marginTop: 6 }}>
+                      {siteMsg}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 12, padding: '7px 0', fontSize: 13, alignItems: 'center' }}>
+              <span style={{ color: C.muted, minWidth: 110, flexShrink: 0 }}>On site</span>
+              <span style={{ color: C.text, flex: 1, minWidth: 0 }}>
+                {displaySitePhone ? (
+                  <>
+                    {displaySiteName || 'contact'} · {displaySitePhone}
+                    <button onClick={() => textClient('site')}
+                      style={{ marginLeft: 9, background: sms?.key === 'client:site' ? '#9b6cff' : 'transparent',
+                               border: '1px solid #9b6cff66', borderRadius: 7,
+                               color: sms?.key === 'client:site' ? '#08121f' : '#c4a6ff',
+                               fontSize: 11.5, fontWeight: 800, padding: '4px 10px',
+                               cursor: 'pointer', fontFamily: 'inherit' }}>
+                      📱 Text
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ color: C.dim }}>—</span>
+                )}
+              </span>
+              <button
+                onClick={() => { setSiteEdit(true); setSiteContactName(displaySiteName); setSiteContactPhone(displaySitePhone); setSiteMsg(''); }}
+                style={{ background: 'transparent', border: 'none', color: C.blue,
+                         fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                         fontFamily: 'inherit', padding: 0, flexShrink: 0 }}>
+                {displaySitePhone ? 'Edit' : 'Add'}
+              </button>
+            </div>
+          )}
+          {sms?.key?.startsWith('client:') && (
+            <div style={{ padding: '4px 0 10px' }}>
+              <SmsComposer
+                key={sms.key}
+                to={sms.to} name={sms.name} internal={sms.internal}
+                draft={sms.draft} templates={sms.templates} accessToken={accessToken}
                 logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
-                style={{ marginLeft: 9 }} />
-            </Row>
+                onSent={() => setTimeout(() => setSms(null), 2600)}
+                onCancel={() => setSms(null)}
+              />
+            </div>
           )}
           <Row label="Tech on site">{job.tech_name}</Row>{/* physical presence, NOT ownership — see the Assigned to block */}
           <Row label="Scheduled">{job.scheduled_date
@@ -1300,6 +1476,66 @@ export default function TicketSheet({
             </div>
           )}
           {taskMsg && <div style={{ fontSize: 12.5, color: '#93c5fd', marginTop: 9 }}>{taskMsg}</div>}
+        </div>
+
+        {/* ── MAKE A NOTE — office-only, invisible on this card ───────────
+            Writes to the notes table with assigned_to=null. TicketSheet's
+            task query filters to assigned_to != null, so this note never
+            appears here. CustomerHistory queries all notes by customer_id,
+            so it shows there — next to every other account touch. ── */}
+        <div style={{ marginBottom: 14 }}>
+          {!internalNoteOpen ? (
+            <button onClick={() => { setInternalNoteOpen(true); setInternalNoteMsg(''); }}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
+                       background: 'transparent', border: `1px dashed ${C.line}`,
+                       color: C.muted, fontSize: 14, fontWeight: 700,
+                       fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>🗒️</span>
+              <span style={{ flex: 1, textAlign: 'left' }}>
+                <span style={{ display: 'block' }}>Make a note</span>
+                <span style={{ display: 'block', fontSize: 11.5, fontWeight: 500, opacity: 0.65, marginTop: 1 }}>
+                  Only visible in client search — not shown in the field
+                </span>
+              </span>
+            </button>
+          ) : (
+            <div style={{ background: C.panel, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            color: C.muted, marginBottom: 8 }}>
+                Internal note · client search only
+              </div>
+              <textarea
+                value={internalNoteText}
+                onChange={e => setInternalNoteText(e.target.value)}
+                rows={3} autoFocus
+                placeholder="Only the office sees this — not on the job card, not synced to the calendar."
+                style={{ width: '100%', boxSizing: 'border-box', background: C.bg,
+                         border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
+                         padding: '9px 11px', fontSize: 14, lineHeight: 1.5,
+                         fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+              <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                <button onClick={saveInternalNote} disabled={internalNoteSaving || !internalNoteText.trim()}
+                  style={{ flex: 2, background: '#1e3a5f', border: '1px solid #3b82f6',
+                           borderRadius: 8, padding: '9px 0', color: '#93c5fd', fontSize: 13,
+                           fontWeight: 800, cursor: internalNoteSaving ? 'default' : 'pointer',
+                           fontFamily: 'inherit', opacity: internalNoteSaving || !internalNoteText.trim() ? 0.55 : 1 }}>
+                  {internalNoteSaving ? 'Saving…' : 'Save note'}
+                </button>
+                <button onClick={() => { setInternalNoteOpen(false); setInternalNoteText(''); setInternalNoteMsg(''); }}
+                  style={{ flex: 1, background: 'transparent', border: `1px solid ${C.line}`,
+                           borderRadius: 8, padding: '9px 0', color: C.muted, fontSize: 13,
+                           fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {internalNoteMsg && (
+            <div style={{ fontSize: 12, marginTop: 6,
+                          color: internalNoteMsg.startsWith('⚠') ? C.amber : C.muted }}>
+              {internalNoteMsg}
+            </div>
+          )}
         </div>
 
         {/* ── Surface-specific tools (merge, UUID link) — deliberately LAST.

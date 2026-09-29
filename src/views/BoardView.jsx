@@ -926,7 +926,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
   }, []);
 
   // Unread inbound texts per job — drives the 💬 badge on board cards.
-  // Re-runs when jobs load and every 90s (matching the App.jsx badge interval).
+  // Realtime subscription fires immediately on insert; 30s polling is the fallback.
   useEffect(() => {
     let dead = false;
     const tick = async () => {
@@ -944,9 +944,18 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
       } catch { /* badge is non-critical */ }
     };
     tick();
-    const t = setInterval(tick, 90000);
+    const t = setInterval(tick, 30000);
     window.addEventListener('task-skips-changed', tick);
-    return () => { dead = true; clearInterval(t); window.removeEventListener('task-skips-changed', tick); };
+    const ch = supabase.channel('inbound-texts-board')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notes' }, payload => {
+        const b = payload.new?.body || '';
+        if (b.startsWith('📲 Text from') && payload.new?.status === 'open' && payload.new?.job_id) tick();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notes' }, payload => {
+        if ((payload.new?.read_at && !payload.old?.read_at) || payload.new?.status !== payload.old?.status) tick();
+      })
+      .subscribe();
+    return () => { dead = true; clearInterval(t); window.removeEventListener('task-skips-changed', tick); supabase.removeChannel(ch); };
   }, []);
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''), 2400); };

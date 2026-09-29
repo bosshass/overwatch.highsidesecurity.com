@@ -255,12 +255,13 @@ export default async function handler(req, res) {
       }
 
       // Attach to their most recent live job so the reply lands next to the
-      // work it is about, not just on the customer.
+      // work it is about, not just on the customer. Include 'complete' because
+      // the board shows complete jobs and customers reply about them.
       if (customer?.id && !jobId) {
         const { data: recent } = await admin
           .from('jobs').select('id')
           .eq('customer_id', customer.id)
-          .not('status', 'in', '(dead,archived,lost,billed,complete)')
+          .not('status', 'in', '(dead,archived,lost,billed)')
           .order('created_at', { ascending: false }).limit(1);
         jobId = recent?.[0]?.id || null;
       }

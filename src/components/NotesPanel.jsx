@@ -102,7 +102,9 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             || /^Moved (to|from) /i.test(x)
             || /^Reconciled —/i.test(x)
             || /^📌 TENTATIVELY assigned/i.test(x)
-            || /^📅\s*RECAP:/i.test(x);
+            || /^📅\s*RECAP:/i.test(x)
+            || /^Merged \d+ loose time/i.test(x)
+            || /^Cleared from Billing\s*[—–]/i.test(x);
       };
 
       // Merge entries are pure internal plumbing — never shown anywhere in the UI,

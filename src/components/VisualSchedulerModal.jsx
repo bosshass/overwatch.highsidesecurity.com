@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabase.js';
 import { book, hold, linkToEvent, bookExtraDay } from '../services/schedule.js';
+import { syncIssueToEvents } from '../services/calendarSync.js';
 import { CALENDARS } from '../config/calendars.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -73,6 +74,9 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const [notifyTech, setNotifyTech] = useState(true);
   const [holdStart, setHoldStart] = useState('09:00');
   const [holdEnd, setHoldEnd]     = useState('17:00');
+  const [issueText, setIssueText] = useState(job?.issue || '');
+  const [issueEditing, setIssueEditing] = useState(false);
+  const [issueSaving, setIssueSaving] = useState(false);
   // Which tech's calendar is OPEN. Every tech's six-week grid used to render
   // stacked — six people × 42 days is a wall of squares you have to scroll past
   // to reach the buttons. Pick a person, then see their calendar.
@@ -372,12 +376,52 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
       <div style={{ background: '#1e293b', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 640, padding: '20px 20px 32px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div>
-            <div style={{ color: '#fff', fontSize: 17, fontWeight: 700 }}>📅 Schedule</div>
-            <div style={{ color: '#94a3b8', fontSize: 13 }}>{job.customer_name}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+          <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+            <div style={{ color: '#fff', fontSize: 17, fontWeight: 700, marginBottom: 2 }}>📅 Schedule</div>
+            <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 10 }}>{job.customer_name}</div>
+            <div style={{ background: '#0f1729', border: '1px solid #334155', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: issueEditing ? 6 : 4 }}>
+                <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>Issue</span>
+                <button onClick={() => { setIssueEditing(e => !e); if (issueEditing) setIssueText(job?.issue || ''); }}
+                  style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 11, padding: 0 }}>
+                  {issueEditing ? 'cancel' : 'edit'}
+                </button>
+              </div>
+              {issueEditing ? (
+                <>
+                  <textarea value={issueText} onChange={e => setIssueText(e.target.value)}
+                    rows={3}
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#0b1420',
+                             border: '1px solid #475569', borderRadius: 6, color: '#e2e8f0',
+                             padding: '7px 9px', fontSize: 13, fontFamily: 'inherit',
+                             outline: 'none', resize: 'vertical' }} />
+                  <button
+                    disabled={issueSaving}
+                    onClick={async () => {
+                      setIssueSaving(true);
+                      try {
+                        await supabase.from('jobs').update({ issue: issueText.trim() || null }).eq('id', job.id);
+                        if (accessToken) {
+                          try { await syncIssueToEvents(accessToken, { ...job, issue: issueText.trim() }, issueText.trim()); } catch (_) {}
+                        }
+                        setIssueEditing(false);
+                      } catch (_) {}
+                      setIssueSaving(false);
+                    }}
+                    style={{ marginTop: 6, background: '#3b82f6', border: 'none', borderRadius: 6,
+                             color: '#fff', padding: '6px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                    {issueSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: issueText ? '#e2e8f0' : '#475569', fontStyle: issueText ? 'normal' : 'italic' }}>
+                  {issueText || 'No issue description — tap edit to add one'}
+                </div>
+              )}
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: 20, cursor: 'pointer', flexShrink: 0, marginTop: 2 }}>✕</button>
         </div>
 
         {loading ? (

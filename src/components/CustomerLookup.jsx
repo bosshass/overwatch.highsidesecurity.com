@@ -14,6 +14,7 @@
 // Parent passes: event, accessToken, value (linked customer or null), onChange
 
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { customersApi, timeEntriesApi, supabase } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
@@ -75,6 +76,7 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const navigate = useNavigate();
   const cleanTitle = useMemo(() => cleanEventTitle(event?.title), [event]);
 
   // ── 1. Auto-match on mount ─────────────────────────────────
@@ -244,157 +246,159 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
 
   // ── render ──────────────────────────────────────────────────
   return (
-    <div style={{
-      background: value ? '#f0fdf4' : '#fef3c7',
-      border: `1px solid ${value ? '#86efac' : '#fcd34d'}`,
-      borderRadius: 10,
-      padding: 12,
-      marginBottom: 14,
-    }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: 8,
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>
-          Customer {value ? <span style={{ color: '#16a34a' }}>✓ linked</span> : <span style={{ color: '#b45309' }}>· required</span>}
-        </div>
-        {loading && <div style={{ fontSize: 11, color: '#9ca3af' }}>Looking up...</div>}
-      </div>
-
-      {/* LINKED STATE */}
+    <>
+      {/* LINKED STATE — compact linked text */}
       {value && (
-        <>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#14532d' }}>
+        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Customer</span>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate(`/customers?customerId=${value.id}`)}
+            onKeyDown={e => e.key === 'Enter' && navigate(`/customers?customerId=${value.id}`)}
+            style={{ color: '#16a34a', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+          >
             {value.name}
-            {value.drh_id && <span style={{ marginLeft: 8, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>{value.drh_id}</span>}
-          </div>
-          <div style={{ fontSize: 12, color: '#4b5563', marginTop: 2 }}>
-            {value.phone && <span>📞 {value.phone}</span>}
-            {value.phone && value.address && <span> · </span>}
-            {value.address && <span>📍 {value.address}</span>}
-          </div>
-
+            {value.drh_id && <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 400, color: '#6b7280' }}>{value.drh_id}</span>}
+          </span>
           {history.length > 0 && (
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #bbf7d0' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', marginBottom: 4 }}>
-                Recent visits
-              </div>
-              {history.map(h => (
-                <div key={h.id} style={{ fontSize: 12, color: '#4b5563', padding: '2px 0' }}>
-                  {fmtDate(h.created_at)} · {h.tech_name || 'Tech'} · {fmtMinutes(h.total_minutes)}
-                  {h.disposition === 'bill_it' && !h.billed && <span style={{ marginLeft: 6, color: '#d97706', fontSize: 10 }}>unbilled</span>}
-                </div>
-              ))}
-            </div>
+            <span style={{ color: '#9ca3af', fontSize: 11 }}>
+              · {history.length} past visit{history.length !== 1 ? 's' : ''}
+            </span>
           )}
-
           <button type="button" onClick={unlink}
-            style={{
-              marginTop: 10, padding: '6px 10px', background: 'none',
-              border: '1px solid #86efac', borderRadius: 6, color: '#15803d',
-              fontSize: 11, cursor: 'pointer',
-            }}>
-            Change customer
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#9ca3af', fontSize: 11, cursor: 'pointer', padding: 0 }}>
+            change
           </button>
-        </>
+        </div>
       )}
 
-      {/* NOT LINKED — search mode */}
-      {!value && mode !== 'creating' && (
-        <>
-          <input
-            value={query}
-            onChange={e => runSearch(e.target.value)}
-            placeholder={`Search customers (tried "${cleanTitle}")`}
-            autoFocus={mode === 'searching'}
-            style={{
-              width: '100%', padding: '10px', border: '1px solid #d1d5db',
-              borderRadius: 8, fontSize: 13, marginBottom: 8, boxSizing: 'border-box',
-              background: '#fff', color: '#1B2A4A',
-            }}
-          />
-          {results.length > 0 && (
-            <div style={{ maxHeight: 160, overflowY: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-              {results.map(c => (
-                <button
-                  key={c.id} type="button" onClick={() => link(c)} disabled={saving}
-                  style={{
-                    display: 'block', width: '100%', textAlign: 'left',
-                    padding: '8px 10px', background: '#fff', border: 'none',
-                    borderBottom: '1px solid #f3f4f6', cursor: 'pointer', fontSize: 13,
-                  }}
-                >
-                  <div style={{ fontWeight: 600, color: '#1B2A4A' }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>
-                    {c.phone && <span>{c.phone}</span>}
-                    {c.phone && c.address && <span> · </span>}
-                    {c.address && <span>{c.address.split(',')[0]}</span>}
-                  </div>
+      {/* NOT LINKED */}
+      {!value && (
+        <div style={{
+          background: '#fef3c7',
+          border: '1px solid #fcd34d',
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 14,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#b45309', textTransform: 'uppercase' }}>
+              Customer · required
+            </div>
+            {loading && <div style={{ fontSize: 11, color: '#9ca3af' }}>Looking up...</div>}
+          </div>
+
+          {mode === 'idle' && (
+            <button type="button" onClick={() => setMode('searching')}
+              style={{
+                width: '100%', padding: '10px 12px', background: '#fff',
+                border: '1px solid #fcd34d', borderRadius: 8, color: '#b45309',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left',
+              }}>
+              🔍 Find customer
+            </button>
+          )}
+
+          {mode === 'searching' && (
+            <>
+              <input
+                value={query}
+                onChange={e => runSearch(e.target.value)}
+                placeholder={`Search customers (tried "${cleanTitle}")`}
+                autoFocus
+                style={{
+                  width: '100%', padding: '10px', border: '1px solid #d1d5db',
+                  borderRadius: 8, fontSize: 13, marginBottom: 8, boxSizing: 'border-box',
+                  background: '#fff', color: '#1B2A4A',
+                }}
+              />
+              {results.length > 0 && (
+                <div style={{ maxHeight: 160, overflowY: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                  {results.map(c => (
+                    <button
+                      key={c.id} type="button" onClick={() => link(c)} disabled={saving}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '8px 10px', background: '#fff', border: 'none',
+                        borderBottom: '1px solid #f3f4f6', cursor: 'pointer', fontSize: 13,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: '#1B2A4A' }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>
+                        {c.phone && <span>{c.phone}</span>}
+                        {c.phone && c.address && <span> · </span>}
+                        {c.address && <span>{c.address.split(',')[0]}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {mode !== 'creating' && (
+            <button type="button" onClick={() => setMode('creating')}
+              style={{
+                marginTop: 8, padding: '8px 12px', background: '#fff',
+                border: '1px dashed #d97706', borderRadius: 8, color: '#b45309',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%',
+              }}>
+              + Add new customer (not in DB)
+            </button>
+          )}
+
+          {mode === 'creating' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                value={createForm.name}
+                onChange={e => setCreateForm({ ...createForm, name: e.target.value })}
+                placeholder="Name (required)"
+                autoFocus
+                style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
+              />
+              <input
+                value={createForm.phone}
+                onChange={e => setCreateForm({ ...createForm, phone: e.target.value })}
+                placeholder="Phone (optional)"
+                style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
+              />
+              <input
+                value={createForm.address}
+                onChange={e => setCreateForm({ ...createForm, address: e.target.value })}
+                placeholder="Address (optional)"
+                style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
+              />
+              <input
+                value={createForm.email}
+                onChange={e => setCreateForm({ ...createForm, email: e.target.value })}
+                placeholder="Email (optional)"
+                style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button type="button" onClick={() => setMode('idle')} disabled={saving}
+                  style={{ flex: 1, padding: 10, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                  Cancel
                 </button>
-              ))}
+                <button type="button" onClick={submitCreate} disabled={saving || !createForm.name.trim()}
+                  style={{
+                    flex: 2, padding: 10, background: '#d97706', color: '#fff',
+                    border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+                  }}>
+                  {saving ? 'Saving...' : 'Save & link'}
+                </button>
+              </div>
             </div>
           )}
-          <button type="button" onClick={() => setMode('creating')}
-            style={{
-              marginTop: 8, padding: '8px 12px', background: '#fff',
-              border: '1px dashed #d97706', borderRadius: 8, color: '#b45309',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer', width: '100%',
-            }}>
-            + Add new customer (not in DB)
-          </button>
-        </>
-      )}
 
-      {/* NOT LINKED — create mode */}
-      {!value && mode === 'creating' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input
-            value={createForm.name}
-            onChange={e => setCreateForm({ ...createForm, name: e.target.value })}
-            placeholder="Name (required)"
-            autoFocus
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
-          />
-          <input
-            value={createForm.phone}
-            onChange={e => setCreateForm({ ...createForm, phone: e.target.value })}
-            placeholder="Phone (optional)"
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
-          />
-          <input
-            value={createForm.address}
-            onChange={e => setCreateForm({ ...createForm, address: e.target.value })}
-            placeholder="Address (optional)"
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
-          />
-          <input
-            value={createForm.email}
-            onChange={e => setCreateForm({ ...createForm, email: e.target.value })}
-            placeholder="Email (optional)"
-            style={{ padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', color: '#1B2A4A' }}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button type="button" onClick={() => setMode('idle')} disabled={saving}
-              style={{ flex: 1, padding: 10, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
-              Cancel
-            </button>
-            <button type="button" onClick={submitCreate} disabled={saving || !createForm.name.trim()}
-              style={{
-                flex: 2, padding: 10, background: '#d97706', color: '#fff',
-                border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
-              }}>
-              {saving ? 'Saving...' : 'Save & link'}
-            </button>
-          </div>
+          {error && (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#b91c1c' }}>
+              {error}
+            </div>
+          )}
         </div>
       )}
-
-      {error && (
-        <div style={{ marginTop: 8, fontSize: 11, color: '#b91c1c' }}>
-          {error}
-        </div>
-      )}
-    </div>
+    </>
   );
 }

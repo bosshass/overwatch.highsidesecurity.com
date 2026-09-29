@@ -696,6 +696,7 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
           {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>URGENT</span>}
           {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>HIGH</span>}
           {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:800, padding:'2px 5px', borderRadius:3 }}>NO CLIENT</span>}
+          {(job._taskCount || 0) > 0 && <span style={{ background:'#9b6cff20', color:'#c4a6ff', border:'1px solid #9b6cff44', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:99 }}>✓{job._taskCount}</span>}
           {unreadCount > 0 && <span style={{ background:'#14b8a6', color:'#04211e', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:99 }}>💬{unreadCount}</span>}
           {/* TEXT WITHOUT OPENING ANYTHING. The board is where the day gets
               scanned, and "tell them we're running late" should not require
@@ -991,15 +992,17 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
       // task hanging off it — that is a normal state, not a problem — but the
       // board showed it identically to a card nobody has touched.
       const taskOwners = {};
+      const taskCounts = {};
       {
         const ids = (data || []).map(j => j.id);
         if (ids.length) {
           const { data: tasks } = await supabase.from('notes')
-            .select('job_id, assigned_to')
+            .select('job_id, assigned_to, lane')
             .in('job_id', ids).eq('status', 'open').not('assigned_to', 'is', null);
           (tasks || []).forEach(t => {
             const who = NAME_BY_EMAIL[canonicalEmail(t.assigned_to)] || t.assigned_to;
             (taskOwners[t.job_id] ||= new Set()).add(who);
+            if (t.lane !== 'done') taskCounts[t.job_id] = (taskCounts[t.job_id] || 0) + 1;
           });
         }
       }
@@ -1038,6 +1041,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         last_note_at: lastNoteAt[j.id] || null,
         last_note_text: lastNoteText[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
+        _taskCount: taskCounts[j.id] || 0,
         return_reason: returnReasons[j.id] || null,
       })));
       const j = data||[];

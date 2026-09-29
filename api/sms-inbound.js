@@ -44,6 +44,7 @@ const STAFF_BY_PHONE = {
   '+18087474948': { name: 'Shana',  email: 'shanaparks@drhsecurityservices.com' },
   '+18088541757': { name: 'JR',     email: 'jr@drhsecurityservices.com' },
   '+17207500063': { name: 'Sara',   email: 'admin@jnbservice.com' },
+  '+13372800021': { name: 'Austin', email: 'austin@drhsecurityservices.com' },
 };
 
 // Last 10 digits — the only comparison that survives the six ways a phone
@@ -161,12 +162,76 @@ export default async function handler(req, res) {
   const digits = last10(from);
 
   // Staff first: a reply from a tech is an internal note, not a client touch.
-  const staff = STAFF_BY_PHONE[from] || Object.entries(STAFF_BY_PHONE)
-    .find(([num]) => last10(num) === digits)?.[1];
+  // The static map covers the numbers already known; the techs table is the
+  // fallback so Austin, Trevor, Brian etc. resolve correctly without a code
+  // change every time someone's number is added or changes.
+  let staff = STAFF_BY_PHONE[from] || Object.entries(STAFF_BY_PHONE)
+    .find(([num]) => last10(num) === digits)?.[1] || null;
+
+  if (!staff && admin && digits) {
+    try {
+      const { data: techRows } = await admin
+        .from('techs')
+        .select('name, email, phone')
+        .not('phone', 'is', null)
+        .eq('is_active', true);
+      const hit = (techRows || []).find(t => last10(t.phone) === digits);
+      if (hit) staff = { name: hit.name, email: hit.email };
+    } catch (e) { console.warn('sms-inbound: techs phone lookup failed', e?.message || e); }
+  }
 
   try {
     let customer = null;
     let jobId = null;
+
+    if (staff) {
+      // A reply from a tech. File it on the SAME job the outgoing text to this
+      // number was about — that is the job the tech is replying about, and it is
+      // already on the outgoing note. Guessing "their next scheduled job" was the
+      // bug: a text about job #123 landed on job #456 because that happened to be
+      // next on the schedule, making the reply invisible in the thread it belonged to.
+      try {
+        const { data: lastOut } = await admin
+          .from('notes')
+          .select('job_id, customer_id, author_email')
+          .like('body', `%(${from})%`)
+          .not('author_email', 'is', null)
+          .not('job_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (lastOut?.[0]) {
+          jobId = lastOut[0].job_id;
+        }
+      } catch (e) { console.warn('sms-inbound: staff outgoing-note lookup failed', e?.message || e); }
+
+      // Nothing outgoing found (unprompted text from tech) — fall back to
+      // their nearest scheduled job so it still lands somewhere useful.
+      if (!jobId) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        try {
+          const { data: upcoming } = await admin
+            .from('jobs')
+            .select('id, customer_name, scheduled_date')
+            .ilike('tech_name', `%${staff.name}%`)
+            .in('status', ['scheduled', 'in_progress'])
+            .gte('scheduled_date', today.toISOString().slice(0, 10))
+            .order('scheduled_date', { ascending: true })
+            .limit(1);
+          jobId = upcoming?.[0]?.id || null;
+          if (!jobId) {
+            const { data: recent } = await admin
+              .from('jobs')
+              .select('id')
+              .ilike('tech_name', `%${staff.name}%`)
+              .not('status', 'in', '(dead,archived,lost,billed,complete)')
+              .order('updated_at', { ascending: false })
+              .limit(1);
+            jobId = recent?.[0]?.id || null;
+          }
+        } catch (e) { console.warn('sms-inbound: staff job fallback failed', e?.message || e); }
+      }
+    }
 
     if (!staff && digits) {
       // Match on the last 10 digits, in memory. Postgres cannot index a
@@ -236,7 +301,7 @@ export default async function handler(req, res) {
       author_email: staff?.email || null,
       assigned_to: owner || FALLBACK_OWNER,
       assigned_by: null,          // the system handed this over, not a person
-      lane: 'todo',
+      lane: null,
       // OPEN, deliberately. An inbound message is a person waiting on an
       // answer. Filing it archived would make the inbox tidy and the client
       // ignored.
@@ -244,6 +309,35 @@ export default async function handler(req, res) {
       on_customer_record: !staff && !!customer?.id,
       created_at: when,
     });
+
+    // ── YES / NO AUTO-DETECTION (client replies only) ──────────────────────
+    // When a customer replies YES or NO to a confirmation text and we know
+    // which job it is about, log a second archived note on that job so the
+    // appointment status is visible in TicketSheet without having to open
+    // the full message thread.  Staff replies (JR: "👍 on my way") are
+    // intentionally excluded — they are not confirming an appointment.
+    if (!staff && jobId) {
+      const bare = body.toLowerCase().replace(/[^a-z]/g, '');
+      const isYes = ['yes','y','yep','yeah','confirm','confirmed','ok','okay'].includes(bare);
+      const isNo  = ['no','n','nope','cant','cannot','reschedule'].includes(bare);
+      if (isYes || isNo) {
+        try {
+          await admin.from('notes').insert({
+            body: isYes
+              ? `✅ ${who} confirmed the appointment (auto-detected — they replied "${body}")`
+              : `⚠️ ${who} cannot make it (auto-detected — they replied "${body}"). Call to reschedule.`,
+            customer_id: customer?.id || null,
+            job_id: jobId,
+            author_email: null,         // system-generated
+            assigned_to: owner || FALLBACK_OWNER,
+            lane: 'note',
+            status: 'open',             // keep it open so it surfaces in Tasks
+            on_customer_record: !!customer?.id,
+            created_at: when,
+          });
+        } catch (e) { console.warn('sms-inbound: yes/no auto-note failed', e?.message || e); }
+      }
+    }
   } catch (e) {
     // Never 500 at Twilio — it retries, and a retry storm would file the same
     // message repeatedly. Log it and acknowledge.

@@ -23,21 +23,14 @@
 export const ASSIGNEES = [
   { email: 'shanaparks@drhsecurityservices.com', name: 'Shana',  phone: '8087474948' },
   { email: 'jr@drhsecurityservices.com',          name: 'JR',    phone: '8088541757' },
-  { email: 'austin@drhsecurityservices.com',      name: 'Austin', phone: null },
+  { email: 'austin@drhsecurityservices.com',      name: 'Austin', phone: '3372800021' },
   { email: 'brian@drhsecurityservices.com',       name: 'Brian',  phone: null },
   { email: 'trevor@drhsecurityservices.com',      name: 'Trevor', phone: null },
   { email: 'admin@jnbservice.com',                name: 'Sara',   phone: '7207500063' },
-  // ⚠ SAME NUMBER AS SARA, deliberately left in place rather than silently
-  // changed. 7207500063 was on Subs and only on Subs; Sara asked for it to be
-  // hers, and job records carry it as her on-site contact. Both rows keep it
-  // until somebody says what Subs' real number is.
-  //
-  // The collision matters in exactly one place: an INBOUND text is matched by
-  // number, so a duplicate would otherwise resolve to whichever row happened to
-  // be found first. api/sms-inbound.js resolves it to Sara explicitly — see
-  // STAFF_BY_PHONE there. Outbound is unaffected: that is keyed by email, and
-  // the two rows have different emails.
-  { email: 'subs@drhsecurityservices.com',        name: 'Subs',   phone: '7207500063' },
+  // Subs' real number is unknown — null until it's provided. Leaving the
+  // old number here (7207500063) was routing Subs' job texts to Sara.
+  { email: 'subs@drhsecurityservices.com',        name: 'Subs',   phone: null },
+  { email: 'whiting@drhsecurityservices.com',     name: 'Whiting', phone: null },
 ];
 export const PHONE_BY_EMAIL = Object.fromEntries(
   ASSIGNEES.filter(a => a.phone).map(a => [a.email, a.phone])
@@ -236,4 +229,57 @@ export const BILLING_FIELD_EMAILS = [
 export const canSeeBillingFields = (email) => {
   const resolved = canonicalEmail(email) || String(email || '').toLowerCase().trim();
   return BILLING_FIELD_EMAILS.includes(resolved);
+};
+
+// ── BOARD VISIBILITY TIERS ────────────────────────────────────────────────────
+// Three tiers:
+//   Full board  — see every job regardless of assignment
+//   Scoped      — see a fixed set of people's work (e.g. Austin sees Austin+Trevor+JR)
+//   My Work     — see only their own assigned work (default for all techs)
+//
+// info@ is a shared mailbox — canonicalEmail resolves it to whoever picked their
+// identity (JR → jr@, Sara → admin@, Shana → shanaparks@), all of whom are
+// already in the full-board list. The raw address is included as a fallback for
+// sessions where no identity has been picked yet.
+
+export const FULL_BOARD_EMAILS = [
+  'info@drhsecurityservices.com',        // shared — fallback before identity pick
+  'shanaparks@drhsecurityservices.com',  // Shana
+  'jr@drhsecurityservices.com',          // JR
+  'admin@jnbservice.com',                // Sara (canonical)
+  'accounting@drhsecurityservices.com',  // Sara alias
+  'sara@jnbservice.com',                 // Sara alias
+];
+
+// Scoped multi-person views. Key = canonical email. Value = names visible to them.
+// These users see multiple people's work but NOT the full board.
+const BOARD_SCOPE = {
+  'austin@drhsecurityservices.com':  ['Austin', 'Trevor', 'JR'],
+  'drhservicetech1@gmail.com':       ['Austin', 'Trevor', 'JR'], // Austin's Google calendar login
+};
+
+// Returns null for full-board users (sees all), an array of names for scoped
+// users, or a single-name array for My Work users. Use null-check for full board.
+export function boardVisibleNames(email) {
+  const canon = canonicalEmail(email) || String(email || '').toLowerCase().trim();
+  if (!canon) return [];
+  if (FULL_BOARD_EMAILS.includes(canon)) return null;
+  const scope = BOARD_SCOPE[canon];
+  if (scope) return scope;
+  const name = NAME_BY_EMAIL[canon];
+  return name ? [name] : [];
+}
+
+export const canSeeAllJobs = (email) => boardVisibleNames(email) === null;
+
+// ── STATUS AUTO-ASSIGN ────────────────────────────────────────────────────────
+// When a job moves to one of these statuses, assigned_to is set automatically.
+// The card routes silently into the right person's My Work queue.
+// No email is sent — notification is user-triggered.
+export const STATUS_AUTO_ASSIGN = {
+  to_bill:        'jr@drhsecurityservices.com',
+  complete:       'jr@drhsecurityservices.com',
+  return_pending: 'shanaparks@drhsecurityservices.com',
+  blocked:        'austin@drhsecurityservices.com',
+  needs_estimate: 'jr@drhsecurityservices.com',
 };

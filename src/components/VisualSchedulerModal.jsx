@@ -70,6 +70,7 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   const [endTime, setEndTime] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [notifyTech, setNotifyTech] = useState(true);
   const [holdStart, setHoldStart] = useState('09:00');
   const [holdEnd, setHoldEnd]     = useState('17:00');
   // Which tech's calendar is OPEN. Every tech's six-week grid used to render
@@ -97,6 +98,20 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   // Second (third…) tech riding the same booking — "preferably two techs" is a
   // real request that used to require booking twice by hand.
   const [helperIds, setHelperIds] = useState([]);
+  // Return visits need a brief: "what are we doing?" so it lands in the GCal
+  // event description and the tech doesn't show up with no context.
+  const [returnBrief, setReturnBrief] = useState('');
+  const isReturn = job?.status === 'return_pending';
+
+  // Pre-populate the return brief from the return_cards record if one exists.
+  useEffect(() => {
+    if (!isReturn || !job?.id) return;
+    supabase.from('return_cards').select('reason, materials_needed')
+      .eq('job_id', job.id).order('created_at', { ascending: false }).limit(1).single()
+      .then(({ data }) => {
+        if (data?.reason) setReturnBrief(r => r || data.reason);
+      }).catch(() => {});
+  }, [job?.id, isReturn]);
 
   const validTechs = (techs || []).filter(t => t.calendar_id);
 
@@ -233,21 +248,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
   };
 
   const pickSlot = (techId, dayData, slot) => {
-    // Picking a slot pre-fills the hold hours as well, so holding "that gap"
-    // is one tap rather than retyping times you already chose.
-    if (slot?.start && slot?.end) {
-      const two = n => String(n).padStart(2, '0');
-      setHoldStart(`${two(slot.start.getHours())}:${two(slot.start.getMinutes())}`);
-      setHoldEnd(`${two(slot.end.getHours())}:${two(slot.end.getMinutes())}`);
-    }
+    // Picking a slot pre-fills start and end. The end defaults to
+    // job.estimated_hours from the slot start — the tech's own time estimate
+    // for this job — capped at the available slot. Falls back to 2h when no
+    // estimate is set, same as before.
+    //
+    // Both holdEnd (what book() receives) and endTime (what the input shows)
+    // are set from the same calculated end, so the displayed time matches what
+    // actually gets booked. Previously holdEnd was the full slot end regardless
+    // of the 2h cap on endTime, making them disagree.
+    const jobMs = (Number(job.estimated_hours) > 0 ? Number(job.estimated_hours) : 2) * 3600000;
+    const defStart = new Date(slot.start);
+    const defEnd = new Date(Math.min(slot.end.getTime(), slot.start.getTime() + jobMs));
+    const two = n => String(n).padStart(2, '0');
+    setHoldStart(`${two(defStart.getHours())}:${two(defStart.getMinutes())}`);
+    setHoldEnd(`${two(defEnd.getHours())}:${two(defEnd.getMinutes())}`);
     setSelectedTechId(techId);
     // Always carry techId — the event list resolves the tech name from it.
     setSelectedDay({ ...dayData, techId });
     setSelectedSlot(slot);
-    const defStart = new Date(slot.start);
-    const defEnd = new Date(Math.min(slot.end.getTime(), slot.start.getTime() + 2 * 3600000));
-    setStartTime(`${String(defStart.getHours()).padStart(2,'0')}:${String(defStart.getMinutes()).padStart(2,'0')}`);
-    setEndTime(`${String(defEnd.getHours()).padStart(2,'0')}:${String(defEnd.getMinutes()).padStart(2,'0')}`);
+    setStartTime(`${two(defStart.getHours())}:${two(defStart.getMinutes())}`);
+    setEndTime(`${two(defEnd.getHours())}:${two(defEnd.getMinutes())}`);
   };
 
   // What's still missing, in the order the user fills it in. Drives both the
@@ -278,12 +299,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
 
     setSaving(true); setErr('');
     try {
+      // For return visits: write the "what are we doing" brief as a job_history
+      // note BEFORE booking so it becomes the latest note in the GCal event
+      // description — otherwise the tech shows up with no context.
+      if (isReturn && returnBrief.trim()) {
+        try {
+          await supabase.from('job_history').insert({
+            job_id: job.id,
+            from_status: job.status,
+            to_status: job.status,
+            changed_by: userEmail || 'unknown',
+            notes: `🔄 Return visit: ${returnBrief.trim()}`,
+          });
+        } catch (e) { console.warn('return brief note failed (non-fatal):', e?.message); }
+      }
+
       // ONE write path (services/schedule.js). This modal used to hand-write
       // jobs + calendar + memory columns itself — one of several writers whose
       // subsets disagreed. Now everything that means "scheduled" changes
       // together or not at all.
       const helpers = validTechs.filter(t => helperIds.includes(t.id) && t.id !== tech.id);
-      await book({ job, tech, start, end, accessToken, helpers, byEmail: userEmail });
+      await book({ job, tech, start, end, accessToken, helpers, byEmail: userEmail, notifyTech });
 
       // Extra days ride the SAME time-of-day on their own dates. Each is its
       // own calendar event; failures are per-day and non-fatal — the primary
@@ -575,6 +611,27 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                              color: '#e2e8f0', padding: '9px 10px', fontSize: 14, outline: 'none' }} />
                 </div>
 
+                {/* Return brief — required context for return visits.
+                    Without this the tech shows up and has to call to find out
+                    what they're actually doing. The brief goes into the GCal
+                    event as the latest note. */}
+                {isReturn && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      🔄 What are we doing on this return?
+                    </div>
+                    <textarea
+                      value={returnBrief}
+                      onChange={e => setReturnBrief(e.target.value)}
+                      placeholder="e.g. Install the replacement panel board, check PIRs in back office"
+                      rows={2}
+                      style={{ width: '100%', background: '#0b1420', border: `1px solid ${returnBrief.trim() ? '#22c55e' : '#f59e0b'}`,
+                               borderRadius: 8, color: '#e2e8f0', padding: '8px 10px', fontSize: 13,
+                               outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                )}
+
                 {/* Riding along — optional extra techs. Primary owns the booking;
                     helpers get the same event mirrored to their calendars. */}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
@@ -596,6 +653,18 @@ export default function VisualSchedulerModal({ job, techs, accessToken, onClose,
                 </div>
 
                 {err && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={notifyTech}
+                    onChange={e => setNotifyTech(e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: '#00c8e8', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                    Text the tech
+                  </span>
+                </label>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <button onClick={holdTentative} disabled={saving}

@@ -54,7 +54,7 @@ export default function JobCard({ job, onClick, compact = false, showTime = fals
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
-  // Last note preview (from completion_notes or issue)
+  // tech visit notes win; issue is the fallback when no visit has happened yet
   const notePreview = job.completion_notes || job.issue || '';
   const truncatedNote = notePreview.length > 80 ? notePreview.substring(0, 80) + '...' : notePreview;
 

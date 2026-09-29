@@ -12,10 +12,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, JOB_STATUS, STATUS_INFO, techsApi, customersApi, notesApi } from '../services/supabase.js';
 import { stripIntakeTemplate } from '../utils/statusMachine.js';
-import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill } from '../utils/ownership.js';
-import { LANES, CLEAR_LANE, isHeld } from '../utils/lanes.js';
+import { ASSIGNEES, NAME_BY_EMAIL, assigneeOf, canonicalEmail, canBill, boardVisibleNames, canSeeAllJobs } from '../utils/ownership.js';
+import { LANES, RETURN_LANE, CLEAR_LANE, BLOCKED_LANE, isHeld, movesFor } from '../utils/lanes.js';
 import { notifyJobAssigned } from '../services/pushNotifications.js';
-import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays , needsDisposition } from '../utils/staleness.js';
+import { stalenessOf, ageLabel, STALE_COLOR, STALE_OPTIONS, getStaleDays, setStaleDays } from '../utils/staleness.js';
 import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../config/appBase.js';
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
@@ -82,13 +82,32 @@ const EST_STAGES = [
 
 // Columns come from utils/lanes.js now. They used to be their own array that
 // drifted from LANE_MOVES — same card, two vocabularies.
-const COLUMNS = LANES.map(l => ({
+// BLOCKED is injected after Scheduled so jobs that cannot move are visually
+// separated from live work. It was defined in BLOCKED_LANE the whole time —
+// it just never appeared here.
+const _baseLanes = LANES.map(l => ({
   key: l.key,
   label: `${l.icon} ${l.label}`,
   color: l.color,
   statuses: l.statuses,
   virtual: l.virtual,
 }));
+// LANES order: [0] triage, [1] ready, [2] tentative (removed), [3] scheduled, [4] estimates
+// BUILD 3 — lane order: New → Ready → Return Needed → Scheduled → Estimates → Blocked
+// return_pending was folded into the Ready column's statuses list. It is now its own
+// column (RETURN_LANE) so the scheduler sees all return-pending jobs in one place, and
+// cards whose operator drove there and has to go back again are visually distinct from
+// fresh work nobody has touched yet. Ready's statuses are narrowed accordingly.
+const COLUMNS = [
+  _baseLanes[0],   // New/Notes
+  { ..._baseLanes[1], statuses: ['ready_to_schedule'] },   // Ready to Schedule — return_pending split out
+  { key: RETURN_LANE.key, label: `${RETURN_LANE.icon} ${RETURN_LANE.label}`,
+    color: RETURN_LANE.color, statuses: RETURN_LANE.statuses },
+  _baseLanes[3],   // Scheduled
+  { key: BLOCKED_LANE.key, label: `${BLOCKED_LANE.icon} ${BLOCKED_LANE.label}`,
+    color: BLOCKED_LANE.color, statuses: BLOCKED_LANE.statuses },
+  ..._baseLanes.slice(4),      // Estimates
+];
 
 const fmtMoney = n => n ? new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n) : '';
 
@@ -293,6 +312,7 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [loaded, setLoaded] = useState(null);
+  const [mergePending, setMergePending] = useState(null); // survivorId awaiting confirm
 
   useEffect(() => {
     if (allJobs || !open || loaded) return;
@@ -315,8 +335,8 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
      query.toLowerCase().includes(j.customer_name.toLowerCase().split(' ')[0]))
   ).slice(0, 10);
 
-  const merge = async (survivorId) => {
-    if (!window.confirm('Merge THIS job into the other? Notes, issue/scope details, contact info, CMS/access codes, and the calendar link carry over to the survivor; this one is marked dead.')) return;
+  const merge = async (survivorId, confirmed = false) => {
+    if (!confirmed) { setMergePending(survivorId); return; }
     setSaving(true);
     setErr('');
     try {
@@ -485,6 +505,26 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
           );
         })
       }
+      {mergePending && (() => {
+        const survivor = pool.find(j => j.id === mergePending);
+        return (
+          <div style={{ background:'#1e293b', border:'1px solid #f59e0b', borderRadius:8, padding:12, marginTop:8 }}>
+            <div style={{ fontSize:12, color:'#fde68a', marginBottom:10, lineHeight:1.5 }}>
+              Merge into <b>{survivor?.customer_name || mergePending}</b>? Notes, scope, contact info and CMS codes carry over. This job is marked dead.
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => { setMergePending(null); merge(mergePending, true); }}
+                style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'6px 14px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                Yes, merge
+              </button>
+              <button onClick={() => setMergePending(null)}
+                style={{ background:'transparent', border:'1px solid #334155', borderRadius:6, color:'#94a3b8', padding:'6px 12px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       {err && <div style={{ color:'#ef4444', fontSize:11, marginTop:6 }}>{err}</div>}
     </div>
   );
@@ -544,7 +584,24 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
   );
 }
 
-function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, userEmail }) {
+// Human-readable label for the card's next-action row.
+const NEXT_ACTION_LABEL = {
+  new:           'Needs review',
+  needs_parts:   'Waiting on parts',
+  scheduled:     'Scheduled',
+  tentative:     'Hold — not booked',
+  return_pending:'Return trip needed',
+  estimate_sent: 'Waiting on approval',
+  blocked:       'Blocked',
+  complete:      'Ready to bill',
+  to_bill:       'Ready to invoice',
+  billed:        'Invoice sent',
+  dead:          'Closed',
+  lost:          'Closed — lost',
+  archived:      'Archived',
+};
+
+function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly, unreadCount = 0 }) {
   const si = STATUS_INFO[job.status] || {};
   const isUrgent = job.priority === 'urgent';
   const isHigh = job.priority === 'high';
@@ -554,27 +611,86 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
   // one lane is a scheduling gesture, not a decision to invoice.
   const suggested = SUGGESTED_NEXT[job.status];
   const quickVerbs = (suggested && (suggested !== 'billed' || canBill(userEmail))) ? [suggested] : [];
+  // Expand state for the "move anywhere" accordion.
+  const [expandMoves, setExpandMoves] = useState(false);
+  // All reachable lanes for this card. Scheduler-gated lanes (Tentative, Scheduled)
+  // open the drawer instead of quick-moving — they need a date.
+  const allMoves = movesFor(job, { includeBilling: true, includeClear: false, mayBill: canBill(userEmail) });
 
-  // 72h rule — see src/utils/staleness.js. A card nobody has touched in 3 days
-  // gets an amber rail; a week gets red. The status chip used to be the loudest
-  // thing on the card, but "New" tells you nothing you can act on. WHO owns it,
-  // HOW LONG it's been sitting, and WHETHER IT'S ROTTING do.
+  // 72h rule — see src/utils/staleness.js.
   const stale = stalenessOf(job);
-  const staleColor = STALE_COLOR[stale.level];
-  const rail = isUrgent ? '#ef4444' : (staleColor || si.color || '#334155');
+
+  // Overdue: scheduled date is in the past and job is still open.
+  // Parsed manually — new Date(bare date string) reads UTC midnight, which in
+  // Denver renders as the previous day (same bug we fixed on the date chip).
+  const isOverdue = (() => {
+    if (!job.scheduled_date || isHeld(job)) return false;
+    const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const when = new Date(y, m - 1, d);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
+  })();
+
+  // 3-state rail: red = urgent/overdue · amber = stale/high/hold · dark = normal.
+  const rail = (isUrgent || isOverdue)
+    ? '#ef4444'
+    : (stale.level !== 'none' || isHigh || ['return_pending','tentative'].includes(job.status))
+      ? '#f59e0b'
+      : '#334155';
+
+  // Snippet priority:
+  // 1. return_pending reason (what the tech is coming back to do)
+  // 2. completion_notes (tech's visit summary — set on finish sheet)
+  // 3. last_note_text (last human-authored history note)
+  // 4. issue (original problem description — fallback when no visit yet)
+  const snippet = (() => {
+    if (job.status === 'return_pending' && job.return_reason)
+      return { text: job.return_reason, color: '#fed7aa' };
+    if (job.completion_notes)
+      return { text: job.completion_notes, color: '#94a3b8' };
+    if (job.last_note_text)
+      return { text: job.last_note_text, color: '#94a3b8' };
+    if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
+      return { text: job.issue, color: '#cbd5e1' };
+    return null;
+  })();
+
+  // Muted date string for the meta row (no chip, no colored badge).
+  const who = assigneeOf(job);
+  const dateStr = (() => {
+    if (job.tentative_date && isHeld(job)) {
+      return `tent ${new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+    }
+    if (job.scheduled_date && !isHeld(job)) {
+      const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
+      if (!y || !m || !d) return null;
+      const when = new Date(y, m - 1, d);
+      return when.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    }
+    return null;
+  })();
+
+  const nextAction = NEXT_ACTION_LABEL[job.status] || si.label || job.status;
+  // Next-action label echoes the rail color so it reads as one system.
+  const actionColor = rail === '#ef4444' ? '#ef4444' : rail === '#f59e0b' ? '#f59e0b' : '#475569';
 
   return (
     <div onClick={() => onSelect(job)}
-      style={{ position:'relative', background:'#1e293b', borderRadius:8, padding:13, paddingLeft:17, marginBottom:8, cursor:'pointer', overflow:'hidden', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+      style={{ position:'relative', background:'#1e293b', borderRadius:8, padding:'12px 12px 12px 16px', marginBottom:8, cursor:'pointer', overflow:'hidden', opacity:['dead','lost'].includes(job.status)?0.55:1 }}>
+
+      {/* Rail — carries the stale animation when applicable */}
       <div className={stale.level === 'very_stale' ? 'ow-verystale' : stale.level === 'stale' ? 'ow-stale' : undefined}
         style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:rail }} />
 
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:5 }}>
-        <div style={{ fontSize:16, fontWeight:600, color:'#fff', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
-        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-          {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>URGENT</span>}
-          {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4 }}>HIGH</span>}
-          {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:11, fontWeight:800, padding:'2px 6px', borderRadius:4 }}>⚠️ NO CLIENT</span>}
+      {/* Row 1: name + priority badges + TextButton */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:4 }}>
+        <div style={{ fontSize:15, fontWeight:700, color:'#f1f5f9', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{job.customer_name||'—'}</div>
+        <div style={{ display:'flex', gap:4, flexShrink:0, alignItems:'center' }}>
+          {isUrgent && <span style={{ background:'#ef4444', color:'#fff', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>URGENT</span>}
+          {isHigh && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:3 }}>HIGH</span>}
+          {!hasUUID && <span style={{ background:'#f59e0b', color:'#000', fontSize:10, fontWeight:800, padding:'2px 5px', borderRadius:3 }}>NO CLIENT</span>}
+          {unreadCount > 0 && <span style={{ background:'#14b8a6', color:'#04211e', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:99 }}>💬{unreadCount}</span>}
           {/* TEXT WITHOUT OPENING ANYTHING. The board is where the day gets
               scanned, and "tell them we're running late" should not require
               opening a card and hunting for a control inside it. stopPropagation
@@ -590,106 +706,93 @@ function JobCard({ job, onSelect, onQuickMove, moving, hasEntry, accessToken, us
         </div>
       </div>
 
-      {!hasUUID && (
-        <div style={{ background:'#78350f44', border:'1px solid #f59e0b', borderRadius:6, padding:'6px 9px', marginBottom:8 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:'#fbbf24' }}>Not linked to a customer</div>
-          <div style={{ fontSize:12, color:'#fcd34d' }}>{missingLabel(job)}</div>
+      {/* Row 2: issue text for note/task types (the issue IS the card) */}
+      {(job.job_type === 'note' || job.job_type === 'task') && job.issue && (
+        <div style={{ fontSize:12, color:'#cbd5e1', marginBottom:5, lineHeight:1.4,
+                      overflow:'hidden', display:'-webkit-box',
+                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+          {job.issue}
         </div>
       )}
 
-      <div style={{ fontSize:14, color:'#cbd5e1', marginBottom:8, lineHeight:1.4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{stripIntakeTemplate(job.issue)||'no issue noted'}</div>
-
-      {/* THE STICKY LINE — who owns it, when it hit the board, how stale it is.
-          This never truncates and never collapses; it's the whole point of the card. */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-        {/* assigneeOf(), NOT job.tech_name. Assigning writes assigned_to; this
-            line read tech_name, so every assignment made since migration 030
-            left the card still reading "Unassigned". Two columns, one meaning,
-            and the card was reading the wrong one. */}
-        {(() => { const who = assigneeOf(job); return who
-          ? <span style={{ fontSize:13, fontWeight:700, color:'#60a5fa', background:'#1e3a8a44', padding:'3px 8px', borderRadius:5 }}>{who}</span>
-          : <span style={{ fontSize:13, fontWeight:700, color:'#fbbf24', background:'#78350f44', padding:'3px 8px', borderRadius:5 }}>Unassigned</span>; })()}
-        <span style={{ fontSize:13, color:'#cbd5e1' }}>on board {ageLabel(job.created_at)}</span>
-        {/* A pencilled-in hold. Amber, and deliberately NOT the same shape as a
-            scheduled date — a hold is not a booking, and the day two crews turn
-            up in one place is the day those two things looked alike. */}
-        {job.tentative_date && isHeld(job) && (
-          <span style={{ fontSize:12, fontWeight:700, color:'#f59e0b', background:'#78350f44',
-                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-            ✏️ tent {new Date(job.tentative_date).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
-          </span>
-        )}
-        {/* THE BOOKED DATE. The card showed who owned a job and how long it had
-            been sitting, but never WHEN it was going to happen — so a Scheduled
-            column was a list of jobs with no dates in it.
-            Parsed manually, NOT with new Date(str). jobs.scheduled_date is a
-            DATE ('2026-08-07'), and new Date() reads a bare date as UTC
-            midnight — which in Denver renders as the PREVIOUS DAY. That is the
-            same off-by-one that used to drop jobs into Needs Action at 6 PM.
-            Splitting the parts and building a local Date avoids it entirely. */}
-        {job.scheduled_date && !isHeld(job) && (() => {
-          const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
-          if (!y || !m || !d) return null;
-          const when = new Date(y, m - 1, d);
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          // Past-dated and still open = it did not happen. Say so in red rather
-          // than printing a date that quietly reads as fine.
-          const overdue = when < today && !['complete','to_bill','billed','dead','lost','archived'].includes(job.status);
-          const color = overdue ? '#ef4444' : '#38bdf8';
-          // Still `scheduled` past the deadline = nobody said what happened.
-          // See needsDisposition() in utils/staleness.js for the 6pm + 14h
-          // rule and the weekend roll.
-          // Hours logged = somebody DID say what happened, even if the card
-          // never moved off 'scheduled'. That is a stale status, not a missing
-          // disposition, and it must not wear the same red badge.
-          const noDispo = needsDisposition(job) && !hasEntry;
-          return (
-            <>
-            {noDispo && (
-              <span title="The scheduled day ended and nobody dispositioned this. Due 8am the next working morning."
-                style={{ fontSize:12, fontWeight:800, color:'#fff', background:'#dc2626',
-                         padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-                ⚠ NO DISPOSITION
-              </span>
-            )}
-            <span style={{ fontSize:12, fontWeight:700, color, background:`${color}22`,
-                           padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-              📅 {when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
-              {overdue ? ' · past' : ''}
-            </span>
-            </>
-          );
-        })()}
-        {staleColor && (
-          <span className={stale.level === 'very_stale' ? 'ow-verystale' : 'ow-stale'}
-            style={{ fontSize:12, fontWeight:700, color:staleColor, background:`${staleColor}22`, padding:'3px 8px', borderRadius:5, whiteSpace:'nowrap' }}>
-            ⏱ {stale.label}
-          </span>
-        )}
-      </div>
-
-      {/* Status + money demoted to the quiet row */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
-        <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-          <span style={{ fontSize:12, fontWeight:600, color:si.color||'#94a3b8', background:`${si.color||'#334155'}18`, padding:'2px 7px', borderRadius:5, whiteSpace:'nowrap' }}>
-            {si.icon} {si.label||job.status}
-          </span>
-          {job.estimate_amount>0 && <span style={{ fontSize:12, fontWeight:600, color:'#22c55e' }}>{fmtMoney(job.estimate_amount)}</span>}
+      {/* Row 2b: snippet — return brief, last note, or issue scope */}
+      {snippet && (
+        <div style={{ fontSize:12, color:snippet.color, marginBottom:5, lineHeight:1.4,
+                      overflow:'hidden', display:'-webkit-box',
+                      WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
+          {snippet.text}
         </div>
-        {quickVerbs.length > 0 && (
-          <button onClick={e => { e.stopPropagation(); onQuickMove(job, quickVerbs[0]); }} disabled={moving}
-            title={`Move to ${STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}`}
-            style={{ padding:'4px 9px', borderRadius:5, border:`1px solid ${STATUS_INFO[quickVerbs[0]]?.color||'#334155'}`, background:'transparent', color:STATUS_INFO[quickVerbs[0]]?.color||'#94a3b8', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
-            move → {STATUS_INFO[quickVerbs[0]]?.label||quickVerbs[0]}
-          </button>
-        )}
+      )}
+
+      {/* Row 3: next-action label — one glanceable phrase that says what this card needs */}
+      <div style={{ fontSize:11, fontWeight:600, color:actionColor, marginBottom:3, letterSpacing:'0.02em' }}>
+        {nextAction}
       </div>
+
+      {/* Row 4: assignee · date · estimate — all neutral, no badges */}
+      {(who || dateStr || job.estimate_amount > 0) && (
+        <div style={{ fontSize:12, color:'#64748b', marginBottom:9, display:'flex', gap:5, alignItems:'center', flexWrap:'wrap' }}>
+          {who && <span>{who}</span>}
+          {who && dateStr && <span style={{ color:'#334155' }}>·</span>}
+          {dateStr && <span style={{ color: isOverdue ? '#ef4444' : '#64748b' }}>{dateStr}</span>}
+          {job.estimate_amount > 0 && (
+            <>
+              {(who || dateStr) && <span style={{ color:'#334155' }}>·</span>}
+              <span style={{ color:'#22c55e', fontWeight:600 }}>{fmtMoney(job.estimate_amount)}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ⋯ move accordion — click card to open ticket; use ⋯ to move lanes */}
+      {!readOnly && (
+        <div style={{ display:'flex', justifyContent:'flex-end' }} onClick={e => e.stopPropagation()}>
+          <button onClick={e => { e.stopPropagation(); setExpandMoves(v => !v); }}
+            title="Move to any lane"
+            style={{ padding:'4px 8px', borderRadius:6, border:'1px solid #334155', background: expandMoves ? '#334155' : 'transparent', color:'#64748b', fontSize:13, cursor:'pointer', lineHeight:1, fontFamily:'inherit' }}>
+            {expandMoves ? '✕' : '⋯'}
+          </button>
+        </div>
+      )}
+
+      {/* All-lanes accordion — stays inside stopPropagation so opening it
+          doesn't also open the drawer */}
+      {expandMoves && (
+        <div onClick={e => e.stopPropagation()}
+          style={{ marginTop:8, display:'flex', flexDirection:'column', gap:4 }}>
+          {allMoves.map(lane => (
+            <button key={lane.key} disabled={moving}
+              onClick={e => {
+                e.stopPropagation();
+                if (lane.needsScheduler) {
+                  // Needs a date — open the drawer so they can use the scheduler
+                  setExpandMoves(false);
+                  onSelect(job);
+                  return;
+                }
+                onQuickMove(job, lane.target);
+                setExpandMoves(false);
+              }}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px',
+                       borderRadius:6, border:`1px solid ${lane.color}44`,
+                       background:`${lane.color}0f`, color:lane.color,
+                       fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'left',
+                       fontFamily:'inherit' }}>
+              <span>{lane.icon}</span>
+              <span style={{ flex:1 }}>{lane.label}</span>
+              {lane.needsScheduler && (
+                <span style={{ fontSize:10, color:'#64748b', fontWeight:400 }}>opens scheduler</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Column ─────────────────────────────────────────────────────────────────────
-function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, loggedJobs, accessToken, userEmail }) {
+function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove, moving, accessToken, userEmail, readOnly, unreadByJob }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ borderBottom: '1px solid #1e293b' }}>
@@ -712,7 +815,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
         <div style={{ padding: '4px 12px 14px', background: '#0f172a' }}>
           {jobs.length === 0
             ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20, fontSize: 12 }}>empty</div>
-            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} accessToken={accessToken} userEmail={userEmail} />)
+            : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} unreadCount={unreadByJob?.[j.id] || 0} />)
           }
         </div>
       )}
@@ -720,7 +823,7 @@ function AccordionColumn({ col, jobs, expanded, onToggle, onSelect, onQuickMove,
   );
 }
 
-function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, loggedJobs, accessToken, userEmail }) {
+function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActiveCol, accessToken, userEmail, readOnly, unreadByJob }) {
   const totalEstimate = jobs.filter(j=>j.estimate_amount>0).reduce((s,j)=>s+j.estimate_amount,0);
   return (
     <div style={{ flex:1, minWidth:260, maxWidth:340, display:'flex', flexDirection:'column' }}>
@@ -735,7 +838,7 @@ function Column({ col, jobs, onSelect, onQuickMove, moving, activeCol, setActive
       <div style={{ flex:1, overflowY:'auto', padding:10, background:'#0f172a', borderRadius:'0 0 8px 8px' }}>
         {jobs.length===0
           ? <div style={{ color:'#94a3b8', textAlign:'center', padding:20, fontSize:12 }}>empty</div>
-          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} hasEntry={loggedJobs?.has(j.id)} accessToken={accessToken} userEmail={userEmail} />)
+          : jobs.map(j => <JobCard key={j.id} job={j} onSelect={onSelect} onQuickMove={onQuickMove} moving={moving} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} unreadCount={unreadByJob?.[j.id] || 0} />)
         }
       </div>
     </div>
@@ -755,13 +858,12 @@ const STALE_PULSE_CSS = `
 // operator lands here now, so this is the walkthrough that matters most.
 // Spotlight walkthrough REMOVED 2026-08-20 — see src/App.jsx.
 
-export default function BoardView({ accessToken, onBack, userEmail, userName }) {
+export default function BoardView({ accessToken, onBack, userEmail, userName, readOnly }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
-  // Job ids that already have a time entry — see loadJobs(). Used to stop
-  // ⚠ NO DISPOSITION firing on work the tech actually wrote up.
-  const [loggedJobs, setLoggedJobs] = useState(new Set());
+  // eslint-disable-next-line no-unused-vars — retained for future disposition tracking
+  const [loggedJobs] = useState(new Set());
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [moving, setMoving] = useState(false);
@@ -785,7 +887,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   const [showNewJob, setShowNewJob] = useState(false);
   const [activeCol, setActiveCol] = useState('triage');
   const [search, setSearch] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState(null);
+  const [assigneeFilter, setAssigneeFilter] = useState(() => {
+    const visible = boardVisibleNames(userEmail);
+    if (visible === null) return null;          // full board — show all by default
+    if (visible.length > 1) return '__scope__'; // scoped (Austin) — show team by default
+    return visible[0] || null;                  // My Work — own name
+  });
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState({ total_open:0, needs_action:0, to_bill:0, returns_pending:0 });
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
@@ -796,11 +903,36 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
   // triage | ready | tentative | scheduled | estimates.
   const [expandedCol, setExpandedCol] = useState(
     () => new URLSearchParams(window.location.search).get('lane') || 'triage');
+  const [unreadByJob, setUnreadByJob] = useState({});
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Unread inbound texts per job — drives the 💬 badge on board cards.
+  // Re-runs when jobs load and every 90s (matching the App.jsx badge interval).
+  useEffect(() => {
+    let dead = false;
+    const tick = async () => {
+      try {
+        const { data } = await supabase.from('notes')
+          .select('id, job_id')
+          .eq('status', 'open')
+          .is('read_at', null)
+          .like('body', '📲 Text from%')
+          .not('job_id', 'is', null);
+        if (dead) return;
+        const map = {};
+        for (const n of (data || [])) map[n.job_id] = (map[n.job_id] || 0) + 1;
+        setUnreadByJob(map);
+      } catch { /* badge is non-critical */ }
+    };
+    tick();
+    const t = setInterval(tick, 90000);
+    window.addEventListener('task-skips-changed', tick);
+    return () => { dead = true; clearInterval(t); window.removeEventListener('task-skips-changed', tick); };
   }, []);
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''), 2400); };
@@ -825,52 +957,27 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
       // actually changed. Re-stamping the same status with no note does not.
       const ids = (data || []).map(x => x.id);
 
-      // ── Which of these jobs already has field hours logged ────────────
-      // needsDisposition() in utils/staleness.js only ever looked at
-      // jobs.status + scheduled_date. It never checked time_entries. So a job
-      // the tech HAD written up still showed ⚠ NO DISPOSITION if nobody moved
-      // the card off 'scheduled' — Jeanneret 8/17 is the standing example:
-      // 2.0h logged with a full note ("Got 2 more glass breaks put up..."),
-      // badge screaming anyway.
-      //
-      // That is the worst kind of false alarm. The badge is meant to mean
-      // "nobody said what happened"; when it fires on work that WAS written
-      // up, people learn to ignore it, and then it stops catching the real
-      // ones. Same three-key match as visitsOwed.js — job_id OR either
-      // calendar column, because Jeanneret's two event ids differ.
-      const loggedJobIds = new Set();
-      if (ids.length) {
-        const evIds = [...new Set((data || [])
-          .flatMap(j => [j.calendar_event_id, j.scheduled_event_id])
-          .filter(Boolean))];
-        const ors = [`job_id.in.(${ids.join(',')})`];
-        if (evIds.length) ors.push(`calendar_event_id.in.(${evIds.join(',')})`);
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('job_id, calendar_event_id')
-          .or(ors.join(','))
-          .eq('archived', false);
-        const byEvent = new Set((entries || []).map(e => e.calendar_event_id).filter(Boolean));
-        (data || []).forEach(j => {
-          if ((entries || []).some(e => e.job_id === j.id)) { loggedJobIds.add(j.id); return; }
-          if (j.calendar_event_id && byEvent.has(j.calendar_event_id)) { loggedJobIds.add(j.id); return; }
-          if (j.scheduled_event_id && byEvent.has(j.scheduled_event_id)) loggedJobIds.add(j.id);
-        });
-      }
-      setLoggedJobs(loggedJobIds);
+      // Auto-generated notes that add no value to the card snippet.
+      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job|🔀 Merged in duplicate)/i;
 
-      let lastNote = {};
+      // last_note_at = timestamp of the last real activity (status move or typed note) — for staleness.
+      // last_note_text = text of the last human-authored note — for the card snippet.
+      let lastNoteAt = {};
+      let lastNoteText = {};
       if (ids.length) {
-        const { data: notes } = await supabase
+        const { data: history } = await supabase
           .from('job_history')
           .select('job_id, changed_at, notes, from_status, to_status')
           .in('job_id', ids)
           .order('changed_at', { ascending: false });
-        (notes || []).forEach(n => {
-          if (lastNote[n.job_id]) return;                       // already have a newer one
-          const saidSomething = n.notes != null && String(n.notes).trim() !== '';
+        (history || []).forEach(n => {
+          const text = n.notes != null ? String(n.notes).trim() : '';
+          const saidSomething = text !== '';
           const movedIt = n.to_status && n.to_status !== n.from_status;
-          if (saidSomething || movedIt) lastNote[n.job_id] = n.changed_at;
+          // Staleness: any real activity counts.
+          if (!lastNoteAt[n.job_id] && (saidSomething || movedIt)) lastNoteAt[n.job_id] = n.changed_at;
+          // Snippet: only human-authored text, no auto-generated entries.
+          if (!lastNoteText[n.job_id] && saidSomething && !AUTO_NOTE_RE.test(text)) lastNoteText[n.job_id] = text;
         });
       }
       // WHO IS ALREADY ON A PIECE OF THIS. A card can sit in New forever with a
@@ -889,10 +996,42 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
           });
         }
       }
+      // RETURN TRIP BRIEF. return_pending cards need to surface what the tech
+      // is coming back TO DO, not the original scope. Batch-fetch the latest
+      // return_card for each return_pending job via original_event_id so the
+      // board card shows the same "🔄 what are we doing this trip?" text that
+      // TicketSheet shows in its return-trip panel.
+      const returnReasons = {};
+      {
+        const returnJobs = (data || []).filter(j => j.status === 'return_pending');
+        if (returnJobs.length) {
+          // Build event_id → job.id map. Each job can carry up to three event IDs.
+          const eventToJob = {};
+          returnJobs.forEach(j => {
+            [j.scheduled_event_id, j.calendar_event_id, j.tentative_event_id]
+              .filter(Boolean)
+              .forEach(eid => { if (!eventToJob[eid]) eventToJob[eid] = j.id; });
+          });
+          const eventIds = Object.keys(eventToJob);
+          if (eventIds.length) {
+            const { data: rcs } = await supabase
+              .from('return_cards')
+              .select('original_event_id, reason')
+              .in('original_event_id', eventIds)
+              .order('created_at', { ascending: false });
+            (rcs || []).forEach(rc => {
+              const jobId = eventToJob[rc.original_event_id];
+              if (jobId && !returnReasons[jobId] && rc.reason) returnReasons[jobId] = rc.reason;
+            });
+          }
+        }
+      }
       setJobs((data || []).map(j => ({
         ...j,
-        last_note_at: lastNote[j.id] || null,
+        last_note_at: lastNoteAt[j.id] || null,
+        last_note_text: lastNoteText[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
+        return_reason: returnReasons[j.id] || null,
       })));
       const j = data||[];
       setStats({
@@ -992,11 +1131,15 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     showToast('Marked as duplicate ✓');
   }, []);
 
-  // null = everyone. '__none__' = jobs with nobody on them, which is its own
-  // kind of problem and worth being able to see on purpose.
+  // null = everyone. '__none__' = unassigned. '__scope__' = the current user's
+  // visible team (e.g. Austin sees Austin + Trevor + JR).
   const assigneeMatch = (j) => {
     if (!assigneeFilter) return true;
     if (assigneeFilter === '__none__') return !assigneeOf(j);
+    if (assigneeFilter === '__scope__') {
+      const visible = boardVisibleNames(userEmail);
+      return visible ? visible.includes(assigneeOf(j)) : true;
+    }
     return assigneeOf(j) === assigneeFilter;
   };
 
@@ -1083,20 +1226,12 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
     return key(a) - key(b);
   };
 
+  // Tentative is not a column any more. Jobs with a tentative_date show in
+  // their status column (Ready, Scheduled, etc.) with the ✏️ tent chip on
+  // the card so the scheduler can still see the hold date at a glance.
   const buckets = COLUMNS.reduce((acc, col) => {
-    if (col.virtual === 'tentative') {
-      // Held but not yet booked. Sorted by the HELD DATE, soonest first —
-      // a hold three days out matters more than one in six weeks.
-      acc[col.key] = filtered
-        .filter(isHeld)
-        .sort((a, b) => new Date(a.tentative_date) - new Date(b.tentative_date));
-      return acc;
-    }
-    // A job with a hold shows in Tentative, not in its status column, so it
-    // isn't in two places at once.
     acc[col.key] = filtered
       .filter(j => col.statuses.includes(j.status))
-      .filter(j => !isHeld(j))
       .sort(col.statuses.includes('scheduled') ? byWhenItHappens
           : col.statuses.includes('return_pending') ? byLongestWaiting
           : byOldest);
@@ -1132,11 +1267,42 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         </div>
       </div>
 
+      {/* ── Return urgency banner ───────────────────────────────────────────
+          If any return_pending jobs are 5+ days old without being rescheduled,
+          the scheduler needs to see that before anything else. Days are computed
+          from updated_at (when the card last moved) — a proxy for the wait.
+          5+ days = amber warning. 10+ = red alarm. Links to billing/return. */}
+      {(() => {
+        const returnJobs = jobs.filter(j => j.status === 'return_pending');
+        if (!returnJobs.length) return null;
+        const msPerDay = 86400000;
+        const daysWaiting = (j) => Math.floor((Date.now() - new Date(j.updated_at || j.created_at).getTime()) / msPerDay);
+        const maxDays = Math.max(...returnJobs.map(daysWaiting));
+        if (maxDays < 5) return null; // no urgency yet — banner stays quiet
+        const alarm = maxDays >= 10;
+        return (
+          <button onClick={() => navigate('/billing?tab=return')}
+            style={{ display:'flex', alignItems:'center', gap:10, width:'100%', textAlign:'left',
+                     background: alarm ? '#450a0a' : '#431407', border:'none',
+                     borderBottom: `2px solid ${alarm ? '#ef4444' : '#f59e0b'}`,
+                     padding:'10px 16px', cursor:'pointer', fontFamily:'inherit', color: alarm ? '#fca5a5' : '#fed7aa' }}>
+            <span style={{ fontSize:16 }}>{alarm ? '🔴' : '⚠️'}</span>
+            <span style={{ flex:1, fontSize:13, fontWeight:800 }}>
+              {returnJobs.length} return{returnJobs.length === 1 ? '' : 's'} waiting
+              — oldest {maxDays} day{maxDays === 1 ? '' : 's'} without a follow-up
+            </span>
+            <span style={{ fontSize:12, fontWeight:700, opacity:0.8, flexShrink:0 }}>
+              Go to Billing →
+            </span>
+          </button>
+        );
+      })()}
+
       <div style={{ display:'flex', gap:10, padding:'10px 16px', borderBottom:'1px solid #1e293b', flexWrap:'wrap', alignItems:'center' }}>
         {[
           { label:'open',     val:stats.total_open,       color:'#cbd5e1', col:null },
           { label:'new/notes',val:buckets.triage?.length||0,    color:'#ef4444', col:'triage' },
-          { label:'returns',  val:stats.returns_pending,  color:'#ec4899', col:'ready' },
+          { label:'returns',  val:stats.returns_pending,  color:'#fb923c', col:'return' },
         ].map(s=>(
           <button key={s.label} onClick={() => s.col && focusColumn(s.col)}
             style={{ background: activeCol===s.col && s.col ? '#334155' : '#1e293b', padding:'6px 14px', borderRadius:8, border: activeCol===s.col && s.col ? `1px solid ${s.color}` : '1px solid transparent', cursor: s.col ? 'pointer' : 'default', textAlign:'left', fontFamily:'inherit' }}>
@@ -1146,9 +1312,23 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         ))}
         <div data-tour="board-assigned-filter" style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
           <span style={{ fontSize:11, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>assigned</span>
-          {[{ key:null, label:'All' },
-            ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
-            { key:'__none__', label:'Nobody' }].map(o => (
+          {(() => {
+            const visible = boardVisibleNames(userEmail);
+            // Full board — All + every person + Nobody
+            if (visible === null) {
+              return [{ key:null, label:'All' },
+                ...ASSIGNEES.map(a => ({ key:a.name, label:a.name })),
+                { key:'__none__', label:'Nobody' }];
+            }
+            // Scoped (Austin) — My Team + each person in scope + Nobody
+            if (visible.length > 1) {
+              return [{ key:'__scope__', label:'My Team' },
+                ...visible.map(name => ({ key:name, label:name })),
+                { key:'__none__', label:'Nobody' }];
+            }
+            // My Work only — single chip, no switching
+            return [{ key:visible[0], label:'My Work' }];
+          })().map(o => (
             <button key={o.label} onClick={() => setAssigneeFilter(o.key)}
               style={{
                 background: assigneeFilter === o.key ? '#00c8e8' : '#1e293b',
@@ -1238,8 +1418,8 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
                 expanded={expandedCol===col.key}
                 onToggle={() => setExpandedCol(prev => prev===col.key ? null : col.key)}
                 onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving}
-                loggedJobs={loggedJobs}
-                accessToken={accessToken} userEmail={userEmail}
+                accessToken={accessToken} userEmail={userEmail} readOnly={readOnly}
+                unreadByJob={unreadByJob}
               />
             </div>
           ))}
@@ -1248,7 +1428,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName }) 
         <div style={{ flex:1, display:'flex', gap:12, padding:'14px 14px 84px', overflowX:'auto', overflowY:'hidden', scrollPaddingLeft:14 }}>
           {COLUMNS.map(col => (
             <div key={col.key} data-tour={`col-${col.key}`} ref={el => { colRefs.current[col.key] = el; }} style={{ display:'flex', minWidth:0 }}>
-              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} loggedJobs={loggedJobs} accessToken={accessToken} userEmail={userEmail} />
+              <Column col={col} jobs={buckets[col.key]||[]} onSelect={setSelectedJob} onQuickMove={quickMove} moving={moving} activeCol={activeCol} setActiveCol={setActiveCol} accessToken={accessToken} userEmail={userEmail} readOnly={readOnly} unreadByJob={unreadByJob} />
             </div>
           ))}
         </div>

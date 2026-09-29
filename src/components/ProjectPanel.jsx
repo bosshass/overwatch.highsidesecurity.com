@@ -73,6 +73,7 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
+  const [confirmPending, setConfirmPending] = useState(null); // { msg, onConfirm }
 
   // Dollar field overrides — kept locally until blur, then saved
   const [dollarOverrides, setDollarOverrides] = useState({});
@@ -139,12 +140,15 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
   // A progress invoice is an EVENT, not a state — a long project has several.
   // Storing a count plus the latest date says "billed three times, last on the
   // 14th" without a second table, and without ever asking for an amount.
-  const stampProgress = async () => {
+  const stampProgress = async (confirmed = false) => {
     if (!mayBill) return;
-    if (!window.confirm(
-      `Record a progress invoice for ${job.customer_name || 'this project'}?\n\n` +
-      `No amount is stored — Overwatch does not do accounting. This only says ` +
-      `an invoice went out today, and who said so.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Record a progress invoice for ${job.customer_name || 'this project'}? No amount is stored — this only says an invoice went out today.`,
+        onConfirm: () => stampProgress(true),
+      });
+      return;
+    }
     setBusy(true); setErr('');
     try {
       const { error } = await supabase.from('jobs').update({
@@ -167,16 +171,16 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
   // status move takes the card off the active board. Doing only the first
   // leaves a finished project sitting in a work lane forever, which is the
   // half-done state the whole closed ≠ complete rule exists to keep honest.
-  const markComplete = async () => {
+  const markComplete = async (confirmed = false) => {
     if (!mayBill) return;
-    const warn = over
-      ? `\n\n⚠ This is ${hrs(Math.abs(delta))} OVER its ${hrs(budget)} budget.`
-      : '';
-    if (!window.confirm(
-      `Close out ${job.customer_name || 'this project'}?${warn}\n\n` +
-      `${hrs(logged)} logged${budget ? ` against ${hrs(budget)}` : ''}.\n\n` +
-      `It leaves the board and leaves Billing — its hours too. It stays on the ` +
-      `customer's record, where you can re-open it.`)) return;
+    if (!confirmed) {
+      const warn = over ? ` ⚠ This is ${hrs(Math.abs(delta))} over its ${hrs(budget)} budget.` : '';
+      setConfirmPending({
+        msg: `Close out ${job.customer_name || 'this project'}?${warn} ${hrs(logged)} logged${budget ? ` against ${hrs(budget)}` : ''}. It leaves the board and Billing — stays on the customer record.`,
+        onConfirm: () => markComplete(true),
+      });
+      return;
+    }
     setBusy(true); setErr('');
     try {
       const { error } = await supabase.from('jobs').update({
@@ -408,6 +412,27 @@ export default function ProjectPanel({ job, loggedMinutes = 0, userEmail, onChan
                      fontFamily: 'inherit', outline: 'none' }} />
           <Btn onClick={saveBudget} tone={C.under}>{busy ? 'Saving…' : 'Save'}</Btn>
           <Btn onClick={() => { setEditing(false); setErr(''); }} tone={C.muted}>Cancel</Btn>
+        </div>
+      )}
+
+      {confirmPending && (
+        <div style={{ marginTop: 12, padding: '12px 14px', background: '#1e293b',
+                      border: '1px solid #f59e0b', borderRadius: 10 }}>
+          <div style={{ fontSize: 13, color: '#fde68a', marginBottom: 10, lineHeight: 1.5 }}>
+            {confirmPending.msg}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { confirmPending.onConfirm(); setConfirmPending(null); }}
+              style={{ background: '#22c55e', border: 'none', borderRadius: 7, color: '#052e16',
+                       padding: '7px 18px', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Yes, confirm
+            </button>
+            <button onClick={() => setConfirmPending(null)}
+              style={{ background: 'transparent', border: `1px solid ${C.line}`, borderRadius: 7,
+                       color: C.muted, padding: '7px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
     </div>

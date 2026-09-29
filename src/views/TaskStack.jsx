@@ -41,21 +41,6 @@ const C = {
   bg: '#07111f', card: '#111f34', line: '#1d2f48', line2: '#263a55',
   text: '#edf4ff', muted: '#8ea0b8', green: '#22d16f', blue: '#4b8dff',
   amber: '#ffb020', red: '#ff4f5e', purple: '#9b6cff',
-  // ── A MESSAGE IS NOT A TASK, so it does not get the task palette. ──
-  // The MESSAGE chip alone was not enough: on a scrolling list every card was
-  // still the same navy slab, and Sara's read was "it still looks too much like
-  // everything else." Colour is what distinguishes a thing at a glance; a badge
-  // is what you find after you have already stopped. So messages sit on a
-  // green-teal ground with a thick left rail — recognisable in peripheral
-  // vision, before any text is read.
-  // Grey ground, teal banner, blue action — deliberately NOTHING like the navy
-  // task cards. The first pass used a green-teal wash and it still read as "one
-  // more card"; a different shade of the same family is not a different thing.
-  // Grey is the only neutral on this screen, so a grey card is unmistakably not
-  // a task, and the teal banner and blue button are the only places those hues
-  // appear at all.
-  msgBg: '#2b3038', msgLine: '#454c57', msgQuote: '#1e232a',
-  teal: '#14b8a6', markBlue: '#3b82f6',
 };
 
 const TABS = [
@@ -98,19 +83,8 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
   // never renders.
   const [who, setWho]     = useState('me');
   const [tab, setTab]     = useState('todo');
-  // MESSAGES ARE A PILL, NOT A TAB.
-  // The texting layer was built and then invisible — "NO ONE IS GOING TO SEE
-  // WHAT YOU HAVE IN THERE." A message that arrives into a mixed stack is found
-  // only by scrolling past tasks, which is the same as not arriving. It sits in
-  // the row people already use to change what they are looking at, FIRST,
-  // carrying its own unread count, so the answer to "did anyone text us" is
-  // visible without reading a single card.
-  //
-  // A pill and not a tab because the tabs are the task lifecycle — To Do,
-  // Doing, Done. A message has no lifecycle: it is correspondence, it is read
-  // or it is not. Putting it in that row would say it moves through those
-  // states, and it does not.
-  const [msgOnly, setMsgOnly] = useState(false);
+  // Messages are now at /messages — their own route with a separate nav badge.
+  // TaskStack is tasks only.
   const [busy, setBusy]   = useState(null);
   const [panel, setPanel] = useState(null);   // {id, mode}
   const [answer, setAnswer] = useState('');
@@ -204,42 +178,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     ? mine
     : [String(who).toLowerCase()];
 
-  // SHARED INBOX. "Ya'll can see all." A message is company correspondence, not
-  // one person's errand: it shows for everybody regardless of who it was routed
-  // to. Only the "{name} answers" line says whose reply it is — visibility and
-  // ownership are separate questions, and conflating them is how a client's
-  // text sits unanswered because the one person it was assigned to is off.
-  const isMine    = n => n._msg || viewing.includes((n.assigned_to || '').toLowerCase());
+  const isMine    = n => viewing.includes((n.assigned_to || '').toLowerCase());
   const iAssigned = n => viewing.includes((n.assigned_by || n.author_email || '').toLowerCase());
   const iFinished = n => viewing.includes((n.done_by || '').toLowerCase());
 
-  // Read silences the notification. It is NOT done — a message can be read and
-  // still owe an answer, and the assignee still owns replying. Conflating the
-  // two would make "I saw it" close a customer's question.
-  const markRead = async (n) => {
-    setBusy(n.id);
-    try {
-      await supabase.from('notes')
-        .update({ read_at: new Date().toISOString(), read_by: me })
-        .eq('id', n.id);
-      setRows(prev => prev.map(r => (r.id === n.id ? { ...r, read_at: new Date().toISOString(), read_by: me } : r)));
-      // The badge reads from the database on a timer; tell it now instead.
-      window.dispatchEvent(new Event('task-skips-changed'));
-    } catch (e) { console.warn('markRead failed', e?.message || e); }
-    setBusy(null);
-  };
-
-  // Every inbound text, newest first, unread at the top — the shared inbox in
-  // one list. Not bucketed by lane: nothing here is assigned work.
-  const msgs = useMemo(() => (rows || []).filter(n => n._msg)
-    .slice().sort((a, b) => (!!a.read_at - !!b.read_at)
-      || new Date(b.created_at) - new Date(a.created_at)), [rows]);
-  // The count on the pill is UNREAD, matching the nav badge exactly. A total
-  // would never reach zero and would stop meaning anything within a week.
-  const unreadMsgs = msgs.filter(n => !n.read_at).length;
 
   const buckets = useMemo(() => {
-    const all = rows || [];
+    // Inbound texts (body starts with 📲) are now at /messages — filter them out
+    // so they do not appear in the task stack or inflate the To Do count.
+    const all = (rows || []).filter(n => !n._msg);
     return {
       todo:  all.filter(n => isMine(n) && n.lane !== 'doing' && n.lane !== 'done'),
       doing: all.filter(n => isMine(n) && n.lane === 'doing'),
@@ -270,15 +217,6 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
     // "2 open" with nothing underneath it. There are no tabs on the home
     // screen — there is only "the next thing", so take To Do first and fall
     // through to Doing.
-    // The Messages pill overrides everything else: whose stack, which tab, all
-    // of it. You asked for the inbox, so you get the inbox.
-    if (msgOnly && !embedded) {
-      const needle0 = q.trim().toLowerCase();
-      return needle0
-        ? msgs.filter(n => (n._customer || '').toLowerCase().includes(needle0)
-            || (n.body || '').toLowerCase().includes(needle0))
-        : msgs;
-    }
     const all = embedded
       ? (() => {
           const live = n => !skips[n.id];
@@ -286,13 +224,13 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
           const doing = buckets.doing.filter(live);
           return todo.length ? todo : doing;
         })()
-      : (buckets[tab] || []);   // the full list never hides anything — see below
+      : (buckets[tab] || []);
     const needle = q.trim().toLowerCase();
     if (!needle) return all;
     return all.filter(n =>
       (n._customer || '').toLowerCase().includes(needle) ||
       (n.body || '').toLowerCase().includes(needle));
-  }, [buckets, tab, q, embedded, skips, msgOnly, msgs]);
+  }, [buckets, tab, q, embedded, skips]);
 
   const patch = async (n, fields, remove = true) => {
     setBusy(n.id);
@@ -401,48 +339,22 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
       {!embedded && (
         <div style={{ padding: '16px 16px 0' }}>
-          <div style={{ fontSize: 21, fontWeight: 900 }}>{msgOnly ? 'Messages' : 'Tasks'}</div>
+          <div style={{ fontSize: 21, fontWeight: 900 }}>Tasks</div>
           <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>
             {rows == null ? 'Loading…'
-              : msgOnly ? `${msgs.length} message${msgs.length === 1 ? '' : 's'}${unreadMsgs ? ` · ${unreadMsgs} unread` : ' · all read'}`
               : `${buckets.todo.length} to do · ${buckets.doing.length} doing${buckets.done.length ? ` · ${buckets.done.length} back to you` : ''}`}
           </div>
         </div>
       )}
 
-      {/* THE FILTER ROW. Messages first, then people.
-          The person pills are an operator's tool — a tech has no business
-          reading somebody else's stack. Messages are not: the inbox is shared,
-          so the pill renders for anyone who has one waiting, operator or not.
-          That is why the row is no longer gated on isOperator as a whole. */}
-      {!embedded && (isOperator || msgs.length > 0) && (
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2,
+      {/* Person filter — operator only */}
+      {!embedded && isOperator && (
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto',
                       padding: '10px 16px 4px', alignItems: 'center' }}>
-          {msgs.length > 0 && (
-            <button onClick={() => setMsgOnly(v => !v)}
-              style={{ padding: '7px 13px', borderRadius: 999, cursor: 'pointer',
-                       whiteSpace: 'nowrap',
-                       // Teal, the message colour, and nothing else on this
-                       // screen is teal. The pill and the cards it opens are
-                       // recognisably the same thing.
-                       background: msgOnly ? C.teal : 'transparent',
-                       border: `1px solid ${msgOnly ? C.teal : C.teal + '77'}`,
-                       color: msgOnly ? '#05201c' : C.teal,
-                       fontSize: 12.5, fontWeight: 900, fontFamily: 'inherit' }}>
-              💬 Messages{unreadMsgs ? ` ${unreadMsgs}` : ''}
-            </button>
-          )}
-          {isOperator && msgs.length > 0 && (
-            <span style={{ width: 1, alignSelf: 'stretch', background: C.line2,
-                           margin: '2px 3px', flex: '0 0 auto' }} />
-          )}
-          {isOperator && [{ email: 'me', name: 'Me' }, ...ASSIGNEES].map(a => {
-            // Whose-stack and the inbox are different questions. Tapping a
-            // person while Messages is open means "show me their work", so the
-            // inbox closes rather than leaving two filters silently fighting.
-            const on = who === a.email && !msgOnly;
+          {[{ email: 'me', name: 'Me' }, ...ASSIGNEES].map(a => {
+            const on = who === a.email;
             return (
-              <button key={a.email} onClick={() => { setWho(a.email); setMsgOnly(false); }}
+              <button key={a.email} onClick={() => setWho(a.email)}
                 style={{ padding: '7px 13px', borderRadius: 999, cursor: 'pointer',
                          whiteSpace: 'nowrap', background: on ? C.blue : 'transparent',
                          border: `1px solid ${on ? C.blue : C.line2}`,
@@ -457,13 +369,13 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
       <div style={{ padding: '10px 16px 0', display: embedded ? 'none' : 'block' }}>
         <input value={q} onChange={e => setQ(e.target.value)}
-          placeholder={msgOnly ? 'Filter messages…' : 'Filter by client or text…'}
+          placeholder="Filter by client or text…"
           style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px',
                    borderRadius: 10, border: `1px solid ${C.line2}`, background: '#0b1220',
                    color: C.text, fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
       </div>
 
-      <div style={{ display: (embedded || msgOnly) ? 'none' : 'flex', gap: 7, padding: '10px 16px 4px' }}>
+      <div style={{ display: embedded ? 'none' : 'flex', gap: 7, padding: '10px 16px 4px' }}>
         {TABS.map(t => {
           const n = buckets[t.key].length;
           const on = tab === t.key;
@@ -501,8 +413,7 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
 
         {!embedded && rows != null && list.length === 0 && (
           <div style={{ textAlign: 'center', color: C.muted, fontSize: 13.5, padding: '34px 0' }}>
-            {msgOnly ? 'No texts match that.'
-              : tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
+            {tab === 'done' ? 'Nothing finished, and nothing waiting on you.' : 'Nothing here.'}
           </div>
         )}
 
@@ -517,106 +428,15 @@ export default function TaskStack({ userEmail, userName, onNavigate, embedded = 
           const mineFinished = tab === 'done' && iFinished(n);
           return (
             <div key={n.id}
-              style={n._msg
-                ? { background: C.msgBg, borderRadius: '6px 16px 16px 6px',
-                    padding: '15px 16px', marginBottom: 12,
-                    border: `1px solid ${C.msgLine}`,
-                    // UNREAD SHOUTS, READ RECEDES. A shared inbox where every
-                    // message looks equally urgent forever is one nobody reads
-                    // twice. The rail carries it: bright and thick while it is
-                    // new, dim and thin once somebody has seen it.
-                    borderLeft: `${n.read_at ? 3 : 6}px solid ${n.read_at ? C.msgLine : C.teal}`,
-                    opacity: n.read_at ? 0.72 : 1 }
-                : { background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
-                    border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
+              style={{ background: C.card, borderRadius: 16, padding: '15px 16px', marginBottom: 12,
+                       border: `1px solid ${back ? C.purple + '66' : n.lane === 'doing' ? C.blue + '55' : C.line}` }}>
 
-              {/* ── A MESSAGE, NOT A TASK ────────────────────────────────
-                  An inbound text arriving as a task card read as "a task with
-                  no customer" — which is exactly what it looked like, and
-                  nothing about it said somebody was waiting on a reply. It gets
-                  its own header: who wrote, that it is a message, and who owes
-                  the answer. */}
-              {n._msg ? (
-                <>
-                  {/* A BANNER, NOT A CHIP. A chip sits among other chips and
-                      reads as one more label; a band across the top of the card
-                      is the first thing the eye lands on. */}
-                  <div style={{ background: C.teal, color: '#04211e',
-                                margin: '-15px -16px 11px', padding: '7px 16px',
-                                borderRadius: '0 12px 0 0',
-                                fontSize: 11.5, fontWeight: 900, letterSpacing: '.09em' }}>
-                    💬 TEXT MESSAGE
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                                marginBottom: 6 }}>
-                    <span style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2 }}>
-                      {n._msg.who}
-                    </span>
-                    {n._msg.answer && (
-                      <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '.06em',
-                                     color: '#08121f',
-                                     background: n._msg.answer === 'yes' ? C.green : C.amber,
-                                     borderRadius: 5, padding: '3px 8px' }}>
-                        {n._msg.answer === 'yes' ? '✅ CONFIRMED' : '⚠ NEEDS RESCHEDULE'}
-                      </span>
-                    )}
-                  </div>
-                  {n._msg.answer === 'no' && (
-                    <div style={{ fontSize: 13, color: C.amber, fontWeight: 700, marginBottom: 7 }}>
-                      They cannot make the time. Call them — nothing reschedules on its own.
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 9 }}>
-                    {n._msg.phone}
-                    {n._customer ? ` · ${n._customer}` : ''}
-                    {/* WHO ANSWERS. The whole point of routing a reply back to
-                        its sender is lost if the card does not say whose it is. */}
-                    {n.assigned_to && (
-                      <> · <b style={{ color: C.text }}>
-                        {NAME_BY_EMAIL[canonicalEmail(n.assigned_to)] || n.assigned_to} answers
-                      </b></>
-                    )}
-                  </div>
-                  {/* Their actual words, set apart — this is the thing to read. */}
-                  <div style={{ background: C.msgQuote, borderRadius: 10,
-                                padding: '12px 14px',
-                                fontSize: 16.5, lineHeight: 1.5, marginBottom: 11,
-                                color: '#eef2f7',
-                                whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                    {n._msg.text || '(no text)'}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap',
-                                alignItems: 'center', marginBottom: 11 }}>
-                    <TextButton
-                      to={n._msg.phone}
-                      name={n._msg.who}
-                      accessToken={accessToken}
-                      label={`↩ Reply to ${n._msg.who}`}
-                      logTo={{ jobId: n.job_id, customerId: n.customer_id, userEmail }}
-                    />
-                    {n.read_at ? (
-                      <span style={{ fontSize: 11.5, color: C.muted }}>
-                        ✓ read{n.read_by ? ` by ${NAME_BY_EMAIL[canonicalEmail(n.read_by)] || n.read_by}` : ''}
-                      </span>
-                    ) : (
-                      <button onClick={() => markRead(n)} disabled={busy === n.id}
-                        style={{ background: C.markBlue, border: 'none',
-                                 borderRadius: 999, color: '#fff', fontSize: 12.5,
-                                 fontWeight: 800, padding: '7px 15px', cursor: 'pointer',
-                                 fontFamily: 'inherit' }}>
-                        {busy === n.id ? '…' : 'Mark read'}
-                      </button>
-                    )}
-                  </div>
-                </>
-              ) : (
-                /* CUSTOMER FIRST — same as the job card. A paragraph of body
-                   text with no name on it tells you nothing about who it is for,
-                   which is the first thing anybody needs. */
-                <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>
-                  {n._customer || 'No customer'}
-                </div>
-              )}
+              {/* CUSTOMER FIRST — same as the job card. A paragraph of body
+                  text with no name on it tells you nothing about who it is for,
+                  which is the first thing anybody needs. */}
+              <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2, marginBottom: 6 }}>
+                {n._customer || 'No customer'}
+              </div>
 
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 {/* The JOB's status, carried onto the task. "Ed Rupert — Needs

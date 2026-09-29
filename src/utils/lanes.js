@@ -253,6 +253,9 @@ export function movesFor(job, { includeBilling = true, includeClear = true, mayB
     const ready = LANES.find(l => l.key === 'ready' || l.target === 'ready_to_schedule');
     return [
       ...(ready ? [ready] : []),
+      // Direct path to estimates — for jobs where you already know a quote is
+      // needed and skipping ready→scheduled→needs_estimate saves three moves.
+      { key: 'needs_estimate', target: 'needs_estimate', icon: '📋', label: 'Send to Estimates', color: '#f59e0b', means: 'Quote needed — skip the scheduling queue' },
       ...(includeClear ? [CLEAR_LANE] : []),
     ].filter(l => l.key !== here);
   }

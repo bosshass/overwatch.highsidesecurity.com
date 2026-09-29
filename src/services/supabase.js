@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 // could never split it out and warned on every build. A dynamic import that
 // cannot actually be code-split is just a slower static one.
 import { TECH_CALENDAR_MAP } from '../config/calendars.js';
+import { STATUS_AUTO_ASSIGN } from '../utils/ownership.js';
 
 // Keys come exclusively from env vars — no hardcoded fallbacks.
 // Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel before deploying.
@@ -357,6 +358,9 @@ export const jobsApi = {
     const oldStatus = current?.status;
 
     const updates = { status: newStatus, updated_by: changedBy };
+    // Auto-route to the right person's queue on specific status moves.
+    // No email fires — notification is user-triggered.
+    if (STATUS_AUTO_ASSIGN[newStatus]) updates.assigned_to = STATUS_AUTO_ASSIGN[newStatus];
 
     // ── PROMOTING A NOTE INTO A JOB ──────────────────────────────────────
     // "Make it a job" carried target:'ready_to_schedule' — a STATUS — and
@@ -415,7 +419,8 @@ export const jobsApi = {
     // left alone.
     const SCHEDULER = 'shanaparks@drhsecurityservices.com';
     if (['ready_to_schedule', 'return_pending'].includes(newStatus)
-        && !['ready_to_schedule', 'return_pending'].includes(oldStatus)) {
+        && !['ready_to_schedule', 'return_pending'].includes(oldStatus)
+        && current?.job_type !== 'estimate') {   // estimates go to the estimate flow, not Shana's queue
       try {
         const { data: existing } = await supabase.from('notes')
           .select('id').eq('job_id', id).eq('assigned_to', SCHEDULER)

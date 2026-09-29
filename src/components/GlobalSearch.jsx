@@ -5,11 +5,11 @@ const TODOS_KEY = 'juce_things_to_do';
 
 function dispositionColor(d) {
   switch (d) {
-    case 'bill_it':    return '#22c55e';
-    case 'return':     return '#f59e0b';
-    case 'estimate':   return '#06b6d4';
-    case 'in_progress': return '#3b82f6';
-    default:           return '#64748b';
+    case 'bill_it':  return '#22c55e';
+    case 'return':   return '#f97316';
+    case 'estimate': return '#3b82f6';
+    case 'blocked':  return '#b91c1c';
+    default:         return '#64748b';
   }
 }
 

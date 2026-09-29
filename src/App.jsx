@@ -38,6 +38,7 @@ import { StuckAlertGate } from './components/StuckAlerts.jsx';
 import { shouldShowGate } from './utils/alertEngine.js';
 import { jobDeepLink, APP_BASE } from './config/appBase.js';
 import SmsSetup from './views/SmsSetup.jsx';
+import MessagesView from './views/MessagesView.jsx';
 import { APP_VERSION } from './version.js';
 
 // APP_VERSION lives in src/version.js and version.json is generated from it.
@@ -69,7 +70,7 @@ const USER_CONFIG = {
   // It isn't shared — it's JR's. The identity prompt is gone; it just signs
   // him in as himself. Sara reaches the app on admin@jnbservice.com and
   // sara@jnbllc.com, Shana on shanaparks@, so nobody loses a way in.
-  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'board' , needsIdentity: true },
+  'info@drhsecurityservices.com':     { name: 'JR',     role: 'operator', defaultCalendar: 'JR', defaultView: 'calendar' , needsIdentity: true },
     // jr@ lands on HOME, not /work — he's the owner, and the tour we show him is
   // about My Tasks and the warning banner, both of which live there. NOTE his
   // role is still 'tech', so Admin Tools and the operator screens stay hidden
@@ -77,29 +78,34 @@ const USER_CONFIG = {
   // him an operator, jr@ makes him a tech, and it's the same person.
   'jr@drhsecurityservices.com':       { name: 'JR',     role: 'tech',     defaultCalendar: 'JR', defaultView: 'my' },
   'brian@drhsecurityservices.com':    { name: 'Brian',  role: 'tech',     defaultCalendar: 'Brian', defaultView: 'work' },
-  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
-  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'board' },
-  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'board' },
+  'sara@jnbllc.com':                  { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'calendar' },
+  'shanaparks@drhsecurityservices.com': { name: 'Shana', role: 'operator', defaultCalendar: 'Shana', defaultView: 'calendar' },
+  'admin@jnbservice.com':             { name: 'Sara',   role: 'operator', defaultCalendar: null, defaultView: 'calendar' },
   // defaultCalendar was 'Installations' — the shared install queue — so Trevor
   // signed in and landed on everyone's work instead of his own day. Austin
   // lands on Austin; Trevor lands on Trevor. He still SEES Installations
   // (config/calendars.js gives him both), it is just no longer where he starts.
   'trevor@drhsecurityservices.com':    { name: 'Trevor', role: 'tech',     defaultCalendar: 'Trevor', defaultView: 'work' },
   'subs@drhsecurityservices.com':      { name: 'Subs',   role: 'tech',     defaultCalendar: 'Subs', defaultView: 'work' },
-  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'board', superAdmin: true },
+  'accounting@drhsecurityservices.com': { name: 'Accounting', role: 'operator', defaultCalendar: null, defaultView: 'calendar', superAdmin: true },
   // Sara on the DRH domain, as a TECH profile: her own calendar, My Day as the
   // landing, no board. She keeps admin@jnbservice.com and accounting@ for ops.
   // NOTE: an unknown email silently defaults to role 'tech' with no calendars
   // and no task ownership, so adding a login here is only ONE of the six lists
   // that have to agree — see the others changed alongside this.
   'sara@drhsecurityservices.com':     { name: 'Sara',   role: 'tech',     defaultCalendar: 'Sara', defaultView: 'my' },
+  // ── VIEWER TIER ──────────────────────────────────────────────────────────────
+  // A viewer can sign in, see their own calendar, open the job dispo card from
+  // a booked event, and view the board in read-only mode.
+  // They CANNOT move cards, open the scheduler, or edit anything.
+  'whiting@drhsecurityservices.com':  { name: 'Whiting', role: 'viewer', defaultCalendar: 'Whiting', defaultView: 'calendar' },
 };
 
 // Identity options for shared logins like info@
 const IDENTITY_OPTIONS = [
-  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: 'board' },
+  { key: 'Sara', label: 'Sara', defaultCalendar: null, defaultView: 'calendar' },
   { key: 'JR', label: 'JR', defaultCalendar: null, defaultView: 'my' },
-  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'board' },
+  { key: 'Shana', label: 'Shana', defaultCalendar: 'Shana', defaultView: 'calendar' },
 ];
 
 const CALENDAR_OPTIONS = [
@@ -458,8 +464,11 @@ export default function App() {
           .then(res => res.json())
           .then(data => {
             const email = data.email;
-            // Session lasts 36 hours — token refresh happens silently
-            const expiry = new Date(Date.now() + 36 * 60 * 60 * 1000);
+            // Session lasts 30 days — the Google token (1hr) refreshes silently
+            // so the Overwatch-level clock only matters if the browser is fully
+            // offline or the Google account is revoked. 36h was too short:
+            // operators left the app open overnight and hit the gate at 8am.
+            const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const config = getUserConfig(email);
 
             localStorage.setItem('juce_v4_token', token);
@@ -580,19 +589,48 @@ export default function App() {
       const client = getTokenClient();
       if (!client) return resolve(false);
       const done = (ok) => { clearTimeout(timer); resolve(ok); };
-      const timer = setTimeout(() => done(false), 10000);
+      // On mobile, requestAccessToken opens a popup when Google can't
+      // satisfy the request from cookies. Popups are blocked by the OS outside
+      // a user gesture, so the callback never fires and the timer fires instead.
+      // Before giving up, verify the token with tokeninfo — a plain GET that
+      // works without a popup. If the token is still alive (common: the popup
+      // was blocked even though the token hadn't expired yet), extend our stored
+      // expiry and return true so callers don't raise the reconnect gate over a
+      // perfectly good session.
+      const timer = setTimeout(async () => {
+        const tok = localStorage.getItem('juce_v4_token');
+        if (tok) {
+          try {
+            const res = await fetch(
+              `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(tok)}`
+            );
+            if (res.ok) {
+              const info = await res.json();
+              const left = Number(info.expires_in);
+              if (Number.isFinite(left) && left > 60) {
+                // Token still valid — update both expiry fields. juce_v4_token_expiry
+                // keeps the pre-emptive renewal honest; juce_v4_expiry resets the
+                // 30-day session clock so the gate never fires over a live session.
+                localStorage.setItem('juce_v4_token_expiry',
+                  new Date(Date.now() + left * 1000).toISOString());
+                localStorage.setItem('juce_v4_expiry',
+                  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+                done(true);
+                return;
+              }
+            }
+          } catch { /* network error — fall through to done(false) */ }
+        }
+        done(false);
+      }, 10000);
       client.callback = (resp) => {
         if (resp?.access_token) {
           // Store the REAL lifetime Google gives us, not a made-up 36 hours.
           const lifeMs = (Number(resp.expires_in) || 3600) * 1000;
           localStorage.setItem('juce_v4_token', resp.access_token);
           localStorage.setItem('juce_v4_token_expiry', new Date(Date.now() + lifeMs).toISOString());
-          // Also extend the 36-hour session so the session-expiry check doesn't
-          // re-raise the modal minutes after a successful silent refresh. If
-          // Google can silently provide a fresh token, the user is still signed
-          // in — there's no reason to let the Overwatch session clock expire
-          // independently.
-          localStorage.setItem('juce_v4_expiry', new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString());
+          // Reset the 30-day session clock on every successful refresh.
+          localStorage.setItem('juce_v4_expiry', new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
           setAccessToken(resp.access_token);
           done(true);
         } else done(false);
@@ -727,6 +765,9 @@ export default function App() {
   // filter row — just their own calendar and their own work. This is the list
   // that actually locks the app down; USER_CONFIG role 'tech' alone does not.
   const RESTRICTED_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'brian@drhsecurityservices.com', 'trevor@drhsecurityservices.com', 'subs@drhsecurityservices.com', 'sara@drhsecurityservices.com'];
+  // LIMITED_TECH_EMAILS: Austin and Trevor only. These users see Today + Calendar + Clients.
+  // No Tasks, no Messages, no Home nav tile. SMS threads from other staff are hidden on client profiles.
+  const LIMITED_TECH_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
   // THE ADDRESS EVERY SCREEN READS AS.
   // Declared HERE, above the role flags, because they use it. In 9.67.0 this
   // lived 85 lines further down: legal JavaScript, compiles clean, and dies the
@@ -737,9 +778,14 @@ export default function App() {
   // promises: "anything you save is recorded under your own name."
   const readAsEmail = viewAs || userEmail;
 
-  const isRestricted = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
+  const isRestricted   = RESTRICTED_EMAILS.includes(readAsEmail?.toLowerCase());
+  const isLimitedTech  = LIMITED_TECH_EMAILS.includes(readAsEmail?.toLowerCase());
 
   const isOperator = getUserConfig(readAsEmail).role === 'operator';
+
+  // Viewer: own calendar + board read-only + dispo card. Can't move cards or
+  // open the scheduler. NOT in RESTRICTED_EMAILS (they'd lose the board entirely).
+  const isViewer = getUserConfig(readAsEmail).role === 'viewer';
 
   // Super admin + the lens they're currently looking through.
   const isSuperAdmin = getUserConfig(userEmail).superAdmin === true;
@@ -768,57 +814,43 @@ export default function App() {
   // Open tasks assigned to me, for the nav badge. Email told people a task had
   // landed; nothing in the app itself did, so anyone who does not live in that
   // mailbox found out whenever they next happened to look.
+  // Tasks badge — assigned-to-me open tasks only (messages have their own badge).
   const [taskCount, setTaskCount] = useState(0);
+  // Messages badge — unread inbound texts, shared inbox, silenced per-message by markRead.
+  const [msgCount,  setMsgCount]  = useState(0);
   useEffect(() => {
     if (!isSignedIn || !userEmail) return;
     let dead = false;
     const tick = async () => {
       try {
         const mine = emailsFor(userEmail);
-        // Fetch the IDS, not a count, so today's skips can be subtracted.
-        // The badge read straight from the database and skips live in
-        // localStorage, so the two never talked: you could skip everything and
-        // the 7 sat there all day telling you to look at work you had already
-        // said "not now" to. That is how a badge gets ignored permanently —
-        // and JR and Shana would have been the first to say so.
-        const { data } = await supabase.from('notes')
+        // Tasks: assigned to me, not yet finished, minus today's skips.
+        const { data: taskData } = await supabase.from('notes')
           .select('id')
           .eq('status', 'open').neq('lane', 'done')
+          .not('body', 'like', '📲 Text from%')   // exclude inbound texts — they live in Messages
           .in('assigned_to', mine.length ? mine : ['__none__']);
-
-        // UNREAD MESSAGES COUNT FOR EVERYBODY. Inbound texts are a shared
-        // inbox, so the badge cannot key off assignment the way tasks do — a
-        // client's unanswered question must nag the whole office, not only
-        // whoever it happened to be routed to. Read state is what silences it,
-        // and read is shared too: one person opening it clears it for all.
-        const { data: unread } = await supabase.from('notes')
-          .select('id')
-          .eq('status', 'open')
-          .is('read_at', null)
-          .like('body', '📲 Text from%');
 
         let skipped = {};
         try {
           const raw = JSON.parse(localStorage.getItem('task_skips') || '{}');
           const today = new Date().toLocaleDateString('en-CA');
-          // Day-scoped: yesterday's skips are dropped on read, so anything
-          // still open comes back tomorrow morning. Skipping is "not now",
-          // never "done".
           skipped = Object.fromEntries(Object.entries(raw).filter(([, d]) => d === today));
         } catch {}
+        const taskIds = (taskData || []).filter(n => !skipped[n.id]).map(n => n.id);
+        if (!dead) setTaskCount(taskIds.length);
 
-        // Union by id — a message routed to you would otherwise be counted
-        // twice, once as your task and once as an unread message.
-        const ids = new Set([
-          ...(data   || []).filter(n => !skipped[n.id]).map(n => n.id),
-          ...(unread || []).map(n => n.id),
-        ]);
-        if (!dead) setTaskCount(ids.size);
+        // Messages: unread inbound texts, shared across all operators.
+        const { data: unread } = await supabase.from('notes')
+          .select('id')
+          .eq('status', 'open')
+          .is('read_at', null)
+          .like('body', '📲 Text from%');
+        if (!dead) setMsgCount((unread || []).length);
       } catch { /* a badge is not worth an error */ }
     };
     tick();
-    const t = setInterval(tick, 90000);   // cheap head-count, not a subscription
-    // Skipping updates the badge immediately instead of up to 90s later.
+    const t = setInterval(tick, 90000);
     window.addEventListener('task-skips-changed', tick);
     return () => {
       dead = true;
@@ -1070,6 +1102,10 @@ export default function App() {
 
   // ── ROUTE GUARDS ────────────────────────────────────────────────────────
   const OperatorOnly = ({ children }) => isOperator ? children : <Navigate to="/" replace />;
+  // Viewers can reach the board in read-only mode; operators get it fully interactive.
+  const OperatorOrViewer = ({ children }) => (isOperator || isViewer) ? children : <Navigate to="/" replace />;
+  // Limited techs (Austin, Trevor) may only reach Today, Calendar, and Clients.
+  const LimitedTechBlocked = ({ children }) => isLimitedTech ? <Navigate to="/work" replace /> : children;
 
   // ── ROUTES ──────────────────────────────────────────────────────────────
   return (
@@ -1161,7 +1197,12 @@ export default function App() {
         {/* /tasks — one card at a time, To Do / Doing / Done. Replaces
             sending people to People, which opens on a jobs list. */}
         <Route path="/tasks" element={
-          <ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell>
+          <LimitedTechBlocked><ViewShell><TaskStack userEmail={readAsEmail} userName={effectiveName} onNavigate={navigate} isOperator={isOperator} accessToken={accessToken} /></ViewShell></LimitedTechBlocked>
+        } />
+
+        {/* /messages — shared SMS inbox, separate from the task stack */}
+        <Route path="/messages" element={
+          <LimitedTechBlocked><ViewShell><MessagesView userEmail={readAsEmail} accessToken={accessToken} /></ViewShell></LimitedTechBlocked>
         } />
 
         <Route path="/calendar" element={<ViewShell><TechCalendar accessToken={accessToken} userEmail={readAsEmail} defaultCalendar={defaultCalendar} isRestricted={isRestricted} isOperator={isOperator} userName={effectiveName} viewAs={viewAs} defaultTab={urlParams.get('tab') === 'utilization' ? 'tasks' : undefined} /></ViewShell>} />
@@ -1219,7 +1260,7 @@ export default function App() {
             whole shop, every customer, every dollar figure. View-as Austin made
             that visible, but a tech on his own phone had the same access.
             OperatorOnly already existed and guards four other routes. */}
-        <Route path="/board" element={<OperatorOnly><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
+        <Route path="/board" element={<OperatorOrViewer><ViewShell><BoardView accessToken={accessToken} userEmail={readAsEmail} userName={effectiveName} onBack={() => navigate('/')} readOnly={isViewer && !isOperator} /></ViewShell></OperatorOrViewer>} />
         {/* Role-based workspaces. /workspace resolves to whoever is signed in
             — or, for a super admin using View as, to whoever they're viewing.
             userEmail stays the REAL signed-in address so writes are truthful. */}
@@ -1242,7 +1283,7 @@ export default function App() {
             advice was "sign in and open this from Overwatch", which pointed at
             a screen that did not exist until now. */}
         <Route path="/sms" element={<OperatorOnly><ViewShell><SmsSetup accessToken={accessToken} userEmail={userEmail} onBack={() => navigate('/')} /></ViewShell></OperatorOnly>} />
-        <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} /></ViewShell></OperatorOnly>} />
+        <Route path="/unbilled" element={<OperatorOnly><ViewShell><Unbilled onBack={() => navigate('/')} userEmail={userEmail} accessToken={accessToken} /></ViewShell></OperatorOnly>} />
 
         {/* Admin */}
         {/* /admin/gap REMOVED 9.10.2. Nothing linked to it, and its link tool
@@ -1266,7 +1307,8 @@ export default function App() {
       {isSignedIn && (
         <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'rgba(7,17,31,0.97)', borderTop:'1px solid #1d2f48', display:'flex', zIndex:150, backdropFilter:'blur(14px)', paddingBottom:'env(safe-area-inset-bottom)' }}>
           {[
-            { icon:'⌂', label:'Home',  path:'/' },
+            // Limited techs (Austin, Trevor) get a slim nav: Today, Clients, Cal only.
+            ...(isLimitedTech ? [] : [{ icon:'⌂', label:'Home', path:'/' }]),
             { icon:'✓', label:'Today', path:'/work' },
             // Hidden from techs. The route is gated now, so leaving the tab
             // there would just navigate them into a redirect — a door that
@@ -1278,30 +1320,30 @@ export default function App() {
             // is one tap from every screen in the app, so a tech tapping the
             // person icon expecting "my stuff" got a wall of text instead.
             // Operators still reach People from the board's "Who's stuck".
-            { icon:'📋', label:'Tasks', path:'/tasks' },   // was ✓ — identical to Today's icon
-            { icon:'🏠', label:'Clients', path:'/customers' },
-            { icon:'📅', label:'Cal',  path:'/calendar' },
+            ...(isLimitedTech ? [] : [{ icon:'📋', label:'Tasks', path:'/tasks' }]),
+            ...(isLimitedTech ? [] : [{ icon:'💬', label:'Messages', path:'/messages' }]),
+            { icon:'🏠', label:'Clients',  path:'/customers' },
+            { icon:'📅', label:'Cal',      path:'/calendar' },
           ].map(t => {
             const active = t.path === '/' ? location.pathname === '/' : location.pathname.startsWith(t.path);
+            // Each badged tab has its own count: tasks → taskCount, messages → msgCount.
+            const badge = t.path === '/tasks' ? taskCount : t.path === '/messages' ? msgCount : 0;
             return (
               <button key={t.path} onClick={() => navigate(t.path)}
                 style={{ flex:1, padding:'10px 0 6px', background:'none', border:'none', color: active ? '#00c8e8' : '#8ea0b8', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                {/* TASKS CARRIES A COUNT AND SITS LARGER. It is the one tab
-                    that has a number attached — everything else is a place, but
-                    this is a pile that grows if nobody looks at it. */}
-                <span style={{ fontSize: t.path === '/tasks' ? 25 : 20, position:'relative' }}>
+                <span style={{ fontSize: badge > 0 ? 25 : 20, position:'relative' }}>
                   {t.icon}
-                  {t.path === '/tasks' && taskCount > 0 && (
+                  {badge > 0 && (
                     <span style={{ position:'absolute', top:-3, right:-11, minWidth:16, height:16,
                                    borderRadius:9, background:'#ff4f5e', color:'#fff',
                                    fontSize:10, fontWeight:900, display:'flex',
                                    alignItems:'center', justifyContent:'center', padding:'0 4px' }}>
-                      {taskCount > 9 ? '9+' : taskCount}
+                      {badge > 9 ? '9+' : badge}
                     </span>
                   )}
                 </span>
-                <span style={{ fontSize: t.path === '/tasks' ? 10.5 : 9.5,
-                               fontWeight: t.path === '/tasks' ? 900 : 700,
+                <span style={{ fontSize: badge > 0 ? 10.5 : 9.5,
+                               fontWeight: badge > 0 ? 900 : 700,
                                whiteSpace:'nowrap' }}>{t.label}</span>
               </button>
             );

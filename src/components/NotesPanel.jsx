@@ -21,7 +21,7 @@ import { appendNoteToJobEvents } from '../services/calendarSync.js';
 // about the client belongs on the client, so the button navigates there
 // instead of writing here: deep-linked to the customer when the job has one,
 // and to the client search when it does not.
-export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null, readOnly = false }) {
+export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null, readOnly = false, hideFieldNotes = false }) {
   const navigate = useNavigate();
   const [notes, setNotes] = useState([]);
   const [activity, setActivity] = useState([]);
@@ -74,7 +74,10 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         let out = (t || '').trim();
         let guard = 0;
         while (guard++ < 10) {
-          const next = out.replace(/^↪\s*from merged job(\s*\([^)]*\))?\s*:\s*/i, '');
+          // Two prefix formats in the wild — strip both, keep the real content.
+          // "↪ from merged job (date): <note text>"  — individual notes carried over
+          // "[↩↪] merged job details (originally logged ...): <issue field>"  — intake text carried over
+          const next = out.replace(/^[↩↪]\s*(from merged job|merged job details)(\s*\([^)]*\))?\s*:\s*/i, '');
           if (next === out) break;
           out = next.trim();
         }
@@ -88,6 +91,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         return !x
             || /^\[MERGED INTO JOB/i.test(x)
             || /^🔗 MERGED FROM JOB/i.test(x)
+            || /^🔀 Merged in duplicate/i.test(x)
             || /^Merged into job #/i.test(x)
             || /^Marked as duplicate/i.test(x)
             || /^Job created$/i.test(x)
@@ -97,7 +101,19 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             || /^Status changed/i.test(x)
             || /^Moved (to|from) /i.test(x)
             || /^Reconciled —/i.test(x)
-            || /^📌 TENTATIVELY assigned/i.test(x);
+            || /^📌 TENTATIVELY assigned/i.test(x)
+            || /^📅\s*RECAP:/i.test(x);
+      };
+
+      // Merge entries are pure internal plumbing — never shown anywhere in the UI,
+      // not even in the Activity trail. A merged card looks identical to any other.
+      const isMergeEntry = (t) => {
+        const x = (t || '').trim();
+        return /^\[MERGED INTO JOB/i.test(x)
+            || /^🔗 MERGED FROM JOB/i.test(x)
+            || /^🔀 Merged (in duplicate|into)/i.test(x)
+            || /^Merged into job #/i.test(x)
+            || /^Marked as duplicate/i.test(x);
       };
 
       const unwrapped = data.map(n => ({ ...n, text: stripMergePrefix(n.text) }));
@@ -112,8 +128,11 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         return true;
       });
 
-      setNotes(deduped.filter(n => !isBookkeeping(n.text)));
-      setActivity(deduped.filter(n => isBookkeeping(n.text)));
+      // hideFieldNotes = FieldVisits already shows time_entry notes as visit
+      // cards on the same surface — showing them again here is the duplicate.
+      const nonBookkeeping = deduped.filter(n => !isBookkeeping(n.text));
+      setNotes(hideFieldNotes ? nonBookkeeping.filter(n => n.source !== 'field') : nonBookkeeping);
+      setActivity(deduped.filter(n => isBookkeeping(n.text) && !isMergeEntry(n.text)));
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {
@@ -454,8 +473,8 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
             </button>
           )}
 
-          {/* Audit trail, collapsed. Still here, just not shouting over notes. */}
-          {activity.length > 0 && (
+          {/* Audit trail, collapsed. Hidden in readOnly (job card) — techs don't need it. */}
+          {!readOnly && activity.length > 0 && (
             <div style={{ marginTop: 8 }}>
               <button onClick={() => setShowActivity(v => !v)}
                 style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '11px',

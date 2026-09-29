@@ -11,6 +11,8 @@
 
 import { dispo } from '../utils/billing.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
+
+const LIMITED_TECH_EMAILS = ['drhservicetech1@gmail.com', 'austin@drhsecurityservices.com', 'trevor@drhsecurityservices.com'];
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase, jobsApi, assignmentsApi, techsApi, customersApi, JOB_STATUS } from '../services/supabase.js';
 import { isNotReal } from '../config/archiveReasons.js';
@@ -92,6 +94,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const location = useLocation();
   const navigate = useNavigate();
   const me = userEmail || (typeof localStorage !== 'undefined' && localStorage.getItem('juce_v4_email')) || '';
+  const isLimitedTech = LIMITED_TECH_EMAILS.includes(me.toLowerCase());
 
   const [registry, setRegistry]   = useState([]);
   const [query, setQuery]         = useState('');
@@ -105,6 +108,38 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [jobMinutes, setJobMinutes] = useState({});
   const [stats, setStats] = useState({ visits: 0, hours: 0, lastVisit: null });
   const [custNotes, setCustNotes] = useState([]);
+
+  // Filter notes based on who is viewing:
+  // • private notes are visible only to their author
+  // • limited techs (Austin, Trevor) only see their own outbound SMS and the
+  //   inbound replies to phones they texted — not other staff's conversations
+  const visibleNotes = useMemo(() => {
+    // Build the set of phone numbers Austin/Trevor have texted (for inbound matching)
+    const myPhones = isLimitedTech
+      ? new Set(
+          custNotes
+            .filter(n => /^📱/.test(n.body) && LIMITED_TECH_EMAILS.includes((n.author_email || '').toLowerCase()))
+            .map(n => { const m = n.body.match(/\((\+?[\d\s\-().]+)\)/); return m ? m[1].replace(/\D/g, '') : null; })
+            .filter(Boolean)
+        )
+      : null;
+
+    return custNotes.filter(n => {
+      // Private notes: only the author can see them
+      if (n.private && (n.author_email || '').toLowerCase() !== me.toLowerCase()) return false;
+      if (!isLimitedTech) return true;
+      // Outbound SMS: only show if sent by a limited tech
+      if (/^📱/.test(n.body)) return LIMITED_TECH_EMAILS.includes((n.author_email || '').toLowerCase());
+      // Inbound SMS: only show if the customer's phone is in a thread this limited tech started
+      if (/^📲/.test(n.body)) {
+        const m = n.body.match(/\((\+?[\d\s\-().]+)\)/);
+        const phone = m ? m[1].replace(/\D/g, '') : null;
+        return phone ? myPhones.has(phone) : false;
+      }
+      return true;
+    });
+  }, [custNotes, isLimitedTech, me]);
+
   const [showNotes, setShowNotes] = useState(true);
   const [showDone, setShowDone]   = useState(true);
   const [loading, setLoading]     = useState(false);
@@ -122,6 +157,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const [editForm, setEditForm] = useState({});
   const [savingDetails, setSavingDetails] = useState(false);
   const [showJobModal, setShowJobModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
   const [saving, setSaving]         = useState(false);
 
   // load the master account list once
@@ -166,12 +202,20 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const matches = useMemo(() => {
     const s = query.trim().toLowerCase();
     if (!s) return [];
-    return registry.filter(c =>
-      (c.name || '').toLowerCase().includes(s) ||
-      (c.short_code || '').toLowerCase().includes(s) ||
-      (c.cs_number || '').toLowerCase().includes(s) ||
-      (c.address || '').toLowerCase().includes(s)
-    ).slice(0, 40);
+    // Normalize phone for matching: strip non-digits so "970 286 1192",
+    // "(970) 286-1192", and "9702861192" all find the same record.
+    const sDigits = s.replace(/\D/g, '');
+    return registry.filter(c => {
+      if ((c.name || '').toLowerCase().includes(s)) return true;
+      if ((c.short_code || '').toLowerCase().includes(s)) return true;
+      if ((c.cs_number || '').toLowerCase().includes(s)) return true;
+      if ((c.address || '').toLowerCase().includes(s)) return true;
+      if (sDigits.length >= 7) {
+        const p = (c.phone || '').replace(/\D/g, '');
+        if (p && p.includes(sDigits)) return true;
+      }
+      return false;
+    }).slice(0, 40);
   }, [query, registry]);
 
   const loadOpenWork = useCallback(async (customer) => {
@@ -233,7 +277,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const loadNotes = useCallback(async (customer) => {
     const { data, error } = await supabase
       .from('notes')
-      .select('id, body, author_email, created_at, lane, status, ticket_id, job_id')
+      .select('id, body, author_email, created_at, lane, status, ticket_id, job_id, private')
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false });
     if (!error) setCustNotes(data || []);
@@ -328,9 +372,17 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     if (!selected) return;
     setSavingDetails(true); setErr('');
     try {
-      const { error } = await supabase.from('customers').update(editForm).eq('id', selected.id);
+      // qbo_customer_id has a unique constraint with no exclusion for empty
+      // strings — "CRISIS CENTER" landed with qbo_customer_id='' and blocked
+      // every subsequent save that left the field blank. Store null, not ''.
+      const payload = {
+        ...editForm,
+        qbo_customer_id:   editForm.qbo_customer_id?.trim()   || null,
+        qbo_customer_name: editForm.qbo_customer_name?.trim() || null,
+      };
+      const { error } = await supabase.from('customers').update(payload).eq('id', selected.id);
       if (error) throw error;
-      const updated = { ...selected, ...editForm };
+      const updated = { ...selected, ...payload };
       setSelected(updated);
       setRegistry(prev => prev.map(c => c.id === selected.id ? updated : c));
       setEditingDetails(false);
@@ -364,14 +416,43 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     if (!taskTitle.trim() || !selected) return;
     setSaving(true); setErr('');
     try {
+      // Resolve the selected tech's email — ownership.assigneeOf() and TaskStack
+      // both use email strings, not integer IDs. Writing only to job_assignments
+      // (integer FK) left jobs.assigned_to null, so the board card showed no
+      // owner and TicketSheet locked the "Send task" button with "Nobody is
+      // assigned yet".
+      const assignedTech = taskAssignee ? techs.find(t => t.id === taskAssignee) : null;
+      const techEmail = assignedTech?.email || null;
+
       const job = await jobsApi.create({
         customer_name: selected.name, customer_address: selected.address || '',
         customer_id: selected.id, job_type: 'task', priority: 'normal',
         issue: taskTitle.trim(), status: JOB_STATUS.NEW,
+        assigned_to: techEmail,   // required by assigneeOf() + TicketSheet
       }, me);
+
       if (taskAssignee && job?.id) {
         await assignmentsApi.create({ job_id: job.id, tech_id: taskAssignee, scheduled_for: null }, me);
       }
+
+      // TaskStack queries the `notes` table (lane='todo', assigned_to IS NOT NULL).
+      // CustomerHistory tasks were invisible there because no notes row was ever
+      // created. Write one now, linked to the job, so the task surfaces in every
+      // view that uses the canonical notes path.
+      if (techEmail && job?.id) {
+        await supabase.from('notes').insert({
+          body: taskTitle.trim(),
+          job_id: job.id,
+          customer_id: selected.id,
+          author_email: me,
+          assigned_to: techEmail,
+          assigned_by: me,
+          lane: 'todo',
+          status: 'open',
+          on_customer_record: true,
+        });
+      }
+
       setTaskTitle(''); setTaskAssignee(''); setCreateMode(null); refreshWork();
     } catch (e) { setErr(e.message || 'Failed to create task'); }
     finally { setSaving(false); }
@@ -408,9 +489,12 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
     });
   };
 
+  const fromToday = location.state?.from === 'today';
+
   const goBack = () => {
     if (createMode) { setCreateMode(null); return; }
     if (selected) { setSelected(null); setTagged([]); setSuggested([]); setOpenWork([]); setErr(''); }
+    else if (fromToday) navigate('/today');
     else if (onBack) onBack();
   };
 
@@ -468,9 +552,10 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
           <Badge color={t.color}>{t.label}</Badge>
           {!done && <Badge color={s.color}>{s.label}</Badge>}
           {done && <Badge color="#64748b">{jobChip(j.status).label}</Badge>}
-          {j.created_at && <span style={{ fontSize: 12, color: '#cbd5e1' }}>📅 {fmtDate(j.created_at)}</span>}
+          {j.created_at && <span style={{ fontSize: 12, color: '#cbd5e1' }}>📅 {fmtDate(done && j.completed_at ? j.completed_at : j.created_at)}</span>}
+          {done && jobMinutes[j.id] ? <span style={{ fontSize: 12, color: '#94a3b8' }}>⏱ {hoursFromMin(jobMinutes[j.id])}</span> : null}
         </div>
-        {j.issue && <div style={{ fontSize: 13.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4, textDecoration: done ? 'line-through' : 'none' }}>{j.issue}</div>}
+        {j.issue && <div style={{ fontSize: 13.5, color: done ? '#94a3b8' : '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{j.issue}</div>}
         {actionable && (
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }} onClick={e => e.stopPropagation()}>
             {done ? (
@@ -490,9 +575,19 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   return (
     <div style={page}>
       <div style={bar}>
-        <button onClick={goBack} style={back}>←</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={goBack} style={back}>←</button>
+          {fromToday && (
+            <button onClick={() => navigate('/today')}
+              style={{ background: 'none', border: '1px solid #334155', borderRadius: 8,
+                       color: '#00c8e8', padding: '4px 10px', fontSize: 12, fontWeight: 700,
+                       cursor: 'pointer' }}>
+              Today ↩
+            </button>
+          )}
+        </div>
         <div style={{ fontWeight: 700, fontSize: 16, marginTop: 4 }}>
-          {selected ? selected.name : 'Customer Lookup'}
+          {selected ? selected.name : 'Client lookup'}
         </div>
         {selected && (
           <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 2 }}>
@@ -652,6 +747,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                     <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.short_code}</span>
                   </div>
                   {c.address && <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 4 }}>📍 {c.address}</div>}
+                  {c.phone && <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 3 }}>📞 {c.phone}</div>}
                 </button>
               ))}
             </div>
@@ -666,6 +762,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
               <button style={actBtn('#5dcaa5')} onClick={() => setCreateMode(createMode === 'note' ? null : 'note')}>+ Note</button>
               <button style={actBtn('#7f77dd')} onClick={() => setCreateMode(createMode === 'task' ? null : 'task')}>+ Task</button>
               <button style={actBtn('#97c459')} onClick={() => setShowJobModal(true)}>+ New job</button>
+              <button style={actBtn('#8b5cf6')} onClick={() => setShowProjectModal(true)}>+ New project</button>
             </div>
 
             {/* create: note */}
@@ -789,18 +886,38 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                   );
                 })()}
 
+                {/* visit history */}
+                <div style={{ ...sectionLabel, color: '#94a3b8', marginTop: openWork.length ? 18 : 4 }}>
+                  Visit history ({tagged.length})
+                </div>
+                {tagged.length === 0 && (
+                  <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                    No visits tagged to this account yet.{suggested.length > 0 ? ' Possible matches below.' : ''}
+                  </div>
+                )}
+                {tagged.map(e => <EventCard key={e.id} e={e} />)}
+
+                {suggested.length > 0 && (
+                  <>
+                    <div style={{ ...sectionLabel, color: '#f59e0b', marginTop: 18 }}>
+                      Possible matches — not yet assigned ({suggested.length})
+                    </div>
+                    {suggested.map(e => <EventCard key={e.id} e={e} showAssign />)}
+                  </>
+                )}
+
                 {/* customer notes */}
-                <div style={{ marginTop: openWork.length ? 18 : 4 }}>
+                <div style={{ marginTop: 18 }}>
                   <button
                     onClick={() => setShowNotes(v => !v)}
                     style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', ...sectionLabel, color: '#38bdf8' }}
                   >
-                    {showNotes ? '\u25be' : '\u25b8'} Notes ({custNotes.length})
+                    {showNotes ? '\u25be' : '\u25b8'} Notes ({visibleNotes.length})
                   </button>
 
                   {showNotes && (
                     <>
-                      {custNotes.length === 0 && (
+                      {visibleNotes.length === 0 && (
                         <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
                           No notes on this account yet.
                         </div>
@@ -812,11 +929,11 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                           exactly like it. A note is paper, not a card — no
                           slab, no rounded box, just a rule and the words. */}
                       {(() => {
-                        const open = custNotes.filter(n => n.lane !== 'done');
-                        const done = custNotes.filter(n => n.lane === 'done');
+                        const open = visibleNotes.filter(n => n.lane !== 'done');
+                        const done = visibleNotes.filter(n => n.lane === 'done');
                         const Note = ({ n, dim }) => (
                           <div key={n.id} style={{
-                            borderLeft: `2px solid ${n.assigned_to ? '#a78bfa' : (dim ? '#1e293b' : '#38bdf8')}`,
+                            borderLeft: `2px solid ${n.private ? '#f59e0b' : n.assigned_to ? '#a78bfa' : (dim ? '#1e293b' : '#38bdf8')}`,
                             padding: '5px 0 9px 12px', marginBottom: 3, opacity: dim ? 0.55 : 1 }}>
                             <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#e2e8f0' }}>{n.body}</div>
                             <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 5, fontSize: 11, color: '#64748b' }}>
@@ -826,6 +943,9 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                                 <span style={{ color: '#a78bfa', fontWeight: 700 }}>
                                   task &middot; {n.assigned_to.split('@')[0]}
                                 </span>
+                              )}
+                              {n.private && (
+                                <span style={{ color: '#f59e0b', fontWeight: 700 }}>🔒 private</span>
                               )}
                             </div>
                           </div>
@@ -846,26 +966,6 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
                     </>
                   )}
                 </div>
-
-                {/* finished visits */}
-                <div style={{ ...sectionLabel, color: '#cbd5e1', marginTop: openWork.length ? 18 : 4 }}>
-                  Calendar events ({tagged.length})
-                </div>
-                {tagged.length === 0 && (
-                  <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 16 }}>
-                    Nothing tagged to this account yet. Any look-alikes below can be assigned with one tap.
-                  </div>
-                )}
-                {tagged.map(e => <EventCard key={e.id} e={e} />)}
-
-                {suggested.length > 0 && (
-                  <>
-                    <div style={{ ...sectionLabel, color: '#f59e0b', marginTop: 18 }}>
-                      Possible matches — not yet assigned ({suggested.length})
-                    </div>
-                    {suggested.map(e => <EventCard key={e.id} e={e} showAssign />)}
-                  </>
-                )}
               </>
             )}
           </>
@@ -881,6 +981,32 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
           onCreated={async (job) => {
             setShowJobModal(false);
             if (job?.id) { try { await jobsApi.update(job.id, { customer_id: selected.id }, me); } catch (_) {} }
+            refreshWork();
+          }}
+        />
+      )}
+
+      {/* Project modal — same as winning an estimate: creates a project job,
+          marks it won, and marks it fixed-fee so it lands in Project Hours
+          in billing. Budget/hours can be set from the billing screen via
+          "Change budget" after creation. */}
+      {showProjectModal && selected && (
+        <NewJobModal
+          accessToken={accessToken}
+          userEmail={me}
+          prefill={{ customerName: selected.name, address: selected.address || '', jobType: 'project' }}
+          onClose={() => setShowProjectModal(false)}
+          onCreated={async (job) => {
+            setShowProjectModal(false);
+            if (job?.id) {
+              try {
+                await jobsApi.update(job.id, {
+                  customer_id: selected.id,
+                  is_fixed_fee: true,
+                  status: 'won',
+                }, me);
+              } catch (_) {}
+            }
             refreshWork();
           }}
         />

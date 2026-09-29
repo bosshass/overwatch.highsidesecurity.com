@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
 import { supabase } from '../services/supabase.js';
@@ -80,6 +81,7 @@ const TABS = [
 ];
 
 export default function TechWorkToday({ accessToken, userEmail, userName, onBack, showAllTechs = false }) {
+  const navigate = useNavigate();
   const today = dayStart(new Date());
   const [offset, setOffset]     = useState(0);
   // Everything still sitting in `scheduled` past its deadline. This is the
@@ -92,6 +94,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   const [activeTab, setTab]     = useState('new');
   const [selected, setSelected] = useState(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  // job ID to auto-open once the day's events finish loading
+  const pendingOpenRef = useRef(null);
   const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
 
   // Single tech calendar OR all techs for operators
@@ -124,13 +128,14 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
   useEffect(() => { loadNeedNotes(); }, [loadNeedNotes]);
 
-  // Jump the day nav to a specific date, so the event and the finish sheet are
-  // right there instead of somewhere behind the < button.
-  const goToDate = (scheduledDate) => {
-    const [y, m, d] = String(scheduledDate).slice(0, 10).split('-').map(Number);
+
+  // Jump the day nav to a specific date and auto-open that job's finish sheet.
+  const goToDate = (job) => {
+    const [y, m, d] = String(job.scheduled_date).slice(0, 10).split('-').map(Number);
     if (!y || !m || !d) return;
     const want = new Date(y, m - 1, d); want.setHours(0, 0, 0, 0);
     const now  = new Date();            now.setHours(0, 0, 0, 0);
+    pendingOpenRef.current = job.id;
     setOffset(Math.round((want - now) / 86400000));
     setShowNeedNotes(false);
   };
@@ -154,7 +159,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       : [{ id: techCalId, name: null }];
 
     const calIds = techCalendars.map(c => c.id);
-    const calNameById = Object.fromEntries(techCalendars.map(c => [c.id, c.name]));
+    const calNameById  = Object.fromEntries(techCalendars.map(c => [c.id, c.name]));
+    const calIsOwnById = Object.fromEntries(techCalendars.map(c => [c.id, c.isOwn !== false]));
     const fetches = calIds.map(calId =>
       fetch(`${GCAL}/calendars/${encodeURIComponent(calId)}/events?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -162,7 +168,8 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
         .then(data => (data.items || []).map(ev => ({
           ...ev,
           _calId: calId,
-          _techName: calNameById[calId] || null
+          _techName: calNameById[calId] || null,
+          _isOwn: calIsOwnById[calId] !== false,
         })))
         .catch(() => [])
     );
@@ -186,10 +193,11 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
       location: ev.location || '',
       description: ev.description || '',
       isAllDay: !ev.start?.dateTime,
+      isOwn: ev._isOwn !== false,
       tab: getTab(ev.summary || ''),
     })).sort((a, b) => a.start - b.start);
 
-    // ── Database-driven disposition override ──────────────────────────
+    // ── Database-driven disposition override + customer link data ────
     // The calendar title is never tagged with [BILL IT] / [RETURN] / etc.
     // (Sara's explicit rule: status lives in the database, not in calendar
     // titles). That means getTab() above can only return 'new' for every
@@ -197,40 +205,87 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     // any refresh. Cross-reference time_entries to get the real disposition
     // and move the event to the correct tab, matching what the tech saw
     // immediately after they saved.
+    // Also fetch customer_id via job_assignments so the tech can tap through
+    // to the customer's full history without having to search by name.
     if (items.length > 0) {
       try {
         const eventIds = items.map(e => e.id);
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('calendar_event_id, disposition')
-          .in('calendar_event_id', eventIds)
-          .eq('archived', false);
-        if (entries?.length) {
-          // Most-recent-first: if the same event has two entries (e.g. a
-          // correction), take the last one written. The query returns them in
-          // insertion order; iterate reverse so the last write wins.
-          const dispoByEventId = {};
-          for (const e of [...entries].reverse()) {
-            if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
-          }
-          items = items.map(ev => {
-            const d = dispoByEventId[ev.id];
-            if (!d) return ev;
-            const tab =
-              d === 'bill_it'  ? 'billit'   :
-              d === 'return'   ? 'return'   :
-              d === 'estimate' ? 'estimate' :
-              ev.tab; // in_progress and blocked stay in Today
-            return { ...ev, tab };
-          });
+
+        // Run all lookups in parallel — dispositions, customer IDs, return briefs
+        const [{ data: entries }, { data: assignments }, { data: returnCards }] = await Promise.all([
+          supabase
+            .from('time_entries')
+            .select('calendar_event_id, disposition')
+            .in('calendar_event_id', eventIds)
+            .eq('archived', false),
+          supabase
+            .from('job_assignments')
+            .select('calendar_event_id, job_id, job:job_id(customer_id)')
+            .in('calendar_event_id', eventIds)
+            .not('job_id', 'is', null),
+          supabase
+            .from('return_cards')
+            .select('original_event_id, reason, materials_needed')
+            .in('original_event_id', eventIds)
+            .order('created_at', { ascending: false }),
+        ]);
+
+        // Most-recent-first: if the same event has two entries (e.g. a
+        // correction), take the last one written. The query returns them in
+        // insertion order; iterate reverse so the last write wins.
+        const dispoByEventId = {};
+        for (const e of [...(entries || [])].reverse()) {
+          if (e.calendar_event_id) dispoByEventId[e.calendar_event_id] = e.disposition;
         }
+
+        const customerIdByEventId = {};
+        const jobIdByEventId = {};
+        for (const a of assignments || []) {
+          if (a.calendar_event_id && a.job?.customer_id) {
+            customerIdByEventId[a.calendar_event_id] = a.job.customer_id;
+          }
+          if (a.calendar_event_id && a.job_id) {
+            jobIdByEventId[a.calendar_event_id] = a.job_id;
+          }
+        }
+
+        // First return_card per event (already ordered newest-first)
+        const returnCardByEventId = {};
+        for (const rc of returnCards || []) {
+          if (rc.original_event_id && !returnCardByEventId[rc.original_event_id]) {
+            returnCardByEventId[rc.original_event_id] = rc;
+          }
+        }
+
+        items = items.map(ev => {
+          const d = dispoByEventId[ev.id];
+          const tab = d
+            ? (d === 'bill_it' ? 'billit' : d === 'return' ? 'return' : d === 'estimate' ? 'estimate' : ev.tab)
+            : ev.tab; // in_progress and blocked stay in Today tab
+          const rc = returnCardByEventId[ev.id];
+          const descCustomerId = (ev.description || '').match(/CUSTOMER_ID:\s*([0-9a-f-]{36})/i)?.[1] || null;
+          return {
+            ...ev,
+            tab,
+            disposition: d || null,
+            customerId: customerIdByEventId[ev.id] || descCustomerId || null,
+            jobId: jobIdByEventId[ev.id] || null,
+            returnReason: rc?.reason || null,
+            returnMaterials: rc?.materials_needed || null,
+          };
+        });
       } catch (e) {
         // Non-fatal — the calendar-only view is still usable.
-        console.warn('TechWorkToday: disposition cross-reference failed', e);
+        console.warn('TechWorkToday: DB cross-reference failed', e);
       }
     }
 
     setAll(items);
+    if (pendingOpenRef.current) {
+      const match = items.find(ev => ev.jobId === pendingOpenRef.current);
+      if (match) { setSelected(match); setDetailsExpanded(false); }
+      pendingOpenRef.current = null;
+    }
     setLoading(false);
   }, [accessToken, userEmail, techCalId, offset, showAllTechs]);
 
@@ -260,11 +315,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // Optimistically updates the local list so the just-finished item flips
   // tabs immediately, then closes the sheet.
   const DISPO_CONFIRM = {
-    bill_it:     { msg: '✅ Marked to bill — entry saved.',           color: '#166534', bg: '#f0fdf4' },
-    return:      { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
-    in_progress: { msg: '📅 Still in progress — entry saved.',        color: '#1e40af', bg: '#eff6ff' },
-    estimate:    { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
-    blocked:     { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
+    bill_it:  { msg: '✅ Marked to bill — entry saved.',           color: '#166534', bg: '#f0fdf4' },
+    return:   { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
+    estimate: { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
+    blocked:  { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
   };
   // JobFinishSheet passes the calendar event id as the second argument so the
   // update doesn't have to rely on `selected` being current in the closure.
@@ -342,8 +396,13 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
           </button>
           <img src="/overwatch-logo.png" alt="Overwatch" style={{ width: 30, height: 30, borderRadius: 7 }} />
           <div style={{ fontWeight: 800, fontSize: 15, color: '#1B2A4A' }}>{headerTitle}</div>
+          <button onClick={() => navigate('/customers', { state: { from: 'today' } })}
+            title="Search clients"
+            style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#1a8a8a', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            🔍 <span>Clients</span>
+          </button>
           <button onClick={() => { load(); loadNeedNotes(); }}
-            style={{ marginLeft: 'auto', background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
+            style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 8, color: '#6b7280', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
             ↻
           </button>
         </div>
@@ -368,13 +427,12 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
             {showNeedNotes && (
               <div style={{ background: '#fff1f2', borderBottom: '1px solid #fecaca' }}>
                 <div style={{ fontSize: 12, color: '#9f1239', padding: '10px 16px 6px', lineHeight: 1.5 }}>
-                  The day came and went and nobody said what happened. Tap one to jump
-                  to that day, then finish it — notes, hours, then a disposition.
+                  The day came and went and nobody said what happened. Tap one to open the finish sheet directly.
                 </div>
                 {needNotes.map(j => {
                   const late = daysLate(j.scheduled_date);
                   return (
-                    <button key={j.id} onClick={() => goToDate(j.scheduled_date)}
+                    <button key={j.id} onClick={() => goToDate(j)}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                                textAlign: 'left', background: 'none', border: 'none',
                                borderTop: '1px solid #fecaca', padding: '11px 16px',
@@ -458,53 +516,120 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
 
         {!loading && events.map((ev, i) => {
           const name  = cleanTitle(ev.title);
-          const phone = extractPhone(ev.description);
+          const phone = ev.isOwn ? extractPhone(ev.description) : null;
           const now   = new Date();
-          const isNow = ev.start <= now && ev.end >= now;
-          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : null;
+          const isNow = ev.isOwn && ev.start <= now && ev.end >= now;
+          const techColor = ev.techName === 'Austin' ? '#3b82f6' : ev.techName === 'JR' ? '#22c55e' : ev.techName === 'Brian' ? '#FB923C' : ev.techName === 'Subs' ? '#EC4899' : ev.techName === 'Trevor' ? '#8E24AA' : null;
 
           return (
-            <div key={ev.id} onClick={() => openDetail(ev)}
+            <div key={ev.id} onClick={ev.isOwn ? () => openDetail(ev) : undefined}
               style={{
-                background: '#ffffff',
+                background: ev.isOwn ? '#ffffff' : '#f9fafb',
                 borderRadius: i === 0 && events.length === 1 ? 12 : i === 0 ? '12px 12px 0 0' : i === events.length - 1 ? '0 0 12px 12px' : 0,
-                padding: '18px 16px', cursor: 'pointer',
+                padding: '14px 16px', cursor: ev.isOwn ? 'pointer' : 'default',
                 borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
                 borderLeft: '4px solid ' + (techColor || (isNow ? '#1a8a8a' : activeTabObj?.color || '#e5e7eb')),
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                opacity: ev.isOwn ? 1 : 0.85,
               }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {isNow && <div style={{ color: '#1a8a8a', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>In Progress</div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: ev.isOwn ? 4 : 0, flexWrap: 'wrap' }}>
                   {ev.techName && (
-                    <span style={{ 
-                      background: techColor + '20', 
-                      color: techColor, 
-                      fontSize: 11, 
-                      fontWeight: 700, 
-                      padding: '3px 8px', 
-                      borderRadius: 4 
+                    <span style={{
+                      background: (techColor || '#64748b') + '20',
+                      color: techColor || '#64748b',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 8px',
+                      borderRadius: 4
                     }}>
                       {ev.techName}
                     </span>
                   )}
-                  {ev.tab === 'return' && (
+                  {ev.isOwn && ev.tab === 'return' && (
                     <span style={{ background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>🔄 Return Visit</span>
                   )}
-                  {ev.tab === 'estimate' && (
+                  {ev.isOwn && ev.tab === 'estimate' && (
                     <span style={{ background: '#ede9fe', color: '#6d28d9', fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>→ Estimates</span>
                   )}
-                  <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {name || '(no name)'}
-                  </span>
+                  {ev.isOwn && ev.customerId ? (
+                    /* Linked — taps through to full client history */
+                    <button
+                      onClick={e => { e.stopPropagation(); navigate(`/customers?customerId=${ev.customerId}`, { state: { from: 'today' } }); }}
+                      style={{ background: '#f0fdf9', border: '1.5px solid #1a8a8a33', borderRadius: 8,
+                               padding: '3px 10px 3px 8px', display: 'inline-flex', alignItems: 'center', gap: 5,
+                               fontWeight: 700, fontSize: 16, color: '#1a8a8a', cursor: 'pointer',
+                               maxWidth: '100%', overflow: 'hidden', fontFamily: 'inherit' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || '(no name)'}</span>
+                      <span style={{ fontSize: 14, flexShrink: 0, opacity: 0.7 }}>›</span>
+                    </button>
+                  ) : ev.isOwn ? (
+                    /* Own job but no customerId yet — offer a search escape hatch */
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, fontSize: 17, color: '#1B2A4A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {name || '(no name)'}
+                      </span>
+                      <button onClick={e => { e.stopPropagation(); navigate('/customers', { state: { from: 'today' } }); }}
+                        style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6,
+                                 padding: '2px 8px', fontSize: 11, fontWeight: 600, color: '#9ca3af',
+                                 cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit', flexShrink: 0 }}>
+                        Find client →
+                      </button>
+                    </div>
+                  ) : (
+                    <span style={{ fontWeight: 700, fontSize: 15, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {name || '(no name)'}
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: 14, color: '#6b7280' }}>
-                  {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
-                  {ev.location && ' · ' + ev.location.split(',')[0]}
-                </div>
-                {phone && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>📞 {phone}</div>}
+                {ev.isOwn && (
+                  <>
+                    <div style={{ fontSize: 14, color: '#6b7280' }}>
+                      {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
+                      {ev.location && ' · ' + ev.location.split(',')[0]}
+                    </div>
+                    {/* Return brief — shown instead of GCal description for return-tab events */}
+                    {ev.tab === 'return' && ev.returnReason ? (
+                      <div style={{ fontSize: 12, color: '#b45309', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                        🔄 {ev.returnReason}{ev.returnMaterials ? ' · 🔧 ' + ev.returnMaterials : ''}
+                      </div>
+                    ) : (
+                      (() => {
+                        const lines = (ev.description || '').replace(/<br\s*\/?>/gi, '\n').split('\n').map(l => l.trim()).filter(l => {
+                          if (!l) return false;
+                          if (/^\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(l)) return false;
+                          if (/^https?:\/\//i.test(l)) return false;
+                          if (/CUSTOMER_ID:/i.test(l)) return false;
+                          if (/^<br>/i.test(l) || l === '<br>') return false;
+                          return true;
+                        });
+                        const preview = lines.join(' ').slice(0, 80);
+                        if (!preview) return null;
+                        return (
+                          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {preview}{lines.join(' ').length > 80 ? '…' : ''}
+                          </div>
+                        );
+                      })()
+                    )}
+                    {phone && (
+                      <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <a href={'tel:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
+                          style={{ color: '#16a34a', fontWeight: 600, textDecoration: 'none' }}>📞 {phone}</a>
+                        <a href={'sms:' + phone.replace(/\D/g, '')} onClick={e => e.stopPropagation()}
+                          style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>💬 Text</a>
+                      </div>
+                    )}
+                  </>
+                )}
+                {!ev.isOwn && (
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                    {ev.isAllDay ? 'All day' : fmtTime(ev.start) + ' – ' + fmtTime(ev.end)}
+                  </div>
+                )}
               </div>
-              <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>
+              {ev.isOwn && <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>}
             </div>
           );
         })}
@@ -526,20 +651,76 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
               {selected.isAllDay ? 'All day' : fmtTime(selected.start) + ' – ' + fmtTime(selected.end)}
             </div>
 
-            {(selected.location || extractPhone(selected.description)) && (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                {selected.location && (
-                  <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
-                    target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, color: '#2563eb', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
-                    🗺️ Navigate
-                  </a>
+            {(selected.location || extractPhone(selected.description)) && (() => {
+              const phone = (extractPhone(selected.description) || '').replace(/\D/g, '');
+              const hasBoth = selected.location && phone;
+              return (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: hasBoth ? '1.4fr 1fr 1fr' : selected.location ? '1fr' : '1fr 1fr',
+                  gap: 8,
+                  marginBottom: 16,
+                }}>
+                  {selected.location && (
+                    <a href={'https://maps.google.com/?q=' + encodeURIComponent(selected.location)}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '18px 10px', borderRadius: 14, textDecoration: 'none',
+                        background: '#1e3a8a', color: '#fff',
+                        fontSize: 17, fontWeight: 800, letterSpacing: 0.2,
+                        boxShadow: '0 2px 8px rgba(30,58,138,0.3)',
+                      }}>
+                      🗺️ Navigate
+                    </a>
+                  )}
+                  {phone && (
+                    <a href={'tel:' + phone}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '18px 10px', borderRadius: 14, textDecoration: 'none',
+                        background: '#16a34a', color: '#fff',
+                        fontSize: 17, fontWeight: 800,
+                        boxShadow: '0 2px 8px rgba(22,163,74,0.3)',
+                      }}>
+                      📞 Call
+                    </a>
+                  )}
+                  {phone && (
+                    <a href={'sms:' + phone}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '18px 10px', borderRadius: 14, textDecoration: 'none',
+                        background: '#2563eb', color: '#fff',
+                        fontSize: 17, fontWeight: 800,
+                        boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+                      }}>
+                      💬 Text
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Return brief — shown at the top of the sheet for return visits so the
+                tech knows the plan before scrolling to the finish form */}
+            {selected.tab === 'return' && (selected.returnReason || selected.returnMaterials) && (
+              <div style={{
+                background: 'rgba(251,146,60,0.08)',
+                border: '1px solid rgba(251,146,60,0.3)',
+                borderLeft: '3px solid #fb923c',
+                borderRadius: 10,
+                padding: '12px 14px',
+                marginBottom: 14,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#fb923c', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+                  🔄 This return trip
+                </div>
+                {selected.returnReason && (
+                  <div style={{ fontSize: 13.5, color: '#92400e', lineHeight: 1.5 }}>{selected.returnReason}</div>
                 )}
-                {extractPhone(selected.description) && (
-                  <a href={'tel:' + (extractPhone(selected.description) || '').replace(/\D/g, '')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, color: '#16a34a', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
-                    📞 Call
-                  </a>
+                {selected.returnMaterials && (
+                  <div style={{ fontSize: 13, color: '#b45309', marginTop: 4 }}>🔧 {selected.returnMaterials}</div>
                 )}
               </div>
             )}

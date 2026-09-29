@@ -54,6 +54,7 @@ export default function SmsComposer({
   const [body, setBody]       = useState(draft);
   const [sending, setSending] = useState(false);
   const [msg, setMsg]         = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
 
   const phone = formatPhone(to);
   const seg   = segmentsOf(body);
@@ -73,7 +74,11 @@ export default function SmsComposer({
       return;
     }
     setMsg(`Sent ✓ ${r.status || 'queued'}${r.from ? ` · from ${r.from}` : ''}`);
-    if (logTo?.jobId || logTo?.customerId) {
+    // Log whenever we have any caller context at all (userEmail is the minimum).
+    // Previously required jobId or customerId — which meant replies sent from
+    // the thread view (no job/customer context) were silently discarded and
+    // never appeared in the conversation history.
+    if (logTo?.userEmail || logTo?.jobId || logTo?.customerId) {
       try {
         await supabase.from('notes').insert({
           // The NUMBER is in the body on purpose. A reply arrives knowing only
@@ -93,6 +98,8 @@ export default function SmsComposer({
           on_customer_record: !internal,
           archived_at: new Date().toISOString(),
           archived_by: logTo.userEmail || null,
+          // Private: only the sender can see this message on the client's record.
+          private: !internal && isPrivate,
         });
       } catch (e) { console.warn('SMS log failed (non-fatal):', e?.message || e); }
     }
@@ -135,6 +142,18 @@ export default function SmsComposer({
       {leaksLink && (
         <div style={{ fontSize: 11.5, color: C.warn, marginTop: 5 }}>
           {'⚠'} That looks like an Overwatch link. Clients should not get one {'—'} take it out.
+        </div>
+      )}
+
+      {!internal && (
+        <div style={{ marginTop: 7 }}>
+          <button type="button" onClick={() => setIsPrivate(v => !v)}
+            style={{ background: isPrivate ? '#78350f' : 'transparent',
+                     border: `1px solid ${isPrivate ? '#f59e0b' : C.line}`,
+                     borderRadius: 999, padding: '4px 12px', color: isPrivate ? '#fbbf24' : C.muted,
+                     fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {isPrivate ? '🔒 Private — only you can see this' : '🔓 Visible to all staff'}
+          </button>
         </div>
       )}
 

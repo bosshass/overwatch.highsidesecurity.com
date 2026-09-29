@@ -23,10 +23,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { unbilledBucket as bucketOf } from '../utils/jobResolve.js';
-import { canBill, canSeeBillingFields } from '../utils/ownership.js';
+import { canBill, canSeeBillingFields, NAME_BY_EMAIL } from '../utils/ownership.js';
+import { sendGmail } from '../services/gmailSend.js';
 import ProjectPanel from '../components/ProjectPanel.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { reasonLabel, isNotReal } from '../config/archiveReasons.js';
+import TicketSheet from '../components/TicketSheet.jsx';
 
 
 // ── BUCKETS ──────────────────────────────────────────────────────────
@@ -65,6 +67,16 @@ export const BUCKET_BY_KEY = Object.fromEntries(BUCKETS.map(b => [b.key, b]));
 
 
 const daysSince = (iso) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : 0;
+
+// Urgency tier for a return card based on days waiting.
+// 0-4 days: neutral pink — on the radar.
+// 5-9 days: amber — getting uncomfortable.
+// 10+ days: red — customer is actively waiting; this is bad service.
+const returnUrgency = (days) => {
+  if (days >= 10) return { color: '#ef4444', borderColor: '#ef4444', prefix: '🔴 ' };
+  if (days >= 5)  return { color: '#f59e0b', borderColor: '#f59e0b', prefix: '⚠️ ' };
+  return { color: '#ec4899', borderColor: null, prefix: '' };
+};
 
 // A single visit longer than this is almost certainly a tech who never clocked
 // out. Flag it — don't silently put it on an invoice.
@@ -146,7 +158,36 @@ function FixedFeeProjects({ userEmail }) {
   );
 }
 
-export default function Unbilled({ onBack, userEmail }) {
+// Thin drawer shell — same pattern as DetailDrawer in BoardView.
+// onMove wires through jobsApi.changeStatus so "Where does this go next?"
+// actually writes the status change and triggers a reload of the billing view.
+function BillingDrawer({ job, userEmail, accessToken, onClose, onRefresh }) {
+  const handleMove = async (targetStatus, note) => {
+    await jobsApi.changeStatus(job.id, targetStatus, userEmail, note || null);
+    onClose();
+    if (onRefresh) onRefresh();
+  };
+  return (
+    <div onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(3,8,16,0.75)', zIndex:900,
+               display:'flex', justifyContent:'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width:'100%', maxWidth:560, background:'#0f1729', overflowY:'auto',
+                 borderLeft:'1px solid #2a3b56' }}>
+        <TicketSheet
+          job={job}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          onClose={onClose}
+          onMove={handleMove}
+          onUpdated={onRefresh || (() => {})}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function Unbilled({ onBack, userEmail, accessToken = null }) {
   // ── TECH FILTER ─────────────────────────────────────────────────────
   // Driven by ?tech= so the calendar can hand off directly: tapping a tech's
   // utilisation column lands here already scoped to their unbilled work,
@@ -170,6 +211,7 @@ export default function Unbilled({ onBack, userEmail }) {
   const [invoiceAmount, setInvoiceAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+  const [confirmPending, setConfirmPending] = useState(null); // { msg, onConfirm }
   const [search, setSearch] = useState('');
   const [archiving, setArchiving] = useState(false);
   // When a "clear" action opens the modal, this holds what to clear. The modal
@@ -193,11 +235,12 @@ export default function Unbilled({ onBack, userEmail }) {
   const [mergeJobs, setMergeJobs] = useState(null);   // null = loading
   const [mergeQ, setMergeQ] = useState('');
   const [newProj, setNewProj] = useState(null);   // {name, hours} while typing
-  // Return-trip flag — move selected bill_it entries back to waiting-on-return.
-  // Optionally create a new board card if no job is linked.
-  const [returnOpen, setReturnOpen] = useState(false);
-  const [returnNote, setReturnNote] = useState('');
-  const [returnCreateCard, setReturnCreateCard] = useState(false);
+  // TicketSheet drawer — same shell as DetailDrawer in BoardView.
+  // Notes, tasks, history for the job linked to the expanded billing group.
+  const [drawerJob, setDrawerJob] = useState(null);
+  // Chase-email send state keyed by group key.
+  // 'sending' | 'sent' | 'error' — cleared when the billing view reloads.
+  const [chaseState, setChaseState] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -239,7 +282,7 @@ export default function Unbilled({ onBack, userEmail }) {
       const ids = [...new Set((entries || []).map(e => e.customer_id).filter(Boolean))];
       let cust = {};
       if (ids.length) {
-        const { data: cs } = await supabase.from('customers').select('id, name, short_code').in('id', ids);
+        const { data: cs } = await supabase.from('customers').select('id, name, short_code, email').in('id', ids);
         (cs || []).forEach(c => { cust[c.id] = c; });
       }
 
@@ -291,6 +334,7 @@ export default function Unbilled({ onBack, userEmail }) {
           customerId: e.customer_id || null,
           name: cust[e.customer_id]?.name || e.customer_name_raw || 'Unknown',
           shortCode: cust[e.customer_id]?.short_code || null,
+          customerEmail: cust[e.customer_id]?.email || null,
           orphan: !e.customer_id,
           visits: [],
         };
@@ -416,9 +460,9 @@ export default function Unbilled({ onBack, userEmail }) {
       b.visits += g.visits.length;
       b.groups.push(g);
     });
-    // Returns sorted by what they're COSTING you: hours held x days waiting.
-    // The most expensive, longest-ignored return is always at the top.
-    m.return.groups.sort((a, b) => (b.hours * (b.waitingDays + 1)) - (a.hours * (a.waitingDays + 1)));
+    // Returns sorted by days waiting descending — the longest-waiting customer
+    // is always first, regardless of hours. Tiebreak on hours (more = more urgent).
+    m.return.groups.sort((a, b) => b.waitingDays - a.waitingDays || b.hours - a.hours);
     return m;
   }, [groups]);
 
@@ -490,17 +534,17 @@ export default function Unbilled({ onBack, userEmail }) {
   // Close out a job that is marked done but carries no time. Writes through
   // jobsApi.changeStatus so it lands in job_history and is auditable — the same
   // path every other status move uses.
-  const closeNoHours = async (g, target) => {
+  const closeNoHours = async (g, target, confirmed = false) => {
     if (!g.job?.id) return;
-    // /unbilled is OperatorOnly, and operators include JR. Reaching the
-    // billing screen is not the same as being the person who invoices, so the
-    // one irreversible-looking action on it asks separately.
     if (target === 'billed' && !mayBill) return;
-    const label = target === 'billed' ? 'billed' : 'cleared';
-    // Clearing needs a reason, not a confirm box. "Not billable" collapsed a
-    // warranty callback and a test entry into one string.
     if (target !== 'billed') { setClearTarget({ kind: 'job', group: g }); return; }
-    if (!window.confirm(`Mark ${g.name} as ${label}?\n\nNo hours are attached, so nothing goes on an invoice. This only moves the card off the board.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${g.name} as billed? No hours are attached — this only moves the card off the board.`,
+        onConfirm: () => closeNoHours(g, target, true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       await jobsApi.changeStatus(g.job.id, target, userEmail,
@@ -524,14 +568,19 @@ export default function Unbilled({ onBack, userEmail }) {
   // Marking billed here stamps the time entries and nothing else — there is no
   // job to write through to, which is the whole point. Clearing archives with a
   // reason rather than deleting, so the hours stay auditable.
-  const closeOrphan = async (g, target) => {
+  const closeOrphan = async (g, target, confirmed = false) => {
     const ids = g.visits.map(v => v.id).filter(Boolean);
     if (!ids.length) return;
     if (target === 'billed' && !mayBill) return;
     const n = ids.length;
     if (target !== 'billed') { setClearTarget({ kind: 'orphan', group: g }); return; }
-    const msg = `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed?\n\nNo ticket is created. Use this when the work was already invoiced in QuickBooks.`;
-    if (!window.confirm(msg)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(g.hours)}) for ${g.name} as billed? No ticket is created — use this when the work was already invoiced in QuickBooks.`,
+        onConfirm: () => closeOrphan(g, target, true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       const patch = target === 'billed'
@@ -558,13 +607,16 @@ export default function Unbilled({ onBack, userEmail }) {
   // FUTURE hour on the same job derive correctly without anyone ticking it.
   // Flagging only the entries would leave the next visit reading as billable
   // and put somebody back here doing this again.
-  const markFixedFee = async () => {
+  const markFixedFee = async (confirmed = false) => {
     if (!sel.rows.length) return;
     const n = sel.rows.length;
-    if (!window.confirm(
-      `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as fixed-fee project hours?\n\n` +
-      `They stay visible as COST — they just stop reading as something to invoice ` +
-      `by the hour. The job is flagged fixed-fee so later visits follow automatically.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as fixed-fee? They show as cost, not an hourly invoice. The job is flagged so future visits follow automatically.`,
+        onConfirm: () => markFixedFee(true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase.from('time_entries').update({
@@ -703,70 +755,6 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
-  // ── PARK AS RETURN TRIP ─────────────────────────────────────────────────────
-  // Moves bill_it entries Sara can't yet invoice back to the waiting-on-return
-  // bucket. If the entry is linked to a job, that job goes back to
-  // return_pending on the board (the existing card — no new card needed).
-  // If there is no linked job, the user can opt in to creating one.
-  //
-  // When the return trip later closes (job → to_bill), unbilledBucket lifts the
-  // 'return' disposition override and all hours for that client come together in
-  // Ready to Bill automatically.
-  const flagReturn = async () => {
-    const ids = sel.rows.map(r => r.id).filter(Boolean);
-    if (!ids.length) return;
-    setSaving(true);
-    try {
-      // Park the entries in the return bucket.
-      const { error: entryErr } = await supabase.from('time_entries')
-        .update({ disposition: 'return' })
-        .in('id', ids);
-      if (entryErr) throw entryErr;
-
-      // Move linked jobs back to return_pending so they surface on the board.
-      const jobIds = [...new Set(sel.rows.map(r => r.job_id || r._job?.id).filter(Boolean))];
-      let createdNew = false;
-      if (jobIds.length > 0) {
-        for (const jid of jobIds) {
-          await jobsApi.changeStatus(
-            jid, 'return_pending', userEmail,
-            returnNote.trim() ? `Needs return trip: ${returnNote.trim()}` : 'Needs return trip — flagged from billing'
-          );
-        }
-      } else if (returnCreateCard) {
-        // No linked job — create a new return card if the user opted in.
-        const custId = sel.rows.map(r => r.customer_id || r._g?.customerId).find(Boolean) || null;
-        const custName = sel.rows.map(r => r._g?.name || r.customer_name_raw).find(Boolean) || 'Unknown';
-        const created = await jobsApi.create({
-          customer_name: custName,
-          customer_id: custId || undefined,
-          job_type: 'return_trip',
-          status: 'return_pending',
-          issue: returnNote.trim() || 'Return trip needed — flagged from billing.',
-        }, userEmail);
-        createdNew = !!created?.id;
-        if (created?.id) {
-          await jobsApi.logHistory(created.id, null, null, userEmail,
-            `Return card created from billing — ${ids.length} visit${ids.length === 1 ? '' : 's'} (${fmtH(sel.hours)}) waiting on this`)
-            .catch(() => {});
-        }
-      }
-
-      const msg = jobIds.length > 0
-        ? `${ids.length} visit${ids.length === 1 ? '' : 's'} parked · job back to Return Pending`
-        : createdNew
-          ? `${ids.length} visit${ids.length === 1 ? '' : 's'} parked · new return card created`
-          : `${ids.length} visit${ids.length === 1 ? '' : 's'} parked in return bucket`;
-      setToast(msg);
-      setTimeout(() => setToast(''), 3200);
-      setReturnOpen(false);
-      setReturnNote('');
-      setReturnCreateCard(false);
-      setPicked(new Set());
-      await load();
-    } catch (e) { setToast('Could not flag return trip: ' + (e.message || e)); }
-    setSaving(false);
-  };
 
   // Clearing with a reason. `archive_reason` stores the KEY (warranty,
   // goodwill, sales_call...) not a sentence, so isRealCost() can classify it
@@ -802,11 +790,59 @@ export default function Unbilled({ onBack, userEmail }) {
     setSaving(false);
   };
 
-  const markBilled = async () => {
+  // ── CHASE AR VIA EMAIL ───────────────────────────────────────────────
+  // Sends an AR follow-up email to the customer using the logged-in user's
+  // Gmail OAuth token — same channel as tech assignment notifications.
+  // Requires accessToken (gmail.send scope) and a customer email on record.
+  // No browser redirect, no leaving the app.
+  const sendChaseEmail = async (g) => {
+    const to = g.customerEmail;
+    if (!to || !accessToken) return;
+    setChaseState(s => ({ ...s, [g.key]: 'sending' }));
+
+    const senderName = NAME_BY_EMAIL[userEmail] || 'DRH Security Services';
+    const visitWord = g.visits.length === 1 ? 'service visit' : `${g.visits.length} service visits`;
+    const oldest = g.oldest ? fmtD(g.oldest) : null;
+    const dateClause = oldest ? ` from ${oldest}` : '';
+
+    const subject = `Invoice follow-up — ${g.name}`;
+    const body = [
+      `Hi ${g.name},`,
+      '',
+      `I'm following up on ${visitWord}${dateClause} totaling ${fmtH(g.hours)} that ${g.visits.length === 1 ? 'is' : 'are'} ready to invoice.`,
+      '',
+      'Please let us know if you have any questions about the work performed, or if you would like the invoice sent to a specific address.',
+      '',
+      'Thank you,',
+      senderName,
+      'DRH Security Services',
+    ].join('\n');
+
+    const result = await sendGmail(accessToken, { to, subject, body });
+    if (result.ok) {
+      setChaseState(s => ({ ...s, [g.key]: 'sent' }));
+      setToast(`Chase email sent to ${to} ✓`);
+    } else if (result.reauth) {
+      setChaseState(s => ({ ...s, [g.key]: 'error' }));
+      setToast('Sign out and back in to grant Gmail permission, then retry.');
+    } else {
+      setChaseState(s => ({ ...s, [g.key]: 'error' }));
+      setToast(`Could not send: ${result.msg}`);
+    }
+    setTimeout(() => setToast(''), 4000);
+  };
+
+  const markBilled = async (confirmed = false) => {
     if (!mayBill) return;
     if (!sel.rows.length) return;
     const n = sel.rows.length;
-    if (!window.confirm(`Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed?\n\nThey will leave this queue. This does not create an invoice — do that in QuickBooks.`)) return;
+    if (!confirmed) {
+      setConfirmPending({
+        msg: `Mark ${n} visit${n > 1 ? 's' : ''} (${fmtH(sel.hours)}) as billed? They leave this queue. Do the invoice in QuickBooks.`,
+        onConfirm: () => markBilled(true),
+      });
+      return;
+    }
     setSaving(true);
     try {
       const amtRaw = invoiceAmount.trim().replace(/[$,\s]/g, '');
@@ -1099,19 +1135,25 @@ export default function Unbilled({ onBack, userEmail }) {
         {shown.map(g => {
           const open = openKey === g.key;
           const allPicked = g.visits.length > 0 && g.visits.every(v => picked.has(v.id));
+          const urgency = g.bucket === 'return' ? returnUrgency(g.waitingDays) : null;
+          const cardBorder = g.orphan ? '#f59e0b' : (urgency?.borderColor || '#1e293b');
           return (
-            <div key={g.key} style={{ ...card, borderColor: g.orphan ? '#f59e0b' : '#1e293b' }}>
+            <div key={g.key} style={{ ...card, borderColor: cardBorder,
+              ...(urgency && g.waitingDays >= 10 ? { boxShadow: `0 0 0 1px #ef444466, 0 2px 12px #ef444422` } : {}) }}>
               <div onClick={() => setOpenKey(open ? null : g.key)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                 <span style={{ color: '#64748b', fontSize: 13 }}>{open ? '▾' : '▸'}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {g.name} {g.shortCode && <span style={{ color: '#00c8e8', fontSize: 12, fontWeight: 700 }}>{g.shortCode}</span>}
                   </div>
-                  {g.bucket === 'return' && (
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#ec4899', marginTop: 2 }}>
-                      Customer waiting {g.waitingDays} day{g.waitingDays === 1 ? '' : 's'} · {fmtH(g.hours)} of work you cannot invoice until someone goes back
-                    </div>
-                  )}
+                  {g.bucket === 'return' && (() => {
+                    const u = returnUrgency(g.waitingDays);
+                    return (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: u.color, marginTop: 2 }}>
+                        {u.prefix}Customer waiting {g.waitingDays} day{g.waitingDays === 1 ? '' : 's'} · {fmtH(g.hours)} of work you cannot invoice until someone goes back
+                      </div>
+                    );
+                  })()}
                   {g.noEntries && (
                     <div style={{ fontSize: 12.5, color: '#fdba74', marginTop: 3, lineHeight: 1.5 }}>
                       Marked done, but nobody logged time against it. There is nothing to put on an invoice.
@@ -1156,6 +1198,25 @@ export default function Unbilled({ onBack, userEmail }) {
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Make a new ticket instead
                   </button>
+                  {g.customerEmail && accessToken && (
+                    <button
+                      onClick={() => sendChaseEmail(g)}
+                      disabled={saving || chaseState[g.key] === 'sending'}
+                      title={`Send AR follow-up to ${g.customerEmail}`}
+                      style={{
+                        background: chaseState[g.key] === 'sent' ? '#14532d' : 'transparent',
+                        border: `1px solid ${chaseState[g.key] === 'sent' ? '#22c55e' : chaseState[g.key] === 'error' ? '#ef4444' : '#0ea5e9'}`,
+                        borderRadius: 8,
+                        color: chaseState[g.key] === 'sent' ? '#4ade80' : chaseState[g.key] === 'error' ? '#fca5a5' : '#7dd3fc',
+                        fontSize: 13, fontWeight: 700,
+                        padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit',
+                      }}>
+                      {chaseState[g.key] === 'sending' ? '…Sending'
+                        : chaseState[g.key] === 'sent' ? '✓ Chased'
+                        : chaseState[g.key] === 'error' ? '⚠ Retry chase'
+                        : '📧 Chase'}
+                    </button>
+                  )}
                   {mayBill && (
                   <button onClick={() => closeOrphan(g, 'billed')} disabled={saving}
                     style={{ background: 'transparent', border: '1px solid #22c55e', borderRadius: 8,
@@ -1180,10 +1241,10 @@ export default function Unbilled({ onBack, userEmail }) {
               {open && g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 10,
                               display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button onClick={() => window.open(`/board?job=${g.job.id}`, '_self')}
+                  <button onClick={() => setDrawerJob(g.job)}
                     style={{ background: '#1d4ed8', border: 'none', borderRadius: 8, color: '#fff',
                              fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Open the ticket
+                    Open ticket — move it
                   </button>
                   {mayBill && (
                   <button onClick={() => closeNoHours(g, 'billed')} disabled={saving}
@@ -1199,34 +1260,86 @@ export default function Unbilled({ onBack, userEmail }) {
                     Not billable — pick a reason
                   </button>
                   <div style={{ flexBasis: '100%', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                    If the work really happened and the hours were never entered, open the
-                    ticket and log the visit — that is the only route that puts it on an invoice.
+                    Open the ticket to log hours or move it to another lane — "Where does this go?"
+                    is right there.
                   </div>
                 </div>
               )}
 
               {open && !g.noEntries && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+                  {/* ── CUSTOMER TOTAL — the whole picture, not just this bucket ──
+                      A customer's unbilled hours live in multiple buckets by design.
+                      Show the full count first so you know what you're dealing with
+                      before you touch a single row. The grab-all button is the
+                      primary action: select everything at once, then decide. */}
+                  {(() => {
+                    const t = clientTotal(g);
+                    if (t.groups < 2) return null;
+                    // Which buckets hold this customer's other hours?
+                    const mine = groups.filter(x => g.customerId
+                      ? x.customerId === g.customerId
+                      : (x.name || '').toLowerCase() === (g.name || '').toLowerCase());
+                    const bucketSummary = mine
+                      .map(x => `${BUCKET_BY_KEY[x.bucket]?.label || x.bucket}: ${x.visits.length}`)
+                      .join(' · ');
+                    const allGrabbed = t.visits > 0 &&
+                      mine.flatMap(x => x.visits).every(v => picked.has(v.id));
+                    return (
+                      <div style={{ background:'#130e23', border:'1px solid #4c1d95',
+                                    borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
+                        <div style={{ fontSize:12, color:'#a78bfa', fontWeight:700, marginBottom:4 }}>
+                          {g.name} · {t.visits} total unbilled {t.visits === 1 ? 'entry' : 'entries'} · {fmtH(t.hours)}
+                        </div>
+                        <div style={{ fontSize:11, color:'#64748b', marginBottom:8, lineHeight:1.5 }}>
+                          {bucketSummary}
+                        </div>
+                        <button onClick={() => pickAllForClient(g)}
+                          style={{ background: allGrabbed ? '#4c1d95' : '#7c3aed', border:'none',
+                                   borderRadius:8, color:'#fff', fontSize:13, fontWeight:800,
+                                   padding:'8px 14px', cursor:'pointer', fontFamily:'inherit',
+                                   width:'100%', textAlign:'left' }}>
+                          {allGrabbed
+                            ? `✓ All ${t.visits} entries selected (${fmtH(t.hours)}) — pick an action below`
+                            : `Grab all ${t.visits} entries (${fmtH(t.hours)}) → then bill · merge · or clear`}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                  {/* ── JOB CONTEXT ─────────────────────────────────────────────
+                      Which board ticket these entries belong to.
+                      "Open ticket →" opens TicketSheet — same component as the board.
+                      Notes, tasks, and history live there. */}
+                  {g.job && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px',
+                                  marginBottom:8, background:'#0d1f38', borderRadius:8,
+                                  border:'1px solid #1e3a5f' }}>
+                      <span style={{ fontSize:12, color:'#7dd3fc', fontWeight:700, flex:1,
+                                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        🎫 {g.job.customer_name}
+                        {g.shortCode && <span style={{ color:'#00c8e8', marginLeft:5 }}>{g.shortCode}</span>}
+                        <span style={{ color:'#475569', fontWeight:400, marginLeft:8 }}>
+                          · {STATUS_INFO[g.job.status]?.label || g.job.status}
+                        </span>
+                      </span>
+                      <button onClick={() => setDrawerJob(g.job)}
+                        style={{ background:'#1d4ed8', border:'none', borderRadius:7, color:'#fff',
+                                 fontSize:12, fontWeight:700, padding:'5px 11px', cursor:'pointer',
+                                 whiteSpace:'nowrap', fontFamily:'inherit' }}>
+                        Open ticket →
+                      </button>
+                    </div>
+                  )}
+                  {/* This bucket's entries */}
+                  <div style={{ fontSize:11, color:'#475569', fontWeight:700, letterSpacing:'0.06em',
+                                textTransform:'uppercase', marginBottom:6 }}>
+                    {BUCKET_BY_KEY[g.bucket]?.label || g.bucket} — {g.visits.length} {g.visits.length === 1 ? 'entry' : 'entries'}
+                  </div>
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
                     <button onClick={() => pickAll(g)}
                       style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#94a3b8', fontSize: 12, padding: '4px 10px', cursor: 'pointer' }}>
-                      {allPicked ? 'Deselect all' : 'Select all visits'}
+                      {allPicked ? 'Deselect all' : 'Select these'}
                     </button>
-                    {/* "Grab all the hours of the client." A customer's unbilled
-                        time is split across buckets by design, so ticking one
-                        group at a time is how you miss the two sitting under a
-                        different heading — which are usually the ones a project
-                        is meant to gather up. Only shown when there ARE others. */}
-                    {(() => {
-                      const t = clientTotal(g);
-                      if (t.groups < 2) return null;
-                      return (
-                        <button onClick={() => pickAllForClient(g)}
-                          style={{ background: 'none', border: '1px solid #7c3aed', borderRadius: 6, color: '#c4b5fd', fontSize: 12, fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          Grab all {t.visits} of {g.name}'s hours ({fmtH(t.hours)})
-                        </button>
-                      );
-                    })()}
                   </div>
 
                   {g.visits.map(v => {
@@ -1262,6 +1375,114 @@ export default function Unbilled({ onBack, userEmail }) {
                       </div>
                     );
                   })}
+                  {/* ── OTHER BUCKETS' ENTRIES FOR THIS CUSTOMER ─────────────────
+                      The current tab only shows one slice. If the same customer has
+                      entries in other buckets, show them here too — same visit rows,
+                      just labelled with their bucket. "I see the one of two" — both
+                      rows, visible in one place. */}
+                  {(() => {
+                    const others = groups.filter(x =>
+                      x.key !== g.key && !x.noEntries &&
+                      (g.customerId
+                        ? x.customerId === g.customerId
+                        : (x.name || '').toLowerCase() === (g.name || '').toLowerCase())
+                    );
+                    if (!others.length) return null;
+                    return others.map(og => (
+                      <div key={og.key} style={{ marginTop:10, paddingTop:8, borderTop:'1px dashed #1e293b' }}>
+                        <div style={{ fontSize:11, color: BUCKET_BY_KEY[og.bucket]?.color || '#94a3b8',
+                                      fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', marginBottom:6 }}>
+                          {BUCKET_BY_KEY[og.bucket]?.label || og.bucket} — {og.visits.length} {og.visits.length === 1 ? 'entry' : 'entries'}
+                        </div>
+                        {og.visits.map(v => {
+                          const h = hrs(v.total_minutes);
+                          const on = picked.has(v.id);
+                          const sus = h > SUSPICIOUS_HOURS;
+                          return (
+                            <div key={v.id} onClick={() => toggle(v.id)}
+                              style={{ display:'flex', gap:10, padding:'8px 9px', borderRadius:8, marginBottom:6, cursor:'pointer',
+                                       background: on ? '#0e293f' : '#0f172a', border:`1px solid ${on ? '#00c8e8' : sus ? '#ef4444' : '#1e293b'}` }}>
+                              <span style={{ color: on ? '#00c8e8' : '#475569', fontSize:15 }}>{on ? '☑' : '☐'}</span>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>
+                                  {fmtD(v.event_start)} · {v.tech_name || 'unknown tech'}
+                                  {v.disposition && <span style={{ color:'#94a3b8', fontWeight:400 }}> · {v.disposition.replace('_',' ')}</span>}
+                                </div>
+                                {maySeeBillingFields && (v.invoice_ref || v.invoice_amount != null) && (
+                                  <div style={{ fontSize:11.5, color:'#7dd3fc', marginTop:2 }}>
+                                    {v.invoice_ref && <span>Inv: {v.invoice_ref}</span>}
+                                    {v.invoice_amount != null && <span style={{ color:'#4ade80' }}>{v.invoice_ref ? ' · ' : ''}${Number(v.invoice_amount).toFixed(2)}</span>}
+                                  </div>
+                                )}
+                                {v.event_title && <div style={{ fontSize:12, color:'#94a3b8' }}>{v.event_title}</div>}
+                                {v.notes && <div style={{ fontSize:12, color:'#cbd5e1', marginTop:3, whiteSpace:'pre-wrap' }}>{v.notes}</div>}
+                                {v.materials && v.materials.trim() && (
+                                  <div style={{ fontSize:12, color:'#fbbf24', marginTop:3, background:'#78350f33', borderRadius:5, padding:'4px 7px' }}>
+                                    🔧 {v.materials.trim()}
+                                  </div>
+                                )}
+                                {sus && <div style={{ fontSize:12, color:'#ef4444', marginTop:3 }}>⚠️ {fmtH(h)} — somebody probably never clocked out</div>}
+                              </div>
+                              <span style={{ fontSize:14, fontWeight:800, color: sus ? '#ef4444' : '#22c55e', whiteSpace:'nowrap' }}>{fmtH(h)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ));
+                  })()}
+                  {/* ── PER-CARD ACTIONS ─────────────────────────────────────────
+                      Merge and FF are also in the global selection bar, but that bar
+                      only appears after you tick a row. These surface the same actions
+                      without requiring the checkbox dance when you know what group
+                      you want to act on. openMerge works off g.visits directly.
+                      "Create FF project" pre-selects the group so createProject sees
+                      the right sel.rows when the modal's submit fires. */}
+                  {g.job && (
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10,
+                                  paddingTop:8, borderTop:'1px solid #1e293b' }}>
+                      <button onClick={() => openMerge(g)} disabled={saving}
+                        style={{ background:'none', border:'1px solid #7c3aed', borderRadius:8,
+                                 color:'#c4b5fd', fontSize:12.5, fontWeight:700,
+                                 padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
+                        🔗 Merge into a job
+                      </button>
+                      <button
+                        onClick={() => {
+                          pickAll(g);
+                          setNewProj({ name: g.name === 'Unknown' ? '' : (g.name || ''), hours: '' });
+                          setMergeOpen(g);
+                        }}
+                        disabled={saving}
+                        style={{ background:'none', border:'1px solid #8b5cf6', borderRadius:8,
+                                 color:'#c4b5fd', fontSize:12.5, fontWeight:700,
+                                 padding:'7px 12px', cursor:'pointer', fontFamily:'inherit' }}>
+                        📐 Create FF project
+                      </button>
+                      {/* Chase AR: email the customer directly from Billing using the
+                          signed-in Gmail token. No redirects, no leaving the app.
+                          Only shown when we have the customer's email on record and
+                          the Gmail token is in scope. */}
+                      {g.customerEmail && accessToken && (
+                        <button
+                          onClick={() => sendChaseEmail(g)}
+                          disabled={saving || chaseState[g.key] === 'sending'}
+                          title={`Send AR follow-up to ${g.customerEmail}`}
+                          style={{
+                            background: chaseState[g.key] === 'sent' ? '#14532d' : 'none',
+                            border: `1px solid ${chaseState[g.key] === 'sent' ? '#22c55e' : chaseState[g.key] === 'error' ? '#ef4444' : '#0ea5e9'}`,
+                            borderRadius: 8,
+                            color: chaseState[g.key] === 'sent' ? '#4ade80' : chaseState[g.key] === 'error' ? '#fca5a5' : '#7dd3fc',
+                            fontSize: 12.5, fontWeight: 700,
+                            padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                          }}>
+                          {chaseState[g.key] === 'sending' ? '…Sending'
+                            : chaseState[g.key] === 'sent' ? '✓ Chased'
+                            : chaseState[g.key] === 'error' ? '⚠ Retry chase'
+                            : '📧 Chase'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1410,52 +1631,14 @@ export default function Unbilled({ onBack, userEmail }) {
         />
       )}
 
-      {/* Park as Return Trip modal */}
-      {returnOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', zIndex: 50,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, width: '100%', maxWidth: 420,
-                        border: '1px solid #ec4899', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: '#f9a8d4' }}>🔄 Park as return trip</div>
-            <div style={{ fontSize: 13.5, color: '#94a3b8', lineHeight: 1.6 }}>
-              {sel.rows.some(r => r.job_id || r._job?.id)
-                ? 'These hours move to the waiting-on-return bucket. The linked job goes back to Return Pending on the board. When the return visit closes, all hours for this client will come together in Ready to Bill.'
-                : 'These hours move to the waiting-on-return bucket. No linked job was found.'}
-            </div>
-            <textarea
-              value={returnNote}
-              onChange={e => setReturnNote(e.target.value)}
-              placeholder="What still needs to happen? (optional)"
-              rows={3}
-              style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8,
-                       color: '#f1f5f9', fontSize: 13, padding: '10px 12px', resize: 'vertical',
-                       fontFamily: 'inherit' }}
-            />
-            {/* Only offer to create a new card when there is no linked job */}
-            {sel.rows.every(r => !r.job_id && !r._job?.id) && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
-                              color: '#94a3b8', cursor: 'pointer' }}>
-                <input type="checkbox" checked={returnCreateCard}
-                  onChange={e => setReturnCreateCard(e.target.checked)} />
-                Create a new return card on the board
-              </label>
-            )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={flagReturn} disabled={saving}
-                style={{ flex: 1, background: '#ec4899', border: 'none', borderRadius: 8,
-                         color: '#fff', fontSize: 14, fontWeight: 800, padding: '11px 0',
-                         cursor: saving ? 'wait' : 'pointer' }}>
-                {saving ? 'Saving…' : 'Park in return bucket'}
-              </button>
-              <button onClick={() => { setReturnOpen(false); setReturnNote(''); setReturnCreateCard(false); }}
-                style={{ background: 'none', border: '1px solid #334155', borderRadius: 8,
-                         color: '#94a3b8', fontSize: 13, fontWeight: 700,
-                         padding: '11px 16px', cursor: 'pointer' }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+      {drawerJob && (
+        <BillingDrawer
+          job={drawerJob}
+          userEmail={userEmail}
+          accessToken={accessToken}
+          onClose={() => setDrawerJob(null)}
+          onRefresh={load}
+        />
       )}
 
       {/* Selection bar — everything ticked, across every customer */}
@@ -1503,11 +1686,6 @@ export default function Unbilled({ onBack, userEmail }) {
                 style={{ background: 'none', border: '1px solid #7c3aed', color: '#c4b5fd', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
                 🔗 Merge into a job
               </button>
-              <button onClick={() => setReturnOpen(true)} disabled={saving}
-                title="Can't invoice yet — park these hours as waiting on a return trip."
-                style={{ background: 'none', border: '1px solid #ec4899', color: '#f9a8d4', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                🔄 Park as return
-              </button>
               <button onClick={markFixedFee} disabled={saving}
                 title="These hours are cost against an agreed price, not billed by the hour."
                 style={{ background: 'none', border: '1px solid #8b5cf6', color: '#c4b5fd', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -1532,6 +1710,27 @@ export default function Unbilled({ onBack, userEmail }) {
                 🔧 <b>Materials on this invoice:</b> {sel.materials.join(' · ')}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {confirmPending && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: sel.rows.length > 0 ? 'calc(110px + env(safe-area-inset-bottom))' : 0,
+                      background: '#0f172a', borderTop: '2px solid #f59e0b', padding: '14px 18px', zIndex: 30 }}>
+          <div style={{ maxWidth: 900, margin: '0 auto' }}>
+            <div style={{ fontSize: 14, color: '#e2e8f0', marginBottom: 12 }}>{confirmPending.msg}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { confirmPending.onConfirm(); setConfirmPending(null); }}
+                style={{ background: '#22c55e', border: 'none', borderRadius: 8, color: '#052e16',
+                         padding: '8px 22px', fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Yes, confirm
+              </button>
+              <button onClick={() => setConfirmPending(null)}
+                style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 8,
+                         color: '#94a3b8', padding: '8px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

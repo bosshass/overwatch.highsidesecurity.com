@@ -133,8 +133,12 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
       // hideFieldNotes = FieldVisits already shows time_entry notes as visit
       // cards on the same surface — showing them again here is the duplicate.
       const nonBookkeeping = deduped.filter(n => !isBookkeeping(n.text));
-      setNotes(hideFieldNotes ? nonBookkeeping.filter(n => n.source !== 'field') : nonBookkeeping);
+      const filtered = hideFieldNotes ? nonBookkeeping.filter(n => n.source !== 'field') : nonBookkeeping;
+      setNotes(filtered);
       setActivity(deduped.filter(n => isBookkeeping(n.text) && !isMergeEntry(n.text)));
+      // Auto-expand the newest note so you don't have to know to click it.
+      const newest = [...filtered].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+      if (newest) setOpenNoteId(newest.id);
     } catch (e) {
       console.error('Notes load error:', e);
     } finally {

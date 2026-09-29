@@ -559,7 +559,7 @@ function DetailDrawer({ job, techs, accessToken, onStatusMove, onSchedule, onClo
           onOpenScheduler={() => onSchedule(job)}
           onSchedulePrimary={
             ['ready_to_schedule','return_pending','scheduled'].includes(job.status)
-              ? () => onSchedule(job) : null
+              ? (estHoursOverride) => onSchedule(job, estHoursOverride) : null
           }
           onMove={async (target, note, reason) => { await onStatusMove(job.id, target, note, reason); }}
           onAssigned={onAssigned}
@@ -1445,7 +1445,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
             setJobs(list => list.map(j => (j.id === updated.id ? { ...j, ...updated } : j)));
           }}
           onStatusMove={(jobId, verb, note, reason) => { moveStatus(jobId, verb, note, reason); setSelectedJob(null); }}
-          onSchedule={job => { setSelectedJob(null); setSchedulingJob(job); }}
+          onSchedule={(job, estHoursOverride) => { setSelectedJob(null); setSchedulingJob(estHoursOverride ? { ...job, estimated_hours: estHoursOverride } : job); }}
           onClose={() => setSelectedJob(null)}
           onUUIDLinked={handleUUIDLinked}
           onMerge={handleMerge}

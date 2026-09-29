@@ -46,6 +46,22 @@ const C = {
 
 const SMS_IN_RE  = /^📲 Text from (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
 const SMS_OUT_RE = /^📱 Texted (.+?) \((\+?[0-9]+)\):\n?([\s\S]*)$/;
+
+// Parse a human-written time string into decimal hours for the scheduler.
+// Handles "2h", "2.5h", "2 hours", "90 min", "half day", "full day", bare numbers.
+function parseEstHours(s) {
+  if (!s) return null;
+  const lower = s.toLowerCase().trim();
+  if (/half.?day/.test(lower)) return 4;
+  if (/full.?day/.test(lower)) return 8;
+  const hMatch = lower.match(/^(\d+\.?\d*)\s*h/);
+  if (hMatch) return parseFloat(hMatch[1]);
+  const mMatch = lower.match(/^(\d+\.?\d*)\s*m/);
+  if (mMatch) return Math.round(parseFloat(mMatch[1]) / 60 * 10) / 10;
+  const numMatch = lower.match(/^(\d+\.?\d*)$/);
+  if (numMatch) return parseFloat(numMatch[1]);
+  return null;
+}
 const fmtSmsTime = iso => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 const Row = ({ label, children }) => children == null || children === '' ? null : (
@@ -1166,7 +1182,7 @@ export default function TicketSheet({
 
         {/* Scheduler as a primary action for schedulable statuses */}
         {onSchedulePrimary && (
-          <button onClick={() => onSchedulePrimary()}
+          <button onClick={() => onSchedulePrimary(parseEstHours(returnCard?.estimated_time))}
             style={{ width: '100%', background: '#8b5cf6', border: 'none', borderRadius: 12,
                      color: '#fff', fontWeight: 800, fontSize: 14, padding: '13px 0',
                      cursor: 'pointer', marginBottom: 14 }}>

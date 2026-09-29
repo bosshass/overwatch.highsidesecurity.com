@@ -32,6 +32,7 @@ import NotesPanel from './NotesPanel.jsx';
 import { releaseCalendar } from '../services/schedule.js';
 import { syncIssueToEvents } from '../services/calendarSync.js';
 import TextButton, { clientTemplates } from './TextButton.jsx';
+import SmsComposer from './SmsComposer.jsx';
 import { formatPhone } from '../services/sms.js';
 import { shortJobLink } from '../config/appBase.js';
 import { needsDisposition, dispositionDueAt } from '../utils/staleness.js';

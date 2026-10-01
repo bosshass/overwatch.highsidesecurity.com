@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CALENDARS, getWorkViewCalendars } from '../config/calendars.js';
 import JobFinishSheet from '../components/JobFinishSheet.jsx';
-import { supabase } from '../services/supabase.js';
+import { supabase, timeEntriesApi } from '../services/supabase.js';
 
 const GCAL = 'https://www.googleapis.com/calendar/v3';
 
@@ -97,6 +97,10 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
   // job ID to auto-open once the day's events finish loading
   const pendingOpenRef = useRef(null);
   const [doneToast, setDoneToast] = useState(null); // { msg, disposition }
+  const [internalTimeFor, setInternalTimeFor] = useState(null); // event to add non-billable time to
+  const [internalMins, setInternalMins] = useState('');
+  const [internalNote, setInternalNote] = useState('');
+  const [internalSaving, setInternalSaving] = useState(false);
 
   // Single tech calendar OR all techs for operators
   const techCalId = TECH_CAL_MAP[userEmail?.toLowerCase()] || TECH_CAL_MAP[userName] || CALENDARS.AUSTIN;
@@ -319,6 +323,7 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
     return:   { msg: '🔄 Return visit flagged — office can see it.', color: '#92400e', bg: '#fffbeb' },
     estimate: { msg: '📋 Sent to estimates — entry saved.',        color: '#7e22ce', bg: '#faf5ff' },
     blocked:  { msg: "🚫 Couldn't complete — flagged on the board.", color: '#b91c1c', bg: '#fef2f2' },
+    internal: { msg: '⏱️ Internal time saved.',                      color: '#5b21b6', bg: '#f5f3ff' },
   };
   // JobFinishSheet passes the calendar event id as the second argument so the
   // update doesn't have to rely on `selected` being current in the closure.
@@ -629,11 +634,103 @@ export default function TechWorkToday({ accessToken, userEmail, userName, onBack
                   </div>
                 )}
               </div>
-              {ev.isOwn && <div style={{ color: '#cbd5e1', fontSize: 26, marginLeft: 10 }}>›</div>}
+              {ev.isOwn && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginLeft: 10 }}>
+                  <div style={{ color: '#cbd5e1', fontSize: 26 }}>›</div>
+                  <button
+                    onClick={e => { e.stopPropagation(); setInternalTimeFor(ev); setInternalMins(''); setInternalNote(''); }}
+                    title="Log non-billable time"
+                    style={{ width: 30, height: 30, borderRadius: '50%', background: '#9b6cff',
+                             border: 'none', color: '#fff', fontSize: 18, fontWeight: 900,
+                             cursor: 'pointer', display: 'flex', alignItems: 'center',
+                             justifyContent: 'center', lineHeight: 1, fontFamily: 'inherit' }}>
+                    +
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* Internal time overlay */}
+      {internalTimeFor && (
+        <div onClick={() => setInternalTimeFor(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200,
+                   display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#0b1628', borderRadius: '20px 20px 0 0', padding: '20px 18px 32px',
+                     width: '100%', maxWidth: 480, border: '1px solid #1d2f48' }}>
+            <div style={{ width: 36, height: 4, background: '#263a55', borderRadius: 3, margin: '0 auto 16px' }} />
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#9b6cff', textTransform: 'uppercase',
+                          letterSpacing: 0.7, marginBottom: 4 }}>⏱️ Log Internal Time</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#edf4ff', marginBottom: 16 }}>
+              {cleanTitle(internalTimeFor.title)}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                            letterSpacing: 0.5, marginBottom: 6 }}>Minutes</div>
+              <input
+                type="number" min="0" step="15"
+                value={internalMins}
+                onChange={e => setInternalMins(e.target.value)}
+                placeholder="e.g. 60"
+                style={{ width: '100%', boxSizing: 'border-box', background: '#111f34',
+                         border: '1.5px solid #1d2f48', borderRadius: 10, color: '#edf4ff',
+                         padding: '11px 13px', fontSize: 15, fontFamily: 'inherit', outline: 'none' }}
+              />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                            letterSpacing: 0.5, marginBottom: 6 }}>Notes (optional)</div>
+              <textarea
+                value={internalNote}
+                onChange={e => setInternalNote(e.target.value)}
+                placeholder="Training, travel, admin work…"
+                rows={3}
+                style={{ width: '100%', boxSizing: 'border-box', background: '#111f34',
+                         border: '1.5px solid #1d2f48', borderRadius: 10, color: '#edf4ff',
+                         padding: '11px 13px', fontSize: 14, fontFamily: 'inherit', outline: 'none',
+                         resize: 'vertical' }}
+              />
+            </div>
+            <button
+              disabled={internalSaving || !internalMins || Number(internalMins) <= 0}
+              onClick={async () => {
+                setInternalSaving(true);
+                try {
+                  await timeEntriesApi.create({
+                    job_id:           internalTimeFor.jobId || null,
+                    calendar_event_id: internalTimeFor.id,
+                    calendar_id:       internalTimeFor.calendarId,
+                    event_title:       internalTimeFor.title,
+                    event_start:       internalTimeFor.start?.toISOString() || null,
+                    tech_email:        userEmail,
+                    tech_name:         userName,
+                    total_minutes:     Number(internalMins),
+                    entry_method:      'manual',
+                    disposition:       'internal',
+                    notes:             internalNote.trim() || null,
+                  });
+                  setInternalTimeFor(null);
+                  setDoneToast({ msg: '⏱️ Internal time saved.', disposition: 'internal' });
+                  setTimeout(() => setDoneToast(null), 3000);
+                } catch (e) {
+                  console.error('internal time save failed', e);
+                  alert('Could not save — ' + (e?.message || 'unknown error'));
+                } finally {
+                  setInternalSaving(false);
+                }
+              }}
+              style={{ width: '100%', padding: '14px 0', borderRadius: 12, border: 'none',
+                       background: internalSaving || !internalMins || Number(internalMins) <= 0 ? '#2d2060' : '#9b6cff',
+                       color: '#fff', fontSize: 16, fontWeight: 800, cursor: 'pointer',
+                       fontFamily: 'inherit', opacity: internalSaving ? 0.6 : 1 }}>
+              {internalSaving ? 'Saving…' : 'Save Internal Time'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Sheet */}
       {selected && (

@@ -51,6 +51,7 @@ const DISPO_COLORS = {
   return:   { color: '#fb923c', bg: 'rgba(249,115,22,0.08)',  border: 'rgba(249,115,22,0.25)' },
   estimate: { color: '#c084fc', bg: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.25)' },
   blocked:  { color: '#fb7185', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)' },
+  internal: { color: '#9b6cff', bg: 'rgba(155,108,255,0.08)', border: 'rgba(155,108,255,0.25)' },
 };
 
 // Strip LEGACY bracket tags out of a title so the bare customer name is left for
@@ -83,6 +84,7 @@ export default function JobFinishSheet({
   const [estimateMats,    setEstimateMats]    = useState('');   // Estimate — materials
   const [blockedWhy,      setBlockedWhy]      = useState('');   // Blocked — why couldn't it be done (required)
   const [blockedNext,     setBlockedNext]     = useState('');   // Blocked — what's next
+  const [internalNotes,   setInternalNotes]   = useState('');   // Internal — what was the work
 
   const [photos, setPhotos]             = useState([]);
   const [uploading, setUploading]       = useState(false);
@@ -171,6 +173,7 @@ export default function JobFinishSheet({
         if (blockedNext.trim()) parts.push(`Next: ${blockedNext.trim()}`);
         return parts.join('\n') || null;
       }
+      case 'internal': return internalNotes.trim() || null;
       default: return null;
     }
   };
@@ -193,6 +196,7 @@ export default function JobFinishSheet({
         if (blockedNext.trim()) parts.push(`Next: ${blockedNext.trim()}`);
         return { noteText: parts.join(' | '), matText: '' };
       }
+      case 'internal': return { noteText: internalNotes.trim(), matText: '' };
       default: return { noteText: '', matText: '' };
     }
   };
@@ -274,6 +278,7 @@ export default function JobFinishSheet({
     // Previously there was no button for this, so techs picked "In progress"
     // and the job sat in Scheduled looking like it was still happening.
     blocked:     JOB_STATUS.BLOCKED,
+    internal:    JOB_STATUS.COMPLETE,
   };
   // was a private label map — a fourth copy. utils/billing.js owns this.
   const DISPO_LABEL = Object.fromEntries(DISPO_KEYS.map(k => [k, dispo(k).label]));
@@ -728,6 +733,7 @@ export default function JobFinishSheet({
               { key: 'return',   emoji: '🔄', label: 'Return Visit',    sub: 'Work started — have to come back.' },
               { key: 'estimate', emoji: '📋', label: 'Estimate',        sub: 'Scope changed — needs pricing.' },
               { key: 'blocked',  emoji: '🚫', label: "Can't Complete",  sub: 'No access / wrong parts. Trip bills.' },
+              { key: 'internal', emoji: '⏱️', label: 'Internal Time',   sub: 'Admin, travel, training. Not billed.', full: true },
             ].map(d => {
               const on = selectedDispo === d.key;
               const dc = DISPO_COLORS[d.key];
@@ -736,6 +742,7 @@ export default function JobFinishSheet({
                   onClick={() => { setSelectedDispo(on ? null : d.key); setError(''); }}
                   style={{ padding: '13px 10px', borderRadius: 12, cursor: 'pointer',
                            textAlign: 'center', fontFamily: 'inherit',
+                           gridColumn: d.full ? '1 / -1' : undefined,
                            background: on ? dc.color : dc.bg, color: on ? '#fff' : dc.color,
                            border: on ? `2px solid ${dc.color}` : `2px solid ${dc.border}` }}>
                   <div style={{ fontSize: 20 }}>{d.emoji}</div>
@@ -757,9 +764,9 @@ export default function JobFinishSheet({
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
                          letterSpacing: 0.5 }}>
-            {effectiveDispo === 'blocked' ? "📝 Why Couldn't It Be Done?" : '📝 Notes'}
+            {effectiveDispo === 'blocked' ? "📝 Why Couldn't It Be Done?" : effectiveDispo === 'internal' ? '📝 What was the work?' : '📝 Notes'}
           </span>
-          {effectiveDispo && effectiveDispo !== 'blocked' && (
+          {effectiveDispo && effectiveDispo !== 'blocked' && effectiveDispo !== 'internal' && (
             <span style={{ fontSize: 11, color: '#94a3b8' }}>
               {effectiveDispo === 'bill_it'
                 ? 'What happened? Appended to calendar + shown in board history.'
@@ -777,6 +784,7 @@ export default function JobFinishSheet({
             : effectiveDispo === 'return'   ? returnBillNotes
             : effectiveDispo === 'estimate' ? estimateWhat
             : effectiveDispo === 'blocked'  ? blockedWhy
+            : effectiveDispo === 'internal' ? internalNotes
             : ''
           }
           onChange={e => {
@@ -784,11 +792,13 @@ export default function JobFinishSheet({
             else if (effectiveDispo === 'return')    setReturnBillNotes(e.target.value);
             else if (effectiveDispo === 'estimate')  setEstimateWhat(e.target.value);
             else if (effectiveDispo === 'blocked')   setBlockedWhy(e.target.value);
+            else if (effectiveDispo === 'internal')  setInternalNotes(e.target.value);
           }}
           disabled={!effectiveDispo}
           placeholder={
             !effectiveDispo ? 'Pick an outcome above first'
-            : effectiveDispo === 'blocked' ? 'No access, nobody home, wrong parts…'
+            : effectiveDispo === 'blocked'  ? 'No access, nobody home, wrong parts…'
+            : effectiveDispo === 'internal' ? 'Training, travel, admin work…'
             : 'What happened on this visit…'
           }
           rows={3}

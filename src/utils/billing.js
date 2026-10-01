@@ -41,6 +41,8 @@ export const DISPOSITIONS = {
   // option was meant for."
   blocked:     { key: 'blocked',     label: "Couldn't do it", color: '#b91c1c',
                  means: 'Went out, could not do the work. The trip still bills' },
+  internal:    { key: 'internal',    label: 'Internal time',  color: '#9b6cff',
+                 means: 'Training, admin, travel — not billed to the customer' },
 };
 
 export const DISPO_KEYS = Object.keys(DISPOSITIONS);

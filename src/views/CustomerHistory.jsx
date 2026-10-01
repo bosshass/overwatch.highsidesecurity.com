@@ -141,7 +141,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   }, [custNotes, isLimitedTech, me]);
 
   const [showNotes, setShowNotes] = useState(true);
-  const [showDone, setShowDone]   = useState(true);
+  const [showDone, setShowDone]   = useState(false);
   const [loading, setLoading]     = useState(false);
   const [err, setErr]             = useState('');
 

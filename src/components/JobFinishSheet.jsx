@@ -488,6 +488,31 @@ export default function JobFinishSheet({
         }
       }
 
+      // ── Billing notification ──────────────────────────────────────────
+      // When a tech marks a visit "Bill It", the hours are ready to invoice
+      // but there was no signal to billing. File an open note so it surfaces
+      // in Tasks for the billing owner and cannot be missed.
+      if (disposition === 'bill_it' && ensuredJobId) {
+        try {
+          const custName = linkedCustomer?.name || linkedJob?.customer_name || cleanTitle(event.title) || 'Unknown';
+          const mins = payload.total_minutes || 0;
+          const hrsLabel = mins ? ` · ${(mins / 60).toFixed(1).replace(/\.0$/, '')}h` : '';
+          await supabase.from('notes').insert({
+            body: `💵 Ready to bill — ${custName}${hrsLabel} (${userName || userEmail})`,
+            job_id: ensuredJobId,
+            customer_id: linkedCustomer?.id || linkedJob?.customer_id || null,
+            assigned_to: 'admin@jnbservice.com',
+            assigned_by: userEmail || null,
+            lane: 'note',
+            status: 'open',
+            on_customer_record: !!(linkedCustomer?.id || linkedJob?.customer_id),
+          });
+        } catch (e) {
+          // Non-fatal — the time entry and job are already saved.
+          console.warn('billing notification note failed:', e?.message || e);
+        }
+      }
+
       // Pass event.id as the second argument so callers (e.g. TechWorkToday)
       // can update local state by event id rather than relying on a closure
       // over `selected` that may be stale by the time the async finish() resolves.

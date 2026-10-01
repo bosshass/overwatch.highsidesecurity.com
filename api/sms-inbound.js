@@ -302,7 +302,7 @@ export default async function handler(req, res) {
       author_email: staff?.email || null,
       assigned_to: owner || FALLBACK_OWNER,
       assigned_by: null,          // the system handed this over, not a person
-      lane: null,
+      lane: 'note',
       // OPEN, deliberately. An inbound message is a person waiting on an
       // answer. Filing it archived would make the inbox tidy and the client
       // ignored.

@@ -205,13 +205,47 @@ export default async function handler(req, res) {
             `https://messaging.twilio.com/v1/Services/${SERVICE}/PhoneNumbers`,
             { headers: { Authorization: basic } });
           const msb = await ms.json().catch(() => null);
+          const phoneNums = msb?.phone_numbers || [];
           out.twilio.sender = {
             via: 'messaging-service',
-            numbers: (msb?.phone_numbers || []).map(n => n.phone_number),
+            numbers: phoneNums.map(n => n.phone_number),
             note: 'A Messaging Service picks the sending number, not this app.',
           };
-          if (!out.twilio.sender.numbers.length) {
+          if (!phoneNums.length) {
             out.blocking.push('The Messaging Service has no phone numbers in it — nothing can send.');
+          }
+
+          // When use_inbound_webhook_on_number=true the SERVICE webhook is
+          // ignored — Twilio calls each NUMBER's own sms_url instead. The old
+          // check only looked at the service URL, so this case showed green
+          // while every reply was silently dropped because the number's webhook
+          // was never set. Check each number explicitly.
+          if (sb && sb.use_inbound_webhook_on_number === true && phoneNums.length) {
+            const want = out.webhook.setThisInTwilio;
+            for (const pn of phoneNums) {
+              if (!pn.sid) continue;
+              try {
+                const nr = await fetch(
+                  `https://api.twilio.com/2010-04-01/Accounts/${SID}/IncomingPhoneNumbers/${pn.sid}.json`,
+                  { headers: { Authorization: basic } });
+                const nb = await nr.json().catch(() => null);
+                if (nb) {
+                  const url = nb.sms_url || '';
+                  if (!out.twilio.inbound.numbers) out.twilio.inbound.numbers = [];
+                  out.twilio.inbound.numbers.push({
+                    number: nb.phone_number,
+                    smsUrl: url || '(not set)',
+                    webhookMatches: url === want,
+                  });
+                  if (url !== want) {
+                    out.blocking.push(
+                      `Number ${nb.phone_number} has "Use inbound webhook on number" active, but its SMS webhook is "${url || 'not set'}". ` +
+                      `Set it to ${want} — Twilio Console → Phone Numbers → ${nb.phone_number} → Messaging Configuration.`
+                    );
+                  }
+                }
+              } catch { /* best effort */ }
+            }
           }
         } else if (has(FROM)) {
           const num = await fetch(

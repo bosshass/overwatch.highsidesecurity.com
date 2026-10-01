@@ -872,7 +872,7 @@ export default function TicketSheet({
         </div>
 
         {/* ── SMS thread — conversation with this customer ──────────── */}
-        {smsMessages !== null && smsMessages.length > 0 && (() => {
+        {smsMessages !== null && (smsMessages.length > 0 || smsReplyPhone) && (() => {
           const replyPhone = smsReplyPhone;
           const onSent = () => {
             const phone = replyPhone ? formatPhone(replyPhone) : null;
@@ -887,27 +887,44 @@ export default function TicketSheet({
           return (
           <div style={{ background: C.panel, borderRadius: 12, marginBottom: 14,
                         border: smsUnread > 0 ? '1px solid #14b8a644' : 'none' }}>
-            {/* Header — tap to collapse */}
-            <button onClick={() => setSmsOpen(o => !o)}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-                       padding: '10px 14px', background: 'none', border: 'none',
-                       cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b',
-                             textTransform: 'uppercase', letterSpacing: 0.7 }}>
-                💬 Messages ({smsMessages.length})
-              </span>
-              {smsUnread > 0 && (
-                <span style={{ width: 8, height: 8, borderRadius: '50%',
-                               background: '#14b8a6', display: 'inline-block', flexShrink: 0 }} />
+            {/* Header — always shows reply button; tap label area to expand/collapse */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
+              <button onClick={() => setSmsOpen(o => !o)}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8,
+                         background: 'none', border: 'none',
+                         cursor: smsMessages.length > 0 ? 'pointer' : 'default',
+                         textAlign: 'left', fontFamily: 'inherit', padding: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b',
+                               textTransform: 'uppercase', letterSpacing: 0.7 }}>
+                  💬 Messages {smsMessages.length > 0 ? `(${smsMessages.length})` : ''}
+                </span>
+                {smsUnread > 0 && (
+                  <span style={{ width: 8, height: 8, borderRadius: '50%',
+                                 background: '#14b8a6', display: 'inline-block', flexShrink: 0 }} />
+                )}
+                {smsMessages.length > 0 && (
+                  <span style={{ color: '#475569', fontSize: 14 }}>
+                    {smsOpen ? '▾' : '▸'}
+                  </span>
+                )}
+              </button>
+              {replyPhone && (
+                <TextButton
+                  to={replyPhone} name={job.customer_name || 'client'}
+                  internal={false} accessToken={accessToken} size="sm"
+                  logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
+                  label="↩ Reply"
+                  style={{ background: '#9b6cff', border: 'none', color: '#08121f',
+                           padding: '6px 14px', borderRadius: 99, fontSize: 12, fontWeight: 800,
+                           flexShrink: 0 }}
+                  onSent={onSent}
+                />
               )}
-              <span style={{ marginLeft: 'auto', color: '#475569', fontSize: 14 }}>
-                {smsOpen ? '▾' : '▸'}
-              </span>
-            </button>
+            </div>
 
-            {smsOpen && (
+            {smsOpen && smsMessages.length > 0 && (
               <div style={{ padding: '0 14px 14px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                   {smsMessages.slice(-8).map(msg => (
                     <div key={msg.id}
                       style={{ display: 'flex', flexDirection: 'column',
@@ -928,15 +945,6 @@ export default function TicketSheet({
                     </div>
                   ))}
                 </div>
-                <TextButton
-                  to={replyPhone} name={job.customer_name || 'client'}
-                  internal={false} accessToken={accessToken} size="sm"
-                  logTo={{ jobId: job.id, customerId: job.customer_id, userEmail }}
-                  label="↩ Reply"
-                  style={{ background: '#9b6cff', border: 'none', color: '#08121f',
-                           padding: '8px 18px', borderRadius: 99, fontSize: 13, fontWeight: 800 }}
-                  onSent={onSent}
-                />
               </div>
             )}
           </div>

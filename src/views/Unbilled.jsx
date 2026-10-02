@@ -247,7 +247,7 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
     try {
       const { data: entries, error } = await supabase
         .from('time_entries')
-        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, billed_at, invoice_ref, invoice_amount, archived, archive_reason, billable, non_billable_reason, resolved_at, resolution_reason, job_id, calendar_event_id')
+        .select('id, customer_id, customer_name_raw, event_title, event_start, tech_name, total_minutes, disposition, notes, materials, billed, billed_at, invoice_ref, invoice_amount, archived, archive_reason, billable, non_billable_reason, resolved_at, resolution_reason, job_id, calendar_event_id, merged_from_job_id')
         .or('billed.is.null,billed.eq.false')
         // resolved_at is the ONE switch that takes a visit off this screen for
         // good. 193 pre-July entries were closed out in migration 042; without

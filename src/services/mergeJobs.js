@@ -13,7 +13,9 @@ import { CALENDARS } from '../config/calendars.js';
 import { buildSurvivorPatch, mergedIntoId, fmtDay } from '../utils/mergeUnion.js';
 
 // Tables whose rows belong to a job and must follow it to the survivor.
-// time_entries is first and fatal: hours are never left behind.
+// time_entries is first and fatal: hours are never left behind. Each moved
+// entry is stamped merged_from_job_id so Billing treats it by the status of
+// the card it landed on (see unbilledBucket in utils/jobResolve.js).
 const CHILD_TABLES = ['time_entries', 'clock_entries', 'notes', 'return_cards', 'messages', 'estimates'];
 
 async function loadJob(id) {
@@ -46,7 +48,8 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
   //    merge before the card is killed — a half-merge must never strand hours.
   for (const table of CHILD_TABLES) {
     const { data, error } = await supabase.from(table)
-      .update({ job_id: sid }).eq('job_id', dead.id).select(table === 'time_entries' ? 'id, total_minutes' : 'id');
+      .update(table === 'time_entries' ? { job_id: sid, merged_from_job_id: dead.id } : { job_id: sid })
+      .eq('job_id', dead.id).select(table === 'time_entries' ? 'id, total_minutes' : 'id');
     if (error) throw new Error(`Merge stopped — could not move ${table}: ${error.message}. Nothing was archived.`);
     moved[table] = (data || []).length;
     if (table === 'time_entries') minutes += (data || []).reduce((a, r) => a + (Number(r.total_minutes) || 0), 0);
@@ -75,7 +78,7 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
   const deadEvents = [dead.calendar_event_id, dead.scheduled_event_id, dead.tentative_event_id].filter(Boolean);
   if (deadEvents.length) {
     const { data, error } = await supabase.from('time_entries')
-      .update({ job_id: sid }).is('job_id', null).in('calendar_event_id', deadEvents).select('id, total_minutes');
+      .update({ job_id: sid, merged_from_job_id: dead.id }).is('job_id', null).in('calendar_event_id', deadEvents).select('id, total_minutes');
     if (error) throw new Error(`Merge stopped — could not move unlinked visits: ${error.message}. Nothing was archived.`);
     moved.time_entries += (data || []).length;
     minutes += (data || []).reduce((a, r) => a + (Number(r.total_minutes) || 0), 0);

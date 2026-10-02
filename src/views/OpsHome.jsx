@@ -79,6 +79,7 @@ export default function OpsHome({
   const [board, setBoard] = useState(null);
   // Jobs marked scheduled whose day came and went with nobody dispositioning them.
   const [stranded, setStranded] = useState([]);
+  const [orphanJobs, setOrphanJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
   // ── Weekly utilization summary ─────────────────────────────────────────────
@@ -86,6 +87,7 @@ export default function OpsHome({
   // Shows on the operator home as a quick % of target hours logged this week;
   // tapping navigates to /calendar?tab=utilization (the existing Utilization tab).
   const [weekUtil, setWeekUtil] = useState(null); // null=loading, { pct, totalH }
+  const [orphanPick, setOrphanPick] = useState(null); // job awaiting tech selection
 
   useEffect(() => {
     let dead = false;
@@ -210,6 +212,14 @@ export default function OpsHome({
             : null,
         }))
         .sort((a, b) => (b.days ?? 999) - (a.days ?? 999)));
+
+      // Jobs with no notes at all — active work nobody has documented.
+      const notedJobIds = new Set((notes || []).filter(n => n.job_id).map(n => n.job_id));
+      setOrphanJobs((jobs || [])
+        .filter(j => ['scheduled', 'in_progress', 'return_pending', 'ready_to_schedule'].includes(j.status))
+        .filter(j => !notedJobIds.has(j.id))
+        .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')))
+        .slice(0, 30));
 
       const count = (...st) => (jobs || []).filter(j => st.includes(j.status)).length;
       // `neu` and `oldest` feed the roll-up tile that replaced the old red
@@ -439,6 +449,13 @@ export default function OpsHome({
                 sub: tileCounts.tasks == null ? 'Checking…'
                    : tileCounts.tasks ? `${tileCounts.tasks} open` : 'Nothing open',
                 sheet:'tasks' },
+              ...(isOperator ? [{
+                key:'orphans', icon:'📭', label:'Jobs without notes',
+                sub: loading ? 'Checking…'
+                   : orphanJobs.length ? `${orphanJobs.length} undocumented` : 'All documented',
+                hot: orphanJobs.length > 0,
+                sheet:'orphans',
+              }] : []),
             ]),
             { path:'/calendar',  icon:'📅', label:'Calendar', sub:"Who's booked, and how full" },
             { path:'/customers', icon:'🏠', label:'Clients',  sub:'History and open work' },

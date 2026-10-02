@@ -79,7 +79,6 @@ export default function OpsHome({
   const [board, setBoard] = useState(null);
   // Jobs marked scheduled whose day came and went with nobody dispositioning them.
   const [stranded, setStranded] = useState([]);
-  const [orphanJobs, setOrphanJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showNewJob, setShowNewJob] = useState(false);
   // ── Weekly utilization summary ─────────────────────────────────────────────
@@ -87,7 +86,6 @@ export default function OpsHome({
   // Shows on the operator home as a quick % of target hours logged this week;
   // tapping navigates to /calendar?tab=utilization (the existing Utilization tab).
   const [weekUtil, setWeekUtil] = useState(null); // null=loading, { pct, totalH }
-  const [orphanPick, setOrphanPick] = useState(null); // job awaiting tech selection
 
   useEffect(() => {
     let dead = false;
@@ -212,14 +210,6 @@ export default function OpsHome({
             : null,
         }))
         .sort((a, b) => (b.days ?? 999) - (a.days ?? 999)));
-
-      // Jobs with no notes at all — active work nobody has documented.
-      const notedJobIds = new Set((notes || []).filter(n => n.job_id).map(n => n.job_id));
-      setOrphanJobs((jobs || [])
-        .filter(j => ['scheduled', 'in_progress', 'return_pending', 'ready_to_schedule'].includes(j.status))
-        .filter(j => !notedJobIds.has(j.id))
-        .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')))
-        .slice(0, 30));
 
       const count = (...st) => (jobs || []).filter(j => st.includes(j.status)).length;
       // `neu` and `oldest` feed the roll-up tile that replaced the old red
@@ -427,73 +417,6 @@ export default function OpsHome({
                   onNavigate={(to) => { setSheet(null); onNavigate?.(to); }} embedded />
               )}
 
-              {sheet === 'orphans' && (
-                orphanPick ? (
-                  <div>
-                    <button onClick={() => setOrphanPick(null)}
-                      style={{ background:'transparent', border:`1px solid ${C.line2}`, borderRadius:9,
-                               color:C.muted, fontSize:13, fontWeight:800, padding:'7px 13px',
-                               cursor:'pointer', fontFamily:'inherit', marginBottom:14 }}>
-                      ← Back
-                    </button>
-                    <div style={{ fontSize:16, fontWeight:800, color:C.text, marginBottom:4 }}>
-                      {orphanPick.customer_name || 'Unnamed'}
-                    </div>
-                    {orphanPick.scheduled_date && (
-                      <div style={{ fontSize:12, color:C.muted, marginBottom:14 }}>
-                        Scheduled: {new Date(orphanPick.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}
-                      </div>
-                    )}
-                    <div style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase',
-                                  letterSpacing:0.6, marginBottom:10 }}>Who did this work?</div>
-                    {[
-                      { name:'Austin', email:'austin@drhsecurityservices.com', color:'#3b82f6' },
-                      { name:'Trevor', email:'trevor@drhsecurityservices.com', color:'#8E24AA' },
-                      { name:'JR',     email:'jr@drhsecurityservices.com',     color:'#22c55e' },
-                    ].map(t => (
-                      <button key={t.email}
-                        onClick={() => {
-                          const cal = orphanPick.scheduled_calendar_id || orphanPick.calendar_id;
-                          const ev  = orphanPick.scheduled_event_id    || orphanPick.calendar_event_id;
-                          if (!cal || !ev) {
-                            alert('This job has no calendar event linked — open it on the board to add one first.');
-                            return;
-                          }
-                          setSheet(null);
-                          window.location.assign(`/?cal=${encodeURIComponent(cal)}&job=${encodeURIComponent(ev)}`);
-                        }}
-                        style={{ width:'100%', padding:'14px 16px', marginBottom:8, borderRadius:12,
-                                 background:'transparent', border:`2px solid ${t.color}44`,
-                                 color:t.color, fontSize:16, fontWeight:800, cursor:'pointer',
-                                 fontFamily:'inherit', textAlign:'left', display:'flex', alignItems:'center', gap:10 }}>
-                        <span style={{ width:10, height:10, borderRadius:'50%', background:t.color, flexShrink:0 }} />
-                        {t.name}
-                      </button>
-                    ))}
-                  </div>
-                ) : orphanJobs.length === 0 ? (
-                  <div style={{ textAlign:'center', color:C.muted, fontSize:13.5, padding:'26px 10px', lineHeight:1.5 }}>
-                    All active jobs have at least one note.
-                  </div>
-                ) : (
-                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                    {orphanJobs.map(j => (
-                      <button key={j.id}
-                        onClick={() => setOrphanPick(j)}
-                        style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:12,
-                                 padding:'13px 14px', cursor:'pointer', textAlign:'left',
-                                 fontFamily:'inherit', color:C.text }}>
-                        <div style={{ fontSize:15, fontWeight:800 }}>{j.customer_name || 'Unnamed'}</div>
-                        <div style={{ fontSize:12, color:C.muted, marginTop:3, display:'flex', gap:10 }}>
-                          <span>{j.status?.replace(/_/g, ' ')}</span>
-                          {j.tech_name && <span>· {j.tech_name}</span>}
-                          {j.scheduled_date && <span>· {new Date(j.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' })}</span>}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )
-              )}
             </div>
           </div>
         )}
@@ -516,13 +439,6 @@ export default function OpsHome({
                 sub: tileCounts.tasks == null ? 'Checking…'
                    : tileCounts.tasks ? `${tileCounts.tasks} open` : 'Nothing open',
                 sheet:'tasks' },
-              ...(isOperator ? [{
-                key:'orphans', icon:'📭', label:'Jobs without notes',
-                sub: loading ? 'Checking…'
-                   : orphanJobs.length ? `${orphanJobs.length} undocumented` : 'All documented',
-                hot: orphanJobs.length > 0,
-                sheet:'orphans',
-              }] : []),
             ]),
             { path:'/calendar',  icon:'📅', label:'Calendar', sub:"Who's booked, and how full" },
             { path:'/customers', icon:'🏠', label:'Clients',  sub:'History and open work' },

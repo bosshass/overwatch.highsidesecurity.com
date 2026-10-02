@@ -47,7 +47,7 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
   for (const table of CHILD_TABLES) {
     const { data, error } = await supabase.from(table)
       .update({ job_id: sid }).eq('job_id', dead.id).select(table === 'time_entries' ? 'id, total_minutes' : 'id');
-    if (error) throw new Error(`Merge stopped — could not move ${table}: ${error.message}. Nothing was marked dead.`);
+    if (error) throw new Error(`Merge stopped — could not move ${table}: ${error.message}. Nothing was archived.`);
     moved[table] = (data || []).length;
     if (table === 'time_entries') minutes += (data || []).reduce((a, r) => a + (Number(r.total_minutes) || 0), 0);
   }
@@ -58,7 +58,7 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
   moved.job_assignments = 0;
   {
     const { data: asg, error } = await supabase.from('job_assignments').select('*').eq('job_id', dead.id);
-    if (error) throw new Error(`Merge stopped — could not read assignments: ${error.message}. Nothing was marked dead.`);
+    if (error) throw new Error(`Merge stopped — could not read assignments: ${error.message}. Nothing was archived.`);
     for (const a of asg || []) {
       const { error: mErr } = await supabase.from('job_assignments').update({ job_id: sid }).eq('id', a.id);
       if (!mErr) { moved.job_assignments++; continue; }
@@ -76,7 +76,7 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
   if (deadEvents.length) {
     const { data, error } = await supabase.from('time_entries')
       .update({ job_id: sid }).is('job_id', null).in('calendar_event_id', deadEvents).select('id, total_minutes');
-    if (error) throw new Error(`Merge stopped — could not move unlinked visits: ${error.message}. Nothing was marked dead.`);
+    if (error) throw new Error(`Merge stopped — could not move unlinked visits: ${error.message}. Nothing was archived.`);
     moved.time_entries += (data || []).length;
     minutes += (data || []).reduce((a, r) => a + (Number(r.total_minutes) || 0), 0);
   }
@@ -121,7 +121,7 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
       + `${moved.return_cards} return card(s), ${moved.messages} text(s)`,
   });
   const { error: hErr } = await supabase.from('job_history').insert(rows);
-  if (hErr) throw new Error(`Merge stopped — could not carry history: ${hErr.message}. Hours/tasks already moved; nothing was marked dead.`);
+  if (hErr) throw new Error(`Merge stopped — could not carry history: ${hErr.message}. Hours/tasks already moved; nothing was archived.`);
 
   if (Object.keys(patch).length) {
     patch.updated_by = by;
@@ -142,9 +142,12 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
     } catch (e) { console.warn('merge: calendar move failed', e); }
   }
 
-  // 5) Only now is the dead card marked dead, pointing at the survivor.
+  // 5) Only now is the merged card put away — ARCHIVED, not dead. It is
+  //    still the record of that specific visit and stays on the customer's
+  //    history; it just leaves the board. Its hours/tasks now live on the
+  //    survivor, so nothing on it lands in Billing's "worked, then killed".
   const { error } = await supabase.from('jobs').update({
-    status: 'dead',
+    status: 'archived',
     action_note: `Merged into job ${sid}`,
     updated_by: by,
     updated_at: new Date().toISOString(),
@@ -152,7 +155,7 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
   if (error) throw error;
   try {
     await supabase.from('job_history').insert([{
-      job_id: dead.id, from_status: dead.status, to_status: 'dead', changed_by: by,
+      job_id: dead.id, from_status: dead.status, to_status: 'archived', changed_by: by,
       notes: `🔀 Merged into: ${survivor.customer_name || sid}`,
     }]);
   } catch (e) { console.warn('merge: dead-job event log failed', e); }

@@ -27,6 +27,7 @@ test('blanks are filled, identical text not duplicated', () => {
 test('merge chains are followed only from dead cards', () => {
   const id = '1f68dc01-14c7-4268-b981-cd9b502b1467';
   assert.equal(mergedIntoId({ status: 'dead', action_note: `Merged into job ${id}` }), id);
+  assert.equal(mergedIntoId({ status: 'archived', action_note: `Merged into job ${id}` }), id, 'merged cards are archived now');
   assert.equal(mergedIntoId({ status: 'scheduled', action_note: `Merged into job ${id}` }), null);
 });
 

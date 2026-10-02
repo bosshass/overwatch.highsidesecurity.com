@@ -93,7 +93,8 @@ export function buildSurvivorPatch(dead, survivor) {
 export const MERGED_INTO_RE = /Merged into job ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 
 export function mergedIntoId(job) {
-  if (!job || job.status !== 'dead') return null;
+  // Older merges set 'dead'; merges now set 'archived'. Both point onward.
+  if (!job || !['dead', 'archived'].includes(job.status)) return null;
   const m = MERGED_INTO_RE.exec(job.action_note || '');
   return m ? m[1] : null;
 }

@@ -24,7 +24,7 @@ import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIO
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
-import { mergeJobs } from '../services/mergeJobs.js';
+import { MergeTool } from './MergeTool.jsx';
 import MoveStatus from './MoveStatus.jsx';
 import FieldVisits from './FieldVisits.jsx';
 
@@ -87,10 +87,7 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
 
-  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [potentialDuplicates, setPotentialDuplicates] = useState([]);
-  const [selectedMergeTarget, setSelectedMergeTarget] = useState(null);
-  const [isMerging, setIsMerging] = useState(false);
 
   const [showPartsForm, setShowPartsForm] = useState(false);
   const [partsNeeded, setPartsNeeded] = useState('');
@@ -176,7 +173,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       const matches = merged.filter(j => (seen.has(j.id) ? false : (seen.add(j.id), true)));
       matches.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setPotentialDuplicates(matches);
-      if (!auto) setShowDuplicateModal(true);
     } catch (e) {
       console.error('Duplicate search error:', e);
       if (!auto) alert('Error searching for duplicates: ' + e.message);
@@ -187,25 +183,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
   // to remember to tap "Check duplicates." Runs once per job id loaded, not
   // on every subsequent update (notes, status changes) to the same job.
   useEffect(() => { if (job) findPotentialDuplicates(true); }, [job?.id, findPotentialDuplicates]);
-
-  const handleMerge = async () => {
-    if (!selectedMergeTarget || isMerging) return;
-    setIsMerging(true);
-    try {
-      // Was: one "🔗 MERGED FROM JOB" summary note + archive — the card's
-      // notes, hours and tasks stayed behind on an archived card. Now the
-      // same full union merge the board uses (services/mergeJobs.js).
-      await mergeJobs({ deadJobId: job.id, survivorId: selectedMergeTarget, by: userEmail || 'job-detail' });
-      setShowDuplicateModal(false);
-      onUpdate?.();
-      onClose();
-    } catch (e) {
-      console.error('Merge error:', e);
-      alert('Error merging jobs: ' + e.message);
-    } finally {
-      setIsMerging(false);
-    }
-  };
 
   const handleNeedsParts = async () => {
     if (!partsNeeded.trim()) return;
@@ -650,60 +627,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     );
   };
 
-  const renderDuplicateModal = () => {
-    if (!showDuplicateModal) return null;
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <div style={{ background: '#1e293b', borderRadius: '16px', width: '100%', maxWidth: '400px', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ color: '#e2e8f0', fontWeight: '700', fontSize: '16px' }}>🔗 Merge Duplicate</div>
-              <div style={{ color: '#cbd5e1', fontSize: '12px' }}>Select job to merge this into</div>
-            </div>
-            <button onClick={() => setShowDuplicateModal(false)} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '24px', cursor: 'pointer' }}>×</button>
-          </div>
-          <div style={{ padding: '12px 16px', background: '#0f172a', borderBottom: '1px solid #334155' }}>
-            <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>THIS JOB (will be archived):</div>
-            <div style={{ color: '#e2e8f0', fontWeight: '600' }}>{job.customer_name}</div>
-            <div style={{ color: '#94a3b8', fontSize: '12px' }}>{job.issue || 'No description'}</div>
-          </div>
-          <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-            {potentialDuplicates.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#cbd5e1', padding: '20px' }}>No potential duplicates found.</div>
-            ) : (
-              <>
-                <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>Found {potentialDuplicates.length} job(s):</div>
-                {potentialDuplicates.map(dupe => (
-                  <div key={dupe.id} onClick={() => setSelectedMergeTarget(dupe.id)}
-                    style={{ background: selectedMergeTarget === dupe.id ? '#22c55e20' : '#0f172a', border: selectedMergeTarget === dupe.id ? '2px solid #22c55e' : '1px solid #334155', borderRadius: '10px', padding: '12px', marginBottom: '8px', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ color: '#e2e8f0', fontWeight: '600', fontSize: '14px' }}>{dupe.customer_name}</div>
-                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>{dupe.issue || 'No description'}</div>
-                      </div>
-                      <span style={{ background: STATUS_INFO[dupe.status]?.color || '#64748b', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '600' }}>
-                        {STATUS_INFO[dupe.status]?.label || dupe.status}
-                      </span>
-                    </div>
-                    <div style={{ color: '#cbd5e1', fontSize: '11px', marginTop: '6px' }}>#{dupe.job_number || dupe.id.slice(0,8)} · {new Date(dupe.created_at).toLocaleDateString()}</div>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-          <div style={{ padding: '16px', borderTop: '1px solid #334155', display: 'flex', gap: '12px' }}>
-            <button onClick={() => setShowDuplicateModal(false)}
-              style={{ flex: 1, padding: '12px', background: '#334155', color: '#e2e8f0', border: 'none', borderRadius: '10px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
-            <button onClick={handleMerge} disabled={!selectedMergeTarget || isMerging}
-              style={{ flex: 1, padding: '12px', background: selectedMergeTarget ? '#22c55e' : '#334155', color: selectedMergeTarget ? '#fff' : '#64748b', border: 'none', borderRadius: '10px', fontSize: '14px', fontWeight: '600', cursor: selectedMergeTarget ? 'pointer' : 'default' }}>
-              {isMerging ? 'Merging...' : 'Merge & Archive'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const renderChecklistWarning = () => {
     if (!showChecklistWarning) return null;
     const checkState = getChecklistState(job, assignments, manualChecks);
@@ -762,7 +685,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
       )}
       {renderChecklistWarning()}
       {renderPartsModal()}
-      {renderDuplicateModal()}
 
       {/* Billing Modal — $ amount + move to completed */}
       {showBillingModal && (
@@ -861,17 +783,23 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
               board" and "scheduled in the future" since both are just open
               rows in the same jobs table. */}
           {potentialDuplicates.length > 0 && (
-            <button onClick={() => setShowDuplicateModal(true)}
-              style={{ marginTop: 12, width: '100%', textAlign: 'left', background: '#7c2d1230', border: '2px solid #f97316', borderRadius: 12, padding: '12px 14px', cursor: 'pointer' }}>
+            <div style={{ marginTop: 12, background: '#7c2d1230', border: '2px solid #f97316', borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ color: '#fdba74', fontWeight: 800, fontSize: 14 }}>
                 ⚠️ Possible duplicate — {potentialDuplicates.length} similar job{potentialDuplicates.length > 1 ? 's' : ''} found
               </div>
-              <div style={{ color: '#fed7aa', fontSize: 12, marginTop: 3 }}>
+              <div style={{ color: '#fed7aa', fontSize: 12, marginTop: 3, marginBottom: 8 }}>
                 {potentialDuplicates.slice(0, 3).map(d => `${d.customer_name} (${STATUS_INFO[d.status]?.label || d.status})`).join(' · ')}
-                {potentialDuplicates.length > 3 ? ` +${potentialDuplicates.length - 3} more` : ''} — tap to review
+                {potentialDuplicates.length > 3 ? ` +${potentialDuplicates.length - 3} more` : ''}
               </div>
-            </button>
+            </div>
           )}
+          {/* THE merge tool — same one as the board, /j/ links and Customer
+              Audit. This screen used to have its own "Merge & Archive" modal
+              that condensed the card into one note; that is gone. */}
+          <div style={{ marginTop: 12 }}>
+            <MergeTool job={job} userEmail={userEmail}
+              onMerge={() => { onUpdate?.(); onClose(); }} />
+          </div>
 
           {/* Badges */}
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '12px', flexWrap: 'wrap' }}>
@@ -1285,12 +1213,6 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
         <NotesPanel jobId={job.id} userEmail={userEmail} job={job} accessToken={accessToken} readOnly />
 
         <FieldVisits job={job} />
-
-        {/* Duplicate merge */}
-        <button onClick={() => findPotentialDuplicates(false)}
-          style={{ background: '#6366f115', color: '#6366f1', border: '1px solid #6366f140', borderRadius: '10px', padding: '12px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', width: '100%', textAlign: 'center', marginBottom: '12px' }}>
-          🔗 Mark as Duplicate / Merge
-        </button>
 
         {/* Status picker */}
         {renderAdminControls()}

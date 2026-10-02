@@ -20,7 +20,7 @@ import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../con
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
-import { mergeJobs } from '../services/mergeJobs.js';
+import { MergeTool } from '../components/MergeTool.jsx';
 import { unwrapCarriedNote } from '../utils/mergeUnion.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
@@ -303,112 +303,7 @@ function UUIDLinker({ job, onLinked }) {
   );
 }
 
-// ── Merge/Duplicate finder ────────────────────────────────────────────────────
-// Exported: merge must exist on EVERY ticket surface. When it lived only in
-// the board's drawer, opening the duplicate from My Tasks or a /j/ link meant
-// "no longer can merge" — the tool hadn't gone away, it just wasn't invited.
-// allJobs is optional now; without it the tool loads its own candidates.
-export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(job.customer_name || '');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-  const [loaded, setLoaded] = useState(null);
-  const [mergePending, setMergePending] = useState(null); // survivorId awaiting confirm
-
-  useEffect(() => {
-    if (allJobs || !open || loaded) return;
-    supabase.from('jobs')
-      .select('id, customer_name, status, issue, customer_phone, customer_address, cms_account_id, calendar_event_id')
-      .not('status', 'in', '(dead,archived)')
-      .order('updated_at', { ascending: false }).limit(400)
-      .then(({ data }) => setLoaded(data || []));
-  }, [allJobs, open, loaded]);
-
-  const pool = allJobs || loaded || [];
-
-  // Find jobs with similar customer name, excluding self
-  const candidates = pool.filter(j =>
-    j.id !== job.id &&
-    j.status !== 'dead' &&
-    j.status !== 'archived' &&
-    j.customer_name &&
-    (j.customer_name.toLowerCase().includes(query.toLowerCase()) ||
-     query.toLowerCase().includes(j.customer_name.toLowerCase().split(' ')[0]))
-  ).slice(0, 10);
-
-  const merge = async (survivorId, confirmed = false) => {
-    if (!confirmed) { setMergePending(survivorId); return; }
-    setSaving(true);
-    setErr('');
-    try {
-      // One merge for every surface — see services/mergeJobs.js. It moves the
-      // hours, tasks, return cards and texts, carries every note with its
-      // original date, and only kills this card once all of that landed.
-      const res = await mergeJobs({ deadJobId: job.id, survivorId, by: userEmail || 'board', accessToken });
-      onMerge(job.id, res.survivorId);
-      setOpen(false);
-    } catch(e) { setErr(e.message); }
-    setSaving(false);
-  };
-
-  if (!open) return (
-    <button onClick={() => setOpen(true)}
-      style={{ width:'100%', padding:'7px 12px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#cbd5e1', fontSize:11, cursor:'pointer', textAlign:'left', marginBottom:8 }}>
-      🔁 mark as duplicate / merge
-    </button>
-  );
-
-  return (
-    <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:12, border:'1px solid #334155' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-        <span style={{ fontSize:11, color:'#94a3b8', fontWeight:600, textTransform:'uppercase' }}>find duplicate to merge into</span>
-        <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:14 }}>✕</button>
-      </div>
-      <input value={query} onChange={e => setQuery(e.target.value)} placeholder="search by customer name…"
-        style={{ width:'100%', padding:'8px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box', marginBottom:8 }} />
-      {candidates.length === 0
-        ? <div style={{ color:'#94a3b8', fontSize:12, padding:'8px 0' }}>no matches found</div>
-        : candidates.map(c => {
-          const si = STATUS_INFO[c.status] || {};
-          return (
-            <button key={c.id} onClick={() => merge(c.id)} disabled={saving}
-              style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', background:'#1e293b', border:'0.5px solid #334155', borderRadius:6, color:'#fff', fontSize:12, cursor:'pointer', marginBottom:4 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <span style={{ fontWeight:600 }}>{c.customer_name}</span>
-                <span style={{ fontSize:11, color:si.color||'#64748b' }}>{si.label||c.status}</span>
-              </div>
-              <div style={{ fontSize:11, color:'#cbd5e1', marginTop:2 }}>
-                {c.issue?.slice(0,60) || 'no issue'} · {fmtDate(c.created_at)}
-              </div>
-            </button>
-          );
-        })
-      }
-      {mergePending && (() => {
-        const survivor = pool.find(j => j.id === mergePending);
-        return (
-          <div style={{ background:'#1e293b', border:'1px solid #f59e0b', borderRadius:8, padding:12, marginTop:8 }}>
-            <div style={{ fontSize:12, color:'#fde68a', marginBottom:10, lineHeight:1.5 }}>
-              Merge into <b>{survivor?.customer_name || mergePending}</b>? Everything on this card comes along — every note with its original date, all hours, tasks, return cards and texts. Nothing is condensed. This card is then marked dead.
-            </div>
-            <div style={{ display:'flex', gap:8 }}>
-              <button onClick={() => { setMergePending(null); merge(mergePending, true); }}
-                style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'6px 14px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
-                Yes, merge
-              </button>
-              <button onClick={() => setMergePending(null)}
-                style={{ background:'transparent', border:'1px solid #334155', borderRadius:6, color:'#94a3b8', padding:'6px 12px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-      {err && <div style={{ color:'#ef4444', fontSize:11, marginTop:6 }}>{err}</div>}
-    </div>
-  );
-}
+// MergeTool lives in components/MergeTool.jsx — one merge for every surface.
 
 // ── Scheduler modal: VisualSchedulerModal (SchedulerModal.jsx deleted 9.9.25) ──
 
@@ -519,21 +414,14 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
       ? '#f59e0b'
       : '#334155';
 
-  // Snippet priority:
-  // 1. return_pending reason (what the tech is coming back to do)
-  // 2. Most recent tech note from time_entries — what the tech actually found
-  // 3. jobs.issue for scheduled/ready_to_schedule — "what are we doing this visit"
-  // 4. last_note_text (job_history fallback for cards with no tech visits yet)
-  // 5. issue (original fallback for brand-new cards with no history at all)
+  // Snippet: THE NEWEST NOTE, whatever the card's status — typed note, tech
+  // field note, return reason, or a note carried in from a merged card, all
+  // compared by when they were written. Only a card with no notes at all
+  // falls back to the scope (issue).
   const snippet = (() => {
+    if (job._latestNote) return { text: job._latestNote.text, color: job._latestNote.color };
     if (job.status === 'return_pending' && job.return_reason)
       return { text: job.return_reason, color: '#fed7aa' };
-    if (job._lastTechNote)
-      return { text: job._lastTechNote, color: '#94a3b8' };
-    if (job.issue && ['scheduled', 'ready_to_schedule'].includes(job.status))
-      return { text: job.issue, color: '#cbd5e1' };
-    if (job.last_note_text)
-      return { text: job.last_note_text, color: '#94a3b8' };
     if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
       return { text: job.issue, color: '#cbd5e1' };
     return null;
@@ -862,6 +750,10 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
       // last_note_text = text of the last human-authored note — for the card snippet.
       let lastNoteAt = {};
       let lastNoteText = {};
+      // EVERY note source, with the time it was written. The card shows the
+      // newest one — whatever the card's status. Billing, return, estimate,
+      // can't-do-it: the newest note wins, period.
+      const noteCandidates = [];
       if (ids.length) {
         const { data: history } = await supabase
           .from('job_history')
@@ -875,7 +767,10 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
           // Staleness: any real activity counts.
           if (!lastNoteAt[n.job_id] && (saidSomething || movedIt)) lastNoteAt[n.job_id] = n.changed_at;
           // Snippet: only human-authored text, no auto-generated entries.
-          if (!lastNoteText[n.job_id] && saidSomething && !AUTO_NOTE_RE.test(text)) lastNoteText[n.job_id] = text;
+          if (!lastNoteText[n.job_id] && saidSomething && !AUTO_NOTE_RE.test(text)) {
+            lastNoteText[n.job_id] = text;
+            noteCandidates.push({ job_id: n.job_id, text, at: n.changed_at, color: '#94a3b8' });
+          }
         });
       }
       // WHO IS ALREADY ON A PIECE OF THIS. A card can sit in New forever with a
@@ -911,43 +806,63 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
             .in('job_id', ids)
             .not('notes', 'is', null)
             .neq('notes', '')
-            .order('event_start', { ascending: false });
+            .order('created_at', { ascending: false });
           (visits || []).forEach(v => {
-            if (!lastTechNotes[v.job_id]) lastTechNotes[v.job_id] = v.notes;
+            if (!lastTechNotes[v.job_id]) {
+              lastTechNotes[v.job_id] = v.notes;
+              noteCandidates.push({ job_id: v.job_id, text: v.notes, at: v.created_at || v.event_start, color: '#94a3b8' });
+            }
           });
         }
       }
 
-      // RETURN TRIP BRIEF. return_pending cards need to surface what the tech
-      // is coming back TO DO, not the original scope. Batch-fetch the latest
-      // return_card for each return_pending job via original_event_id so the
-      // board card shows the same "🔄 what are we doing this trip?" text that
-      // TicketSheet shows in its return-trip panel.
+      // RETURN CARDS. Read for EVERY card now (by job_id, or by any of its
+      // event ids): a return reason is a note like any other and competes for
+      // "newest note" by its date. return_reason itself is still only set on
+      // return_pending cards, for the return-trip brief.
       const returnReasons = {};
       {
-        const returnJobs = (data || []).filter(j => j.status === 'return_pending');
-        if (returnJobs.length) {
-          // Build event_id → job.id map. Each job can carry up to three event IDs.
-          const eventToJob = {};
-          returnJobs.forEach(j => {
-            [j.scheduled_event_id, j.calendar_event_id, j.tentative_event_id]
-              .filter(Boolean)
-              .forEach(eid => { if (!eventToJob[eid]) eventToJob[eid] = j.id; });
+        const all = data || [];
+        // Build event_id → job.id map. Each job can carry up to three event IDs.
+        const eventToJob = {};
+        all.forEach(j => {
+          [j.scheduled_event_id, j.calendar_event_id, j.tentative_event_id]
+            .filter(Boolean)
+            .forEach(eid => { if (!eventToJob[eid]) eventToJob[eid] = j.id; });
+        });
+        const eventIds = Object.keys(eventToJob);
+        const jobIds = all.map(j => j.id);
+        // Two reads (by job and by event, events in chunks) — one OR with
+        // 500 job ids plus ~1000 event ids would blow past the URL limit.
+        const rcs = [];
+        const RC_FIELDS = 'job_id, original_event_id, reason, created_at';
+        if (jobIds.length) {
+          const { data: r1 } = await supabase.from('return_cards').select(RC_FIELDS).in('job_id', jobIds);
+          rcs.push(...(r1 || []));
+        }
+        for (let i = 0; i < eventIds.length; i += 200) {
+          const { data: r2 } = await supabase.from('return_cards').select(RC_FIELDS).in('original_event_id', eventIds.slice(i, i + 200));
+          rcs.push(...(r2 || []));
+        }
+        rcs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        {
+          const seenRc = new Set();
+          rcs.forEach(rc => {
+            const jobId = (rc.job_id && jobIds.includes(rc.job_id)) ? rc.job_id : eventToJob[rc.original_event_id];
+            if (!jobId || !rc.reason || seenRc.has(jobId)) return;
+            seenRc.add(jobId);
+            // return_reason keeps its old meaning (the brief on return cards)…
+            if (all.find(j => j.id === jobId)?.status === 'return_pending') returnReasons[jobId] = rc.reason;
+            // …and on every card it competes for "newest note" by its date.
+            noteCandidates.push({ job_id: jobId, text: `🔄 ${rc.reason}`, at: rc.created_at, color: '#fed7aa' });
           });
-          const eventIds = Object.keys(eventToJob);
-          if (eventIds.length) {
-            const { data: rcs } = await supabase
-              .from('return_cards')
-              .select('original_event_id, reason')
-              .in('original_event_id', eventIds)
-              .order('created_at', { ascending: false });
-            (rcs || []).forEach(rc => {
-              const jobId = eventToJob[rc.original_event_id];
-              if (jobId && !returnReasons[jobId] && rc.reason) returnReasons[jobId] = rc.reason;
-            });
-          }
         }
       }
+      const latestNote = {};
+      noteCandidates.forEach(c => {
+        const cur = latestNote[c.job_id];
+        if (!cur || new Date(c.at || 0) > new Date(cur.at || 0)) latestNote[c.job_id] = c;
+      });
       const customerJobCount = {};
       (data || []).forEach(j => {
         if (j.customer_id) customerJobCount[j.customer_id] = (customerJobCount[j.customer_id] || 0) + 1;
@@ -957,6 +872,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         last_note_at: lastNoteAt[j.id] || null,
         last_note_text: lastNoteText[j.id] || null,
         _lastTechNote: lastTechNotes[j.id] || null,
+        _latestNote: latestNote[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
         _taskCount: taskCounts[j.id] || 0,
         return_reason: returnReasons[j.id] || null,

@@ -307,6 +307,17 @@ export default function JobFinishSheet({
         ? `${DISPO_LABEL[disposition] || disposition}: ${assembled}`
         : `${disposition} disposition from Work Today`;
       await jobsApi.changeStatus(existing.id, target, userEmail, histNote);
+      // Manually-scheduled jobs arrive with customer_id null. If the tech
+      // picked a customer in the sheet, stamp it on the job now — without this
+      // the job stays orphaned in Billing even though the time entry has the
+      // right customer_id.
+      if (linkedCustomer?.id && linkedCustomer.id !== existing.customer_id) {
+        try {
+          await supabase.from('jobs')
+            .update({ customer_id: linkedCustomer.id, customer_name: linkedCustomer.name })
+            .eq('id', existing.id);
+        } catch (e) { console.warn('ensureJobForEvent: customer stamp failed', e); }
+      }
       return existing.id;
     }
     // LAST CHANCE before we manufacture a duplicate. An event that was moved
@@ -331,8 +342,12 @@ export default function JobFinishSheet({
         if (near && near[0]) {
           // Found it. Bind this event id on so the miss can't repeat, then
           // move it — do NOT create a second row.
-          await supabase.from('jobs')
-            .update({ calendar_event_id: event.id }).eq('id', near[0].id);
+          const nearUpdate = { calendar_event_id: event.id };
+          if (linkedCustomer?.id) {
+            nearUpdate.customer_id   = linkedCustomer.id;
+            nearUpdate.customer_name = linkedCustomer.name;
+          }
+          await supabase.from('jobs').update(nearUpdate).eq('id', near[0].id);
           const assembled2 = assembleNotes(disposition);
           const histNote = assembled2
             ? `${DISPO_LABEL[disposition] || disposition}: ${assembled2}`

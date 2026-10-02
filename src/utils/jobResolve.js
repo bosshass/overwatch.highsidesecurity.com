@@ -24,10 +24,46 @@
 // Import from here. Do not add a fourth subset.
 
 import { supabase } from '../services/supabase.js';
+import { mergedIntoId } from './mergeUnion.js';
 
 // Find the job an event belongs to, checking all three homes in priority
 // order. Returns { id, status, ... } or null.
-export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}) {
+// ── A MERGED-AWAY CARD IS NEVER THE ANSWER ─────────────────────────────
+// A merge leaves the old card (archived, or 'dead' for older merges) still
+// holding its calendar event ids — it is the record of that visit. But when a
+// tech closes out that event, or the scheduler links it, the hours and the
+// disposition belong on the card it was merged INTO. This lookup took the
+// first row it found, whatever its status, which is how JR's Oct 1 Sushi 1
+// entry landed on a card merged away a week earlier. So: prefer a live card
+// when several hold the event, and follow "Merged into job …" to the
+// surviving card.
+export async function resolveJobForEvent(eventId, opts = {}) {
+  const raw = await resolveRaw(eventId, opts);
+  if (!raw?.id) return raw;
+  try {
+    const { select = 'id, status' } = opts;
+    let cur = raw;
+    let meta = (await supabase.from('jobs').select('id, status, action_note').eq('id', raw.id).maybeSingle()).data;
+    for (let hops = 0; meta && hops < 10; hops++) {
+      const next = mergedIntoId(meta);
+      if (!next) break;
+      const [{ data: nextMeta }, { data: nextRow }] = await Promise.all([
+        supabase.from('jobs').select('id, status, action_note').eq('id', next).maybeSingle(),
+        supabase.from('jobs').select(select).eq('id', next).maybeSingle(),
+      ]);
+      if (!nextRow) break;
+      cur = nextRow; meta = nextMeta;
+    }
+    return cur;
+  } catch (e) {
+    console.warn('resolveJobForEvent: merge-chain follow failed', e);
+    return raw;
+  }
+}
+
+const isRetired = j => ['dead', 'archived'].includes(j?.status);
+
+async function resolveRaw(eventId, { select = 'id, status' } = {}) {
   if (!eventId) return null;
 
   // (1) and (2) — both live on jobs, so one round trip.
@@ -35,8 +71,8 @@ export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}
     const { data } = await supabase
       .from('jobs').select(select)
       .or(`calendar_event_id.eq.${eventId},scheduled_event_id.eq.${eventId},tentative_event_id.eq.${eventId}`)
-      .limit(1);
-    if (data && data[0]) return data[0];
+      .limit(5);
+    if (data && data[0]) return data.find(j => !isRetired(j)) || data[0];
   } catch (e) { console.warn('resolveJobForEvent: jobs lookup failed', e); }
 
   // (2b) — RECURRING INSTANCES. Google gives a single occurrence an id of
@@ -50,8 +86,8 @@ export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}
       const { data } = await supabase
         .from('jobs').select(select)
         .or(`calendar_event_id.eq.${base},scheduled_event_id.eq.${base},tentative_event_id.eq.${base}`)
-        .limit(1);
-      if (data && data[0]) return data[0];
+        .limit(5);
+      if (data && data[0]) return data.find(j => !isRetired(j)) || data[0];
     } catch (e) { console.warn('resolveJobForEvent: recurring-base lookup failed', e); }
   }
 
@@ -75,10 +111,12 @@ export async function resolveJobForEvent(eventId, { select = 'id, status' } = {}
 // shouldn't fire a query per row.
 export function buildEventIndex(jobs) {
   const byEvent = {};
+  // A live card wins an event over a merged-away / killed one.
+  const put = (id, j) => { if (id && (!byEvent[id] || isRetired(byEvent[id]))) byEvent[id] = j; };
   (jobs || []).forEach(j => {
-    if (j.calendar_event_id)   byEvent[j.calendar_event_id]   = j;
-    if (j.scheduled_event_id)  byEvent[j.scheduled_event_id]  = j;
-    if (j.tentative_event_id)  byEvent[j.tentative_event_id]  = j;
+    put(j.calendar_event_id, j);
+    put(j.scheduled_event_id, j);
+    put(j.tentative_event_id, j);
   });
   return {
     byId: Object.fromEntries((jobs || []).map(j => [j.id, j])),

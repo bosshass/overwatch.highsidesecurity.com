@@ -275,7 +275,10 @@ export default function Unbilled({ onBack, userEmail, accessToken = null }) {
       const jobById = {}, jobByEvent = {};
       (jobRows || []).forEach(j => {
         jobById[j.id] = j;
-        if (j.calendar_event_id) jobByEvent[j.calendar_event_id] = j;
+        // A live card wins an event over a merged-away / killed one.
+        if (j.calendar_event_id && (!jobByEvent[j.calendar_event_id]
+            || ['dead', 'archived'].includes(jobByEvent[j.calendar_event_id].status)))
+          jobByEvent[j.calendar_event_id] = j;
       });
       const jobFor = (e) => jobById[e.job_id] || jobByEvent[e.calendar_event_id] || null;
 

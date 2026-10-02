@@ -132,17 +132,27 @@ export async function mergeJobs({ deadJobId, survivorId, by = 'board', accessTok
     if (error) throw new Error(`Merge stopped — could not update the surviving card: ${error.message}`);
   }
 
-  // 4) Retire the dead card's calendar event — unless the survivor just
-  //    adopted that same event, in which case it is the live appointment.
+  // 4) THE CALENDAR IS LEFT ALONE unless that visit is already over.
+  //    Two techs on the same customer the same day are two real appointments;
+  //    merging their cards must not yank the second tech's event off their
+  //    calendar. A finished visit's event goes to Completed as before; a
+  //    future one stays exactly where it is (and still resolves to the
+  //    surviving card — see resolveJobForEvent). Never touched when the
+  //    survivor adopted that same event.
   const adopted = Object.values(patch).includes(dead.calendar_event_id);
   if (accessToken && dead.calendar_event_id && dead.calendar_id && !adopted
-      && dead.calendar_event_id !== survivor.calendar_event_id) {
+      && dead.calendar_event_id !== survivor.calendar_event_id
+      && dead.calendar_event_id !== survivor.scheduled_event_id) {
     try {
-      await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(dead.calendar_id)}/events/${encodeURIComponent(dead.calendar_event_id)}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
-        { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-    } catch (e) { console.warn('merge: calendar move failed', e); }
+      const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(dead.calendar_id)}/events/${encodeURIComponent(dead.calendar_event_id)}`;
+      const r = await fetch(base, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const ev = r.ok ? await r.json() : null;
+      const end = ev && new Date(ev.end?.dateTime || ev.end?.date || 0);
+      if (end && end.getTime() > 0 && end < new Date()) {
+        await fetch(`${base}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
+          { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      }
+    } catch (e) { console.warn('merge: calendar check/move failed', e); }
   }
 
   // 5) Only now is the merged card put away — ARCHIVED, not dead. It is

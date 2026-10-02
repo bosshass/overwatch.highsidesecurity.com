@@ -24,6 +24,7 @@ import { JOB_TYPE_INFO, PRIORITY_INFO, getJobAge, getAgeUrgency, VALID_TRANSITIO
 import { notifyJobComplete, notifyStatusChange } from '../services/pushNotifications.js';
 import { CALENDARS } from '../config/calendars.js';
 import NotesPanel from './NotesPanel.jsx';
+import { mergeJobs } from '../services/mergeJobs.js';
 import MoveStatus from './MoveStatus.jsx';
 import FieldVisits from './FieldVisits.jsx';
 
@@ -191,16 +192,10 @@ export default function JobDetail({ jobId, onClose, onUpdate, accessToken, userE
     if (!selectedMergeTarget || isMerging) return;
     setIsMerging(true);
     try {
-      const targetJob = potentialDuplicates.find(j => j.id === selectedMergeTarget);
-      const mergeNote = [
-        `🔗 MERGED FROM JOB #${job.job_number || job.id.slice(0,8)}`,
-        `Customer: ${job.customer_name}`,
-        `Issue: ${job.issue || 'N/A'}`,
-        `Merged on: ${new Date().toLocaleDateString()}`
-      ].join('\n');
-      await notesApi.addNote(selectedMergeTarget, mergeNote, userEmail);
-      await notesApi.addNote(job.id, `[MERGED INTO JOB #${targetJob?.job_number || selectedMergeTarget.slice(0,8)}]`, userEmail);
-      await jobsApi.changeStatus(job.id, JOB_STATUS.ARCHIVED, userEmail, `Merged into job #${targetJob?.job_number || selectedMergeTarget.slice(0,8)}`);
+      // Was: one "🔗 MERGED FROM JOB" summary note + archive — the card's
+      // notes, hours and tasks stayed behind on an archived card. Now the
+      // same full union merge the board uses (services/mergeJobs.js).
+      await mergeJobs({ deadJobId: job.id, survivorId: selectedMergeTarget, by: userEmail || 'job-detail' });
       setShowDuplicateModal(false);
       onUpdate?.();
       onClose();

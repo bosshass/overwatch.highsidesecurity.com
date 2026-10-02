@@ -20,6 +20,8 @@ import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../con
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
+import { mergeJobs } from '../services/mergeJobs.js';
+import { unwrapCarriedNote } from '../utils/mergeUnion.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
@@ -340,142 +342,11 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
     setSaving(true);
     setErr('');
     try {
-      const survivor = pool.find(j => j.id === survivorId) || {};
-      const by = userEmail || 'board';
-
-      // 1) Carry the dead job's notes onto the survivor with their ORIGINAL
-      //    timestamps intact. Going through notesApi.addNote() here would
-      //    stamp every single carried note with changed_at = now(), which is
-      //    the actual root cause of the merged event log looking scrambled:
-      //    months of the dead job's history all landing at the exact instant
-      //    the merge button was clicked, out of any real chronological
-      //    relationship to the survivor's own history. Inserting into
-      //    job_history directly lets each note keep the date it really
-      //    happened on.
-      try {
-        const deadNotes = await notesApi.getAllForJob(job.id);
-        const { data: survivorRow } = await supabase.from('jobs').select('status').eq('id', survivorId).single();
-        const survivorStatus = survivorRow?.status || null;
-
-        const carryRows = deadNotes
-          .filter(n => n.text?.trim())
-          .map(n => ({
-            job_id: survivorId,
-            from_status: survivorStatus,
-            to_status: survivorStatus,
-            changed_by: n.created_by || by,
-            notes: `↪ from merged job (${fmtDate(n.created_at)}): ${n.text}`,
-            changed_at: n.created_at, // preserve the real date — the actual fix
-          }));
-
-        //    getAllForJob only reads job_history.notes + completion_notes — for
-        //    a freshly-created job that's just the literal "Job created" string,
-        //    NOT the real intake details, which live in the issue field. So we
-        //    always surface the dead job's issue as its own note too, regardless
-        //    of whether the survivor already has its own issue text — otherwise
-        //    those details vanish with no trail at all.
-        if (job.issue?.trim()) {
-          carryRows.push({
-            job_id: survivorId,
-            from_status: survivorStatus,
-            to_status: survivorStatus,
-            changed_by: by,
-            notes: `↪ merged job details (originally logged ${fmtDate(job.created_at)}):\n${job.issue.trim()}`,
-            changed_at: job.created_at || new Date().toISOString(),
-          });
-        }
-
-        // One clear marker, stamped at the ACTUAL merge time (now), so it's
-        // obvious in the survivor's log exactly when a merge happened versus
-        // the backdated notes carried in above it.
-        carryRows.push({
-          job_id: survivorId,
-          from_status: survivorStatus,
-          to_status: survivorStatus,
-          changed_by: by,
-          notes: `🔀 Merged in duplicate: ${job.customer_name || job.id} — its history is carried in above with original dates`,
-        });
-
-        if (carryRows.length) {
-          await supabase.from('job_history').insert(carryRows);
-        }
-      } catch (e) { console.warn('merge: note carry failed', e); }
-
-      // 2) Fill survivor gaps — issue, contact info, CMS/access details, and
-      //    the calendar link. Issue only backfills if survivor's is empty
-      //    (step 1 above already preserved the dead job's issue as a note
-      //    either way, so nothing is lost if survivor's issue wins here).
-      const upd = {};
-      if (!survivor.issue && job.issue) upd.issue = job.issue;
-      if (!survivor.customer_phone && job.customer_phone) upd.customer_phone = job.customer_phone;
-      if (!survivor.customer_address && job.customer_address) upd.customer_address = job.customer_address;
-      if (!survivor.customer_email && job.customer_email) upd.customer_email = job.customer_email;
-      if (!survivor.cms_account_id && job.cms_account_id) upd.cms_account_id = job.cms_account_id;
-      if (!survivor.gate_code && job.gate_code) upd.gate_code = job.gate_code;
-      if (!survivor.panel_password && job.panel_password) upd.panel_password = job.panel_password;
-      if (!survivor.calendar_event_id && job.calendar_event_id) {
-        upd.calendar_event_id = job.calendar_event_id;
-        if (job.calendar_id) upd.calendar_id = job.calendar_id;
-      }
-      if (Object.keys(upd).length) {
-        upd.updated_by = by;
-        await supabase.from('jobs').update(upd).eq('id', survivorId);
-      }
-
-      // 3) Move the dead job's calendar event to the Completed calendar (best-effort)
-      if (accessToken && job.calendar_event_id && job.calendar_id) {
-        try {
-          await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
-            { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-        } catch (e) { console.warn('merge: calendar move failed', e); }
-      }
-
-      // 3b) THE TASKS COME TOO.
-      // The merge carried job_history, the issue, the phone, the calendar
-      // event — and left `notes.job_id` pointing at the card it was about to
-      // kill. So an OPEN task survived its parent and became invisible on the
-      // board, which is exactly the state Laird Heikens' return task was found
-      // in. A merge is "these are the same job"; its tasks are the same tasks.
-      try {
-        const { error: nErr } = await supabase.from('notes')
-          .update({ job_id: survivorId }).eq('job_id', job.id);
-        if (nErr) console.warn('merge: notes not moved', nErr.message);
-      } catch (e) { console.warn('merge: notes not moved', e?.message || e); }
-
-      // 3c) THE HOURS COME TOO.
-      // time_entries.job_id was never updated on merge, leaving the dead job's
-      // hours orphaned — invisible in billing and field visits for the survivor.
-      try {
-        const { error: teErr } = await supabase.from('time_entries')
-          .update({ job_id: survivorId }).eq('job_id', job.id);
-        if (teErr) console.warn('merge: time entries not moved', teErr.message);
-      } catch (e) { console.warn('merge: time entries not moved', e?.message || e); }
-
-      // 4) Mark this job dead, pointing at the survivor
-      const { error } = await supabase.from('jobs').update({
-        status: 'dead',
-        action_note: `Merged into job ${survivorId}`,
-        updated_by: by,
-        updated_at: new Date().toISOString(),
-      }).eq('id', job.id);
-      if (error) throw error;
-
-      // Log the merge-out on the dead job's OWN event log too — action_note
-      // above is a raw column, not part of job_history, so without this the
-      // dead job's own audit trail never shows it was merged anywhere.
-      try {
-        await supabase.from('job_history').insert([{
-          job_id: job.id,
-          from_status: job.status,
-          to_status: 'dead',
-          changed_by: by,
-          notes: `🔀 Merged into: ${survivor.customer_name || survivorId}`,
-        }]);
-      } catch (e) { console.warn('merge: dead-job event log failed', e); }
-
-      onMerge(job.id, survivorId);
+      // One merge for every surface — see services/mergeJobs.js. It moves the
+      // hours, tasks, return cards and texts, carries every note with its
+      // original date, and only kills this card once all of that landed.
+      const res = await mergeJobs({ deadJobId: job.id, survivorId, by: userEmail || 'board', accessToken });
+      onMerge(job.id, res.survivorId);
       setOpen(false);
     } catch(e) { setErr(e.message); }
     setSaving(false);
@@ -519,7 +390,7 @@ export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail
         return (
           <div style={{ background:'#1e293b', border:'1px solid #f59e0b', borderRadius:8, padding:12, marginTop:8 }}>
             <div style={{ fontSize:12, color:'#fde68a', marginBottom:10, lineHeight:1.5 }}>
-              Merge into <b>{survivor?.customer_name || mergePending}</b>? Notes, scope, contact info and CMS codes carry over. This job is marked dead.
+              Merge into <b>{survivor?.customer_name || mergePending}</b>? Everything on this card comes along — every note with its original date, all hours, tasks, return cards and texts. Nothing is condensed. This card is then marked dead.
             </div>
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={() => { setMergePending(null); merge(mergePending, true); }}
@@ -982,7 +853,10 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
 
       // Bookkeeping entries that add no value to the card snippet.
       // Keep this in sync with isBookkeeping() in NotesPanel.jsx.
-      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job|🔀 Merged (in duplicate|into)|Marked as duplicate|Assigned to |Assignment email sent|Unassigned\b|Status changed|Moved (to|from) |Reconciled —|📌 TENTATIVELY|Merged \d+ loose time|Cleared from Billing)/i;
+      // A note carried in from a merged card ("↪ from merged job (date): …")
+      // is a real note at its real date — unwrapped below so it can be the
+      // latest note. Only the merged issue-details row stays excluded.
+      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|📎 From merged card|Merged into job|🔀 Merged (in duplicate|into)|Marked as duplicate|Assigned to |Assignment email sent|Unassigned\b|Status changed|Moved (to|from) |Reconciled —|📌 TENTATIVELY|Merged \d+ loose time|Cleared from Billing)/i;
 
       // last_note_at = timestamp of the last real activity (status move or typed note) — for staleness.
       // last_note_text = text of the last human-authored note — for the card snippet.
@@ -995,7 +869,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
           .in('job_id', ids)
           .order('changed_at', { ascending: false });
         (history || []).forEach(n => {
-          const text = n.notes != null ? String(n.notes).trim() : '';
+          const text = n.notes != null ? unwrapCarriedNote(n.notes) : '';
           const saidSomething = text !== '';
           const movedIt = n.to_status && n.to_status !== n.from_status;
           // Staleness: any real activity counts.

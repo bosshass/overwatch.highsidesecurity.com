@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 // cannot actually be code-split is just a slower static one.
 import { TECH_CALENDAR_MAP } from '../config/calendars.js';
 import { STATUS_AUTO_ASSIGN } from '../utils/ownership.js';
+import { isNotReal } from '../config/archiveReasons.js';
 
 // Keys come exclusively from env vars — no hardcoded fallbacks.
 // Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel before deploying.
@@ -810,10 +811,13 @@ export const notesApi = {
       if (eventIds.length) or.push(`calendar_event_id.in.(${eventIds.join(',')})`);
       const { data: visits } = await supabase
         .from('time_entries')
-        .select('id, notes, event_start, created_at, tech_name, tech_email, disposition, total_minutes, archived')
+        .select('id, notes, event_start, created_at, tech_name, tech_email, disposition, total_minutes, archived, archive_reason')
         .or(or.join(','));
       (visits || []).forEach(v => {
-        if (!v.notes?.trim() || v.archived) return;
+        // Billing archiving a visit as warranty / rework / goodwill / sales
+        // call does not un-happen it — the tech's note still belongs on the
+        // card. Only not-real entries (test, duplicate, mistake) are hidden.
+        if (!v.notes?.trim() || (v.archived && isNotReal(v.archive_reason))) return;
         const hrs = v.total_minutes ? ` · ${(v.total_minutes / 60).toFixed(2)}h` : '';
         notes.push({
           id: `time-entry-${v.id}`,

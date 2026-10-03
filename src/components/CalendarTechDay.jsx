@@ -34,6 +34,15 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../services/supabase.js';
+import { isNotReal } from '../config/archiveReasons.js';
+
+// UTILIZATION COUNTS WORK THAT HAPPENED. This read .eq('archived', false),
+// which dropped every hour Billing archived — and Billing archives REAL work
+// too: warranty, rework, goodwill, sales calls. Those are hours a tech spent
+// on site; they just don't get invoiced. Sept 14–30 alone lost ~14.5h of
+// real time from utilization that way. Only not-real entries (test,
+// duplicate, data mistake) stay out — those never happened.
+const countsAsWork = t => !(t.archived && isNotReal(t.archive_reason));
 
 const CAP_KEY = 'calendar_capacity';
 const DEFAULT_CAP = 8;
@@ -251,12 +260,11 @@ export default function CalendarTechDay({
     (async () => {
       const { data, error } = await supabase
         .from('time_entries')
-        .select('calendar_event_id, total_minutes, billed, billable')
-        .in('calendar_event_id', dayEventIds.slice(0, 300))
-        .eq('archived', false);
+        .select('calendar_event_id, total_minutes, billed, billable, archived, archive_reason')
+        .in('calendar_event_id', dayEventIds.slice(0, 300));
       if (cancelled || error) { if (error) console.warn('time_entries load:', error.message); return; }
       const map = {};
-      for (const t of data || []) {
+      for (const t of (data || []).filter(countsAsWork)) {
         const k = t.calendar_event_id;
         const m = map[k] || (map[k] = { hrs: 0, billed: 0, nonBillable: 0 });
         const h = (t.total_minutes || 0) / 60;
@@ -281,13 +289,12 @@ export default function CalendarTechDay({
       const wEnd   = new Date(weekDates[weekDates.length - 1]); wEnd.setHours(23, 59, 59, 999);
       const { data, error } = await supabase
         .from('time_entries')
-        .select('tech_name, total_minutes, event_start')
+        .select('tech_name, total_minutes, event_start, archived, archive_reason')
         .gte('event_start', wStart.toISOString())
-        .lte('event_start', wEnd.toISOString())
-        .eq('archived', false);
+        .lte('event_start', wEnd.toISOString());
       if (cancelled || error) { if (error) console.warn('techDayHrs load:', error.message); return; }
       const map = {};
-      for (const t of data || []) {
+      for (const t of (data || []).filter(countsAsWork)) {
         const name = t.tech_name;
         if (!name || !t.event_start) continue;
         const dateKey = new Date(t.event_start).toLocaleDateString('en-CA'); // 'YYYY-MM-DD' local

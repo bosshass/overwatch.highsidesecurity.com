@@ -1113,14 +1113,16 @@ export default function TicketSheet({
           </div>
         )}
 
-        {/* ── Issue — hidden until Ready to Schedule ─────────────────
+        {/* ── Issue — EMPTY panel hidden until Ready to Schedule ──────
             A quick task ("call customer", "order part") lives in the New/Notes
-            lane. At that stage there is no issue yet — the scope gets written
-            when the job moves to Ready to Schedule. Showing the empty panel
-            earlier just adds noise and implies work that hasn't happened yet.
-            Once the job leaves the new-bucket the panel renders as normal. */}
-        {!['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision']
-            .includes(job.status) && (
+            lane with no scope yet, and an empty panel there is just noise.
+            But this used to hide the panel in those lanes even when it HAD
+            text — and the New Job form writes what you type into `issue`. So
+            "Navid w Kings Auto wants to make payments and set up auto pay"
+            was saved and then never shown on the card. If there is text, it
+            shows, in every lane. */}
+        {(cleanIssue || !['new', 'needs_details', 'needs_parts', 'pending_materials', 'pending_decision']
+            .includes(job.status)) && (
         <div style={{ background: C.panel, borderRadius: 12, padding: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase',

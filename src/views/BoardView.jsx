@@ -20,6 +20,8 @@ import { jobLink as boardJobLink, shortJobLink, assignmentMessage } from '../con
 import { missingLabel } from '../utils/completeness.js';
 import { sendGmail, assignmentEmail } from '../services/gmailSend.js';
 import { CALENDARS } from '../config/calendars.js';
+import { MergeTool } from '../components/MergeTool.jsx';
+import { unwrapCarriedNote } from '../utils/mergeUnion.js';
 import NewJobModal from '../components/NewJobModal.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import TicketSheet from '../components/TicketSheet.jsx';
@@ -301,243 +303,7 @@ function UUIDLinker({ job, onLinked }) {
   );
 }
 
-// ── Merge/Duplicate finder ────────────────────────────────────────────────────
-// Exported: merge must exist on EVERY ticket surface. When it lived only in
-// the board's drawer, opening the duplicate from My Tasks or a /j/ link meant
-// "no longer can merge" — the tool hadn't gone away, it just wasn't invited.
-// allJobs is optional now; without it the tool loads its own candidates.
-export function MergeTool({ job, allJobs = null, onMerge, accessToken, userEmail }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(job.customer_name || '');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-  const [loaded, setLoaded] = useState(null);
-  const [mergePending, setMergePending] = useState(null); // survivorId awaiting confirm
-
-  useEffect(() => {
-    if (allJobs || !open || loaded) return;
-    supabase.from('jobs')
-      .select('id, customer_name, status, issue, customer_phone, customer_address, cms_account_id, calendar_event_id')
-      .not('status', 'in', '(dead,archived)')
-      .order('updated_at', { ascending: false }).limit(400)
-      .then(({ data }) => setLoaded(data || []));
-  }, [allJobs, open, loaded]);
-
-  const pool = allJobs || loaded || [];
-
-  // Find jobs with similar customer name, excluding self
-  const candidates = pool.filter(j =>
-    j.id !== job.id &&
-    j.status !== 'dead' &&
-    j.status !== 'archived' &&
-    j.customer_name &&
-    (j.customer_name.toLowerCase().includes(query.toLowerCase()) ||
-     query.toLowerCase().includes(j.customer_name.toLowerCase().split(' ')[0]))
-  ).slice(0, 10);
-
-  const merge = async (survivorId, confirmed = false) => {
-    if (!confirmed) { setMergePending(survivorId); return; }
-    setSaving(true);
-    setErr('');
-    try {
-      const survivor = pool.find(j => j.id === survivorId) || {};
-      const by = userEmail || 'board';
-
-      // 1) Carry the dead job's notes onto the survivor with their ORIGINAL
-      //    timestamps intact. Going through notesApi.addNote() here would
-      //    stamp every single carried note with changed_at = now(), which is
-      //    the actual root cause of the merged event log looking scrambled:
-      //    months of the dead job's history all landing at the exact instant
-      //    the merge button was clicked, out of any real chronological
-      //    relationship to the survivor's own history. Inserting into
-      //    job_history directly lets each note keep the date it really
-      //    happened on.
-      try {
-        const deadNotes = await notesApi.getAllForJob(job.id);
-        const { data: survivorRow } = await supabase.from('jobs').select('status').eq('id', survivorId).single();
-        const survivorStatus = survivorRow?.status || null;
-
-        const carryRows = deadNotes
-          .filter(n => n.text?.trim())
-          .map(n => ({
-            job_id: survivorId,
-            from_status: survivorStatus,
-            to_status: survivorStatus,
-            changed_by: n.created_by || by,
-            notes: `↪ from merged job (${fmtDate(n.created_at)}): ${n.text}`,
-            changed_at: n.created_at, // preserve the real date — the actual fix
-          }));
-
-        //    getAllForJob only reads job_history.notes + completion_notes — for
-        //    a freshly-created job that's just the literal "Job created" string,
-        //    NOT the real intake details, which live in the issue field. So we
-        //    always surface the dead job's issue as its own note too, regardless
-        //    of whether the survivor already has its own issue text — otherwise
-        //    those details vanish with no trail at all.
-        if (job.issue?.trim()) {
-          carryRows.push({
-            job_id: survivorId,
-            from_status: survivorStatus,
-            to_status: survivorStatus,
-            changed_by: by,
-            notes: `↪ merged job details (originally logged ${fmtDate(job.created_at)}):\n${job.issue.trim()}`,
-            changed_at: job.created_at || new Date().toISOString(),
-          });
-        }
-
-        // One clear marker, stamped at the ACTUAL merge time (now), so it's
-        // obvious in the survivor's log exactly when a merge happened versus
-        // the backdated notes carried in above it.
-        carryRows.push({
-          job_id: survivorId,
-          from_status: survivorStatus,
-          to_status: survivorStatus,
-          changed_by: by,
-          notes: `🔀 Merged in duplicate: ${job.customer_name || job.id} — its history is carried in above with original dates`,
-        });
-
-        if (carryRows.length) {
-          await supabase.from('job_history').insert(carryRows);
-        }
-      } catch (e) { console.warn('merge: note carry failed', e); }
-
-      // 2) Fill survivor gaps — issue, contact info, CMS/access details, and
-      //    the calendar link. Issue only backfills if survivor's is empty
-      //    (step 1 above already preserved the dead job's issue as a note
-      //    either way, so nothing is lost if survivor's issue wins here).
-      const upd = {};
-      if (!survivor.issue && job.issue) upd.issue = job.issue;
-      if (!survivor.customer_phone && job.customer_phone) upd.customer_phone = job.customer_phone;
-      if (!survivor.customer_address && job.customer_address) upd.customer_address = job.customer_address;
-      if (!survivor.customer_email && job.customer_email) upd.customer_email = job.customer_email;
-      if (!survivor.cms_account_id && job.cms_account_id) upd.cms_account_id = job.cms_account_id;
-      if (!survivor.gate_code && job.gate_code) upd.gate_code = job.gate_code;
-      if (!survivor.panel_password && job.panel_password) upd.panel_password = job.panel_password;
-      if (!survivor.calendar_event_id && job.calendar_event_id) {
-        upd.calendar_event_id = job.calendar_event_id;
-        if (job.calendar_id) upd.calendar_id = job.calendar_id;
-      }
-      if (Object.keys(upd).length) {
-        upd.updated_by = by;
-        await supabase.from('jobs').update(upd).eq('id', survivorId);
-      }
-
-      // 3) Move the dead job's calendar event to the Completed calendar (best-effort)
-      if (accessToken && job.calendar_event_id && job.calendar_id) {
-        try {
-          await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(job.calendar_id)}/events/${encodeURIComponent(job.calendar_event_id)}/move?destination=${encodeURIComponent(CALENDARS.COMPLETED)}`,
-            { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-        } catch (e) { console.warn('merge: calendar move failed', e); }
-      }
-
-      // 3b) THE TASKS COME TOO.
-      // The merge carried job_history, the issue, the phone, the calendar
-      // event — and left `notes.job_id` pointing at the card it was about to
-      // kill. So an OPEN task survived its parent and became invisible on the
-      // board, which is exactly the state Laird Heikens' return task was found
-      // in. A merge is "these are the same job"; its tasks are the same tasks.
-      try {
-        const { error: nErr } = await supabase.from('notes')
-          .update({ job_id: survivorId }).eq('job_id', job.id);
-        if (nErr) console.warn('merge: notes not moved', nErr.message);
-      } catch (e) { console.warn('merge: notes not moved', e?.message || e); }
-
-      // 3c) THE HOURS COME TOO.
-      // time_entries.job_id was never updated on merge, leaving the dead job's
-      // hours orphaned — invisible in billing and field visits for the survivor.
-      try {
-        const { error: teErr } = await supabase.from('time_entries')
-          .update({ job_id: survivorId }).eq('job_id', job.id);
-        if (teErr) console.warn('merge: time entries not moved', teErr.message);
-      } catch (e) { console.warn('merge: time entries not moved', e?.message || e); }
-
-      // 4) Mark this job dead, pointing at the survivor
-      const { error } = await supabase.from('jobs').update({
-        status: 'dead',
-        action_note: `Merged into job ${survivorId}`,
-        updated_by: by,
-        updated_at: new Date().toISOString(),
-      }).eq('id', job.id);
-      if (error) throw error;
-
-      // Log the merge-out on the dead job's OWN event log too — action_note
-      // above is a raw column, not part of job_history, so without this the
-      // dead job's own audit trail never shows it was merged anywhere.
-      try {
-        await supabase.from('job_history').insert([{
-          job_id: job.id,
-          from_status: job.status,
-          to_status: 'dead',
-          changed_by: by,
-          notes: `🔀 Merged into: ${survivor.customer_name || survivorId}`,
-        }]);
-      } catch (e) { console.warn('merge: dead-job event log failed', e); }
-
-      onMerge(job.id, survivorId);
-      setOpen(false);
-    } catch(e) { setErr(e.message); }
-    setSaving(false);
-  };
-
-  if (!open) return (
-    <button onClick={() => setOpen(true)}
-      style={{ width:'100%', padding:'7px 12px', borderRadius:6, border:'1px solid #334155', background:'transparent', color:'#cbd5e1', fontSize:11, cursor:'pointer', textAlign:'left', marginBottom:8 }}>
-      🔁 mark as duplicate / merge
-    </button>
-  );
-
-  return (
-    <div style={{ background:'#0f172a', borderRadius:8, padding:12, marginBottom:12, border:'1px solid #334155' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-        <span style={{ fontSize:11, color:'#94a3b8', fontWeight:600, textTransform:'uppercase' }}>find duplicate to merge into</span>
-        <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:14 }}>✕</button>
-      </div>
-      <input value={query} onChange={e => setQuery(e.target.value)} placeholder="search by customer name…"
-        style={{ width:'100%', padding:'8px 10px', borderRadius:6, border:'1px solid #334155', background:'#1e293b', color:'#fff', fontSize:13, boxSizing:'border-box', marginBottom:8 }} />
-      {candidates.length === 0
-        ? <div style={{ color:'#94a3b8', fontSize:12, padding:'8px 0' }}>no matches found</div>
-        : candidates.map(c => {
-          const si = STATUS_INFO[c.status] || {};
-          return (
-            <button key={c.id} onClick={() => merge(c.id)} disabled={saving}
-              style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', background:'#1e293b', border:'0.5px solid #334155', borderRadius:6, color:'#fff', fontSize:12, cursor:'pointer', marginBottom:4 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <span style={{ fontWeight:600 }}>{c.customer_name}</span>
-                <span style={{ fontSize:11, color:si.color||'#64748b' }}>{si.label||c.status}</span>
-              </div>
-              <div style={{ fontSize:11, color:'#cbd5e1', marginTop:2 }}>
-                {c.issue?.slice(0,60) || 'no issue'} · {fmtDate(c.created_at)}
-              </div>
-            </button>
-          );
-        })
-      }
-      {mergePending && (() => {
-        const survivor = pool.find(j => j.id === mergePending);
-        return (
-          <div style={{ background:'#1e293b', border:'1px solid #f59e0b', borderRadius:8, padding:12, marginTop:8 }}>
-            <div style={{ fontSize:12, color:'#fde68a', marginBottom:10, lineHeight:1.5 }}>
-              Merge into <b>{survivor?.customer_name || mergePending}</b>? Notes, scope, contact info and CMS codes carry over. This job is marked dead.
-            </div>
-            <div style={{ display:'flex', gap:8 }}>
-              <button onClick={() => { setMergePending(null); merge(mergePending, true); }}
-                style={{ background:'#ef4444', border:'none', borderRadius:6, color:'#fff', padding:'6px 14px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
-                Yes, merge
-              </button>
-              <button onClick={() => setMergePending(null)}
-                style={{ background:'transparent', border:'1px solid #334155', borderRadius:6, color:'#94a3b8', padding:'6px 12px', fontWeight:700, fontSize:12, cursor:'pointer' }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-      {err && <div style={{ color:'#ef4444', fontSize:11, marginTop:6 }}>{err}</div>}
-    </div>
-  );
-}
+// MergeTool lives in components/MergeTool.jsx — one merge for every surface.
 
 // ── Scheduler modal: VisualSchedulerModal (SchedulerModal.jsx deleted 9.9.25) ──
 
@@ -648,21 +414,14 @@ function JobCard({ job, onSelect, onQuickMove, moving, accessToken, userEmail, r
       ? '#f59e0b'
       : '#334155';
 
-  // Snippet priority:
-  // 1. return_pending reason (what the tech is coming back to do)
-  // 2. Most recent tech note from time_entries — what the tech actually found
-  // 3. jobs.issue for scheduled/ready_to_schedule — "what are we doing this visit"
-  // 4. last_note_text (job_history fallback for cards with no tech visits yet)
-  // 5. issue (original fallback for brand-new cards with no history at all)
+  // Snippet: THE NEWEST NOTE, whatever the card's status — typed note, tech
+  // field note, return reason, or a note carried in from a merged card, all
+  // compared by when they were written. Only a card with no notes at all
+  // falls back to the scope (issue).
   const snippet = (() => {
+    if (job._latestNote) return { text: job._latestNote.text, color: job._latestNote.color };
     if (job.status === 'return_pending' && job.return_reason)
       return { text: job.return_reason, color: '#fed7aa' };
-    if (job._lastTechNote)
-      return { text: job._lastTechNote, color: '#94a3b8' };
-    if (job.issue && ['scheduled', 'ready_to_schedule'].includes(job.status))
-      return { text: job.issue, color: '#cbd5e1' };
-    if (job.last_note_text)
-      return { text: job.last_note_text, color: '#94a3b8' };
     if (job.issue && job.job_type !== 'note' && job.job_type !== 'task')
       return { text: job.issue, color: '#cbd5e1' };
     return null;
@@ -982,12 +741,19 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
 
       // Bookkeeping entries that add no value to the card snippet.
       // Keep this in sync with isBookkeeping() in NotesPanel.jsx.
-      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|Merged into job|🔀 Merged (in duplicate|into)|Marked as duplicate|Assigned to |Assignment email sent|Unassigned\b|Status changed|Moved (to|from) |Reconciled —|📌 TENTATIVELY|Merged \d+ loose time|Cleared from Billing)/i;
+      // A note carried in from a merged card ("↪ from merged job (date): …")
+      // is a real note at its real date — unwrapped below so it can be the
+      // latest note. Only the merged issue-details row stays excluded.
+      const AUTO_NOTE_RE = /^(Job created|📅\s*RECAP:|↪|📎 From merged card|Merged into job|🔀 Merged (in duplicate|into)|Marked as duplicate|Assigned to |Assignment email sent|Unassigned\b|Status changed|Moved (to|from) |Reconciled —|📌 TENTATIVELY|Merged \d+ loose time|Cleared from Billing)/i;
 
       // last_note_at = timestamp of the last real activity (status move or typed note) — for staleness.
       // last_note_text = text of the last human-authored note — for the card snippet.
       let lastNoteAt = {};
       let lastNoteText = {};
+      // EVERY note source, with the time it was written. The card shows the
+      // newest one — whatever the card's status. Billing, return, estimate,
+      // can't-do-it: the newest note wins, period.
+      const noteCandidates = [];
       if (ids.length) {
         const { data: history } = await supabase
           .from('job_history')
@@ -995,13 +761,16 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
           .in('job_id', ids)
           .order('changed_at', { ascending: false });
         (history || []).forEach(n => {
-          const text = n.notes != null ? String(n.notes).trim() : '';
+          const text = n.notes != null ? unwrapCarriedNote(n.notes) : '';
           const saidSomething = text !== '';
           const movedIt = n.to_status && n.to_status !== n.from_status;
           // Staleness: any real activity counts.
           if (!lastNoteAt[n.job_id] && (saidSomething || movedIt)) lastNoteAt[n.job_id] = n.changed_at;
           // Snippet: only human-authored text, no auto-generated entries.
-          if (!lastNoteText[n.job_id] && saidSomething && !AUTO_NOTE_RE.test(text)) lastNoteText[n.job_id] = text;
+          if (!lastNoteText[n.job_id] && saidSomething && !AUTO_NOTE_RE.test(text)) {
+            lastNoteText[n.job_id] = text;
+            noteCandidates.push({ job_id: n.job_id, text, at: n.changed_at, color: '#94a3b8' });
+          }
         });
       }
       // WHO IS ALREADY ON A PIECE OF THIS. A card can sit in New forever with a
@@ -1037,43 +806,63 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
             .in('job_id', ids)
             .not('notes', 'is', null)
             .neq('notes', '')
-            .order('event_start', { ascending: false });
+            .order('created_at', { ascending: false });
           (visits || []).forEach(v => {
-            if (!lastTechNotes[v.job_id]) lastTechNotes[v.job_id] = v.notes;
+            if (!lastTechNotes[v.job_id]) {
+              lastTechNotes[v.job_id] = v.notes;
+              noteCandidates.push({ job_id: v.job_id, text: v.notes, at: v.created_at || v.event_start, color: '#94a3b8' });
+            }
           });
         }
       }
 
-      // RETURN TRIP BRIEF. return_pending cards need to surface what the tech
-      // is coming back TO DO, not the original scope. Batch-fetch the latest
-      // return_card for each return_pending job via original_event_id so the
-      // board card shows the same "🔄 what are we doing this trip?" text that
-      // TicketSheet shows in its return-trip panel.
+      // RETURN CARDS. Read for EVERY card now (by job_id, or by any of its
+      // event ids): a return reason is a note like any other and competes for
+      // "newest note" by its date. return_reason itself is still only set on
+      // return_pending cards, for the return-trip brief.
       const returnReasons = {};
       {
-        const returnJobs = (data || []).filter(j => j.status === 'return_pending');
-        if (returnJobs.length) {
-          // Build event_id → job.id map. Each job can carry up to three event IDs.
-          const eventToJob = {};
-          returnJobs.forEach(j => {
-            [j.scheduled_event_id, j.calendar_event_id, j.tentative_event_id]
-              .filter(Boolean)
-              .forEach(eid => { if (!eventToJob[eid]) eventToJob[eid] = j.id; });
+        const all = data || [];
+        // Build event_id → job.id map. Each job can carry up to three event IDs.
+        const eventToJob = {};
+        all.forEach(j => {
+          [j.scheduled_event_id, j.calendar_event_id, j.tentative_event_id]
+            .filter(Boolean)
+            .forEach(eid => { if (!eventToJob[eid]) eventToJob[eid] = j.id; });
+        });
+        const eventIds = Object.keys(eventToJob);
+        const jobIds = all.map(j => j.id);
+        // Two reads (by job and by event, events in chunks) — one OR with
+        // 500 job ids plus ~1000 event ids would blow past the URL limit.
+        const rcs = [];
+        const RC_FIELDS = 'job_id, original_event_id, reason, created_at';
+        if (jobIds.length) {
+          const { data: r1 } = await supabase.from('return_cards').select(RC_FIELDS).in('job_id', jobIds);
+          rcs.push(...(r1 || []));
+        }
+        for (let i = 0; i < eventIds.length; i += 200) {
+          const { data: r2 } = await supabase.from('return_cards').select(RC_FIELDS).in('original_event_id', eventIds.slice(i, i + 200));
+          rcs.push(...(r2 || []));
+        }
+        rcs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        {
+          const seenRc = new Set();
+          rcs.forEach(rc => {
+            const jobId = (rc.job_id && jobIds.includes(rc.job_id)) ? rc.job_id : eventToJob[rc.original_event_id];
+            if (!jobId || !rc.reason || seenRc.has(jobId)) return;
+            seenRc.add(jobId);
+            // return_reason keeps its old meaning (the brief on return cards)…
+            if (all.find(j => j.id === jobId)?.status === 'return_pending') returnReasons[jobId] = rc.reason;
+            // …and on every card it competes for "newest note" by its date.
+            noteCandidates.push({ job_id: jobId, text: `🔄 ${rc.reason}`, at: rc.created_at, color: '#fed7aa' });
           });
-          const eventIds = Object.keys(eventToJob);
-          if (eventIds.length) {
-            const { data: rcs } = await supabase
-              .from('return_cards')
-              .select('original_event_id, reason')
-              .in('original_event_id', eventIds)
-              .order('created_at', { ascending: false });
-            (rcs || []).forEach(rc => {
-              const jobId = eventToJob[rc.original_event_id];
-              if (jobId && !returnReasons[jobId] && rc.reason) returnReasons[jobId] = rc.reason;
-            });
-          }
         }
       }
+      const latestNote = {};
+      noteCandidates.forEach(c => {
+        const cur = latestNote[c.job_id];
+        if (!cur || new Date(c.at || 0) > new Date(cur.at || 0)) latestNote[c.job_id] = c;
+      });
       const customerJobCount = {};
       (data || []).forEach(j => {
         if (j.customer_id) customerJobCount[j.customer_id] = (customerJobCount[j.customer_id] || 0) + 1;
@@ -1083,6 +872,7 @@ export default function BoardView({ accessToken, onBack, userEmail, userName, re
         last_note_at: lastNoteAt[j.id] || null,
         last_note_text: lastNoteText[j.id] || null,
         _lastTechNote: lastTechNotes[j.id] || null,
+        _latestNote: latestNote[j.id] || null,
         _taskOwners: taskOwners[j.id] ? [...taskOwners[j.id]] : [],
         _taskCount: taskCounts[j.id] || 0,
         return_reason: returnReasons[j.id] || null,

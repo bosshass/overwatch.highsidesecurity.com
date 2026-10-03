@@ -13,7 +13,7 @@ import { supabase, jobsApi, notesApi, techsApi, JOB_STATUS, STATUS_INFO } from '
 import { archiveEvent, scanForOrphans, ORPHAN_SCAN_DEEP } from '../services/calendarSync.js';
 import { missingLabel } from '../utils/completeness.js';
 import { buildEventIndex, resolveJobForEvent } from '../utils/jobResolve.js';
-import { MergeTool } from './BoardView.jsx';
+import { MergeTool } from '../components/MergeTool.jsx';
 import ArchiveModal from '../components/ArchiveModal.jsx';
 import { jobLink as boardJobLink } from '../config/appBase.js';
 import { statusLabel } from '../utils/status.js';

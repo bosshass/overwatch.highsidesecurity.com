@@ -17,6 +17,7 @@ Run in the Supabase SQL editor with **"No limit"** set. Paste the whole file.
 | `040_events_import_columns.sql` | **NO** | Prepares `customer_history` + `stg_events` for the 896-row Events_Final import. Depends on 039. |
 | `041_purge_test_data.sql` | **YES** 2026-08-13 | Deleted 47 QA time entries (107.9h). |
 | `041b_repair_rollback.sql` | **YES** | Rebuilt the two customer rows 041 deleted without backing up, so the rollback works. |
+| `059_time_entries_merged_from.sql` | **YES** 2026-10-02 | Adds empty `time_entries.merged_from_job_id`. Merge stamps it; Billing buckets those hours by the surviving card's status. No rows changed. |
 | `041_ROLLBACK.sql` | not needed | Undoes 041. Still valid. |
 | `042_resolution_and_pre_july_closeout.sql` | **YES** | Added `billable`/`resolved_at`/etc; resolved 193 pre-July entries; marked 17 rows `project hours`. |
 | `042_ROLLBACK.sql` | not needed | Undoes 042 by clearing the new columns. |

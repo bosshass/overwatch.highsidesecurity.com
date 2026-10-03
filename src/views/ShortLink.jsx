@@ -24,7 +24,7 @@ import { supabase } from '../services/supabase.js';
 import TicketSheet from '../components/TicketSheet.jsx';
 import VisualSchedulerModal from '../components/VisualSchedulerModal.jsx';
 import { jobsApi, techsApi } from '../services/supabase.js';
-import { MergeTool } from './BoardView.jsx';
+import { MergeTool } from '../components/MergeTool.jsx';
 
 export default function ShortLink({ accessToken, userEmail, userRole, onUpdate }) {
   const { code } = useParams();

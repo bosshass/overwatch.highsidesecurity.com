@@ -277,7 +277,7 @@ export default function CustomerHistory({ onBack, userEmail, accessToken, initia
   const loadNotes = useCallback(async (customer) => {
     const { data, error } = await supabase
       .from('notes')
-      .select('id, body, author_email, created_at, lane, status, ticket_id, job_id, private')
+      .select('id, body, author_email, created_at, lane, status, job_id, private') // ticket_id never existed on notes: the whole read 400'd since Sept 5
       .eq('customer_id', customer.id)
       .order('created_at', { ascending: false });
     if (!error) setCustNotes(data || []);

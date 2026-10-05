@@ -5,11 +5,11 @@
 // Used in: JobDetail, JobCard expanded, everywhere.
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { notesApi, jobsApi, STATUS_INFO } from '../services/supabase.js';
 import { appendNoteToJobEvents } from '../services/calendarSync.js';
 
-// `readOnly` — the feed without the composer, for the JOB CARD.
+// `readOnly` — the JOB CARD mode: plain job notes only (no Response /
+// Customer-note chips). It used to mean "no composer at all" — see below.
 //
 // The card used to offer three ways to write from inside it: Note, Response,
 // and "Customer note (no job)". The third quietly INSERTED A SECOND CARD — a
@@ -22,7 +22,6 @@ import { appendNoteToJobEvents } from '../services/calendarSync.js';
 // instead of writing here: deep-linked to the customer when the job has one,
 // and to the client search when it does not.
 export default function NotesPanel({ jobId, userEmail, job = null, accessToken = null, compact = false, maxNotes = null, readOnly = false, hideFieldNotes = false }) {
-  const navigate = useNavigate();
   const [notes, setNotes] = useState([]);
   const [activity, setActivity] = useState([]);
   const [showActivity, setShowActivity] = useState(false);
@@ -152,7 +151,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
     if (!newNote.trim() || isSaving) return;
     setIsSaving(true);
     try {
-      if (noteType === 'customer_only') {
+      if (!readOnly && noteType === 'customer_only') {
         // Not tied to THIS job — a standalone customer-service touch. Create
         // a lightweight note-type job against the customer so it has a real
         // home, but it's job_type:'note' so it never shows as work anywhere
@@ -173,7 +172,7 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         }, userEmail);
         await notesApi.addNote(created.id, newNote.trim(), userEmail);
       } else {
-        const text = noteType === 'response' ? `💬 Response: ${newNote.trim()}` : newNote.trim();
+        const text = (!readOnly && noteType === 'response') ? `💬 Response: ${newNote.trim()}` : newNote.trim();
         await notesApi.addNote(jobId, text, userEmail);
         // Mirror the note onto the linked Google Calendar event(s). Non-fatal:
         // the note is already saved; a calendar failure must not block the UI.
@@ -323,23 +322,15 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
         )}
       </div>
 
-      {/* THE COMPOSER IS GONE FROM THE JOB CARD. One button, and it leaves. */}
-      {readOnly && (
-        <button
-          onClick={() => navigate(job?.customer_id
-            ? `/customers?customerId=${job.customer_id}&returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`
-            : '/customers')}
-          style={{ width: '100%', background: 'transparent', border: '1px dashed #334155',
-                   borderRadius: 8, padding: '9px 12px',
-                   marginBottom: notes.length > 0 ? '10px' : '0',
-                   color: '#00c8e8', fontSize: 12.5, fontWeight: 700,
-                   cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-          {job?.customer_id
-            ? `\uFF0B Add a note on ${job.customer_name || 'this client'} \u2192`
-            : '\uFF0B Add a note \u2014 pick the client \u2192'}
-        </button>
-      )}
-
+      {/* THE JOB CARD HAS A NOTE BOX AGAIN - job notes only.
+          It used to be replaced by "Add a note on <client>", which left the
+          card for the Clients page, where "+ Note" made a brand-new note-type
+          CARD instead of adding to the job you were on (and that page's notes
+          list had been failing to load since Sept 5). Trevor could not put his
+          notes on the job. Now the card's box writes to THIS job's history: it
+          shows on the card, becomes the board tile's newest note, and mirrors
+          to the calendar event. "Customer note (no job)" stays off the card -
+          that is the option that quietly made a second card. */}
       {/* Quick add */}
       {!readOnly && newNote.trim() && (
         <div style={{ display: 'flex', gap: '5px', marginBottom: '6px' }}>
@@ -360,12 +351,12 @@ export default function NotesPanel({ jobId, userEmail, job = null, accessToken =
           ))}
         </div>
       )}
-      <div style={{ display: readOnly ? 'none' : 'flex', gap: '8px', marginBottom: notes.length > 0 ? '10px' : '0' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: notes.length > 0 ? '10px' : '0' }}>
         <input
           value={newNote}
           onChange={e => setNewNote(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleAddNote()}
-          placeholder="Add a note..."
+          placeholder={readOnly ? 'Add a note to this job\u2026' : 'Add a note...'}
           style={{
             flex: 1, background: '#0f1729', border: '1px solid #334155', borderRadius: '8px',
             color: '#e2e8f0', padding: '8px 12px', fontSize: '13px', outline: 'none'

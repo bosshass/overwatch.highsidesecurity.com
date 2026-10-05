@@ -438,9 +438,22 @@ export default function JobFinishSheet({
     try {
       const base = cleanTitle(event.title);
       const { noteText, matText } = getDispoText(disposition);
-      await appendFieldNotes(noteText, matText);
+      // SAVE FIRST, CALENDAR SECOND. The calendar copy of the notes used to
+      // run BEFORE anything was saved, and it threw on any Google failure —
+      // most often an expired sign-in (Google tokens last ~1 hour). Then the
+      // time entry, the notes and the disposition were never written at all:
+      // Trevor's Oct 5 Shepard Construction close-out never reached the
+      // database while his phone showed only reads, no failed writes. The
+      // database is the record; the calendar copy is a courtesy and can never
+      // again cost a tech their notes.
       const entry = await writeTimeEntry(disposition);
       entrySaved = true;
+      let calendarNote = '';
+      try { await appendFieldNotes(noteText, matText); }
+      catch (calErr) {
+        console.warn('calendar note copy failed (notes are saved):', calErr?.message || calErr);
+        calendarNote = calErr?.message || 'calendar update failed';
+      }
 
       // Write the return card BEFORE updating the board so it is always
       // persisted even when the board update fails. original_event_date
@@ -500,7 +513,7 @@ export default function JobFinishSheet({
       if (disposition === 'bill_it' && ensuredJobId) {
         try {
           const custName = linkedCustomer?.name || linkedJob?.customer_name || cleanTitle(event.title) || 'Unknown';
-          const mins = payload.total_minutes || 0;
+          const mins = entry?.total_minutes || 0;
           const hrsLabel = mins ? ` · ${(mins / 60).toFixed(1).replace(/\.0$/, '')}h` : '';
           await supabase.from('notes').insert({
             body: `💵 Ready to bill — ${custName}${hrsLabel} (${userName || userEmail})`,
@@ -521,6 +534,7 @@ export default function JobFinishSheet({
       // Pass event.id as the second argument so callers (e.g. TechWorkToday)
       // can update local state by event id rather than relying on a closure
       // over `selected` that may be stale by the time the async finish() resolves.
+      if (calendarNote) console.warn('Saved; calendar copy skipped:', calendarNote);
       onFinished?.(disposition, event.id);
     } catch (e) {
       console.error(`${disposition} failed:`, e);

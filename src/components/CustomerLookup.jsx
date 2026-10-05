@@ -66,6 +66,13 @@ async function tagEventWithCustomerId(accessToken, calendarId, eventId, currentD
 }
 
 // ── component ────────────────────────────────────────────────
+// Phone fields often hold two numbers ("(970) 490-2000 Mobile:(905) 389-5959").
+// Dial the first one, not all twenty digits run together.
+function firstDialable(phone) {
+  const d = String(phone || '').replace(/\D/g, '');
+  return d.length >= 11 && d[0] === '1' ? d.slice(0, 11) : d.slice(0, 10);
+}
+
 export default function CustomerLookup({ event, accessToken, value, onChange }) {
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
@@ -270,6 +277,20 @@ export default function CustomerLookup({ event, accessToken, value, onChange }) 
             style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#9ca3af', fontSize: 11, cursor: 'pointer', padding: 0 }}>
             change
           </button>
+          {/* The phone (and address) were dropped when this line went compact
+              on Sept 29 (#64). A tech standing at the door needs the number. */}
+          {(value.phone || value.address) && (
+            <span style={{ flexBasis: '100%', fontSize: 12, color: '#4b5563' }}>
+              {value.phone && (
+                <a href={`tel:${firstDialable(value.phone)}`}
+                   style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>
+                  {'\u{1F4DE}'} {value.phone}
+                </a>
+              )}
+              {value.phone && value.address && <span> · </span>}
+              {value.address && <span>{'\u{1F4CD}'} {value.address}</span>}
+            </span>
+          )}
         </div>
       )}
 

@@ -199,6 +199,9 @@ export default function GlobalSearch({ onClose, onNavigate }) {
                   <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14, flex:1 }}>{c.name}</div>
                   {c.short_code && <Chip color="#38bdf8">{c.short_code}</Chip>}
                 </div>
+                {c.phone && (
+                  <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 3 }}>{'\u{1F4DE}'} {c.phone}</div>
+                )}
                 {c.address && (
                   <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>📍 {c.address}</div>
                 )}

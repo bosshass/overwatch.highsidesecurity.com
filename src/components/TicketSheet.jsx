@@ -81,6 +81,15 @@ const BLOCKED_REASONS = [
   { key: 'waiting_on_sub',     label: 'Waiting on Sub' },
 ];
 
+// Returns the staff member's name if this phone belongs to a tech/staff row.
+async function staffForPhone(raw) {
+  const d = String(raw || '').replace(/\D/g, '').slice(-10);
+  if (d.length < 10) return null;
+  const { data } = await supabase.from('techs').select('name, phone');
+  const hit = (data || []).find(t => String(t.phone || '').replace(/\D/g, '').slice(-10) === d);
+  return hit ? (hit.name || 'a staff member') : null;
+}
+
 export default function TicketSheet({
   job,
   userEmail,
@@ -596,6 +605,16 @@ export default function TicketSheet({
     setSiteSaving(true);
     setSiteMsg('');
     try {
+      // A STAFF NUMBER IS NEVER A CUSTOMER'S ON-SITE CONTACT. The phone's
+      // autofill offers YOUR number in any phone box; Sara's 720-750-0063 got
+      // saved as Kings Auto's on-site phone that way, and the card then showed
+      // Sara's own test texts as if they were the customer's thread.
+      const staff = await staffForPhone(siteContactPhone);
+      if (staff) {
+        setSiteMsg(`⚠ That's ${staff}'s number, not the customer's. Enter the on-site contact's phone.`);
+        setSiteSaving(false);
+        return;
+      }
       await jobsApi.update(job.id, {
         site_contact_name:  siteContactName.trim() || null,
         site_contact_phone: siteContactPhone.trim() || null,
@@ -789,13 +808,13 @@ export default function TicketSheet({
                 <span style={{ color: C.muted, minWidth: 110, flexShrink: 0, fontSize: 13, paddingTop: 7 }}>On site</span>
                 <div style={{ flex: 1 }}>
                   <input value={siteContactName} onChange={e => setSiteContactName(e.target.value)}
-                    placeholder="Contact name (optional)"
+                    placeholder="Contact name (optional)" autoComplete="off" name="ow-site-contact-name"
                     style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
                              border: `1px solid ${C.line}`, borderRadius: 6, color: C.text,
                              padding: '6px 9px', fontSize: 13, fontFamily: 'inherit',
                              outline: 'none', marginBottom: 5 }} />
                   <input value={siteContactPhone} onChange={e => setSiteContactPhone(e.target.value)}
-                    placeholder="Phone number" type="tel"
+                    placeholder="Phone number" type="tel" autoComplete="off" name="ow-site-contact-phone"
                     style={{ width: '100%', boxSizing: 'border-box', background: '#0f1729',
                              border: `1px solid ${C.line}`, borderRadius: 6, color: C.text,
                              padding: '6px 9px', fontSize: 13, fontFamily: 'inherit',

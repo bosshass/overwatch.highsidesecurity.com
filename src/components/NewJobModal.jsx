@@ -815,10 +815,13 @@ export default function NewJobModal({ onClose, onCreated, userEmail, accessToken
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={form.site_contact_name}
               onChange={e => setForm(f => ({ ...f, site_contact_name: e.target.value }))}
-              placeholder="Name" style={{ ...fieldStyle, flex: 1 }} />
+              placeholder="Name" autoComplete="off" name="ow-new-site-name" style={{ ...fieldStyle, flex: 1 }} />
+            {/* autoComplete off: the phone's autofill offers the USER's own
+                number here, which is how a staff phone became a customer's
+                on-site contact (Kings Auto, Lanting). */}
             <input value={form.site_contact_phone}
               onChange={e => setForm(f => ({ ...f, site_contact_phone: e.target.value }))}
-              placeholder="Phone" inputMode="tel" style={{ ...fieldStyle, flex: 1 }} />
+              placeholder="Phone" inputMode="tel" autoComplete="off" name="ow-new-site-phone" style={{ ...fieldStyle, flex: 1 }} />
           </div>
           {/* Three-valued, so "never asked" stays distinct from "no". Tapping
               the active choice again clears it back to unasked. */}
